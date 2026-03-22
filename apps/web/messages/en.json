@@ -1,0 +1,156 @@
+{
+  "common": {
+    "appName": "Hasnahena",
+    "tagline": "Interest-Free Cooperative Finance",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "success": "Success",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "search": "Search",
+    "filter": "Filter",
+    "all": "All",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "submit": "Submit",
+    "close": "Close",
+    "motto": "Building an interest-free and poverty-free society"
+  },
+  "navigation": {
+    "home": "Home",
+    "about": "About Us",
+    "howItWorks": "How It Works",
+    "contact": "Contact",
+    "login": "Login",
+    "register": "Register",
+    "dashboard": "Dashboard",
+    "logout": "Logout",
+    "language": "Language"
+  },
+  "hero": {
+    "title": "Interest-Free Cooperative Finance",
+    "subtitle": "Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest",
+    "cta": "Become a Member",
+    "learnMore": "Learn More"
+  },
+  "hadith": {
+    "title": "In Light of Hadith",
+    "subtitle": "The sayings of Prophet Muhammad (PBUH) about Qard al-Hasan",
+    "hadith1": {
+      "text": "Whoever takes people's wealth intending to repay it, Allah will repay it on his behalf. And whoever takes it intending to waste it, Allah will destroy him.",
+      "source": "Sahih Bukhari, Hadith-2387"
+    },
+    "hadith2": {
+      "text": "Whoever takes a loan and does not intend to repay it, will meet Allah as a thief.",
+      "source": "Ibn Majah"
+    },
+    "hadith3": {
+      "text": "All the sins of a martyr are forgiven except debt.",
+      "source": "Sahih Muslim, Hadith-1886"
+    }
+  },
+  "stats": {
+    "totalMembers": "Total Members",
+    "totalDeposits": "Total Deposits",
+    "loansDistributed": "Loans Distributed",
+    "charitableFund": "Charitable Fund"
+  },
+  "features": {
+    "title": "Why Choose Hasnahena?",
+    "subtitle": "Our cooperative is built on Islamic principles of mutual help and interest-free lending",
+    "noInterest": {
+      "title": "Zero Interest",
+      "description": "All loans are 100% interest-free, following the Qard al-Hasan principle"
+    },
+    "community": {
+      "title": "Community Support",
+      "description": "Members support each other through pooled deposits and collective guarantee"
+    },
+    "transparent": {
+      "title": "Full Transparency",
+      "description": "Track every transaction in your digital passbook with complete visibility"
+    },
+    "secure": {
+      "title": "Secure & Private",
+      "description": "Your financial data is protected with bank-grade security measures"
+    }
+  },
+  "howItWorks": {
+    "title": "How It Works",
+    "step1": {
+      "title": "Register as Member",
+      "description": "Complete the registration form and get verified by our team"
+    },
+    "step2": {
+      "title": "Make Deposits",
+      "description": "Build your savings with regular deposits to become loan eligible"
+    },
+    "step3": {
+      "title": "Apply for Loan",
+      "description": "Once eligible, apply for interest-free loans up to 5x your deposit"
+    },
+    "step4": {
+      "title": "Repay Flexibly",
+      "description": "Repay at your own pace with no interest or hidden fees"
+    }
+  },
+  "contact": {
+    "title": "Contact Us",
+    "name": "Your Name",
+    "email": "Email Address",
+    "phone": "Phone Number",
+    "message": "Your Message",
+    "send": "Send Message",
+    "address": "Address",
+    "officeHours": "Office Hours",
+    "officeAddress": "493/Belasheshe, Karigorpara, Vekutia, Sadar, Jessore"
+  },
+  "auth": {
+    "loginTitle": "Welcome Back",
+    "loginSubtitle": "Sign in to access your account",
+    "registerTitle": "Join Hasnahena",
+    "registerSubtitle": "Start your journey to interest-free finance",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "rememberMe": "Remember me",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "signUp": "Sign Up",
+    "signIn": "Sign In"
+  },
+  "dashboard": {
+    "welcome": "Welcome back",
+    "overview": "Overview",
+    "deposits": "Deposits",
+    "loans": "Loans",
+    "transactions": "Transactions",
+    "profile": "Profile",
+    "settings": "Settings",
+    "currentBalance": "Current Balance",
+    "totalDeposited": "Total Deposited",
+    "loanBalance": "Loan Balance",
+    "loanEligibility": "Loan Eligibility",
+    "recentTransactions": "Recent Transactions",
+    "viewAll": "View All"
+  },
+  "footer": {
+    "description": "A community-driven interest-free cooperative finance platform based on Islamic principles of Qard al-Hasan.",
+    "quickLinks": "Quick Links",
+    "resources": "Resources",
+    "legal": "Legal",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service",
+    "faq": "FAQ",
+    "support": "Support",
+    "copyright": "© 2024 Hasnahena. All rights reserved."
+  }
+}

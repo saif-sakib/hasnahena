@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  MEMBER
+  WORKER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum MaritalStatus {
+  UNMARRIED
+  MARRIED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  LOAN_DISBURSEMENT
+  LOAN_REPAYMENT
+  DONATION
+  FEE
+}
+
+enum LoanStatus {
+  PENDING
+  APPROVED
+  ACTIVE
+  COMPLETED
+  DEFAULTED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ============================================================
+// USER & AUTHENTICATION
+// ============================================================
+
+model User {
+  id            String     @id @default(cuid())
+  email         String?    @unique
+  phone         String     @unique
+  passwordHash  String
+  role          UserRole   @default(MEMBER)
+  status        UserStatus @default(PENDING)
+  
+  // Profile
+  memberId      String?    @unique // গ্রাহক আই.ডি
+  formNumber    String?    // ফরম নং
+  
+  // Personal Info
+  nameEn        String     // Name in English
+  nameBn        String?    // নাম (Bengali)
+  fatherName    String     // পিতার নাম
+  motherName    String     // মাতার নাম
+  spouseName    String?    // স্বামী/স্ত্রীর নাম
+  gender        Gender     @default(MALE)
+  dateOfBirth   DateTime?
+  maritalStatus MaritalStatus @default(UNMARRIED)
+  childrenCount Int        @default(0) // সন্তানের সংখ্যা
+  
+  // NID Information
+  nidNumber     String?    // এন.আই.ডি নং
+  fatherNid     String?    // পিতার এন.আই.ডি নং (for minors)
+  motherNid     String?    // মাতার এন.আই.ডি নং (for minors)
+  
+  // Religious Practice Survey (Optional)
+  prayerPractice String?   // জামাতে / একাকী
+  dailyPrayers   Int?      // ওয়াক্ত
+  readsQuran     Boolean?  // কুরআন পড়া হয়
+  readsHadith    Boolean?  // হাদিস পড়া হয়
+  
+  // Profile Picture
+  avatarUrl     String?
+  
+  // Timestamps
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  approvedAt    DateTime?
+  approvedBy    String?
+  
+  // Relations
+  permanentAddress Address? @relation("PermanentAddress")
+  presentAddress   Address? @relation("PresentAddress", fields: [presentAddressId], references: [id])
+  presentAddressId String?  @unique
+  
+  nominee       Nominee?
+  accounts      Account[]
+  transactions  Transaction[]
+  loans         Loan[]         @relation("Borrower")
+  guaranteedLoans Loan[]       @relation("Guarantor")
+  documents     Document[]
+  
+  // Worker-specific
+  assignedBranch String?
+  
+  @@map("users")
+}
+
+model Address {
+  id          String  @id @default(cuid())
+  houseNo     String  // বাড়ী নং
+  roadNo      String? // রোড নং
+  village     String  // গ্রাম
+  union       String  // ইউনিয়ন
+  policeStation String // থানা
+  district    String  // জেলা
+  country     String  @default("বাংলাদেশ")
+  
+  // Relations
+  userPermanent User?  @relation("PermanentAddress", fields: [userPermanentId], references: [id])
+  userPermanentId String? @unique
+  
+  userPresent   User?  @relation("PresentAddress")
+  
+  @@map("addresses")
+}
+
+model Nominee {
+  id          String @id @default(cuid())
+  name        String // নমিনীর নাম
+  relationship String // সম্পর্ক
+  nidNumber   String // নমিনীর NID
+  phone       String?
+  photoUrl    String?
+  
+  // Relation
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String @unique
+  
+  @@map("nominees")
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  type        String   // passport_photo, nid_front, nid_back, nominee_photo
+  url         String
+  fileName    String
+  mimeType    String
+  size        Int
+  
+  uploadedAt  DateTime @default(now())
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  
+  @@map("documents")
+}
+
+// ============================================================
+// FINANCIAL ACCOUNTS
+// ============================================================
+
+model Account {
+  id            String   @id @default(cuid())
+  accountNumber String   @unique // হিসাব নং
+  
+  // Balances (stored in paisa for precision)
+  savingsBalance   BigInt @default(0) // সঞ্চয় স্থিতি
+  loanBalance      BigInt @default(0) // ঋণ স্থিতি
+  
+  // Eligibility
+  isLoanEligible   Boolean @default(false)
+  maxLoanAmount    BigInt  @default(0)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  
+  transactions  Transaction[]
+  loans         Loan[]
+  
+  @@map("accounts")
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  type          TransactionType
+  amount        BigInt          // Amount in paisa
+  receiptNumber String?         // রশিদ নম্বর
+  description   String?
+  
+  // Balance snapshots after transaction
+  savingsAfter  BigInt?
+  loanAfter     BigInt?
+  
+  createdAt     DateTime        @default(now())
+  
+  // Relations
+  account       Account         @relation(fields: [accountId], references: [id])
+  accountId     String
+  
+  user          User            @relation(fields: [userId], references: [id])
+  userId        String
+  
+  loan          Loan?           @relation(fields: [loanId], references: [id])
+  loanId        String?
+  
+  processedBy   String?         // Worker who processed
+  
+  @@map("transactions")
+}
+
+// ============================================================
+// LOANS
+// ============================================================
+
+model Loan {
+  id              String     @id @default(cuid())
+  loanNumber      String     @unique // ঋণ নম্বর
+  
+  // Loan Details
+  principalAmount BigInt     // ঋণের পরিমাণ (paisa)
+  remainingAmount BigInt     // ঋণ স্থিতি (paisa)
+  
+  // Installments
+  totalInstallments Int      // কিস্তির সংখ্যা
+  installmentAmount BigInt   // প্রতি কিস্তির পরিমাণ
+  paidInstallments  Int      @default(0)
+  
+  // Dates
+  disbursementDate DateTime? // বিতরণের তারিখ
+  installmentStartDate DateTime? // কিস্তি শুরুর তারিখ
+  expectedEndDate  DateTime? // ঋণ পরিশোধের সম্ভাব্য তারিখ
+  
+  purpose         String?    // গ্রহণের উদ্দেশ্য
+  applicationFee  BigInt     @default(0) // আবেদন ফি
+  
+  status          LoanStatus @default(PENDING)
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  approvedAt      DateTime?
+  completedAt     DateTime?
+  
+  // Relations
+  account         Account    @relation(fields: [accountId], references: [id])
+  accountId       String
+  
+  borrower        User       @relation("Borrower", fields: [borrowerId], references: [id])
+  borrowerId      String
+  
+  guarantor       User?      @relation("Guarantor", fields: [guarantorId], references: [id])
+  guarantorId     String?
+  
+  transactions    Transaction[]
+  
+  approvedBy      String?
+  
+  @@map("loans")
+}
+
+// ============================================================
+// SYSTEM
+// ============================================================
+
+model Branch {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  address     String?
+  phone       String?
+  
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  @@map("branches")
+}
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  
+  updatedAt   DateTime @updatedAt
+  
+  @@map("system_config")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entityType  String
+  entityId    String
+  oldValue    Json?
+  newValue    Json?
+  
+  userId      String
+  userIp      String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@map("audit_logs")
+}

@@ -177,8 +177,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Md Saif Ahmed**
 
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
+- GitHub: [@Saif-Sakib](https://github.com/Saif-Sakib)
+- Email: saifahmedsakib@gmail.com
 
 ---
 
