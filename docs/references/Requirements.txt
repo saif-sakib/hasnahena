@@ -1,0 +1,236 @@
+
+
+
+Here is the **Enhanced and Finalized Web Application Requirements Document (v3.0)** for **Hasnahena**. 
+
+I have reviewed your excellent foundation and added crucial missing pieces typical of cooperative and Islamic financial systems. 
+
+### Key Enhancements Added:
+1. **Nominee Concept:** Essential for financial applications in Bangladesh in case of a member's passing.
+2. **Guarantor Mechanism:** Added risk mitigation for loans (members backing other members).
+3. **Dispute & Correction Flow:** Solves the edge case of a worker making a typo during the processing phase.
+4. **Donation Categorization:** Differentiates between Zakat, Sadaqah, and Operational Funds to ensure Shariah-compliant fund usage.
+5. **Loan Default Resolution:** Clarified exactly how a defaulted loan is settled (deducting from personal deposit → guarantor deposit → charity fund).
+6. **Tech Stack & Security:** Added ORM (Prisma/Drizzle), localization libraries, and database transaction atomicity for absolute financial integrity.
+
+---
+
+# Hasnahena — Web Application Requirements Document (v3.0)
+
+> An interest-free, charitable community lending platform built to remove *riba* (interest) from financial transactions and promote cooperative economic well-being based on Islamic financial principles.
+
+---
+
+## 1. Project Overview
+
+**Project Name:** Hasnahena  
+**Type:** Charitable Cooperative Financial Web Application  
+**Purpose:** Enable community members to deposit, borrow, and donate money without any interest, governed by a trusted admin and worker team.  
+**Languages:** English and Bengali (bilingual toggle, user-selectable)  
+**Compliance:** Local cooperative/charitable regulations and Shariah principles (zero interest, transparency, consent-based transactions).
+
+---
+
+## 2. User Roles & Permissions
+
+There are **three distinct user types.**
+
+### 2.1 Member
+The primary user. A unified role covering depositing, borrowing, guaranteeing, and donating.
+
+- After registration approval, a member can **donate** at any time.
+- After maintaining a **minimum deposit of ৳8,000**, a member becomes **eligible to apply for a loan.**
+- All financial actions are **initiated by the member** (Request) → handled by a worker (Process) → **confirmed by the member** (Confirm).
+
+| Permission | Allowed |
+|---|---|
+| View own deposits, loans, repayments, donations, transactions | ✅ |
+| Submit requests (Deposit, Withdrawal, Loan, Donation) | ✅ |
+| Act as a **Guarantor** for another member's loan | ✅ |
+| Confirm receipt / handover of funds | ✅ |
+| Raise a "Dispute" if worker processed amount is incorrect | ✅ |
+| Update Nominee information | ✅ |
+| View other members' data | ❌ |
+
+### 2.2 Worker (Staff)
+Internal staff who handle physical or digital fund transfers. Accounts are **created exclusively by the Admin**.
+
+- Workers act **only on existing member requests**.
+- Workers can Insert and Update (Process) records. They **cannot Delete** anything.
+
+| Permission | Allowed |
+|---|---|
+| View and process pending member requests | ✅ |
+| Record loan repayment installments & apply late fees | ✅ |
+| Record an offline donation on behalf of a member | ✅ |
+| Initiate a deposit or withdrawal without a member request | ❌ |
+| Approve / reject loans, registrations, or delete records | ❌ |
+
+### 2.3 Admin
+Highest privilege. Oversees system integrity, risk management, and conflict resolution.
+
+| Permission | Allowed |
+|---|---|
+| All worker permissions + Worker account management | ✅ |
+| Approve/Reject member registrations and loan applications | ✅ |
+| Reverse or Correct erroneous transactions (logged automatically) | ✅ |
+| Manage member accounts (activate, suspend, disable, write-off) | ✅ |
+| Configure system parameters (loan ratios, late fees, min deposit) | ✅ |
+
+---
+
+## 3. Landing Page
+
+- Publicly accessible — no login required.
+- **Hero Banner:** Clear call-to-action (Register / Learn More).
+- **Mission & Values:** Explains the zero-interest cooperative model.
+- **Live Transparency Board:** Real-time anonymized impact stats (Total Deposited, Total Interest-Free Loans Given, Members Helped).
+- **How it Works:** Step-by-step visual guide.
+- **Bilingual Toggle:** English / Bengali support across all public and authenticated pages.
+
+---
+
+## 4. Registration & Onboarding Flow
+
+1. Visitor fills out the public registration form.
+2. **Captured Data:** Full name, Phone, Email, NID (National ID), Present/Permanent Address, **Nominee Details** (Name, NID, Relation).
+3. Enters **Pending Approval** queue for Admin review.
+4. **On Approval:** Temporary password sent via **SMS/Email**.
+5. **On Rejection:** Notified with reason via SMS/Email.
+6. First login requires a **mandatory password change**.
+7. Account is now Active, but loan eligibility unlocks only after the ৳8,000 minimum deposit is cleared.
+
+---
+
+## 5. Authentication, Security & Localization
+
+- **Auth:** Email/Phone + Password (JWT/Session cookies).
+- **Localization:** i18n implementation ensuring smooth EN/BN switching.
+- **RBAC:** Strict Role-Based Access Control on API endpoints.
+- **Atomicity:** All financial changes (e.g., deducting balance + recording transaction) must be handled via **Database Transactions** to prevent partial updates.
+- **Rate Limiting:** Protects login and request endpoints against brute-force/spam attacks.
+
+---
+
+## 6. Core Financial Flow — Request → Process → Confirm
+
+This 3-step verification eliminates OTP dependencies and ensures ultimate transparency.
+
+```text
+1. REQUEST : Member submits request via app.
+2. PROCESS : Worker physically handles money/verifies bank transfer and marks "Processed".
+3. CONFIRM : Member verifies the exact amount on their dashboard and clicks "Confirm".
+```
+
+**Edge Cases Handled:**
+- **The "Dispute" Action:** If a Worker processes ৳50,000 but the Member requested/brought ৳5,000, the Member clicks **"Dispute"**. The transaction freezes and alerts the Admin for correction.
+- **Timeout:** If unconfirmed for 48 hours, it is flagged for Admin review. *(For in-person cash handovers, Workers should request Members to click 'Confirm' on their mobile before leaving the desk).*
+
+---
+
+## 7. Deposit & Withdrawal Systems
+
+### 7.1 Deposit Rules
+- Must maintain a **minimum of ৳8,000** for loan eligibility.
+- Funds are linked to the Member's designated **Nominee** in case of mortality.
+
+### 7.2 Withdrawal Rules
+- Requires **3 months' advance notice** (allows org to maintain liquidity).
+- **Loan Constraint:** If a member has an active loan, they *cannot* withdraw deposits that would cause their deposit balance to fall below the required 1:5 ratio of their outstanding loan.
+- **Account Closure:** Withdrawing the base ৳8,000 disables the account.
+
+---
+
+## 8. Loan System & Risk Management
+
+### 8.1 Eligibility & Limits
+Max loan is the **minimum of three limits:**
+
+1. **Personal Cap:** 5 × Member's current deposit.
+2. **Fairness Cap:** 2 × (Total Pool Funds ÷ Total Active Members).
+3. **Solvency Cap:** Total Available Lending Funds.
+
+*(Example: Member has ৳20k. Personal Cap = ৳100k. Fairness Cap = ৳50k. Solvency Cap = ৳500k. Max Loan = ৳50k).*
+
+### 8.2 Guarantors (Risk Mitigation)
+- For loans exceeding a specific threshold (configurable by Admin, e.g., >৳20,000), the Member must select **1 or 2 active community members** as Guarantors during the request.
+- Guarantors receive a notification and must **Approve** the guarantee via their dashboard before Admin reviews the loan.
+- Guarantors cannot withdraw their base deposit while acting as a guarantor.
+
+### 8.3 Disbursal & Repayment
+- Admin approves → Worker Disburses → Member Confirms.
+- Fixed monthly installments. Strictly **Zero Admin/Processing Fees** to maintain 100% Shariah compliance.
+
+---
+
+## 9. Default, Settlement & Late Fees
+
+If a member misses an installment:
+1. **Grace Period & Fees:** A flat late fee is applied (Admin configurable). Member gets a 3-month grace period.
+2. **Account Suspension:** If unresolved after 3 months, the account is suspended.
+3. **Final Settlement Waterfall (Admin Action):**
+   - Deduct outstanding balance from the defaulter's personal deposit.
+   - If insufficient, deduct proportionally from the Guarantors' deposits.
+   - If still insufficient, flag as "Bad Debt" and write off using the **Charitable Donation Pool**.
+
+---
+
+## 10. Donation System (Multi-Fund)
+
+Donations are non-refundable and separate from deposits. When donating, users/workers select the **Fund Type**:
+1. **Operating Fund:** Used for software servers, SMS costs, worker salaries.
+2. **Lending Pool:** Injected directly into the community fund to increase overall loan liquidity.
+3. **Zakat / Sadaqah:** Kept strictly separate; used to bail out defaulted borrowers or given to highly impoverished members.
+
+---
+
+## 11. Notifications
+
+Triggered via **SMS (Primary in BD)** and **Email**:
+- Account Approval / Password reset.
+- Action required (e.g., "Guarantor request received", "Please confirm deposit").
+- Missed installment / Late fee warning.
+- Dispute raised (Admin only).
+- Fund shortage alert (Admin only).
+
+---
+
+## 12. Immutable Audit Log
+
+- **Cryptographic/Append-Only Design:** Logs cannot be altered or deleted by *anyone*, including the Admin.
+- **Tracked Data:** Actor ID, Action Type, Old Value, New Value, IP Address, Timestamp.
+- If Admin "Reverses" a typo, the original log remains, and a new "Correction Log" is appended.
+
+---
+
+## 13. Dashboards
+
+| Dashboard | Key Components |
+|---|---|
+| **Member** | Deposit Balance, Max Loan Eligibility (Dynamic), Repayment Progress Bar, Pending Confirmations, Guarantor Requests, Nominee Details. |
+| **Worker** | Pending Request Queue (SLA colored: Green < 24h, Red > 48h), Process Action Buttons, Active Disbursals. |
+| **Admin** | System Health (Liquidity warnings), Pending Approvals, Dispute Management, User/Worker Management, Audit Log Viewer, Settings (Ratios, Fees). |
+
+---
+
+## 14. Tech Stack Recommendation
+
+| Layer | Technology | Justification |
+|---|---|---|
+| **Frontend** | Next.js (React) + Tailwind CSS | Fast, SEO-friendly for Landing Page, excellent for dynamic dashboards. |
+| **Backend API** | Node.js with Fastify | High performance, low overhead. |
+| **Database ORM** | Prisma or Drizzle ORM | Type-safety, automated migrations, strictly handles relational data. |
+| **Database** | PostgreSQL | ACID compliant, required for financial transactions. |
+| **Localization** | `next-intl` or `react-i18next` | Manages English/Bengali dictionary seamlessly. |
+| **Caching/Queue**| Redis | Handles background tasks (Timeout flags, SMS queues). |
+| **Notifications** | SSL Wireless / BDBulkSMS | Reliable local SMS delivery in Bangladesh. |
+| **Auth** | JWT + bcrypt / Argon2 | Secure session and password hashing. |
+
+---
+
+## 15. Future Roadmap (Phase 2+)
+
+1. **e-KYC & NID OCR:** Auto-verify NID cards using government APIs (Porichoy) to prevent fake accounts.
+2. **Payment Gateway Integration:** SSLCommerz / aamarPay / bKash API for automated deposits and repayments.
+3. **Mobile App:** React Native or Flutter companion app with Push Notifications to save on SMS costs.
+4. **Accounting Export:** Automated PDF / Excel ledger generation for annual cooperative audits.
