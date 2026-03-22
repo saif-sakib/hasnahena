@@ -1,0 +1,26 @@
+{
+  "name": "hasnahena",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interest-free cooperative finance platform based on Islamic principles",
+  "author": "Md Saif Ahmed <saifahmedsakib@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm --filter @hasnahena/web dev",
+    "build": "pnpm --filter @hasnahena/web build",
+    "start": "pnpm --filter @hasnahena/web start",
+    "lint": "pnpm --filter @hasnahena/web lint",
+    "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
+    "typecheck": "pnpm --filter @hasnahena/web typecheck",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "prettier-plugin-tailwindcss": "^0.5.11"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.4"
+}
