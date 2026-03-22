@@ -1,0 +1,445 @@
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================
+% PACKAGES
+% ============================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{tocloft}
+\usepackage{colortbl}
+
+% ============================================================
+% COLORS
+% ============================================================
+\definecolor{primaryblue}{RGB}{0, 82, 147}
+\definecolor{darkgray}{RGB}{64, 64, 64}
+\definecolor{lightgray}{RGB}{245, 245, 245}
+\definecolor{accentgreen}{RGB}{0, 128, 64}
+\definecolor{tableheader}{RGB}{230, 240, 250}
+
+% ============================================================
+% HYPERREF SETUP
+% ============================================================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primaryblue,
+    urlcolor=primaryblue,
+    pdftitle={Use Case Specification - Hasnahena Platform},
+    pdfauthor={Md Saif Ahmed}
+}
+
+% ============================================================
+% SECTION FORMATTING
+% ============================================================
+\titleformat{\section}
+    {\Large\bfseries\color{primaryblue}}
+    {\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}
+    {\large\bfseries\color{darkgray}}
+    {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+    {\normalsize\bfseries\color{darkgray}}
+    {\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+% ============================================================
+% HEADER/FOOTER
+% ============================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{darkgray}{Use Case Specification}}
+\fancyhead[R]{\footnotesize\textcolor{darkgray}{Hasnahena Platform}}
+\fancyfoot[C]{\thepage}
+\fancyfoot[R]{\footnotesize\textcolor{darkgray}{Version 1.0}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% ============================================================
+% TABLE OF CONTENTS STYLING
+% ============================================================
+\renewcommand{\cftsecfont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsecpagefont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsubsecfont}{\color{darkgray}}
+
+% ============================================================
+% LIST STYLING
+% ============================================================
+\setlist[itemize]{leftmargin=*, itemsep=0.3em}
+\setlist[enumerate]{leftmargin=*, itemsep=0.3em}
+
+% ============================================================
+% USE CASE BOX
+% ============================================================
+\newenvironment{usecase}[2]{%
+    \vspace{0.5em}
+    \noindent\colorbox{tableheader}{\parbox{\dimexpr\textwidth-2\fboxsep}{%
+        \textbf{\color{primaryblue}#1:} #2
+    }}
+    \vspace{0.5em}
+}{}
+
+% ============================================================
+% DOCUMENT INFO
+% ============================================================
+\newcommand{\DocumentTitle}{Use Case Specification}
+\newcommand{\DocumentSubtitle}{Hasnahena Platform}
+\newcommand{\DocumentVersion}{1.0}
+\newcommand{\DocumentDate}{\today}
+
+% ============================================================
+% DOCUMENT
+% ============================================================
+\begin{document}
+
+% ------------------------------------------------------------
+% TITLE PAGE
+% ------------------------------------------------------------
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\Huge\bfseries\color{primaryblue}\DocumentTitle\par}
+    \vspace{0.5cm}
+    {\LARGE\color{darkgray}\DocumentSubtitle\par}
+    
+    \vspace{1.5cm}
+    
+    {\color{primaryblue}\rule{10cm}{2pt}\par}
+    
+    \vspace{2cm}
+    
+    \begin{tabular}{ll}
+        \textbf{Version:} & \DocumentVersion \\[0.5em]
+        \textbf{Date:} & \DocumentDate \\[0.5em]
+        \textbf{Status:} & Draft \\[0.5em]
+        \textbf{Author:} & Md Saif Ahmed \\[0.5em]
+    \end{tabular}
+    
+    \vfill
+    
+    {\large\color{darkgray}\textit{Actor interactions and system behaviors}\par}
+    {\large\color{darkgray}\textit{for all platform workflows}\par}
+    
+    \vspace{1cm}
+    
+    {\footnotesize\color{darkgray}CONFIDENTIAL --- For Internal Use Only\par}
+\end{titlepage}
+
+% ------------------------------------------------------------
+% TABLE OF CONTENTS
+% ------------------------------------------------------------
+\tableofcontents
+\newpage
+
+% ------------------------------------------------------------
+% DOCUMENT CONTROL
+% ------------------------------------------------------------
+\section*{Document Control}
+\addcontentsline{toc}{section}{Document Control}
+
+\begin{tabular}{@{}p{3cm}p{10cm}@{}}
+\toprule
+\textbf{Item} & \textbf{Details} \\
+\midrule
+Document Title & \DocumentTitle \\
+Version & \DocumentVersion \\
+Date & \DocumentDate \\
+Author & Md Saif Ahmed \\
+Reviewed By & --- \\
+Approved By & --- \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+
+\textbf{Revision History}
+
+\begin{tabular}{@{}p{1.2cm}p{2.5cm}p{3.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Ver.} & \textbf{Date} & \textbf{Author} & \textbf{Changes} \\
+\midrule
+1.0 & \DocumentDate & Md Saif Ahmed & Initial release \\
+\bottomrule
+\end{tabular}
+
+\newpage
+
+% ------------------------------------------------------------
+% ACTORS
+% ------------------------------------------------------------
+\section{Actors}
+
+\subsection{Primary Actors}
+
+\begin{tabular}{@{}p{3cm}p{10cm}@{}}
+\toprule
+\textbf{Actor} & \textbf{Description} \\
+\midrule
+Member & Community member who deposits, borrows, donates, and acts as guarantor \\
+\addlinespace
+Worker & Staff member who processes physical/digital fund transfers \\
+\addlinespace
+Admin & Administrator with full system privileges for approvals, configuration, and oversight \\
+\bottomrule
+\end{tabular}
+
+\subsection{External Actors}
+
+\begin{tabular}{@{}p{3cm}p{10cm}@{}}
+\toprule
+\textbf{Actor} & \textbf{Description} \\
+\midrule
+Notification Service & External SMS/email service for sending alerts \\
+\addlinespace
+NID Verification API & Porichoy API for National ID verification \\
+\bottomrule
+\end{tabular}
+
+% ------------------------------------------------------------
+% USE CASE SUMMARY
+% ------------------------------------------------------------
+\section{Use Case Summary}
+
+\begin{longtable}{@{}>{\columncolor{tableheader}}p{0.1\textwidth}p{0.25\textwidth}p{0.55\textwidth}@{}}
+\toprule
+\rowcolor{primaryblue}
+\textcolor{white}{\textbf{ID}} & \textcolor{white}{\textbf{Name}} & \textcolor{white}{\textbf{Summary}} \\
+\midrule
+\endhead
+UC-01 & Register Member & Collect member profile, NID, nominee; queue for admin review \\
+\midrule
+UC-02 & Approve Member & Admin approves/rejects registration and triggers credential notification \\
+\midrule
+UC-03 & Request Deposit & Member submits deposit request and receives status tracking \\
+\midrule
+UC-04 & Process Deposit & Worker confirms receiving funds and marks transaction processed \\
+\midrule
+UC-05 & Confirm Deposit & Member verifies amount and confirms final posting \\
+\midrule
+UC-06 & Raise Dispute & Member disputes mismatched amount; system freezes and alerts admin \\
+\midrule
+UC-07 & Apply for Loan & Eligible member submits loan request with purpose and guarantor details \\
+\midrule
+UC-08 & Guarantor Approval & Selected guarantor accepts/rejects support obligation \\
+\midrule
+UC-09 & Approve Loan & Admin approves/rejects request after policy checks \\
+\midrule
+UC-10 & Disburse Loan & Worker disburses approved loan; member confirms receipt \\
+\midrule
+UC-11 & Record Installment & Worker/Admin records repayment and updates loan state \\
+\midrule
+UC-12 & Default Settlement & Admin applies settlement waterfall according to policy \\
+\midrule
+UC-13 & Donate to Fund & Member/worker records donation into selected fund bucket \\
+\bottomrule
+\end{longtable}
+
+% ------------------------------------------------------------
+% DETAILED USE CASES
+% ------------------------------------------------------------
+\section{Detailed Use Case Specifications}
+
+\subsection{UC-01: Register Member}
+
+\begin{tabular}{@{}p{3.5cm}p{9.5cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Details} \\
+\midrule
+Use Case ID & UC-01 \\
+Name & Register Member \\
+Primary Actor & Visitor (prospective member) \\
+Stakeholders & Admin, Organization \\
+Trigger & Visitor accesses registration form \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\textbf{Preconditions:}
+\begin{itemize}
+    \item Registration form is publicly accessible
+    \item Visitor has valid NID and nominee information
+\end{itemize}
+
+\textbf{Main Flow:}
+\begin{enumerate}
+    \item Visitor opens the public registration form
+    \item System displays form with required fields
+    \item Visitor enters personal details (name, phone, email, NID, address)
+    \item Visitor enters nominee details (name, NID, relationship)
+    \item Visitor uploads required documents (photo, NID copy)
+    \item Visitor accepts terms and submits form
+    \item System validates input and stores registration
+    \item System queues registration for admin review
+    \item System displays confirmation message
+\end{enumerate}
+
+\textbf{Alternative Flows:}
+\begin{itemize}
+    \item \textbf{A1:} Validation fails $\rightarrow$ System highlights errors, visitor corrects and resubmits
+    \item \textbf{A2:} Duplicate NID detected $\rightarrow$ System rejects with "already registered" message
+\end{itemize}
+
+\textbf{Postconditions:}
+\begin{itemize}
+    \item Registration record created with PENDING status
+    \item Admin notification triggered
+\end{itemize}
+
+\subsection{UC-07: Apply for Loan}
+
+\begin{tabular}{@{}p{3.5cm}p{9.5cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Details} \\
+\midrule
+Use Case ID & UC-07 \\
+Name & Apply for Loan \\
+Primary Actor & Member \\
+Stakeholders & Admin, Guarantor(s), Worker \\
+Trigger & Member clicks "Apply for Loan" button \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\textbf{Preconditions:}
+\begin{itemize}
+    \item Member account is active
+    \item Minimum deposit requirement is satisfied (8,000 BDT)
+    \item No existing active loan (unless policy allows multiple)
+\end{itemize}
+
+\textbf{Main Flow:}
+\begin{enumerate}
+    \item Member opens loan application form
+    \item System displays maximum eligible amount based on caps
+    \item Member enters requested amount and purpose
+    \item System validates requested amount against eligibility
+    \item If amount exceeds threshold, member selects guarantor(s)
+    \item System stores loan request with PENDING\_GUARANTOR status
+    \item System sends notification to selected guarantor(s)
+\end{enumerate}
+
+\textbf{Alternative Flows:}
+\begin{itemize}
+    \item \textbf{A1:} Requested amount exceeds allowed cap $\rightarrow$ System rejects with reason and displays max amount
+    \item \textbf{A2:} Amount below threshold $\rightarrow$ No guarantor required, status set to PENDING\_APPROVAL
+    \item \textbf{A3:} Selected guarantor is ineligible $\rightarrow$ System prompts to select different guarantor
+\end{itemize}
+
+\textbf{Postconditions:}
+\begin{itemize}
+    \item Loan request is either pending admin review (if complete) or awaiting guarantor/member action
+    \item Audit log entry created
+\end{itemize}
+
+\subsection{UC-06: Raise Dispute}
+
+\begin{tabular}{@{}p{3.5cm}p{9.5cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Details} \\
+\midrule
+Use Case ID & UC-06 \\
+Name & Raise Dispute \\
+Primary Actor & Member \\
+Stakeholders & Admin, Worker \\
+Trigger & Member identifies incorrect amount on processed transaction \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\textbf{Preconditions:}
+\begin{itemize}
+    \item Transaction is in PROCESSED status
+    \item Transaction has not yet been confirmed or disputed
+\end{itemize}
+
+\textbf{Main Flow:}
+\begin{enumerate}
+    \item Member views transaction in dashboard
+    \item Member clicks "Dispute" button
+    \item System prompts for dispute reason and correct amount
+    \item Member submits dispute
+    \item System changes transaction status to DISPUTED
+    \item System freezes transaction (prevents further state changes)
+    \item System sends alert to Admin
+\end{enumerate}
+
+\textbf{Postconditions:}
+\begin{itemize}
+    \item Transaction status is DISPUTED
+    \item Admin notification sent
+    \item Audit log records dispute action
+\end{itemize}
+
+\subsection{UC-12: Default Settlement}
+
+\begin{tabular}{@{}p{3.5cm}p{9.5cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Details} \\
+\midrule
+Use Case ID & UC-12 \\
+Name & Default Settlement \\
+Primary Actor & Admin \\
+Stakeholders & Member (borrower), Guarantor(s), Organization \\
+Trigger & Admin initiates settlement for defaulted loan \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\textbf{Preconditions:}
+\begin{itemize}
+    \item Loan is in DEFAULTED status
+    \item Grace period has expired
+\end{itemize}
+
+\textbf{Main Flow:}
+\begin{enumerate}
+    \item Admin reviews defaulted loan details
+    \item Admin initiates settlement waterfall
+    \item System calculates outstanding balance
+    \item System deducts from borrower's deposit account
+    \item If insufficient, system deducts from guarantor(s) deposits proportionally
+    \item If still insufficient, system flags as "Bad Debt" for charity fund write-off
+    \item System updates loan status to SETTLED
+    \item System sends notifications to affected parties
+\end{enumerate}
+
+\textbf{Postconditions:}
+\begin{itemize}
+    \item Loan marked as SETTLED
+    \item All deductions recorded as transactions
+    \item Affected accounts updated
+    \item Complete audit trail recorded
+\end{itemize}
+
+% ------------------------------------------------------------
+% USE CASE DIAGRAM REFERENCE
+% ------------------------------------------------------------
+\section{Use Case Diagram}
+
+The visual use case diagram is maintained separately and includes:
+\begin{itemize}
+    \item All actors and their relationships
+    \item All use cases with <<include>> and <<extend>> relationships
+    \item System boundary demarcation
+\end{itemize}
+
+Key relationships:
+\begin{itemize}
+    \item UC-03 (Request Deposit) <<include>> UC-05 (Confirm Deposit)
+    \item UC-07 (Apply for Loan) <<include>> UC-08 (Guarantor Approval)
+    \item UC-05 (Confirm Deposit) <<extend>> UC-06 (Raise Dispute)
+\end{itemize}
+
+\end{document}

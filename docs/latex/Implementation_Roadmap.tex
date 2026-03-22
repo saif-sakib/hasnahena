@@ -1,0 +1,386 @@
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================
+% PACKAGES
+% ============================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{tocloft}
+\usepackage{colortbl}
+
+% ============================================================
+% COLORS
+% ============================================================
+\definecolor{primaryblue}{RGB}{0, 82, 147}
+\definecolor{darkgray}{RGB}{64, 64, 64}
+\definecolor{lightgray}{RGB}{245, 245, 245}
+\definecolor{accentgreen}{RGB}{0, 128, 64}
+\definecolor{tableheader}{RGB}{230, 240, 250}
+
+% ============================================================
+% HYPERREF SETUP
+% ============================================================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primaryblue,
+    urlcolor=primaryblue,
+    pdftitle={Implementation Roadmap - Hasnahena Platform},
+    pdfauthor={Md Saif Ahmed}
+}
+
+% ============================================================
+% SECTION FORMATTING
+% ============================================================
+\titleformat{\section}
+    {\Large\bfseries\color{primaryblue}}
+    {\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}
+    {\large\bfseries\color{darkgray}}
+    {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+    {\normalsize\bfseries\color{darkgray}}
+    {\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+% ============================================================
+% HEADER/FOOTER
+% ============================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{darkgray}{Implementation Roadmap}}
+\fancyhead[R]{\footnotesize\textcolor{darkgray}{Hasnahena Platform}}
+\fancyfoot[C]{\thepage}
+\fancyfoot[R]{\footnotesize\textcolor{darkgray}{Version 1.0}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% ============================================================
+% TABLE OF CONTENTS STYLING
+% ============================================================
+\renewcommand{\cftsecfont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsecpagefont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsubsecfont}{\color{darkgray}}
+
+% ============================================================
+% LIST STYLING
+% ============================================================
+\setlist[itemize]{leftmargin=*, itemsep=0.3em}
+\setlist[enumerate]{leftmargin=*, itemsep=0.3em}
+
+% ============================================================
+% DOCUMENT INFO
+% ============================================================
+\newcommand{\DocumentTitle}{Implementation Roadmap}
+\newcommand{\DocumentSubtitle}{Hasnahena Platform}
+\newcommand{\DocumentVersion}{1.0}
+\newcommand{\DocumentDate}{\today}
+
+% ============================================================
+% DOCUMENT
+% ============================================================
+\begin{document}
+
+% ------------------------------------------------------------
+% TITLE PAGE
+% ------------------------------------------------------------
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\Huge\bfseries\color{primaryblue}\DocumentTitle\par}
+    \vspace{0.5cm}
+    {\LARGE\color{darkgray}\DocumentSubtitle\par}
+    
+    \vspace{1.5cm}
+    
+    {\color{primaryblue}\rule{10cm}{2pt}\par}
+    
+    \vspace{2cm}
+    
+    \begin{tabular}{ll}
+        \textbf{Version:} & \DocumentVersion \\[0.5em]
+        \textbf{Date:} & \DocumentDate \\[0.5em]
+        \textbf{Status:} & Pre-Coding Phase \\[0.5em]
+        \textbf{Author:} & Md Saif Ahmed \\[0.5em]
+    \end{tabular}
+    
+    \vfill
+    
+    {\large\color{darkgray}\textit{Execution plan from project setup}\par}
+    {\large\color{darkgray}\textit{to production-ready MVP}\par}
+    
+    \vspace{1cm}
+    
+    {\footnotesize\color{darkgray}CONFIDENTIAL --- For Internal Use Only\par}
+\end{titlepage}
+
+% ------------------------------------------------------------
+% TABLE OF CONTENTS
+% ------------------------------------------------------------
+\tableofcontents
+\newpage
+
+% ------------------------------------------------------------
+% DOCUMENT CONTROL
+% ------------------------------------------------------------
+\section*{Document Control}
+\addcontentsline{toc}{section}{Document Control}
+
+\begin{tabular}{@{}p{3cm}p{10cm}@{}}
+\toprule
+\textbf{Item} & \textbf{Details} \\
+\midrule
+Document Title & \DocumentTitle \\
+Version & \DocumentVersion \\
+Date & \DocumentDate \\
+Author & Md Saif Ahmed \\
+Reviewed By & --- \\
+Approved By & --- \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+
+\textbf{Revision History}
+
+\begin{tabular}{@{}p{1.2cm}p{2.5cm}p{3.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Ver.} & \textbf{Date} & \textbf{Author} & \textbf{Changes} \\
+\midrule
+1.0 & \DocumentDate & Md Saif Ahmed & Initial release \\
+\bottomrule
+\end{tabular}
+
+\newpage
+
+% ------------------------------------------------------------
+% OBJECTIVE
+% ------------------------------------------------------------
+\section{Objective}
+
+This document provides a pragmatic execution roadmap from project setup to production-ready MVP based on finalized requirements. The roadmap is designed to:
+
+\begin{itemize}
+    \item Deliver working software in incremental, testable chunks
+    \item Prioritize core financial flows that provide immediate value
+    \item Minimize risk through early validation of critical paths
+    \item Enable parallel workstreams where dependencies allow
+\end{itemize}
+
+% ------------------------------------------------------------
+% WORKSTREAM BREAKDOWN
+% ------------------------------------------------------------
+\section{Workstream Breakdown}
+
+\begin{longtable}{@{}>{\bfseries\columncolor{tableheader}}p{0.22\textwidth}p{0.68\textwidth}@{}}
+\toprule
+\rowcolor{primaryblue}
+\textcolor{white}{\textbf{Workstream}} & \textcolor{white}{\textbf{Deliverables}} \\
+\midrule
+\endhead
+Foundation & Repository setup, coding standards, CI/CD skeleton, environment templates, development tooling \\
+\midrule
+Identity \& RBAC & Authentication module, role middleware, session/token security policies, password management \\
+\midrule
+Member Lifecycle & Registration form, approval workflow, first login flow, nominee management, profile updates \\
+\midrule
+Core Finance & Deposit/withdrawal/loan/donation APIs, transaction state machine, ledger integrity \\
+\midrule
+Operations & Worker queue tools, admin controls, dispute and correction mechanisms, SLA tracking \\
+\midrule
+Observability & Audit log implementation, basic metrics, operational alerts, backup procedures \\
+\bottomrule
+\end{longtable}
+
+% ------------------------------------------------------------
+% INCREMENT PLAN
+% ------------------------------------------------------------
+\section{Increment Plan}
+
+\subsection{Increment 1: Foundation \& Identity}
+
+\textbf{Focus:} Project infrastructure and authentication layer
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item Repository structure with monorepo or multi-repo setup
+    \item CI/CD pipelines for frontend and backend
+    \item Database schema baseline with migrations
+    \item Authentication (login, logout, password change)
+    \item RBAC middleware for Member, Worker, Admin roles
+    \item Basic landing page with registration form UI
+\end{itemize}
+
+\textbf{Exit Criteria:}
+\begin{itemize}
+    \item Users can register, login, and access role-appropriate pages
+    \item RBAC prevents unauthorized endpoint access
+    \item CI/CD deploys to staging on merge
+\end{itemize}
+
+\subsection{Increment 2: Deposit \& Withdrawal}
+
+\textbf{Focus:} Core financial flow for savings
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item Deposit request API and UI
+    \item Worker processing interface
+    \item Member confirmation flow
+    \item Withdrawal request with notice period validation
+    \item Transaction ledger with proper accounting
+    \item Member dashboard showing balances
+\end{itemize}
+
+\textbf{Exit Criteria:}
+\begin{itemize}
+    \item Complete Request $\rightarrow$ Process $\rightarrow$ Confirm cycle works
+    \item Ledger balances are accurate
+    \item Withdrawal rules enforced
+\end{itemize}
+
+\subsection{Increment 3: Loan Lifecycle}
+
+\textbf{Focus:} Loan application, approval, and repayment
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item Loan eligibility calculation (3-cap system)
+    \item Loan application form and API
+    \item Guarantor request and approval workflow
+    \item Admin loan approval/rejection
+    \item Worker loan disbursal and member confirmation
+    \item Installment recording
+\end{itemize}
+
+\textbf{Exit Criteria:}
+\begin{itemize}
+    \item Member can apply for loan within eligibility
+    \item Guarantor workflow functions correctly
+    \item Loan states transition correctly through lifecycle
+\end{itemize}
+
+\subsection{Increment 4: Donations \& Disputes}
+
+\textbf{Focus:} Donation management and error handling
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item Donation form with fund type selection
+    \item Donation fund tracking (Operating, Lending, Zakat, Sadaqah)
+    \item Dispute raising mechanism
+    \item Admin dispute resolution workflow
+    \item Default settlement waterfall implementation
+\end{itemize}
+
+\textbf{Exit Criteria:}
+\begin{itemize}
+    \item Donations correctly categorized and tracked
+    \item Disputes freeze transactions and alert admin
+    \item Settlement waterfall executes correctly
+\end{itemize}
+
+\subsection{Increment 5: Polish \& Release}
+
+\textbf{Focus:} Dashboards, hardening, and release preparation
+
+\textbf{Deliverables:}
+\begin{itemize}
+    \item Member dashboard with all summaries
+    \item Worker dashboard with pending queues and SLA indicators
+    \item Admin dashboard with approvals, alerts, and settings
+    \item Audit log viewer for admin
+    \item Localization (English/Bengali) completion
+    \item Security hardening and penetration testing
+    \item Documentation and training materials
+\end{itemize}
+
+\textbf{Exit Criteria:}
+\begin{itemize}
+    \item All dashboards functional and accurate
+    \item No critical/high security vulnerabilities
+    \item System ready for production deployment
+\end{itemize}
+
+% ------------------------------------------------------------
+% READINESS CHECKLIST
+% ------------------------------------------------------------
+\section{Readiness Checklist}
+
+Before development begins, the following must be complete:
+
+\subsection{Documentation Readiness}
+\begin{itemize}
+    \item[$\square$] Business Requirements Document approved
+    \item[$\square$] Software Requirements Specification approved
+    \item[$\square$] Functional Requirements Document approved
+    \item[$\square$] API Contract Specification approved
+    \item[$\square$] Database Schema Design approved
+    \item[$\square$] Test Plan agreed by engineering and operations
+\end{itemize}
+
+\subsection{Infrastructure Readiness}
+\begin{itemize}
+    \item[$\square$] Source control repositories created
+    \item[$\square$] CI/CD pipeline templates ready
+    \item[$\square$] Development environment provisioned
+    \item[$\square$] Staging environment provisioned
+    \item[$\square$] Database instances created (dev/staging)
+    \item[$\square$] Environment variables documented
+\end{itemize}
+
+\subsection{Team Readiness}
+\begin{itemize}
+    \item[$\square$] Development team assigned
+    \item[$\square$] Roles and responsibilities defined
+    \item[$\square$] Communication channels established
+    \item[$\square$] Sprint cadence agreed
+\end{itemize}
+
+% ------------------------------------------------------------
+% RISK MITIGATION
+% ------------------------------------------------------------
+\section{Risk Mitigation}
+
+\begin{tabular}{@{}p{4cm}p{4cm}p{5cm}@{}}
+\toprule
+\textbf{Risk} & \textbf{Impact} & \textbf{Mitigation} \\
+\midrule
+Financial calculation errors & Critical & Extensive unit tests, double-entry validation \\
+\addlinespace
+RBAC bypass & Critical & Security testing, code review gates \\
+\addlinespace
+Data loss & Critical & Automated backups, transaction logging \\
+\addlinespace
+Scope creep & High & Strict increment boundaries, change control \\
+\addlinespace
+Integration delays & Medium & Mock services, contract testing \\
+\bottomrule
+\end{tabular}
+
+% ------------------------------------------------------------
+% APPROVALS
+% ------------------------------------------------------------
+\section{Approvals}
+
+\vspace{1cm}
+
+\begin{tabular}{@{}p{6cm}p{6cm}@{}}
+\rule{5cm}{0.4pt} & \rule{5cm}{0.4pt} \\
+\textbf{Product Owner} & \textbf{Technical Lead} \\
+Date: \rule{3cm}{0.4pt} & Date: \rule{3cm}{0.4pt} \\
+\end{tabular}
+
+\end{document}

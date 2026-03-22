@@ -1,0 +1,369 @@
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================
+% PACKAGES
+% ============================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{tocloft}
+\usepackage{colortbl}
+
+% ============================================================
+% COLORS
+% ============================================================
+\definecolor{primaryblue}{RGB}{0, 82, 147}
+\definecolor{darkgray}{RGB}{64, 64, 64}
+\definecolor{lightgray}{RGB}{245, 245, 245}
+\definecolor{accentgreen}{RGB}{0, 128, 64}
+\definecolor{tableheader}{RGB}{230, 240, 250}
+
+% ============================================================
+% HYPERREF SETUP
+% ============================================================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primaryblue,
+    urlcolor=primaryblue,
+    pdftitle={System Architecture Design - Hasnahena Platform},
+    pdfauthor={Md Saif Ahmed}
+}
+
+% ============================================================
+% SECTION FORMATTING
+% ============================================================
+\titleformat{\section}
+    {\Large\bfseries\color{primaryblue}}
+    {\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}
+    {\large\bfseries\color{darkgray}}
+    {\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+    {\normalsize\bfseries\color{darkgray}}
+    {\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{2.5ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+% ============================================================
+% HEADER/FOOTER
+% ============================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{darkgray}{System Architecture Design}}
+\fancyhead[R]{\footnotesize\textcolor{darkgray}{Hasnahena Platform}}
+\fancyfoot[C]{\thepage}
+\fancyfoot[R]{\footnotesize\textcolor{darkgray}{Version 1.0}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% ============================================================
+% TABLE OF CONTENTS STYLING
+% ============================================================
+\renewcommand{\cftsecfont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsecpagefont}{\bfseries\color{primaryblue}}
+\renewcommand{\cftsubsecfont}{\color{darkgray}}
+
+% ============================================================
+% LIST STYLING
+% ============================================================
+\setlist[itemize]{leftmargin=*, itemsep=0.3em}
+\setlist[enumerate]{leftmargin=*, itemsep=0.3em}
+
+% ============================================================
+% DOCUMENT INFO
+% ============================================================
+\newcommand{\DocumentTitle}{System Architecture \& Infrastructure Design}
+\newcommand{\DocumentSubtitle}{Hasnahena Web Application}
+\newcommand{\DocumentVersion}{1.0}
+\newcommand{\DocumentDate}{\today}
+
+% ============================================================
+% DOCUMENT
+% ============================================================
+\begin{document}
+
+% ------------------------------------------------------------
+% TITLE PAGE
+% ------------------------------------------------------------
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\Huge\bfseries\color{primaryblue}System Architecture\par}
+    {\Huge\bfseries\color{primaryblue}\& Infrastructure Design\par}
+    \vspace{0.5cm}
+    {\LARGE\color{darkgray}\DocumentSubtitle\par}
+    
+    \vspace{1.5cm}
+    
+    {\color{primaryblue}\rule{10cm}{2pt}\par}
+    
+    \vspace{2cm}
+    
+    \begin{tabular}{ll}
+        \textbf{Version:} & \DocumentVersion \\[0.5em]
+        \textbf{Date:} & \DocumentDate \\[0.5em]
+        \textbf{Status:} & Approved \\[0.5em]
+        \textbf{Author:} & Md Saif Ahmed \\[0.5em]
+    \end{tabular}
+    
+    \vfill
+    
+    {\large\color{darkgray}\textit{Scalable, secure, and compliant}\par}
+    {\large\color{darkgray}\textit{platform architecture}\par}
+    
+    \vspace{1cm}
+    
+    {\footnotesize\color{darkgray}CONFIDENTIAL --- For Internal Use Only\par}
+\end{titlepage}
+
+% ------------------------------------------------------------
+% TABLE OF CONTENTS
+% ------------------------------------------------------------
+\tableofcontents
+\newpage
+
+% ------------------------------------------------------------
+% DOCUMENT CONTROL
+% ------------------------------------------------------------
+\section*{Document Control}
+\addcontentsline{toc}{section}{Document Control}
+
+\begin{tabular}{@{}p{3cm}p{10cm}@{}}
+\toprule
+\textbf{Item} & \textbf{Details} \\
+\midrule
+Document Title & \DocumentTitle \\
+Version & \DocumentVersion \\
+Date & \DocumentDate \\
+Author & Md Saif Ahmed \\
+Reviewed By & --- \\
+Approved By & --- \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+
+\textbf{Revision History}
+
+\begin{tabular}{@{}p{1.2cm}p{2.5cm}p{3.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Ver.} & \textbf{Date} & \textbf{Author} & \textbf{Changes} \\
+\midrule
+1.0 & --- & Md Saif Ahmed & Initial draft \\
+2.0 & --- & Md Saif Ahmed & Added microservices design \\
+3.0 & \DocumentDate & Md Saif Ahmed & Final release \\
+\bottomrule
+\end{tabular}
+
+\newpage
+
+% ------------------------------------------------------------
+% INTRODUCTION
+% ------------------------------------------------------------
+\section{Introduction}
+
+\subsection{Purpose}
+This document outlines the architectural design and technology stack for the Hasnahena cooperative platform. The architecture is designed to ensure:
+\begin{itemize}
+    \item \textbf{Scalability:} Handle growth from hundreds to thousands of members
+    \item \textbf{Security:} Protect sensitive financial data and prevent unauthorized access
+    \item \textbf{Compliance:} Meet regulatory and Shariah requirements
+    \item \textbf{Reliability:} Ensure high availability for financial operations
+\end{itemize}
+
+\subsection{Architecture Principles}
+\begin{enumerate}
+    \item \textbf{Separation of Concerns:} Clear boundaries between frontend, API gateway, and core services
+    \item \textbf{Defense in Depth:} Multiple security layers from WAF to application-level RBAC
+    \item \textbf{Immutable Audit:} All financial actions are logged and cannot be modified
+    \item \textbf{Progressive Enhancement:} Start with managed services, migrate to self-hosted as scale requires
+\end{enumerate}
+
+% ------------------------------------------------------------
+% ARCHITECTURE OVERVIEW
+% ------------------------------------------------------------
+\section{Architecture Overview}
+
+The system employs a \textbf{dual-microservice architecture}:
+\begin{itemize}
+    \item \textbf{Go (Golang) Edge Service:} Handles high-throughput traffic, real-time WebSockets, and API gateway functions
+    \item \textbf{Java (Spring Boot) Core Ledger:} Handles strict double-entry bookkeeping, ACID transactions, and complex financial calculations
+    \item \textbf{Next.js Frontend:} Server-side rendered React application for optimal performance and SEO
+\end{itemize}
+
+\subsection{High-Level Data Flow}
+\begin{enumerate}
+    \item User accesses the application via \texttt{hasnahena.org}
+    \item Cloudflare WAF filters malicious traffic
+    \item Request reaches Next.js frontend on Vercel
+    \item API calls route through Go Edge Gateway
+    \item Financial operations are delegated to Java Core Ledger
+    \item Data persists to PostgreSQL with full audit logging
+\end{enumerate}
+
+% ------------------------------------------------------------
+% TECHNOLOGY STACK
+% ------------------------------------------------------------
+\section{Technology Stack}
+
+\subsection{Frontend Layer}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Technology} \\
+\midrule
+Framework & Next.js 14+ (App Router) with React 18 \\
+Language & TypeScript (strict mode) \\
+UI System & Tailwind CSS + Shadcn UI \\
+State Management & Zustand + React Query \\
+Internationalization & next-intl (English/Bengali) \\
+Hosting & Vercel (Edge caching, zero-config deployments) \\
+\bottomrule
+\end{tabular}
+
+\subsection{Backend Microservices}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Service} & \textbf{Technology \& Responsibility} \\
+\midrule
+API Gateway (Edge) & Go with Chi/Gin router --- traffic handling, rate limiting, WebSockets, JWT validation \\
+\addlinespace
+Core Ledger & Java 17+ with Spring Boot 3 --- double-entry bookkeeping, ACID transactions, loan calculations \\
+\addlinespace
+Internal Communication & gRPC (synchronous), Apache Kafka (async event streaming) \\
+\addlinespace
+Hosting & Fly.io (initial), AWS EKS (production scale) \\
+\bottomrule
+\end{tabular}
+
+\subsection{Database \& Storage}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Technology} \\
+\midrule
+Primary Database & PostgreSQL 15+ (Neon Serverless $\rightarrow$ AWS RDS) \\
+Cache Layer & Valkey (open-source Redis alternative) \\
+Document Storage & Cloudinary (MVP), AWS S3 (production) \\
+ORM & Prisma (Go edge), Hibernate (Java core) \\
+\bottomrule
+\end{tabular}
+
+% ------------------------------------------------------------
+% SECURITY & INTEGRATIONS
+% ------------------------------------------------------------
+\section{Security \& Third-Party Integrations}
+
+\subsection{Security Stack}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Layer} & \textbf{Implementation} \\
+\midrule
+Identity \& Auth & Clerk/Auth.js (Phase 1), Keycloak (enterprise rollout) \\
+WAF / DDoS & Cloudflare Pro/Enterprise \\
+Secrets Management & HashiCorp Vault (Community Edition) \\
+TLS/SSL & Cloudflare managed certificates \\
+RBAC & Custom implementation with JWT claims \\
+\bottomrule
+\end{tabular}
+
+\subsection{Third-Party Integrations}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Service} & \textbf{Provider} \\
+\midrule
+NID Verification & Porichoy API (Bangladesh NID Gateway) \\
+SMS Gateway & SSL Wireless (local Bangladesh aggregator) \\
+Email & Resend (transactional emails) \\
+Domain & Namecheap with Cloudflare DNS \\
+\bottomrule
+\end{tabular}
+
+% ------------------------------------------------------------
+% INFRASTRUCTURE
+% ------------------------------------------------------------
+\section{Infrastructure \& DevOps}
+
+\subsection{Cloud Strategy}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Phase} & \textbf{Infrastructure} \\
+\midrule
+MVP / Launch & Vercel (frontend), Fly.io (backend), Neon (database) \\
+\addlinespace
+Production Scale & Vercel (frontend), AWS EKS (backend), AWS RDS (database) \\
+\addlinespace
+Region & ap-south-1 (Mumbai) or ap-southeast-1 (Singapore) for Bangladesh proximity \\
+\bottomrule
+\end{tabular}
+
+\subsection{Observability}
+
+\begin{tabular}{@{}p{4cm}p{9cm}@{}}
+\toprule
+\textbf{Function} & \textbf{Tool} \\
+\midrule
+Metrics \& Dashboards & Prometheus + Grafana \\
+Application Tracing & SigNoz (open-source) \\
+Log Aggregation & Grafana Loki \\
+Alerting & Grafana Alertmanager \\
+\bottomrule
+\end{tabular}
+
+\subsection{CI/CD Pipeline}
+
+\begin{itemize}
+    \item \textbf{Source Control:} GitHub (separate repos for frontend and backend)
+    \item \textbf{CI/CD:} GitHub Actions
+    \item \textbf{Containerization:} Docker with multi-stage builds
+    \item \textbf{Orchestration:} Kubernetes (AWS EKS in production)
+    \item \textbf{Deployment:} GitOps with automatic deploys on \texttt{main} branch
+\end{itemize}
+
+% ------------------------------------------------------------
+% SCALING & MIGRATION
+% ------------------------------------------------------------
+\section{Scaling \& Migration Path}
+
+\subsection{Phase 1: MVP (Free Tier)}
+\begin{itemize}
+    \item Vercel Hobby plan (frontend)
+    \item Fly.io free tier (Go backend)
+    \item Neon free tier (0.5 GB database)
+    \item Cloudinary free tier (images)
+    \item Estimated monthly cost: \textbf{\$0-10}
+\end{itemize}
+
+\subsection{Phase 2: Growth}
+\begin{itemize}
+    \item Vercel Pro (\$20/month)
+    \item Fly.io scaled instances (\$15-30/month)
+    \item Neon Launch plan (\$19/month)
+    \item Estimated monthly cost: \textbf{\$50-100}
+\end{itemize}
+
+\subsection{Phase 3: Enterprise}
+\begin{itemize}
+    \item AWS EKS with auto-scaling
+    \item AWS RDS Multi-AZ PostgreSQL
+    \item Cloudflare Enterprise
+    \item Full observability stack
+    \item Estimated monthly cost: \textbf{\$300-500+}
+\end{itemize}
+
+\end{document}
