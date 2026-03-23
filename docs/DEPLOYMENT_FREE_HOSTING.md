@@ -205,6 +205,9 @@ This happens if Vercel uses an old `pnpm` version (v6).
 Fix: The updated `vercel.json` uses `npx --yes pnpm@8.15.4` to bypass local versions.
 Optimization: Set environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` in Vercel to use the native Node.js package manager manager.
 
+### Error: Build fails silently or with Prisma client error
+Fix: Ensure `prisma generate` is run after installation. The updated configuration includes this in the install command.
+
 ### Error: `relation "users" does not exist`
 
 Cause: database schema not created.
