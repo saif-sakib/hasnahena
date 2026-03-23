@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import {
   User,
@@ -25,6 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 interface UserProfile {
   memberId: string;
@@ -72,52 +73,74 @@ export default function ProfilePage() {
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
 
-  // Mock data
-  const profile: UserProfile = {
-    memberId: 'HN-2024-001',
-    accountNumber: 'ACC-001234',
-    nameEn: 'Mohammad Saif Ahmed',
-    nameBn: 'মোহাম্মদ সাইফ আহমেদ',
-    fatherName: 'মোহাম্মদ আবদুল করিম',
-    motherName: 'ফাতেমা বেগম',
-    phone: '01712345678',
-    email: 'saif@example.com',
-    nidNumber: '1234567890123',
-    dateOfBirth: '1990-05-15',
-    maritalStatus: 'MARRIED',
+  const [profile, setProfile] = useState<UserProfile>({
+    memberId: '',
+    accountNumber: '',
+    nameEn: '',
+    nameBn: '',
+    fatherName: '',
+    motherName: '',
+    phone: '',
+    email: '',
+    nidNumber: '',
+    dateOfBirth: '',
+    maritalStatus: 'UNMARRIED',
     gender: 'MALE',
     permanentAddress: {
-      houseNo: '৪৯৩',
-      village: 'কারিগরপাড়া',
-      union: 'ভেকুটিয়া',
-      policeStation: 'সদর',
-      district: 'যশোর',
+      houseNo: '',
+      village: '',
+      union: '',
+      policeStation: '',
+      district: '',
     },
     presentAddress: {
-      houseNo: '৪৯৩',
-      village: 'কারিগরপাড়া',
-      union: 'ভেকুটিয়া',
-      policeStation: 'সদর',
-      district: 'যশোর',
+      houseNo: '',
+      village: '',
+      union: '',
+      policeStation: '',
+      district: '',
     },
-    memberSince: '2024-01-01',
-    status: 'ACTIVE',
-  };
+    memberSince: '',
+    status: 'PENDING',
+  });
 
   const [nominee, setNominee] = useState<Nominee>({
-    name: 'ফাতেমা আক্তার',
-    relationship: 'স্ত্রী',
-    nidNumber: '9876543210123',
-    phone: '01898765432',
+    name: '',
+    relationship: '',
+    nidNumber: '',
+    phone: '',
   });
 
   const [editedNominee, setEditedNominee] = useState<Nominee>({ ...nominee });
 
-  const accountSummary = {
-    currentBalance: 15000,
-    hasActiveLoan: true,
+  const [accountSummary, setAccountSummary] = useState({
+    currentBalance: 0,
+    hasActiveLoan: false,
     isGuarantor: false,
-  };
+  });
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await apiGet<{
+          profile: UserProfile;
+          nominee: Nominee;
+          accountSummary: {
+            currentBalance: number;
+            hasActiveLoan: boolean;
+            isGuarantor: boolean;
+          };
+        }>('/v1/dashboard/member/profile');
+        setProfile(data.profile);
+        setNominee(data.nominee);
+        setEditedNominee(data.nominee);
+        setAccountSummary(data.accountSummary);
+      } catch {
+        setProfile((prev) => ({ ...prev }));
+      }
+    };
+    loadProfile();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {

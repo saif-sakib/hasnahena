@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Users,
@@ -46,6 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { apiGet } from '@/lib/api';
 
 interface Worker {
   id: string;
@@ -78,61 +79,27 @@ export default function AdminWorkersPage() {
     assignedArea: '',
   });
 
-  // Mock data
-  const workers: Worker[] = [
-    {
-      id: '1',
-      name: 'রফিকুল ইসলাম',
-      email: 'rafiqul.worker@hasnahena.org',
-      phone: '01711111111',
-      role: 'WORKER',
-      status: 'ACTIVE',
-      assignedArea: 'ঢাকা উত্তর',
-      joinDate: '2023-06-15',
-      processedDeposits: 156,
-      processedLoans: 45,
-      lastActive: '2025-01-14',
-    },
-    {
-      id: '2',
-      name: 'কামরুল হাসান',
-      email: 'kamrul.worker@hasnahena.org',
-      phone: '01722222222',
-      role: 'WORKER',
-      status: 'ACTIVE',
-      assignedArea: 'ঢাকা দক্ষিণ',
-      joinDate: '2023-08-20',
-      processedDeposits: 203,
-      processedLoans: 67,
-      lastActive: '2025-01-14',
-    },
-    {
-      id: '3',
-      name: 'নাজমুল হক',
-      email: 'nazmul.admin@hasnahena.org',
-      phone: '01733333333',
-      role: 'ADMIN',
-      status: 'ACTIVE',
-      assignedArea: 'সকল এলাকা',
-      joinDate: '2023-01-01',
-      processedDeposits: 0,
-      processedLoans: 89,
-      lastActive: '2025-01-14',
-    },
-    {
-      id: '4',
-      name: 'সাইফুল ইসলাম',
-      email: 'saiful.worker@hasnahena.org',
-      phone: '01744444444',
-      role: 'WORKER',
-      status: 'INACTIVE',
-      assignedArea: 'চট্টগ্রাম',
-      joinDate: '2024-02-10',
-      processedDeposits: 78,
-      processedLoans: 12,
-      lastActive: '2024-12-01',
-    },
-  ];
+  const [workers, setWorkers] = useState<Worker[]>([]);
+
+  useEffect(() => {
+    const loadWorkers = async () => {
+      try {
+        const data = await apiGet<Array<Worker & { currentDeposit?: number; activeLoan?: number }>>('/v1/dashboard/admin/workers');
+        setWorkers(
+          data.map((worker) => ({
+            ...worker,
+            role: worker.role === 'ADMIN' ? 'ADMIN' : 'WORKER',
+            status: worker.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+            processedDeposits: worker.currentDeposit || 0,
+            processedLoans: worker.activeLoan || 0,
+          }))
+        );
+      } catch {
+        setWorkers([]);
+      }
+    };
+    loadWorkers();
+  }, []);
 
   const filteredWorkers = workers.filter(
     (worker) =>

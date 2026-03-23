@@ -25,11 +25,20 @@ import {
   Shield,
   CheckCircle2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo, LogoIcon } from '@/components/ui/logo';
 import Image from 'next/image';
 import { toast } from '@/hooks/use-toast';
+import { apiGet } from '@/lib/api';
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  description: string;
+  time: string;
+  read: boolean;
+}
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -74,24 +83,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const t = useTranslations('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: locale === 'bn' ? 'আমানত নিশ্চিত হয়েছে' : 'Deposit Confirmed',
-      description: locale === 'bn' ? '৳৫,০০০ আমানত সফলভাবে নিশ্চিত হয়েছে' : '৳5,000 deposit has been confirmed',
-      time: locale === 'bn' ? '৫ মিনিট আগে' : '5 minutes ago',
-      read: false,
-    },
-    {
-      id: 2,
-      title: locale === 'bn' ? 'ঋণ কিস্তির রিমাইন্ডার' : 'Loan Installment Reminder',
-      description: locale === 'bn'
-        ? 'আগামীকাল আপনার কিস্তির শেষ তারিখ'
-        : 'Your installment due date is tomorrow',
-      time: locale === 'bn' ? '১ ঘন্টা আগে' : '1 hour ago',
-      read: false,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -104,7 +96,20 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const markNotificationAsRead = (id: number) => {
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const data = await apiGet<NotificationItem[]>('/v1/dashboard/notifications');
+        setNotifications(data);
+      } catch {
+        setNotifications([]);
+      }
+    };
+
+    loadNotifications();
+  }, []);
+
+  const markNotificationAsRead = (id: string) => {
     setNotifications((prev) =>
       prev.map((notification) =>
         notification.id === id ? { ...notification, read: true } : notification
@@ -123,6 +128,19 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const handleViewAllNotifications = () => {
     setShowNotifications(false);
     router.push(basePath);
+  };
+
+  const formatNotificationTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   const handleLogout = () => {
@@ -345,7 +363,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   {notification.description}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-1">
-                                  {notification.time}
+                                  {formatNotificationTime(notification.time)}
                                 </p>
                               </div>
                               {!notification.read && (

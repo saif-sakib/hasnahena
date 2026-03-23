@@ -1,28 +1,44 @@
 'use client';
 
 import { useTranslations, useLocale } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { Users, Wallet, HandCoins, Clock, ArrowUpRight, ArrowDownRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { apiGet } from '@/lib/api';
 
 export default function WorkerDashboard() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
 
-  // Mock data
-  const stats = {
-    totalMembers: 125,
-    pendingRequests: 8,
-    todayDeposits: 45000,
-    todayLoans: 25000,
-  };
+  const [stats, setStats] = useState({
+    totalMembers: 0,
+    pendingRequests: 0,
+    todayDeposits: 0,
+    todayLoans: 0,
+  });
+  const [pendingRequests, setPendingRequests] = useState<Array<{ id: string; type: string; member: string; amount: number; time: string }>>([]);
 
-  const pendingRequests = [
-    { id: 1, type: 'DEPOSIT', member: 'আব্দুল করিম', amount: 5000, time: '10 মিনিট আগে' },
-    { id: 2, type: 'LOAN', member: 'ফাতেমা বেগম', amount: 15000, time: '25 মিনিট আগে' },
-    { id: 3, type: 'WITHDRAWAL', member: 'মোহাম্মদ আলী', amount: 3000, time: '1 ঘণ্টা আগে' },
-    { id: 4, type: 'REGISTRATION', member: 'নূর হোসেন', amount: 100, time: '2 ঘণ্টা আগে' },
-  ];
+  useEffect(() => {
+    const loadWorkerDashboard = async () => {
+      try {
+        const data = await apiGet<{
+          stats: {
+            totalMembers: number;
+            pendingRequests: number;
+            todayDeposits: number;
+            todayLoans: number;
+          };
+          pendingRequests: Array<{ id: string; type: string; member: string; amount: number; time: string }>;
+        }>('/v1/dashboard/worker');
+        setStats(data.stats);
+        setPendingRequests(data.pendingRequests || []);
+      } catch {
+        setPendingRequests([]);
+      }
+    };
+    loadWorkerDashboard();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -176,7 +192,7 @@ export default function WorkerDashboard() {
                   </span>
                   <div>
                     <p className="font-medium">{req.member}</p>
-                    <p className="text-xs text-muted-foreground">{req.time}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(req.time).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

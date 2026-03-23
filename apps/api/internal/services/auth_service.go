@@ -16,6 +16,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUserInactive       = errors.New("user not active")
+	ErrInvalidToken       = errors.New("invalid token")
 )
 
 type AuthService struct {
@@ -82,4 +83,28 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 			NameEn: user.NameEn,
 		},
 	}, nil
+}
+
+func (s *AuthService) ParseAccessToken(tokenString string) (jwt.MapClaims, error) {
+	tokenString = strings.TrimSpace(tokenString)
+	if tokenString == "" {
+		return nil, ErrInvalidToken
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, ErrInvalidToken
+		}
+		return s.jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return nil, ErrInvalidToken
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, ErrInvalidToken
+	}
+
+	return claims, nil
 }

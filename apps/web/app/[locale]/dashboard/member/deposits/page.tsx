@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import {
   Wallet,
@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED';
 
@@ -38,50 +39,37 @@ export default function DepositsPage() {
   const [depositAmount, setDepositAmount] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed'>('all');
 
-  // Mock data - will be replaced with API calls
-  const deposits: Deposit[] = [
-    {
-      id: '1',
-      amount: 5000,
-      date: '2024-03-20',
-      receiptNumber: 'RCP-2024-001',
-      status: 'CONFIRMED',
-      processedBy: 'কর্মী-০১',
-      balanceAfter: 15000,
-    },
-    {
-      id: '2',
-      amount: 3000,
-      date: '2024-03-15',
-      receiptNumber: 'RCP-2024-002',
-      status: 'PROCESSED',
-      processedBy: 'কর্মী-০১',
-    },
-    {
-      id: '3',
-      amount: 2000,
-      date: '2024-03-10',
-      receiptNumber: 'RCP-2024-003',
-      status: 'PENDING',
-    },
-    {
-      id: '4',
-      amount: 5000,
-      date: '2024-03-01',
-      receiptNumber: 'RCP-2024-004',
-      status: 'CONFIRMED',
-      processedBy: 'কর্মী-০২',
-      balanceAfter: 10000,
-    },
-  ];
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [summary, setSummary] = useState({
+    totalDeposited: 0,
+    pendingAmount: 0,
+    currentBalance: 0,
+  });
 
-  const totalDeposited = deposits
-    .filter((d) => d.status === 'CONFIRMED')
-    .reduce((sum, d) => sum + d.amount, 0);
+  useEffect(() => {
+    const loadDeposits = async () => {
+      try {
+        const data = await apiGet<{
+          deposits: Deposit[];
+          totalDeposited: number;
+          pendingAmount: number;
+          currentBalance: number;
+        }>('/v1/dashboard/member/deposits');
+        setDeposits(data.deposits || []);
+        setSummary({
+          totalDeposited: data.totalDeposited || 0,
+          pendingAmount: data.pendingAmount || 0,
+          currentBalance: data.currentBalance || 0,
+        });
+      } catch {
+        setDeposits([]);
+      }
+    };
+    loadDeposits();
+  }, []);
 
-  const pendingAmount = deposits
-    .filter((d) => d.status === 'PENDING' || d.status === 'PROCESSED')
-    .reduce((sum, d) => sum + d.amount, 0);
+  const totalDeposited = summary.totalDeposited;
+  const pendingAmount = summary.pendingAmount;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -200,7 +188,7 @@ export default function DepositsPage() {
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{formatCurrency(15000)}</div>
+            <div className="text-2xl font-bold text-primary">{formatCurrency(summary.currentBalance)}</div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings balance'}
             </p>
