@@ -84,7 +84,7 @@ Run API health after backend deploy later, and verify login endpoints return val
 Set these in Project Settings -> Environment Variables:
 
 ```dotenv
-NEXT_PUBLIC_API_URL=https://api.hasnahenafoundation.com
+NEXT_PUBLIC_API_URL=https://hasnahena-api.onrender.com
 JWT_SECRET=replace-with-strong-random-secret
 DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require
 ```
@@ -130,7 +130,13 @@ CORS_ORIGINS=https://hasnahenafoundation.com,https://www.hasnahenafoundation.com
 Important:
 
 - Use **pooled** Neon URL for runtime apps.
-- Ensure `CORS_ORIGINS` includes production domains and temporary Vercel preview domain.
+- Ensure `CORS_ORIGINS` includes production domains and your current Vercel domain.
+
+Current working value:
+
+```dotenv
+CORS_ORIGINS=https://hasnahenafoundation.com,https://www.hasnahenafoundation.com,https://hasnahena-web.vercel.app
+```
 
 ### 3.3 Deploy and verify
 
@@ -158,6 +164,14 @@ CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
 ```
 
+4. In Cloudinary dashboard -> **Settings -> Upload**:
+   - Create an upload preset (recommended name: `hasnahena-docs`)
+   - Keep signed uploads for backend-controlled uploads
+5. Use folder naming to keep files organized (example: `hasnahena/members`, `hasnahena/nid`, `hasnahena/nominee`)
+6. Add the same Cloudinary env vars in:
+   - Render (if backend performs uploads)
+   - Vercel (only if Next.js server routes handle uploads)
+
 ---
 
 ## 5) Namecheap DNS Configuration
@@ -176,7 +190,7 @@ Create/update records:
   - Purpose: www to Vercel
 - `CNAME` record
   - Host: `api`
-  - Value: `<your-render-service>.onrender.com`
+  - Value: `hasnahena-api.onrender.com`
   - Purpose: API subdomain to Render
 
 Then configure custom domains:
@@ -185,6 +199,25 @@ Then configure custom domains:
 - In Render: add `api.hasnahenafoundation.com`
 
 Wait for DNS propagation (can take some time).
+
+### 5.1 Namecheap click-by-click steps
+
+1. Namecheap -> **Domain List** -> **Manage** (for `hasnahenafoundation.com`)
+2. Open **Advanced DNS**
+3. In **Host Records**, add/edit:
+   - `A Record`, Host `@`, Value `76.76.21.21`, TTL `Automatic`
+   - `CNAME Record`, Host `www`, Value `cname.vercel-dns.com`, TTL `Automatic`
+   - `CNAME Record`, Host `api`, Value `hasnahena-api.onrender.com`, TTL `Automatic`
+4. Remove conflicting old records for `@`, `www`, or `api`
+5. Save all changes
+6. In Vercel -> Project -> Domains, add:
+   - `hasnahenafoundation.com`
+   - `www.hasnahenafoundation.com`
+7. In Render -> Service -> Settings -> Custom Domains, add:
+   - `api.hasnahenafoundation.com`
+8. After SSL is issued, update frontend env in Vercel:
+   - `NEXT_PUBLIC_API_URL=https://api.hasnahenafoundation.com`
+   - Redeploy Vercel
 
 ---
 
@@ -207,6 +240,7 @@ Optimization: Set environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` in Verce
 
 ### Error: Build fails silently or with Prisma client error
 Fix: Ensure `prisma generate` is run after installation. The updated configuration includes this in the install command.
+Note: You may see a warning during install: `prisma:warn We could not find your Prisma schema`. This is expected in a monorepo setup and is harmless because we explicitly run `prisma generate` in the subsequent step.
 
 ### Error: `relation "users" does not exist`
 
@@ -250,3 +284,50 @@ Render free tier may sleep when idle; first request can be slow (cold start).
 - Back up database regularly (e.g., `pg_dump`)
 - Monitor free-tier limits on Neon, Vercel, Render, and Cloudinary
 
+---
+
+## 9) Final Environment Variables (Recommended)
+
+Use these as final templates.
+
+### 9.1 Vercel (Frontend) - Production
+
+```dotenv
+NEXT_PUBLIC_API_URL=https://api.hasnahenafoundation.com
+JWT_SECRET=<same-strong-secret-used-for-web-routes>
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require
+
+# Add when Cloudinary is used by web server routes:
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
+
+### 9.2 Render (Backend API) - Production
+
+```dotenv
+API_PORT=10000
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require
+JWT_SECRET=<same-strong-secret-as-needed-by-your-auth-flow>
+JWT_EXPIRY_SECONDS=86400
+CORS_ORIGINS=https://hasnahenafoundation.com,https://www.hasnahenafoundation.com,https://hasnahena-web.vercel.app,https://api.hasnahenafoundation.com
+
+# Add when backend performs uploads:
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
+
+### 9.3 Local `.env.local` (Development)
+
+```dotenv
+NEXT_PUBLIC_API_URL=http://localhost:8080
+JWT_SECRET=<dev-secret>
+
+# Use direct Neon URL for schema push/seed OR local postgres URL
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require
+
+API_PORT=8080
+JWT_EXPIRY_SECONDS=86400
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+```
