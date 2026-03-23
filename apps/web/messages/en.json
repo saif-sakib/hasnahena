@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "Hasnahena",
-    "tagline": "Interest-Free Cooperative Finance",
+    "tagline": "Interest-Free Finance",
     "loading": "Loading...",
     "error": "Something went wrong",
     "success": "Success",
@@ -25,8 +25,9 @@
   },
   "navigation": {
     "home": "Home",
-    "about": "About Us",
+    "about": "Our Activities",
     "howItWorks": "How It Works",
+    "gallery": "Gallery",
     "contact": "Contact",
     "login": "Login",
     "register": "Register",
@@ -35,7 +36,7 @@
     "language": "Language"
   },
   "hero": {
-    "title": "Interest-Free Cooperative Finance",
+    "title": "Interest-Free Finance",
     "subtitle": "Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest",
     "cta": "Become a Member",
     "learnMore": "Learn More"
@@ -56,6 +57,56 @@
       "source": "Sahih Muslim, Hadith-1886"
     }
   },
+  "quran": {
+    "title": "In Light of Quran",
+    "subtitle": "Allah's words about interest and lending",
+    "ayah1": {
+      "text": "Who is it that would loan Allah a goodly loan so He will multiply it for him and he will have a noble reward.",
+      "source": "Surah Al-Hadid, Verse 11"
+    },
+    "ayah2": {
+      "text": "O you who have believed, fear Allah and give up what remains of interest, if you should be believers.",
+      "source": "Surah Al-Baqarah, Verse 278"
+    },
+    "ayah3": {
+      "text": "Those who consume interest cannot stand on the Day of Resurrection except as one stands who is being beaten by Satan into insanity. That is because they say, 'Trade is just like interest.' But Allah has permitted trade and has forbidden interest.",
+      "source": "Surah Al-Baqarah, Verse 275"
+    }
+  },
+  "activities": {
+    "title": "Our Activities",
+    "subtitle": "We don't just provide financing, we do much more for the welfare of society",
+    "finance": {
+      "title": "Interest-Free Finance",
+      "description": "Providing completely interest-free loans based on Qard al-Hasan principle"
+    },
+    "education": {
+      "title": "Education Support",
+      "description": "Scholarships and educational materials for underprivileged students"
+    },
+    "health": {
+      "title": "Health Services",
+      "description": "Free health camps and medical assistance"
+    },
+    "charity": {
+      "title": "Charity & Sadaqah",
+      "description": "Distribution of Zakat and Sadaqah among the needy"
+    },
+    "training": {
+      "title": "Skill Development",
+      "description": "Technical training for unemployed youth"
+    },
+    "social": {
+      "title": "Social Activities",
+      "description": "Organizing various social and religious events"
+    }
+  },
+  "gallery": {
+    "title": "Our Activity Gallery",
+    "subtitle": "Memories from our various activities",
+    "viewAll": "View All",
+    "noImages": "No images added yet"
+  },
   "stats": {
     "totalMembers": "Total Members",
     "totalDeposits": "Total Deposits",
@@ -64,7 +115,7 @@
   },
   "features": {
     "title": "Why Choose Hasnahena?",
-    "subtitle": "Our cooperative is built on Islamic principles of mutual help and interest-free lending",
+    "subtitle": "We are built on Islamic principles of mutual help and interest-free lending",
     "noInterest": {
       "title": "Zero Interest",
       "description": "All loans are 100% interest-free, following the Qard al-Hasan principle"
@@ -140,10 +191,102 @@
     "loanBalance": "Loan Balance",
     "loanEligibility": "Loan Eligibility",
     "recentTransactions": "Recent Transactions",
-    "viewAll": "View All"
+    "viewAll": "View All",
+    "myDeposits": "My Deposits",
+    "depositHistory": "Deposit History",
+    "requestDeposit": "Request Deposit",
+    "pendingDeposits": "Pending Deposits",
+    "confirmedDeposits": "Confirmed Deposits",
+    "depositAmount": "Deposit Amount",
+    "depositDate": "Deposit Date",
+    "receiptNumber": "Receipt Number",
+    "status": "Status",
+    "actions": "Actions",
+    "confirm": "Confirm",
+    "dispute": "Dispute",
+    "pending": "Pending",
+    "processed": "Processed",
+    "confirmed": "Confirmed",
+    "disputed": "Disputed",
+    "enterAmount": "Enter Amount",
+    "minDeposit": "Minimum deposit: ৳100",
+    "submitRequest": "Submit Request",
+    "myLoans": "My Loans",
+    "loanHistory": "Loan History",
+    "applyForLoan": "Apply for Loan",
+    "activeLoan": "Active Loan",
+    "noActiveLoan": "No Active Loan",
+    "loanAmount": "Loan Amount",
+    "remainingAmount": "Remaining Amount",
+    "installments": "Installments",
+    "paidInstallments": "Paid Installments",
+    "nextInstallment": "Next Installment",
+    "installmentAmount": "Installment Amount",
+    "dueDate": "Due Date",
+    "loanPurpose": "Loan Purpose",
+    "selectGuarantor": "Select Guarantor",
+    "guarantorPending": "Awaiting Guarantor Approval",
+    "adminPending": "Awaiting Admin Approval",
+    "loanApproved": "Loan Approved",
+    "loanDisbursed": "Loan Disbursed",
+    "loanCompleted": "Loan Completed",
+    "maxLoanAmount": "Maximum Loan Amount",
+    "eligibilityCriteria": "Eligibility Criteria",
+    "minDepositRequired": "Minimum deposit required",
+    "yourDeposit": "Your current deposit",
+    "guarantorRequests": "Guarantor Requests",
+    "acceptGuarantor": "Accept",
+    "rejectGuarantor": "Reject",
+    "noGuarantorRequests": "No pending guarantor requests",
+    "transactionHistory": "Transaction History",
+    "allTransactions": "All Transactions",
+    "filterByType": "Filter by Type",
+    "filterByDate": "Filter by Date",
+    "transactionType": "Type",
+    "amount": "Amount",
+    "date": "Date",
+    "description": "Description",
+    "balance": "Balance",
+    "deposit": "Deposit",
+    "withdrawal": "Withdrawal",
+    "loanDisbursement": "Loan Disbursement",
+    "loanRepayment": "Loan Repayment",
+    "raiseDispute": "Raise Dispute",
+    "disputeReason": "Dispute Reason",
+    "correctAmount": "Correct Amount",
+    "submitDispute": "Submit Dispute",
+    "myProfile": "My Profile",
+    "personalInfo": "Personal Information",
+    "nomineeInfo": "Nominee Information",
+    "accountInfo": "Account Information",
+    "fullName": "Full Name",
+    "fatherName": "Father's Name",
+    "motherName": "Mother's Name",
+    "phone": "Phone Number",
+    "email": "Email",
+    "nidNumber": "NID Number",
+    "dateOfBirth": "Date of Birth",
+    "maritalStatus": "Marital Status",
+    "address": "Address",
+    "permanentAddress": "Permanent Address",
+    "presentAddress": "Present Address",
+    "nomineeName": "Nominee Name",
+    "nomineeRelation": "Relationship",
+    "nomineeNid": "Nominee NID",
+    "updateNominee": "Update Nominee",
+    "accountNumber": "Account Number",
+    "memberSince": "Member Since",
+    "memberStatus": "Member Status",
+    "active": "Active",
+    "requestWithdrawal": "Request Withdrawal",
+    "withdrawalAmount": "Withdrawal Amount",
+    "withdrawalNotice": "Note: Withdrawal requires 3 months advance notice",
+    "insufficientBalance": "Insufficient Balance",
+    "withdrawalBlocked": "Withdrawal blocked due to active loan or guarantee",
+    "downloadStatement": "Download Statement"
   },
   "footer": {
-    "description": "A community-driven interest-free cooperative finance platform based on Islamic principles of Qard al-Hasan.",
+    "description": "A community-driven interest-free finance platform based on Islamic principles of Qard al-Hasan.",
     "quickLinks": "Quick Links",
     "resources": "Resources",
     "legal": "Legal",

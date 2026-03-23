@@ -6,13 +6,12 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Header } from '@/components/layout/header';
-import { Footer } from '@/components/layout/footer';
+import { Logo } from '@/components/ui/logo';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -114,9 +113,39 @@ export default function RegisterPage() {
     : ['Personal Info', 'Address', 'Nominee', 'Documents'];
 
   return (
-    <>
-      <Header />
-      <main className="flex-1 py-8 px-4 bg-muted/30">
+    <div className="min-h-screen bg-slate-50">
+      {/* Header with Navigation */}
+      <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md">
+        <div className="container-wide flex h-14 items-center justify-between">
+          <div className="flex items-center gap-6">
+            <Link href={`/${locale}`}>
+              <Logo size="sm" showTagline={false} />
+            </Link>
+            <Link
+              href={`/${locale}`}
+              className="hidden sm:flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              ← {locale === 'bn' ? 'হোম' : 'Home'}
+            </Link>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href={`/${locale === 'en' ? 'bn' : 'en'}/register`}>
+              <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+                <Globe className="h-4 w-4" />
+                <span className="text-sm">{locale === 'en' ? 'বাংলা' : 'English'}</span>
+              </Button>
+            </Link>
+            <Link
+              href={`/${locale}/login`}
+              className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+            >
+              {locale === 'bn' ? 'লগইন করুন' : 'Login'}
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="py-8 px-4">
         <div className="container-wide max-w-4xl">
           {/* Progress Steps */}
           <div className="mb-8">
@@ -125,12 +154,12 @@ export default function RegisterPage() {
                 <div key={step.id} className="flex items-center">
                   <div className="flex flex-col items-center">
                     <div
-                      className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-colors ${
+                      className={`h-11 w-11 rounded-xl flex items-center justify-center border-2 transition-all ${
                         index < currentStep
-                          ? 'bg-primary border-primary text-primary-foreground'
+                          ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-primary/25'
                           : index === currentStep
-                          ? 'border-primary text-primary'
-                          : 'border-muted-foreground/30 text-muted-foreground'
+                          ? 'border-primary text-primary bg-primary/5'
+                          : 'border-slate-200 text-slate-400 bg-white'
                       }`}
                     >
                       {index < currentStep ? (
@@ -139,14 +168,16 @@ export default function RegisterPage() {
                         <step.icon className="h-5 w-5" />
                       )}
                     </div>
-                    <span className="text-xs mt-2 hidden sm:block">
+                    <span className={`text-xs mt-2 hidden sm:block font-medium ${
+                      index <= currentStep ? 'text-primary' : 'text-muted-foreground'
+                    }`}>
                       {stepTitles[index]}
                     </span>
                   </div>
                   {index < steps.length - 1 && (
                     <div
-                      className={`h-1 w-12 sm:w-24 mx-2 ${
-                        index < currentStep ? 'bg-primary' : 'bg-muted-foreground/30'
+                      className={`h-0.5 w-12 sm:w-24 mx-2 rounded-full transition-colors ${
+                        index < currentStep ? 'bg-primary' : 'bg-slate-200'
                       }`}
                     />
                   )}
@@ -155,12 +186,12 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">
+          <Card className="border-slate-100 shadow-xl shadow-slate-200/50">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-2xl font-bold">
                 {locale === 'bn' ? 'হাসনাহেনায় নিবন্ধন' : 'Register for Hasnahena'}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-base">
                 {locale === 'bn'
                   ? 'সুদমুক্ত অর্থায়নে আপনার যাত্রা শুরু করুন'
                   : 'Start your journey to interest-free finance'}
@@ -171,31 +202,33 @@ export default function RegisterPage() {
                 {/* Step 1: Personal Information */}
                 {currentStep === 0 && (
                   <div className="space-y-6">
-                    <h3 className="text-lg font-semibold border-b pb-2">
+                    <h3 className="text-lg font-semibold border-b border-slate-100 pb-3 text-slate-800">
                       {locale === 'bn' ? 'ব্যক্তিগত তথ্য' : 'Personal Information'}
                     </h3>
                     
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="nameEn">
+                        <Label htmlFor="nameEn" className="text-sm font-medium">
                           {locale === 'bn' ? 'নাম (ইংরেজি) *' : 'Name (English) *'}
                         </Label>
                         <Input
                           id="nameEn"
+                          className="h-11 bg-white border-slate-200 focus:border-primary"
                           placeholder="Full name in English"
                           {...register('nameEn')}
                         />
                         {errors.nameEn && (
-                          <p className="text-sm text-destructive">{errors.nameEn.message}</p>
+                          <p className="text-sm text-red-500">{errors.nameEn.message}</p>
                         )}
                       </div>
                       
                       <div className="space-y-2">
-                        <Label htmlFor="nameBn">
+                        <Label htmlFor="nameBn" className="text-sm font-medium">
                           {locale === 'bn' ? 'নাম (বাংলা)' : 'Name (Bengali)'}
                         </Label>
                         <Input
                           id="nameBn"
+                          className="h-11 bg-white border-slate-200 focus:border-primary"
                           placeholder="পূর্ণ নাম বাংলায়"
                           {...register('nameBn')}
                         />
@@ -702,9 +735,25 @@ export default function RegisterPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Back to home link */}
+          <p className="text-center mt-8">
+            <Link
+              href={`/${locale}`}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              ← {locale === 'bn' ? 'হোম পেজে ফিরে যান' : 'Back to home'}
+            </Link>
+          </p>
         </div>
       </main>
-      <Footer />
-    </>
+
+      {/* Simple Footer */}
+      <footer className="border-t border-slate-100 py-6 mt-8">
+        <p className="text-center text-sm text-muted-foreground">
+          © {new Date().getFullYear()} Hasnahena. {locale === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
+        </p>
+      </footer>
+    </div>
   );
 }

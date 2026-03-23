@@ -6,11 +6,12 @@ export const defaultLocale = 'bn' as const;
 export type Locale = (typeof locales)[number];
 
 export default getRequestConfig(async ({ requestLocale }) => {
-  const locale = await requestLocale;
-  
-  // Ensure the locale is valid
-  const finalLocale = locale && locales.includes(locale as Locale) ? locale : defaultLocale;
-  
+  const requested = await requestLocale;
+  const finalLocale =
+    requested && locales.includes(requested as Locale)
+      ? (requested as Locale)
+      : defaultLocale;
+
   return {
     locale: finalLocale,
     messages: (await import(`./messages/${finalLocale}.json`)).default,

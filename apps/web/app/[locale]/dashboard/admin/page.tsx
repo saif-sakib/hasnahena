@@ -63,8 +63,8 @@ export default function AdminDashboard() {
       </div>
 
       {/* Main Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'মোট সদস্য' : 'Total Members'}
@@ -80,7 +80,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'মোট আমানত' : 'Total Deposits'}
@@ -97,7 +97,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'বিতরণকৃত ঋণ' : 'Loans Disbursed'}
@@ -114,7 +114,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'দান তহবিল' : 'Charity Fund'}
@@ -133,8 +133,8 @@ export default function AdminDashboard() {
       </div>
 
       {/* Secondary Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
+      <div className="grid gap-5 sm:grid-cols-3">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'কর্মী সংখ্যা' : 'Workers'}
@@ -149,7 +149,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-red-200 bg-red-50/50 dark:bg-red-950/20">
+        <Card className="rounded-2xl border-red-200 bg-red-50/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'ঝুঁকিপূর্ণ ঋণ' : 'At Risk Loans'}
@@ -164,7 +164,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'পুনরুদ্ধার হার' : 'Recovery Rate'}
@@ -180,9 +180,9 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         {/* Recent Activity */}
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>
               {locale === 'bn' ? 'সাম্প্রতিক কার্যক্রম' : 'Recent Activity'}
@@ -198,7 +198,7 @@ export default function AdminDashboard() {
               {recentActivity.map((activity) => (
                 <div
                   key={activity.id}
-                  className="flex items-center justify-between py-2 border-b last:border-0"
+                  className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
                 >
                   <div>
                     <p className="font-medium">{activity.action}</p>
@@ -212,7 +212,7 @@ export default function AdminDashboard() {
         </Card>
 
         {/* Quick Stats Chart Placeholder */}
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>
               {locale === 'bn' ? 'মাসিক সারসংক্ষেপ' : 'Monthly Summary'}
@@ -224,7 +224,7 @@ export default function AdminDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-48 flex items-center justify-center bg-muted/30 rounded-lg">
+            <div className="h-48 flex items-center justify-center rounded-xl bg-slate-50">
               <div className="text-center text-muted-foreground">
                 <BarChart3 className="h-12 w-12 mx-auto mb-2" />
                 <p>{locale === 'bn' ? 'চার্ট শীঘ্রই আসছে' : 'Chart coming soon'}</p>

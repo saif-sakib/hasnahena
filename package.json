@@ -6,10 +6,13 @@
   "author": "Md Saif Ahmed <saifahmedsakib@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "dev": "pnpm --filter @hasnahena/web dev",
+    "dev": "sh -c 'pnpm dev:api & pnpm dev:web'",
+    "dev:web": "pnpm --filter @hasnahena/web dev",
+    "dev:api": "set -a && [ -f .env.local ] && . ./.env.local && set +a && cd apps/api && go run cmd/server/main.go",
     "build": "pnpm --filter @hasnahena/web build",
     "start": "pnpm --filter @hasnahena/web start",
     "lint": "pnpm --filter @hasnahena/web lint",
+    "db:seed": "pnpm --filter @hasnahena/web db:seed",
     "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
     "typecheck": "pnpm --filter @hasnahena/web typecheck",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"
