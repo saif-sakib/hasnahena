@@ -8,11 +8,14 @@
   "scripts": {
     "dev": "sh -c 'pnpm dev:api & pnpm dev:web'",
     "dev:web": "pnpm --filter @hasnahena/web dev",
-    "dev:api": "set -a && [ -f .env.local ] && . ./.env.local && set +a && cd apps/api && go run cmd/server/main.go",
+    "dev:api": "cd apps/api && go run cmd/server/main.go",
     "build": "pnpm --filter @hasnahena/web build",
     "start": "pnpm --filter @hasnahena/web start",
     "lint": "pnpm --filter @hasnahena/web lint",
-    "db:seed": "pnpm --filter @hasnahena/web db:seed",
+    "db:seed": "cd apps/api && go run cmd/seed/main.go",
+    "db:seed:api": "cd apps/api && go run cmd/seed/main.go",
+    "db:seed:reset": "cd apps/api && go run cmd/seed/main.go --reset",
+    "db:seed:web": "pnpm --filter @hasnahena/web db:seed",
     "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
     "typecheck": "pnpm --filter @hasnahena/web typecheck",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"

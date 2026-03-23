@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,9 +16,22 @@ import (
 )
 
 func main() {
+	reset := flag.Bool("reset", false, "truncate application tables before seeding")
+	checkEnv := flag.Bool("check-env", false, "validate environment loading and exit")
+	flag.Parse()
+
+	if err := loadSeedEnvironment(); err != nil {
+		log.Fatalf("Failed to load environment: %v", err)
+	}
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
+	}
+
+	if *checkEnv {
+		log.Println("Environment check successful: DATABASE_URL is set")
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -27,6 +44,13 @@ func main() {
 	defer pool.Close()
 
 	log.Println("Connected to database, starting seed...")
+
+	if *reset || strings.EqualFold(os.Getenv("SEED_RESET"), "true") {
+		log.Println("Reset flag enabled, truncating existing application data...")
+		if err := resetData(ctx, pool); err != nil {
+			log.Fatalf("Reset failed: %v", err)
+		}
+	}
 
 	if err := seedData(ctx, pool); err != nil {
 		log.Fatalf("Seed failed: %v", err)
@@ -41,6 +65,118 @@ func hashPassword(password string) string {
 		log.Fatalf("Failed to hash password: %v", err)
 	}
 	return string(hash)
+}
+
+func loadSeedEnvironment() error {
+	// Keep already-exported environment variables as highest priority.
+	if os.Getenv("DATABASE_URL") != "" {
+		return nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	paths := []string{
+		filepath.Join(wd, ".env"),
+		filepath.Join(wd, ".env.local"),
+		filepath.Join(wd, "..", ".env"),
+		filepath.Join(wd, "..", ".env.local"),
+		filepath.Join(wd, "..", "..", ".env"),
+		filepath.Join(wd, "..", "..", ".env.local"),
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			if err := loadEnvFile(p); err != nil {
+				return fmt.Errorf("failed parsing %s: %w", p, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func loadEnvFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		// Do not overwrite values that were already set by the shell/process.
+		if os.Getenv(key) != "" {
+			continue
+		}
+
+		raw := strings.TrimSpace(parts[1])
+		val := normalizeEnvValue(raw)
+		if err := os.Setenv(key, val); err != nil {
+			return err
+		}
+	}
+
+	return scanner.Err()
+}
+
+func normalizeEnvValue(raw string) string {
+	if raw == "" {
+		return raw
+	}
+
+	if (strings.HasPrefix(raw, `"`) && strings.HasSuffix(raw, `"`)) ||
+		(strings.HasPrefix(raw, `'`) && strings.HasSuffix(raw, `'`)) {
+		return raw[1 : len(raw)-1]
+	}
+
+	// Support unquoted values with trailing inline comments.
+	if idx := strings.Index(raw, " #"); idx >= 0 {
+		return strings.TrimSpace(raw[:idx])
+	}
+
+	return raw
+}
+
+func resetData(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		TRUNCATE TABLE
+			transactions,
+			loans,
+			accounts,
+			documents,
+			nominees,
+			addresses,
+			users,
+			branches,
+			system_config,
+			audit_logs
+		RESTART IDENTITY CASCADE;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to truncate seed tables: %w", err)
+	}
+
+	log.Println("Database reset completed")
+	return nil
 }
 
 func seedData(ctx context.Context, pool *pgxpool.Pool) error {
