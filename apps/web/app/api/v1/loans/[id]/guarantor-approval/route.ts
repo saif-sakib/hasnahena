@@ -13,6 +13,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const auth = requireAuth(req);
     const payload = bodySchema.parse(await req.json());
 
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(params.id)) {
+      return NextResponse.json({ ok: false, error: 'Invalid loan ID format' }, { status: 400 });
+    }
+
     const member = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true },

@@ -258,8 +258,7 @@ func (h *DashboardHandler) UserInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -291,8 +290,7 @@ func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Req
 // ==================== ADMIN APPROVAL HANDLERS ====================
 
 func (h *DashboardHandler) AdminApprovals(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetPendingApprovals(r.Context())
@@ -304,11 +302,11 @@ func (h *DashboardHandler) AdminApprovals(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		UserID string `json:"userId"`
@@ -328,11 +326,11 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 }
 
 func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		UserID string `json:"userId"`
@@ -352,11 +350,11 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 }
 
 func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		LoanID string `json:"loanId"`
@@ -375,11 +373,11 @@ func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		LoanID string `json:"loanId"`
@@ -399,11 +397,11 @@ func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		RequestID string `json:"requestId"`
@@ -422,11 +420,11 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		RequestID string `json:"requestId"`
@@ -448,8 +446,7 @@ func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Reque
 // ==================== ADMIN DEPOSITS HANDLERS ====================
 
 func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -474,6 +471,9 @@ func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
 		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
 		return
 	}
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+		return
+	}
 
 	filters := map[string]interface{}{
 		"status": r.URL.Query().Get("status"),
@@ -492,6 +492,9 @@ func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
 func (h *DashboardHandler) AdminLoanDetail(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.userIDFromRequest(r); err != nil {
 		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 

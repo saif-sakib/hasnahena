@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     });
     if (!borrower) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
     if (borrower.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+    if (borrower.status !== 'ACTIVE') return NextResponse.json({ ok: false, error: 'Account is not active' }, { status: 403 });
 
     const borrowerAccount = await prisma.account.findFirst({
       where: { userId: auth.id },

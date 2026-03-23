@@ -22,6 +22,7 @@ export function Header() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState('member');
 
   // Check login status from localStorage - use the correct token key
   useEffect(() => {
@@ -30,6 +31,16 @@ export function Header() {
         ? localStorage.getItem('hn_access_token') 
         : null;
       setIsLoggedIn(!!token);
+
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const role = payload.role?.toLowerCase() || 'member';
+          setUserRole(role);
+        } catch (e) {
+          setUserRole('member');
+        }
+      }
     };
     
     checkAuth();
@@ -94,7 +105,7 @@ export function Header() {
           <div className="hidden md:flex md:items-center md:gap-x-2">
             {isLoggedIn ? (
               <>
-                <Link href={`/${locale}/dashboard/member`}>
+                <Link href={`/${locale}/dashboard/${userRole}`}>
                   <Button variant="ghost" size="sm" className="gap-2">
                     <LayoutDashboard className="h-4 w-4" />
                     {t('dashboard')}
@@ -152,7 +163,7 @@ export function Header() {
             <div className="flex gap-3 pt-4 border-t mt-2">
               {isLoggedIn ? (
                 <>
-                  <Link href={`/${locale}/dashboard/member`} className="flex-1">
+                  <Link href={`/${locale}/dashboard/${userRole}`} className="flex-1">
                     <Button variant="outline" className="w-full gap-2">
                       <LayoutDashboard className="h-4 w-4" />
                       {t('dashboard')}

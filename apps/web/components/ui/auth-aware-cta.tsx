@@ -15,6 +15,7 @@ interface AuthAwareCTAProps {
 export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAwareCTAProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState('member');
 
   useEffect(() => {
     const checkAuth = () => {
@@ -22,6 +23,16 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
         ? localStorage.getItem('hn_access_token')
         : null;
       setIsLoggedIn(!!token);
+      
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const role = payload.role?.toLowerCase() || 'member';
+          setUserRole(role);
+        } catch (e) {
+          setUserRole('member');
+        }
+      }
       setIsLoading(false);
     };
 
@@ -53,7 +64,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     if (isLoggedIn) {
       return (
         <div className="flex flex-col sm:flex-row gap-4 pt-2">
-          <Link href={`/${locale}/dashboard/member`}>
+          <Link href={`/${locale}/dashboard/${userRole}`}>
             <Button size="xl" className="gap-2 w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
               <LayoutDashboard className="h-5 w-5" />
               {locale === 'bn' ? 'ড্যাশবোর্ডে যান' : 'Go to Dashboard'}

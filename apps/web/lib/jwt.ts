@@ -29,6 +29,14 @@ export function verifyHs256Jwt(token: string, secret: string): JwtClaims {
   if (parts.length !== 3) throw new Error('Invalid token format');
 
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
+
+  // Validate the alg header
+  const headerRaw = base64UrlDecode(encodedHeader);
+  const header = JSON.parse(headerRaw);
+  if (header.alg !== 'HS256') {
+    throw new Error('Invalid token algorithm');
+  }
+
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
   const expectedSig = base64UrlEncode(crypto.createHmac('sha256', secret).update(signingInput).digest());
