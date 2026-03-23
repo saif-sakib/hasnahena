@@ -74,7 +74,10 @@ Run API health after backend deploy later, and verify login endpoints return val
 2. Add New Project -> import this repository
 3. Configure:
    - Framework: Next.js (auto-detected)
-   - Root Directory: `apps/web`
+   - Root Directory: `apps/web` (IMPORTANT: You must set this!)
+   - Build & Development Settings (if not auto-detected from vercel.json):
+     - Install Command: `cd ../.. && corepack enable && pnpm install`
+     - Build Command: `cd ../.. && pnpm build`
 
 ### 2.2 Environment variables in Vercel
 
@@ -196,6 +199,10 @@ Wait for DNS propagation (can take some time).
 ---
 
 ## 7) Troubleshooting
+
+### Error: `ERR_PNPM_UNSUPPORTED_ENGINE`
+This happens if Vercel uses an old `pnpm` version (v6) instead of the project's required version (v8+).
+Fix: Ensure `installCommand` in Vercel settings is set to `cd ../.. && corepack enable && pnpm install`. This forces Vercel to use the version specified in `package.json`.
 
 ### Error: `relation "users" does not exist`
 
