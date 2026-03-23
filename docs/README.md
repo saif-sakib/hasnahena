@@ -34,6 +34,12 @@ Original source materials and organized specifications:
 | [Tech stack.txt](references/Tech%20stack.txt) | Original tech stack decisions |
 | [Hosting.txt](references/Hosting.txt) | Original hosting decisions |
 
+### Deployment Guides
+
+| Document | Description |
+|----------|-------------|
+| [Free Hosting Deployment Guide](DEPLOYMENT_FREE_HOSTING.md) | Step-by-step setup for Neon, Vercel, Render, Cloudinary, and Namecheap DNS |
+
 ### LaTeX Source Files
 
 All specification documents are written in LaTeX for professional formatting. Source files are in `latex/` directory.
