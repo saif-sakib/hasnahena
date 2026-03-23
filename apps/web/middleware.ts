@@ -9,11 +9,6 @@ export default createMiddleware({
 
 export const config = {
   matcher: [
-    // Match root
-    '/',
-    // Match locale prefixed paths
-    '/(bn|en)/:path*',
-    // Match all paths except static files and API
-    '/((?!api|_next|_vercel|favicon\\.ico|images|.*\\..*).*)',
+    '/((?!api|_next|_vercel|.*\\..*).*)',
   ],
 };

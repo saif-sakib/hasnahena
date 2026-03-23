@@ -54,8 +54,8 @@ export default function WorkerDashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'মোট সদস্য' : 'Total Members'}
@@ -70,7 +70,7 @@ export default function WorkerDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20">
+        <Card className="rounded-2xl border-amber-200 bg-amber-50/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'অপেক্ষমান অনুরোধ' : 'Pending Requests'}
@@ -85,7 +85,7 @@ export default function WorkerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'আজকের জমা' : "Today's Deposits"}
@@ -102,7 +102,7 @@ export default function WorkerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               {locale === 'bn' ? 'আজকের ঋণ' : "Today's Loans"}
@@ -141,7 +141,7 @@ export default function WorkerDashboard() {
       </div>
 
       {/* Pending Requests */}
-      <Card>
+      <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>
@@ -162,7 +162,7 @@ export default function WorkerDashboard() {
             {pendingRequests.map((req) => (
               <div
                 key={req.id}
-                className="flex items-center justify-between py-3 border-b last:border-0"
+                className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <span
