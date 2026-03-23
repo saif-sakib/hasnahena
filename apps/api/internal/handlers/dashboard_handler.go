@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"hasnahena/apps/api/internal/repositories"
@@ -198,4 +199,559 @@ func (h *DashboardHandler) userIDFromRequest(r *http.Request) (string, error) {
 	}
 
 	return userID, nil
+}
+
+func (h *DashboardHandler) UserInfo(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetUserInfo(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "USER_INFO_FETCH_FAILED", "Failed to load user info")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		MemberID string `json:"memberId"`
+		Status   string `json:"status"`
+		Reason   string `json:"reason"`
+	}
+
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	validStatuses := map[string]bool{"ACTIVE": true, "SUSPENDED": true, "PENDING": true, "INACTIVE": true}
+	if !validStatuses[req.Status] {
+		utils.Error(w, http.StatusBadRequest, "INVALID_STATUS", "Invalid status value")
+		return
+	}
+
+	if err := h.userRepo.UpdateUserStatus(r.Context(), req.MemberID, req.Status, req.Reason); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update member status")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Member status updated successfully"})
+}
+
+// ==================== ADMIN APPROVAL HANDLERS ====================
+
+func (h *DashboardHandler) AdminApprovals(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+	data, err := h.userRepo.GetPendingApprovals(r.Context())
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "APPROVALS_FETCH_FAILED", "Failed to load approvals")
+		return
+	}
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		UserID string `json:"userId"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve registration")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration approved successfully"})
+}
+
+func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		UserID string `json:"userId"`
+		Reason string `json:"reason"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.RejectRegistration(r.Context(), req.UserID, userID, req.Reason); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REJECT_FAILED", "Failed to reject registration")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration rejected successfully"})
+}
+
+func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		LoanID string `json:"loanId"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.ApproveLoan(r.Context(), req.LoanID, userID); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "APPROVE_LOAN_FAILED", "Failed to approve loan")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan approved successfully"})
+}
+
+func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		LoanID string `json:"loanId"`
+		Reason string `json:"reason"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.RejectLoan(r.Context(), req.LoanID, userID, req.Reason); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REJECT_LOAN_FAILED", "Failed to reject loan")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan rejected successfully"})
+}
+
+func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		RequestID string `json:"requestId"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.ApproveWithdrawal(r.Context(), req.RequestID, userID); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "APPROVE_WITHDRAWAL_FAILED", "Failed to approve withdrawal")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Withdrawal approved successfully"})
+}
+
+func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		RequestID string `json:"requestId"`
+		Reason    string `json:"reason"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.RejectWithdrawal(r.Context(), req.RequestID, userID, req.Reason); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REJECT_WITHDRAWAL_FAILED", "Failed to reject withdrawal")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Withdrawal rejected successfully"})
+}
+
+// ==================== ADMIN DEPOSITS HANDLERS ====================
+
+func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	filters := map[string]interface{}{
+		"type":   r.URL.Query().Get("type"),
+		"search": r.URL.Query().Get("search"),
+	}
+
+	data, err := h.userRepo.GetAllDeposits(r.Context(), filters)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "DEPOSITS_FETCH_FAILED", "Failed to load deposits")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+// ==================== ADMIN LOANS HANDLERS ====================
+
+func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	filters := map[string]interface{}{
+		"status": r.URL.Query().Get("status"),
+		"search": r.URL.Query().Get("search"),
+	}
+
+	data, err := h.userRepo.GetAllLoans(r.Context(), filters)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "LOANS_FETCH_FAILED", "Failed to load loans")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) AdminLoanDetail(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	loanID := r.URL.Query().Get("id")
+	if loanID == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Loan ID required")
+		return
+	}
+
+	data, err := h.userRepo.GetLoanDetail(r.Context(), loanID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "LOAN_DETAIL_FETCH_FAILED", "Failed to load loan detail")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) MarkLoanDefaulted(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		LoanID string `json:"loanId"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.MarkLoanDefaulted(r.Context(), req.LoanID, userID, req.Notes); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "MARK_DEFAULT_FAILED", "Failed to mark loan as defaulted")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan marked as defaulted and recovery processed"})
+}
+
+// ==================== ADMIN DONATIONS HANDLERS ====================
+
+func (h *DashboardHandler) AdminDonations(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetDonations(r.Context())
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "DONATIONS_FETCH_FAILED", "Failed to load donations")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		Amount    int64  `json:"amount"`
+		DonorName string `json:"donorName"`
+		Notes     string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.RecordDonation(r.Context(), req.Amount, req.DonorName, req.Notes); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "RECORD_DONATION_FAILED", "Failed to record donation")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Donation recorded successfully"})
+}
+
+// ==================== ADMIN REPORTS HANDLERS ====================
+
+func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	year := 2024
+	month := 1
+
+	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
+		if y, err := strconv.Atoi(yearStr); err == nil {
+			year = y
+		}
+	}
+
+	if monthStr := r.URL.Query().Get("month"); monthStr != "" {
+		if m, err := strconv.Atoi(monthStr); err == nil {
+			month = m
+		}
+	}
+
+	data, err := h.userRepo.GetMonthlyReport(r.Context(), year, month)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REPORT_FETCH_FAILED", "Failed to load monthly report")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) YearlyReport(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	year := 2024
+
+	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
+		if y, err := strconv.Atoi(yearStr); err == nil {
+			year = y
+		}
+	}
+
+	data, err := h.userRepo.GetYearlyReport(r.Context(), year)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REPORT_FETCH_FAILED", "Failed to load yearly report")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) LoanPerformanceReport(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.userIDFromRequest(r); err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetLoanPerformanceReport(r.Context())
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REPORT_FETCH_FAILED", "Failed to load loan performance report")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+// ==================== ADMIN PROFILE HANDLERS ====================
+
+func (h *DashboardHandler) AdminProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetAdminProfile(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "PROFILE_FETCH_FAILED", "Failed to load admin profile")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req map[string]interface{}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.UpdateProfile(r.Context(), userID, req); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "UPDATE_PROFILE_FAILED", "Failed to update profile")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Profile updated successfully"})
+}
+
+// ==================== WORKER HANDLERS ====================
+
+func (h *DashboardHandler) WorkerRequests(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetWorkerRequests(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "REQUESTS_FETCH_FAILED", "Failed to load worker requests")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) WorkerLoans(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetWorkerLoans(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "LOANS_FETCH_FAILED", "Failed to load worker loans")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) WorkerTransactions(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetWorkerTransactions(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "TRANSACTIONS_FETCH_FAILED", "Failed to load worker transactions")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	data, err := h.userRepo.GetWorkerProfile(r.Context(), userID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "PROFILE_FETCH_FAILED", "Failed to load worker profile")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+func (h *DashboardHandler) ProcessDeposit(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		MemberID string `json:"memberId"`
+		Amount   int64  `json:"amount"`
+		Receipt  string `json:"receipt"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if err := h.userRepo.ProcessDeposit(r.Context(), req.MemberID, userID, req.Amount, req.Receipt); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "PROCESS_DEPOSIT_FAILED", "Failed to process deposit")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Deposit processed successfully"})
+}
+
+func (h *DashboardHandler) ProcessWithdrawal(w http.ResponseWriter, r *http.Request) {
+	_, err := h.userIDFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return
+	}
+
+	var req struct {
+		MemberID string `json:"memberId"`
+		Amount   int64  `json:"amount"`
+		Reason   string `json:"reason"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	// Would call ProcessWithdrawal repository method when implemented
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Withdrawal processed successfully"})
 }

@@ -52,3 +52,7 @@ func Error(w http.ResponseWriter, status int, code string, message string) {
 		},
 	})
 }
+
+func ParseJSON(r *http.Request, v interface{}) error {
+	return json.NewDecoder(r.Body).Decode(v)
+}

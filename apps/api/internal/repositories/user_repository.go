@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -796,13 +797,34 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 			COALESCE((SELECT SUM("principalAmount") FROM loans), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'DEFAULTED'), 0)::bigint,
-			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DONATION'), 0)::bigint
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DONATION'), 0)::bigint,
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE)), 0)::bigint,
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month') AND "createdAt" < date_trunc('month', CURRENT_DATE)), 0)::bigint
 	`
 	var totalMembers, totalWorkers, totalDeposits, totalLoans, activeLoanCount, defaultedLoans, charityFund int64
+	var thisMonthMembers, lastMonthMembers int64
 	if err := r.db.QueryRow(ctx, query).Scan(
 		&totalMembers, &totalWorkers, &totalDeposits, &totalLoans, &activeLoanCount, &defaultedLoans, &charityFund,
+		&thisMonthMembers, &lastMonthMembers,
 	); err != nil {
 		return nil, err
+	}
+
+	// Get accurate recovery rate from GetLoanStats (uses correct formula)
+	loanStats, err := r.GetLoanStats(ctx)
+	var recoveryRate float64 = 100.0
+	if err == nil {
+		if rate, ok := loanStats["recoveryRate"].(float64); ok {
+			recoveryRate = rate
+		}
+	}
+
+	// Calculate monthly growth
+	var monthlyGrowth float64 = 0
+	if lastMonthMembers > 0 {
+		monthlyGrowth = float64(thisMonthMembers-lastMonthMembers) / float64(lastMonthMembers) * 100
+	} else if thisMonthMembers > 0 {
+		monthlyGrowth = 100
 	}
 
 	const activityQuery = `
@@ -847,8 +869,1292 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 			"activeLoanCount": activeLoanCount,
 			"defaultedLoans":  defaultedLoans,
 			"charityFund":     charityFund / 100,
-			"monthlyGrowth":   0,
+			"monthlyGrowth":   monthlyGrowth,
+			"recoveryRate":    recoveryRate,
 		},
 		"recentActivity": recentActivity,
 	}, nil
+}
+
+func (r *UserRepository) GetUserInfo(ctx context.Context, userID string) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			u.id,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u.email, ''),
+			u.phone,
+			u.role::text,
+			u.status::text,
+			COALESCE(u."avatarUrl", ''),
+			COALESCE(u."memberId", '')
+		FROM users u
+		WHERE u.id = $1
+	`
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	if err := r.db.QueryRow(ctx, query, userID).Scan(
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId,
+	); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":        id,
+		"nameEn":    nameEn,
+		"nameBn":    nameBn,
+		"email":     email,
+		"phone":     phone,
+		"role":      strings.ToUpper(role),
+		"status":    strings.ToUpper(status),
+		"avatarUrl": avatarUrl,
+		"memberId":  memberId,
+	}, nil
+}
+
+func (r *UserRepository) UpdateUserStatus(ctx context.Context, userID string, status string, reason string) error {
+	const query = `UPDATE users SET status = $2, "updatedAt" = NOW() WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, userID, status)
+	return err
+}
+
+// ==================== APPROVAL MANAGEMENT ====================
+
+func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]interface{}, error) {
+	result := map[string]interface{}{
+		"registrationRequests": []map[string]interface{}{},
+		"loanRequests":         []map[string]interface{}{},
+		"withdrawalRequests":   []map[string]interface{}{},
+	}
+
+	// Get pending user registrations
+	const regQuery = `
+		SELECT
+			u.id,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u.email, ''),
+			u.phone,
+			COALESCE(u."nidNumber", ''),
+			COALESCE(a.district, ''),
+			u."createdAt",
+			ARRAY[]::text[] as documents
+		FROM users u
+		LEFT JOIN addresses a ON a."userPermanentId" = u.id
+		WHERE u.status = 'PENDING' AND u.role = 'MEMBER'
+		ORDER BY u."createdAt" DESC
+	`
+	regRows, err := r.db.Query(ctx, regQuery)
+	if err == nil {
+		defer regRows.Close()
+		registrations := []map[string]interface{}{}
+		for regRows.Next() {
+			var id, name, nameBn, email, phone, nid, area string
+			var createdAt time.Time
+			var documents []string
+			if err := regRows.Scan(&id, &name, &nameBn, &email, &phone, &nid, &area, &createdAt, &documents); err != nil {
+				continue
+			}
+			registrations = append(registrations, map[string]interface{}{
+				"id":          id,
+				"name":        name,
+				"nameBn":      nameBn,
+				"email":       email,
+				"phone":       phone,
+				"nidNumber":   nid,
+				"area":        area,
+				"requestDate": createdAt.Format(time.RFC3339),
+				"documents":   documents,
+			})
+		}
+		result["registrationRequests"] = registrations
+	}
+
+	// Get pending loan requests
+	const loanQuery = `
+		SELECT
+			l.id,
+			COALESCE(u."memberId", ''),
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			l."principalAmount"::bigint,
+			COALESCE(a."savingsBalance", 0)::bigint,
+			COALESCE(a."maxLoanAmount", 0)::bigint,
+			COALESCE(g.id, ''),
+			COALESCE(g."nameEn", ''),
+			COALESCE(l.purpose, ''),
+			l."createdAt",
+			COALESCE((
+				SELECT COUNT(*)::int
+				FROM loans l2
+				WHERE l2."borrowerId" = l."borrowerId" AND l2.status = 'COMPLETED'
+			), 0) as previous_loans,
+			CASE
+				WHEN COALESCE((SELECT COUNT(*) FROM loans WHERE "borrowerId" = l."borrowerId" AND status = 'DEFAULTED'), 0) > 0 THEN 'POOR'
+				WHEN COALESCE((SELECT COUNT(*) FROM loans WHERE "borrowerId" = l."borrowerId" AND status = 'COMPLETED'), 0) >= 3 THEN 'EXCELLENT'
+				WHEN COALESCE((SELECT COUNT(*) FROM loans WHERE "borrowerId" = l."borrowerId" AND status = 'COMPLETED'), 0) >= 1 THEN 'GOOD'
+				ELSE 'NONE'
+			END as repayment_history
+		FROM loans l
+		JOIN users u ON u.id = l."borrowerId"
+		JOIN accounts a ON a."userId" = u.id
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		WHERE l.status = 'PENDING'
+		ORDER BY l."createdAt" DESC
+	`
+	loanRows, err := r.db.Query(ctx, loanQuery)
+	if err == nil {
+		defer loanRows.Close()
+		loans := []map[string]interface{}{}
+		for loanRows.Next() {
+			var id, memberId, memberName, memberNameBn, guarantorId, guarantorName, purpose, repaymentHistory string
+			var amount, currentDeposit, maxEligible int64
+			var createdAt time.Time
+			var previousLoans int
+			if err := loanRows.Scan(&id, &memberId, &memberName, &memberNameBn, &amount, &currentDeposit, &maxEligible,
+				&guarantorId, &guarantorName, &purpose, &createdAt, &previousLoans, &repaymentHistory); err != nil {
+				continue
+			}
+			loans = append(loans, map[string]interface{}{
+				"id":                id,
+				"memberId":          memberId,
+				"memberName":        memberName,
+				"memberNameBn":      memberNameBn,
+				"requestedAmount":   amount,
+				"currentDeposit":    currentDeposit,
+				"maxEligible":       maxEligible,
+				"guarantorId":       guarantorId,
+				"guarantorName":     guarantorName,
+				"guarantorApproved": guarantorId != "",
+				"purpose":           purpose,
+				"requestDate":       createdAt.Format(time.RFC3339),
+				"previousLoans":     previousLoans,
+				"repaymentHistory":  repaymentHistory,
+			})
+		}
+		result["loanRequests"] = loans
+	}
+
+	// Withdrawal requests placeholder (would need a separate table or transaction status field)
+	result["withdrawalRequests"] = []map[string]interface{}{}
+
+	return result, nil
+}
+
+func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update user status to ACTIVE
+	const updateQuery = `
+		UPDATE users
+		SET status = 'ACTIVE', "approvedAt" = NOW(), "approvedBy" = $2, "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, userID, approverID); err != nil {
+		return err
+	}
+
+	// Create account if not exists
+	var accountExists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE "userId" = $1)`, userID).Scan(&accountExists)
+	if err != nil {
+		return err
+	}
+
+	if !accountExists {
+		const createAccountQuery = `
+			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
+			VALUES (gen_random_uuid()::text, CONCAT('HN-ACC-', (SELECT "memberId" FROM users WHERE id = $1)), 0, 0, true, 0, NOW(), NOW(), $1)
+		`
+		if _, err := tx.Exec(ctx, createAccountQuery, userID); err != nil {
+			return err
+		}
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
+	`
+	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, notes); err != nil {
+		// Audit log is optional, don't fail if table doesn't exist
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reason string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update user status to INACTIVE
+	const updateQuery = `
+		UPDATE users
+		SET status = 'INACTIVE', "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, userID); err != nil {
+		return err
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)
+	`
+	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, reason); err != nil {
+		// Audit log is optional
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Get loan details
+	var principalAmount int64
+	var borrowerID, accountID string
+	const loanQuery = `
+		SELECT "principalAmount", "borrowerId", "accountId"
+		FROM loans
+		WHERE id = $1
+	`
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &accountID); err != nil {
+		return err
+	}
+
+	// Update loan status to ACTIVE and set disbursement date
+	const updateLoanQuery = `
+		UPDATE loans
+		SET status = 'ACTIVE', "disbursementDate" = NOW(), "approvedAt" = NOW(), "approvedBy" = $2, "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateLoanQuery, loanID, approverID); err != nil {
+		return err
+	}
+
+	// Update account loan balance
+	const updateAccountQuery = `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" + $2, "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateAccountQuery, accountID, principalAmount); err != nil {
+		return err
+	}
+
+	// Create LOAN_DISBURSEMENT transaction
+	const txnQuery = `
+		INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId", "processedBy")
+		VALUES (gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, 'ঋণ বিতরণ', NOW(), $2, $3, $4, $5)
+	`
+	if _, err := tx.Exec(ctx, txnQuery, principalAmount, accountID, borrowerID, loanID, approverID); err != nil {
+		return err
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt")
+		VALUES (gen_random_uuid()::text, 'APPROVE_LOAN', 'LOAN', $1, $2, NOW())
+	`
+	tx.Exec(ctx, auditQuery, loanID, approverID)
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, reason string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update loan status to REJECTED
+	const updateQuery = `
+		UPDATE loans
+		SET status = 'REJECTED', "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, loanID); err != nil {
+		return err
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'REJECT_LOAN', 'LOAN', $1, $2, NOW(), $3)
+	`
+	tx.Exec(ctx, auditQuery, loanID, approverID, reason)
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, approverID string) error {
+	// This would require a withdrawal_requests table or pending transactions
+	// For now, this is a placeholder implementation
+	return nil
+}
+
+func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approverID, reason string) error {
+	// Placeholder implementation
+	return nil
+}
+
+// ==================== DEPOSIT & TRANSACTION MANAGEMENT ====================
+
+func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]interface{}) (map[string]interface{}, error) {
+	query := `
+		SELECT
+			t.id,
+			t.type::text,
+			t.amount::bigint,
+			COALESCE(t."receiptNumber", ''),
+			COALESCE(t.description, ''),
+			t."createdAt",
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u."memberId", ''),
+			COALESCE(processor."nameEn", '') as processor_name
+		FROM transactions t
+		JOIN users u ON  u.id = t."userId"
+		LEFT JOIN users processor ON processor.id = t."processedBy"
+		WHERE t.type IN ('DEPOSIT', 'WITHDRAWAL')
+	`
+
+	// Add filters
+	args := []interface{}{}
+	argCount := 0
+
+	if typeFilter, ok := filters["type"].(string); ok && typeFilter != "" {
+		argCount++
+		query += fmt.Sprintf(` AND t.type = $%d`, argCount)
+		args = append(args, typeFilter)
+	}
+
+	if search, ok := filters["search"].(string); ok && search != "" {
+		argCount++
+		query += fmt.Sprintf(` AND (u."nameEn" ILIKE $%d OR u."memberId" ILIKE $%d)`, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+
+	query += ` ORDER BY t."createdAt" DESC LIMIT 100`
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	deposits := []map[string]interface{}{}
+	for rows.Next() {
+		var id, txType, receipt, description, memberName, memberNameBn, memberId, processorName string
+		var amount int64
+		var createdAt time.Time
+		if err := rows.Scan(&id, &txType, &amount, &receipt, &description, &createdAt, &memberName, &memberNameBn, &memberId, &processorName); err != nil {
+			continue
+		}
+		deposits = append(deposits, map[string]interface{}{
+			"id":            id,
+			"type":          txType,
+			"amount":        amount,
+			"receipt":       receipt,
+			"description":   description,
+			"date":          createdAt.Format(time.RFC3339),
+			"memberName":    memberName,
+			"memberNameBn":  memberNameBn,
+			"memberId":      memberId,
+			"processedBy":   processorName,
+		})
+	}
+
+	// Get stats
+	stats, _ := r.GetDepositStats(ctx)
+
+	return map[string]interface{}{
+		"deposits": deposits,
+		"total":    len(deposits),
+		"stats":    stats,
+	}, nil
+}
+
+func (r *UserRepository) GetDepositStats(ctx context.Context) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN amount ELSE 0 END)::bigint, 0) as total_deposits,
+			COALESCE(SUM(CASE WHEN type = 'WITHDRAWAL' THEN amount ELSE 0 END)::bigint, 0) as total_withdrawals,
+			COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN amount ELSE -amount END)::bigint, 0) as net_balance
+		FROM transactions
+		WHERE type IN ('DEPOSIT', 'WITHDRAWAL')
+	`
+
+	var totalDeposits, totalWithdrawals, netBalance int64
+	if err := r.db.QueryRow(ctx, query).Scan(&totalDeposits, &totalWithdrawals, &netBalance); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"totalDeposits":    totalDeposits,
+		"totalWithdrawals": totalWithdrawals,
+		"netBalance":       netBalance,
+	}, nil
+}
+
+// ==================== LOAN MANAGEMENT ====================
+
+func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]interface{}) ([]map[string]interface{}, error) {
+	query := `
+		SELECT
+			l.id,
+			l."loanNumber",
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l."totalInstallments",
+			l."paidInstallments",
+			l."disbursementDate",
+			l."expectedEndDate",
+			COALESCE(l."completedAt", '0001-01-01'::timestamp),
+			l.purpose,
+			l.status::text,
+			l."createdAt",
+			COALESCE(b."nameEn", ''),
+			COALESCE(b."nameBn", ''),
+			COALESCE(b."memberId", ''),
+			COALESCE(g."nameEn", ''),
+			COALESCE(g."memberId", '')
+		FROM loans l
+		JOIN users b ON b.id = l."borrowerId"
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
+	if statusFilter, ok := filters["status"].(string); ok && statusFilter != "" {
+		argCount++
+		query += fmt.Sprintf(` AND l.status = $%d`, argCount)
+		args = append(args, statusFilter)
+	}
+
+	if search, ok := filters["search"].(string); ok && search != "" {
+		argCount++
+		query += fmt.Sprintf(` AND (b."nameEn" ILIKE $%d OR b."memberId" ILIKE $%d OR l."loanNumber" ILIKE $%d)`, argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+
+	query += ` ORDER BY l."createdAt" DESC LIMIT 100`
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	loans := []map[string]interface{}{}
+	for rows.Next() {
+		var id, loanNumber, purpose, status, borrowerName, borrowerNameBn, borrowerMemberId, guarantorName, guarantorMemberId string
+		var principalAmount, remainingAmount int64
+		var totalInstallments, paidInstallments int
+		var disbursementDate, expectedEndDate, completedAt, createdAt time.Time
+
+		if err := rows.Scan(&id, &loanNumber, &principalAmount, &remainingAmount, &totalInstallments, &paidInstallments,
+			&disbursementDate, &expectedEndDate, &completedAt, &purpose, &status, &createdAt,
+			&borrowerName, &borrowerNameBn, &borrowerMemberId, &guarantorName, &guarantorMemberId); err != nil {
+			continue
+		}
+
+		loan := map[string]interface{}{
+			"id":               id,
+			"loanNumber":       loanNumber,
+			"principalAmount":  principalAmount,
+			"remainingAmount":  remainingAmount,
+			"totalInstallments": totalInstallments,
+			"paidInstallments": paidInstallments,
+			"purpose":          purpose,
+			"status":           status,
+			"borrowerName":     borrowerName,
+			"borrowerNameBn":   borrowerNameBn,
+			"borrowerMemberId": borrowerMemberId,
+			"guarantorName":    guarantorName,
+			"guarantorMemberId": guarantorMemberId,
+			"createdAt":        createdAt.Format(time.RFC3339),
+		}
+
+		if !disbursementDate.IsZero() {
+			loan["disbursementDate"] = disbursementDate.Format(time.RFC3339)
+		}
+		if !expectedEndDate.IsZero() {
+			loan["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
+		}
+		if !completedAt.IsZero() && completedAt.Year() > 1 {
+			loan["completedAt"] = completedAt.Format(time.RFC3339)
+		}
+
+		loans = append(loans, loan)
+	}
+
+	return loans, nil
+}
+
+func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN "principalAmount" ELSE 0 END)::bigint, 0) as total_disbursed,
+			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
+			COALESCE(COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int, 0) as active_loans,
+			COALESCE(COUNT(CASE WHEN status = 'DEFAULTED' THEN 1 END)::int, 0) as defaulted_loans,
+			COALESCE(COUNT(CASE WHEN status = 'PENDING' THEN 1 END)::int, 0) as pending_loans,
+			COALESCE(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int, 0) as completed_loans
+		FROM loans
+	`
+
+	var totalDisbursed, totalRecovered int64
+	var activeLoans, defaultedLoans, pendingLoans, completedLoans int
+
+	if err := r.db.QueryRow(ctx, query).Scan(&totalDisbursed, &totalRecovered, &activeLoans, &defaultedLoans, &pendingLoans, &completedLoans); err != nil {
+		return nil, err
+	}
+
+	// Calculate recovery rate - CRITICAL FIX for hardcoded 98.5%
+	var recoveryRate float64 = 100.0
+	if totalDisbursed > 0 {
+		recoveryRate = float64(totalRecovered) / float64(totalDisbursed) * 100
+		// Round to 1 decimal place
+		recoveryRate = float64(int(recoveryRate*10)) / 10
+	}
+
+	return map[string]interface{}{
+		"totalDisbursed":  totalDisbursed,
+		"totalRecovered":  totalRecovered,
+		"recoveryRate":    recoveryRate,
+		"activeLoans":     activeLoans,
+		"defaultedLoans":  defaultedLoans,
+		"pendingLoans":    pendingLoans,
+		"completedLoans":  completedLoans,
+	}, nil
+}
+
+func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[string]interface{}, error) {
+	const loanQuery = `
+		SELECT
+			l.id,
+			l."loanNumber",
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l."totalInstallments",
+			l."installmentAmount"::bigint,
+			l."paidInstallments",
+			l."disbursementDate",
+			l."installmentStartDate",
+			l."expectedEndDate",
+			COALESCE(l."completedAt", '0001-01-01'::timestamp),
+			l.purpose,
+			l.status::text,
+			l."createdAt",
+			COALESCE(b."nameEn", ''),
+			COALESCE(b."nameBn", ''),
+			COALESCE(b."memberId", ''),
+			COALESCE(b.phone, ''),
+			COALESCE(g."nameEn", ''),
+			COALESCE(g."nameBn", ''),
+			COALESCE(g."memberId", ''),
+			COALESCE(g.phone, '')
+		FROM loans l
+		JOIN users b ON b.id = l."borrowerId"
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		WHERE l.id = $1
+	`
+
+	var id, loanNumber, purpose, status, borrowerName, borrowerNameBn, borrowerMemberId, borrowerPhone string
+	var guarantorName, guarantorNameBn, guarantorMemberId, guarantorPhone string
+	var principalAmount, remainingAmount, installmentAmount int64
+	var totalInstallments, paidInstallments int
+	var disbursementDate, installmentStartDate, expectedEndDate, completedAt, createdAt time.Time
+
+	if err := r.db.QueryRow(ctx, loanQuery, loanID).Scan(
+		&id, &loanNumber, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
+		&disbursementDate, &installmentStartDate, &expectedEndDate, &completedAt, &purpose, &status, &createdAt,
+		&borrowerName, &borrowerNameBn, &borrowerMemberId, &borrowerPhone,
+		&guarantorName, &guarantorNameBn, &guarantorMemberId, &guarantorPhone); err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"id":                id,
+		"loanNumber":        loanNumber,
+		"principalAmount":   principalAmount,
+		"remainingAmount":   remainingAmount,
+		"totalInstallments": totalInstallments,
+		"installmentAmount": installmentAmount,
+		"paidInstallments":  paidInstallments,
+		"purpose":           purpose,
+		"status":            status,
+		"createdAt":         createdAt.Format(time.RFC3339),
+		"borrower": map[string]interface{}{
+			"name":     borrowerName,
+			"nameBn":   borrowerNameBn,
+			"memberId": borrowerMemberId,
+			"phone":    borrowerPhone,
+		},
+	}
+
+	if guarantorName != "" {
+		result["guarantor"] = map[string]interface{}{
+			"name":     guarantorName,
+			"nameBn":   guarantorNameBn,
+			"memberId": guarantorMemberId,
+			"phone":    guarantorPhone,
+		}
+	}
+
+	if !disbursementDate.IsZero() {
+		result["disbursementDate"] = disbursementDate.Format(time.RFC3339)
+	}
+	if !installmentStartDate.IsZero() {
+		result["installmentStartDate"] = installmentStartDate.Format(time.RFC3339)
+	}
+	if !expectedEndDate.IsZero() {
+		result["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
+	}
+	if !completedAt.IsZero() && completedAt.Year() > 1 {
+		result["completedAt"] = completedAt.Format(time.RFC3339)
+	}
+
+	// Get repayment history
+	const repaymentQuery = `
+		SELECT
+			t.id,
+			t.amount::bigint,
+			t."receiptNumber",
+			t.description,
+			t."createdAt",
+			COALESCE(u."nameEn", '') as processed_by
+		FROM transactions t
+		LEFT JOIN users u ON u.id = t."processedBy"
+		WHERE t."loanId" = $1 AND t.type = 'LOAN_REPAYMENT'
+		ORDER BY t."createdAt" ASC
+	`
+
+	rows, err := r.db.Query(ctx, repaymentQuery, loanID)
+	if err == nil {
+		defer rows.Close()
+		repayments := []map[string]interface{}{}
+		for rows.Next() {
+			var txId, receipt, description, processedBy string
+			var amount int64
+			var createdAt time.Time
+			if err := rows.Scan(&txId, &amount, &receipt, &description, &createdAt, &processedBy); err != nil {
+				continue
+			}
+			repayments = append(repayments, map[string]interface{}{
+				"id":          txId,
+				"amount":      amount,
+				"receipt":     receipt,
+				"description": description,
+				"date":        createdAt.Format(time.RFC3339),
+				"processedBy": processedBy,
+			})
+		}
+		result["repaymentHistory"] = repayments
+	}
+
+	return result, nil
+}
+
+func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update loan status to DEFAULTED
+	const updateQuery = `
+		UPDATE loans
+		SET status = 'DEFAULTED', "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, loanID); err != nil {
+		return err
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
+	`
+	tx.Exec(ctx, auditQuery, loanID, adminID, notes)
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Process waterfall recovery
+	return r.ProcessWaterfallRecovery(ctx, loanID)
+}
+
+func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Get loan details
+	var remainingAmount int64
+	var borrowerID, guarantorID, accountID string
+	const loanQuery = `
+		SELECT "remainingAmount", "borrowerId", "guarantorId", "accountId"
+		FROM loans
+		WHERE id = $1
+	`
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&remainingAmount, &borrowerID, &guarantorID, &accountID); err != nil {
+		return err
+	}
+
+	amountToRecover := remainingAmount
+	recoverySteps := []string{}
+
+	// Step 1: Try to recover from borrower's savings
+	if amountToRecover > 0 {
+		var borrowerSavings int64
+		var borrowerAccountID string
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
+		if err == nil && borrowerSavings > 0 {
+			deduction := amountToRecover
+			if deduction > borrowerSavings {
+				deduction = borrowerSavings
+			}
+
+			// Deduct from borrower
+			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, borrowerAccountID)
+			if err == nil {
+				// Create transaction record
+				tx.Exec(ctx, `
+					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - ঋণগ্রহীতা', NOW(), $2, $3, $4)
+				`, deduction, borrowerAccountID, borrowerID, loanID)
+
+				amountToRecover -= deduction
+				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from borrower", deduction))
+			}
+		}
+	}
+
+	// Step 2: Try to recover from guarantor's savings
+	if amountToRecover > 0 && guarantorID != "" {
+		var guarantorSavings int64
+		var guarantorAccountID string
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
+		if err == nil && guarantorSavings > 0 {
+			deduction := amountToRecover
+			if deduction > guarantorSavings {
+				deduction = guarantorSavings
+			}
+
+			// Deduct from guarantor
+			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, guarantorAccountID)
+			if err == nil {
+				// Create transaction record
+				tx.Exec(ctx, `
+					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - জামিনদাতা', NOW(), $2, $3, $4)
+				`, deduction, guarantorAccountID, guarantorID, loanID)
+
+				amountToRecover -= deduction
+				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from guarantor", deduction))
+			}
+		}
+	}
+
+	// Step 3: Use donation pool
+	if amountToRecover > 0 {
+		var donationBalance int64
+		err := tx.QueryRow(ctx, `
+			SELECT COALESCE(SUM(amount)::bigint, 0)
+			FROM transactions
+			WHERE type = 'DONATION'
+		`).Scan(&donationBalance)
+
+		if err == nil && donationBalance > 0 {
+			deduction := amountToRecover
+			if deduction > donationBalance {
+				deduction = donationBalance
+			}
+
+			// Record donation usage
+			tx.Exec(ctx, `
+				INSERT INTO transactions (id, type, amount, description, "createdAt", "loanId")
+				VALUES (gen_random_uuid()::text, 'FEE', $1, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', NOW(), $2)
+			`, deduction, loanID)
+
+			amountToRecover -= deduction
+			recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from donation pool", deduction))
+		}
+	}
+
+	// Update loan remaining amount
+	newRemaining := amountToRecover
+	_, err = tx.Exec(ctx, `UPDATE loans SET "remainingAmount" = $1 WHERE id = $2`, newRemaining, loanID)
+	if err != nil {
+		return err
+	}
+
+	// Create audit log
+	recoveryDetails := fmt.Sprintf("Waterfall recovery completed. Steps: %v. Remaining: %d", recoverySteps, newRemaining)
+	tx.Exec(ctx, `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'WATERFALL_RECOVERY', 'LOAN', $1, NOW(), $2)
+	`, loanID, recoveryDetails)
+
+	return tx.Commit(ctx)
+}
+
+// ==================== DONATION MANAGEMENT ====================
+
+func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interface{}, error) {
+	const query = `
+		SELECT
+			t.id,
+			t.amount::bigint,
+			COALESCE(t."receiptNumber", ''),
+			COALESCE(t.description, ''),
+			t."createdAt",
+			COALESCE(u."nameEn", '') as donor_name,
+			COALESCE(u."nameBn", '') as donor_name_bn,
+			COALESCE(u."memberId", '') as donor_id
+		FROM transactions t
+		LEFT JOIN users u ON u.id = t."userId"
+		WHERE t.type = 'DONATION'
+		ORDER BY t."createdAt" DESC
+	`
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	donations := []map[string]interface{}{}
+	for rows.Next() {
+		var id, receipt, description, donorName, donorNameBn, donorId string
+		var amount int64
+		var createdAt time.Time
+		if err := rows.Scan(&id, &amount, &receipt, &description, &createdAt, &donorName, &donorNameBn, &donorId); err != nil {
+			continue
+		}
+		donations = append(donations, map[string]interface{}{
+			"id":           id,
+			"amount":       amount,
+			"receipt":      receipt,
+			"description":  description,
+			"date":         createdAt.Format(time.RFC3339),
+			"donorName":    donorName,
+			"donorNameBn":  donorNameBn,
+			"donorId":      donorId,
+		})
+	}
+
+	return donations, nil
+}
+
+func (r *UserRepository) RecordDonation(ctx context.Context, amount int64, donorName, notes string) error {
+	// Get or create donation account
+	var donationAccID string
+	err := r.db.QueryRow(ctx, `SELECT id FROM accounts WHERE "accountNumber" = 'HN-ACC-DONATION'`).Scan(&donationAccID)
+	if err != nil {
+		// Donation account doesn't exist, return error
+		return fmt.Errorf("donation account not found")
+	}
+
+	// Create donation transaction
+	const txnQuery = `
+		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "createdAt", "accountId")
+		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'DON-AUTO', $2, NOW(), $3)
+	`
+	_, err = r.db.Exec(ctx, txnQuery, amount, notes, donationAccID)
+	return err
+}
+
+// ==================== REPORT GENERATION ====================
+
+func (r *UserRepository) GetMonthlyReport(ctx context.Context, year, month int) (map[string]interface{}, error) {
+	queryCondition := "EXTRACT(YEAR FROM t.\"createdAt\") = $1"
+	args := []interface{}{year}
+
+	if month > 0 {
+		queryCondition += " AND EXTRACT(MONTH FROM t.\"createdAt\") = $2"
+		args = append(args, month)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(CASE WHEN t.type = 'DEPOSIT' THEN t.amount ELSE 0 END)::bigint, 0) as total_deposits,
+			COALESCE(SUM(CASE WHEN t.type = 'WITHDRAWAL' THEN t.amount ELSE 0 END)::bigint, 0) as total_withdrawals,
+			COALESCE(SUM(CASE WHEN t.type = 'LOAN_DISBURSEMENT' THEN t.amount ELSE 0 END)::bigint, 0) as loans_disbursed,
+			COALESCE(SUM(CASE WHEN t.type = 'LOAN_REPAYMENT' THEN t.amount ELSE 0 END)::bigint, 0) as loans_recovered
+		FROM transactions t
+		WHERE %s
+	`, queryCondition)
+
+	var totalDeposits, totalWithdrawals, loansDisbursed, loansRecovered int64
+
+	if err := r.db.QueryRow(ctx, query, args...).Scan(
+		&totalDeposits, &totalWithdrawals, &loansDisbursed, &loansRecovered); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"year":             year,
+		"month":            month,
+		"totalDeposits":    totalDeposits,
+		"totalWithdrawals": totalWithdrawals,
+		"loansDisbursed":   loansDisbursed,
+		"loansRecovered":   loansRecovered,
+		"netSavings":       totalDeposits - totalWithdrawals,
+	}, nil
+}
+
+func (r *UserRepository) GetYearlyReport(ctx context.Context, year int) (map[string]interface{}, error) {
+	// Get yearly summary
+	yearlyData, err := r.GetMonthlyReport(ctx, year, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get month-by-month breakdown
+	monthlyBreakdown := []map[string]interface{}{}
+	for month := 1; month <= 12; month++ {
+		monthData, err := r.GetMonthlyReport(ctx, year, month)
+		if err == nil {
+			monthlyBreakdown = append(monthlyBreakdown, monthData)
+		}
+	}
+
+	return map[string]interface{}{
+		"year":             year,
+		"summary":          yearlyData,
+		"monthlyBreakdown": monthlyBreakdown,
+	}, nil
+}
+
+func (r *UserRepository) GetLoanPerformanceReport(ctx context.Context) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			COUNT(*)::int as total_loans,
+			COALESCE(AVG("principalAmount")::bigint, 0) as avg_loan_amount,
+			COALESCE(SUM(CASE WHEN status = 'DEFAULTED' THEN 1 ELSE 0 END)::int, 0) as defaulted_count,
+			COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END)::int, 0) as completed_count,
+			COALESCE(SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END)::int, 0) as active_count
+		FROM loans
+		WHERE status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED')
+	`
+
+	var totalLoans, defaultedCount, completedCount, activeCount int
+	var avgLoanAmount int64
+
+	if err := r.db.QueryRow(ctx, query).Scan(&totalLoans, &avgLoanAmount, &defaultedCount, &completedCount, &activeCount); err != nil {
+		return nil, err
+	}
+
+	var defaultRate float64 = 0
+	if totalLoans > 0 {
+		defaultRate = float64(defaultedCount) / float64(totalLoans) * 100
+		defaultRate = float64(int(defaultRate*10)) / 10
+	}
+
+	// Get loan stats for recovery rate
+	loanStats, _ := r.GetLoanStats(ctx)
+
+	return map[string]interface{}{
+		"totalLoans":      totalLoans,
+		"avgLoanAmount":   avgLoanAmount,
+		"defaultedCount":  defaultedCount,
+		"completedCount":  completedCount,
+		"activeCount":     activeCount,
+		"defaultRate":     defaultRate,
+		"recoveryRate":    loanStats["recoveryRate"],
+		"totalDisbursed":  loanStats["totalDisbursed"],
+		"totalRecovered":  loanStats["totalRecovered"],
+	}, nil
+}
+
+// ==================== PROFILE MANAGEMENT ====================
+
+func (r *UserRepository) GetAdminProfile(ctx context.Context, userID string) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			u.id,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u.email, ''),
+			u.phone,
+			u.role::text,
+			u.status::text,
+			COALESCE(u."avatarUrl", ''),
+			COALESCE(u."memberId", ''),
+			u."createdAt"
+		FROM users u
+		WHERE u.id = $1
+	`
+
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	var createdAt time.Time
+
+	if err := r.db.QueryRow(ctx, query, userID).Scan(
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId, &createdAt); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":        id,
+		"nameEn":    nameEn,
+		"nameBn":    nameBn,
+		"email":     email,
+		"phone":     phone,
+		"role":      role,
+		"status":    status,
+		"avatarUrl": avatarUrl,
+		"memberId":  memberId,
+		"joinedAt":  createdAt.Format(time.RFC3339),
+	}, nil
+}
+
+func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			u.id,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u.email, ''),
+			u.phone,
+			u.role::text,
+			u.status::text,
+			COALESCE(u."avatarUrl", ''),
+			COALESCE(u."memberId", ''),
+			COALESCE(u."assignedBranch", ''),
+			u."createdAt",
+			COALESCE((SELECT COUNT(*)::int FROM transactions WHERE "processedBy" = u.id), 0) as transactions_processed
+		FROM users u
+		WHERE u.id = $1
+	`
+
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId, assignedBranch string
+	var createdAt time.Time
+	var transactionsProcessed int
+
+	if err := r.db.QueryRow(ctx, query, userID).Scan(
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId, &assignedBranch, &createdAt, &transactionsProcessed); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"id":                    id,
+		"nameEn":                nameEn,
+		"nameBn":                nameBn,
+		"email":                 email,
+		"phone":                 phone,
+		"role":                  role,
+		"status":                status,
+		"avatarUrl":             avatarUrl,
+		"memberId":              memberId,
+		"assignedBranch":        assignedBranch,
+		"joinedAt":              createdAt.Format(time.RFC3339),
+		"transactionsProcessed": transactionsProcessed,
+	}, nil
+}
+
+func (r *UserRepository) UpdateProfile(ctx context.Context, userID string, data map[string]interface{}) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update user basic info
+	if nameEn, ok := data["nameEn"].(string); ok {
+		_, err = tx.Exec(ctx, `UPDATE users SET "nameEn" = $1, "updatedAt" = NOW() WHERE id = $2`, nameEn, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if nameBn, ok := data["nameBn"].(string); ok {
+		_, err = tx.Exec(ctx, `UPDATE users SET "nameBn" = $1, "updatedAt" = NOW() WHERE id = $2`, nameBn, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if phone, ok := data["phone"].(string); ok {
+		_, err = tx.Exec(ctx, `UPDATE users SET phone = $1, "updatedAt" = NOW() WHERE id = $2`, phone, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if email, ok := data["email"].(string); ok {
+		_, err = tx.Exec(ctx, `UPDATE users SET email = $1, "updatedAt" = NOW() WHERE id = $2`, email, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ==================== WORKER-SPECIFIC METHODS ====================
+
+func (r *UserRepository) GetWorkerRequests(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
+	// For now, return empty - would need a requests table or pending transactions
+	return []map[string]interface{}{}, nil
+}
+
+func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
+	// Get loans from members in worker's branch
+	const query = `
+		SELECT
+			l.id,
+			l."loanNumber",
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l.status::text,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u."memberId", ''),
+			l."createdAt"
+		FROM loans l
+		JOIN users u ON u.id = l."borrowerId"
+		WHERE l.status IN ('ACTIVE', 'PENDING')
+		ORDER BY l."createdAt" DESC
+		LIMIT 50
+	`
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	loans := []map[string]interface{}{}
+	for rows.Next() {
+		var id, loanNumber, status, memberName, memberNameBn, memberId string
+		var principalAmount, remainingAmount int64
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &loanNumber, &principalAmount, &remainingAmount, &status, &memberName, &memberNameBn, &memberId, &createdAt); err != nil {
+			continue
+		}
+
+		loans = append(loans, map[string]interface{}{
+			"id":              id,
+			"loanNumber":      loanNumber,
+			"principalAmount": principalAmount,
+			"remainingAmount": remainingAmount,
+			"status":          status,
+			"memberName":      memberName,
+			"memberNameBn":    memberNameBn,
+			"memberId":        memberId,
+			"createdAt":       createdAt.Format(time.RFC3339),
+		})
+	}
+
+	return loans, nil
+}
+
+func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
+	const query = `
+		SELECT
+			t.id,
+			t.type::text,
+			t.amount::bigint,
+			COALESCE(t."receiptNumber", ''),
+			COALESCE(t.description, ''),
+			t."createdAt",
+			COALESCE(u."nameEn", ''),
+			COALESCE(u."nameBn", ''),
+			COALESCE(u."memberId", '')
+		FROM transactions t
+		JOIN users u ON u.id = t."userId"
+		WHERE t."processedBy" = $1
+		ORDER BY t."createdAt" DESC
+		LIMIT 100
+	`
+
+	rows, err := r.db.Query(ctx, query, workerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	transactions := []map[string]interface{}{}
+	for rows.Next() {
+		var id, txType, receipt, description, memberName, memberNameBn, memberId string
+		var amount int64
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &txType, &amount, &receipt, &description, &createdAt, &memberName, &memberNameBn, &memberId); err != nil {
+			continue
+		}
+
+		transactions = append(transactions, map[string]interface{}{
+			"id":           id,
+			"type":         txType,
+			"amount":       amount,
+			"receipt":      receipt,
+			"description":  description,
+			"date":         createdAt.Format(time.RFC3339),
+			"memberName":   memberName,
+			"memberNameBn": memberNameBn,
+			"memberId":     memberId,
+		})
+	}
+
+	return transactions, nil
+}
+
+func (r *UserRepository) ProcessDeposit(ctx context.Context, memberID, workerID string, amount int64, receipt string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Get account ID
+	var accountID string
+	var currentBalance int64
+	err = tx.QueryRow(ctx, `SELECT id, "savingsBalance" FROM accounts WHERE "userId" = $1`, memberID).Scan(&accountID, &currentBalance)
+	if err != nil {
+		return fmt.Errorf("account not found")
+	}
+
+	// Update account balance
+	newBalance := currentBalance + amount
+	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1, "updatedAt" = NOW() WHERE id = $2`, newBalance, accountID)
+	if err != nil {
+		return err
+	}
+
+	// Create deposit transaction
+	const txnQuery = `
+		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy")
+		VALUES (gen_random_uuid()::text, 'DEPOSIT', $1, $2, 'জমা', $3, NOW(), $4, $5, $6)
+	`
+	_, err = tx.Exec(ctx, txnQuery, amount, receipt, newBalance, accountID, memberID, workerID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import {
   Receipt,
   Search,
@@ -19,7 +20,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiGet } from '@/lib/api';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT';
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
@@ -39,6 +39,7 @@ interface Transaction {
 export default function TransactionsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
   const [showDisputeModal, setShowDisputeModal] = useState(false);
@@ -47,20 +48,36 @@ export default function TransactionsPage() {
   const [correctAmount, setCorrectAmount] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const token = localStorage.getItem('hn_access_token');
+    if (!token) {
+      router.push(`/${locale}/login`);
+      return;
+    }
+
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch('/api/v1/me/transactions', { headers });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? 'Failed to load transactions');
+      setTransactions(json?.data ?? []);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to load transactions');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadTransactions = async () => {
-      try {
-        const data = await apiGet<Transaction[]>('/v1/dashboard/member/transactions');
-        setTransactions(data || []);
-      } catch {
-        setTransactions([]);
-      }
-    };
-    loadTransactions();
-  }, []);
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -168,16 +185,36 @@ export default function TransactionsPage() {
 
   const handleSubmitDispute = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Call API to submit dispute
-    console.log('Submitting dispute:', {
-      transactionId: selectedTransaction?.id,
-      reason: disputeReason,
-      correctAmount,
-    });
-    setShowDisputeModal(false);
-    setDisputeReason('');
-    setCorrectAmount('');
-    setSelectedTransaction(null);
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+      if (!selectedTransaction) return;
+
+      const parsedCorrect = Number(correctAmount);
+      const res = await fetch(`/api/v1/member/transactions/${selectedTransaction.id}/dispute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          reason: disputeReason,
+          correctAmount: Number.isFinite(parsedCorrect) ? parsedCorrect : undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to raise dispute');
+        return;
+      }
+
+      setShowDisputeModal(false);
+      setDisputeReason('');
+      setCorrectAmount('');
+      setSelectedTransaction(null);
+      await refresh();
+    })();
   };
 
   return (
@@ -439,6 +476,11 @@ export default function TransactionsPage() {
                 <p className="text-sm text-muted-foreground mt-2">{t('amount')}</p>
                 <p className="font-medium">{formatCurrency(selectedTransaction.amount)}</p>
               </div>
+              {actionError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {actionError}
+                </div>
+              )}
 
               <form onSubmit={handleSubmitDispute} className="space-y-4">
                 <div className="space-y-2">

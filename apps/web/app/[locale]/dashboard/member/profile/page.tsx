@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import {
   User,
   Phone,
@@ -25,7 +26,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiGet } from '@/lib/api';
 
 interface UserProfile {
   memberId: string;
@@ -69,11 +69,20 @@ interface Nominee {
 export default function ProfilePage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const router = useRouter();
   const [isEditingNominee, setIsEditingNominee] = useState(false);
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
 
-  const [profile, setProfile] = useState<UserProfile>({
+  const emptyAddress: UserProfile['permanentAddress'] = {
+    houseNo: '',
+    village: '',
+    union: '',
+    policeStation: '',
+    district: '',
+  };
+
+  const emptyProfile: UserProfile = {
     memberId: '',
     accountNumber: '',
     nameEn: '',
@@ -81,66 +90,110 @@ export default function ProfilePage() {
     fatherName: '',
     motherName: '',
     phone: '',
-    email: '',
+    email: undefined,
     nidNumber: '',
     dateOfBirth: '',
     maritalStatus: 'UNMARRIED',
     gender: 'MALE',
-    permanentAddress: {
-      houseNo: '',
-      village: '',
-      union: '',
-      policeStation: '',
-      district: '',
-    },
-    presentAddress: {
-      houseNo: '',
-      village: '',
-      union: '',
-      policeStation: '',
-      district: '',
-    },
+    permanentAddress: emptyAddress,
+    presentAddress: emptyAddress,
     memberSince: '',
     status: 'PENDING',
-  });
+    avatarUrl: undefined,
+  };
 
-  const [nominee, setNominee] = useState<Nominee>({
+  const emptyNominee: Nominee = {
     name: '',
     relationship: '',
     nidNumber: '',
-    phone: '',
-  });
+    phone: undefined,
+  };
 
-  const [editedNominee, setEditedNominee] = useState<Nominee>({ ...nominee });
-
+  const [profile, setProfile] = useState<UserProfile>(emptyProfile);
+  const [nominee, setNominee] = useState<Nominee>(emptyNominee);
+  const [editedNominee, setEditedNominee] = useState<Nominee>(emptyNominee);
   const [accountSummary, setAccountSummary] = useState({
     currentBalance: 0,
     hasActiveLoan: false,
     isGuarantor: false,
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const token = localStorage.getItem('hn_access_token');
+    if (!token) {
+      router.push(`/${locale}/login`);
+      return;
+    }
+
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [profileRes, summaryRes] = await Promise.all([
+        fetch('/api/v1/me/profile', { headers }),
+        fetch('/api/v1/me/summary', { headers }),
+      ]);
+
+      const profileJson = await profileRes.json().catch(() => ({}));
+      if (!profileRes.ok) throw new Error(profileJson?.error ?? 'Failed to load profile');
+
+      const summaryJson = await summaryRes.json().catch(() => ({}));
+      if (!summaryRes.ok) throw new Error(summaryJson?.error ?? 'Failed to load summary');
+
+      const p = profileJson?.data?.profile;
+      const n = profileJson?.data?.nominee;
+
+      setProfile({
+        memberId: p?.memberId ?? '',
+        accountNumber: p?.accountNumber ?? '',
+        nameEn: p?.nameEn ?? '',
+        nameBn: p?.nameBn ?? '',
+        fatherName: p?.fatherName ?? '',
+        motherName: p?.motherName ?? '',
+        phone: p?.phone ?? '',
+        email: p?.email,
+        nidNumber: p?.nidNumber ?? '',
+        dateOfBirth: p?.dateOfBirth ?? '',
+        maritalStatus: p?.maritalStatus ?? 'UNMARRIED',
+        gender: p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE',
+        permanentAddress: p?.permanentAddress ?? emptyAddress,
+        presentAddress: p?.presentAddress ?? emptyAddress,
+        memberSince: p?.memberSince ?? '',
+        status: p?.status === 'ACTIVE' ? 'ACTIVE' : p?.status === 'SUSPENDED' ? 'SUSPENDED' : 'PENDING',
+        avatarUrl: p?.avatarUrl ?? undefined,
+      });
+
+      setNominee({
+        name: n?.name ?? '',
+        relationship: n?.relationship ?? '',
+        nidNumber: n?.nidNumber ?? '',
+        phone: n?.phone,
+      });
+      setEditedNominee({
+        name: n?.name ?? '',
+        relationship: n?.relationship ?? '',
+        nidNumber: n?.nidNumber ?? '',
+        phone: n?.phone,
+      });
+
+      setAccountSummary({
+        currentBalance: summaryJson?.data?.currentBalance ?? 0,
+        hasActiveLoan: summaryJson?.data?.hasActiveLoan ?? false,
+        isGuarantor: summaryJson?.data?.isGuarantor ?? false,
+      });
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to load profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const data = await apiGet<{
-          profile: UserProfile;
-          nominee: Nominee;
-          accountSummary: {
-            currentBalance: number;
-            hasActiveLoan: boolean;
-            isGuarantor: boolean;
-          };
-        }>('/v1/dashboard/member/profile');
-        setProfile(data.profile);
-        setNominee(data.nominee);
-        setEditedNominee(data.nominee);
-        setAccountSummary(data.accountSummary);
-      } catch {
-        setProfile((prev) => ({ ...prev }));
-      }
-    };
-    loadProfile();
-  }, []);
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -176,10 +229,36 @@ export default function ProfilePage() {
 
   const handleWithdrawalRequest = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Call API to submit withdrawal request
-    console.log('Withdrawal request:', withdrawalAmount);
-    setShowWithdrawalForm(false);
-    setWithdrawalAmount('');
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const amount = Number(withdrawalAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setActionError('Invalid withdrawal amount');
+        return;
+      }
+
+      const res = await fetch('/api/v1/transactions/withdrawal-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ amount }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to submit withdrawal request');
+        return;
+      }
+
+      setShowWithdrawalForm(false);
+      setWithdrawalAmount('');
+      await refresh();
+    })();
   };
 
   const canWithdraw = !accountSummary.hasActiveLoan && !accountSummary.isGuarantor;
@@ -425,6 +504,11 @@ export default function ProfilePage() {
               <div className="p-4 rounded-lg bg-blue-50 text-blue-800 text-sm">
                 <p className="font-medium">{t('withdrawalNotice')}</p>
               </div>
+              {actionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {actionError}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="withdrawalAmount">{t('withdrawalAmount')}</Label>
                 <Input
