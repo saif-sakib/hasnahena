@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -73,8 +74,10 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 export default function RegisterPage() {
   const t = useTranslations();
   const locale = useLocale();
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [sameAsPermanent, setSameAsPermanent] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
@@ -92,8 +95,62 @@ export default function RegisterPage() {
   });
 
   const onSubmit = async (data: RegisterFormData) => {
-    console.log('Register data:', data);
-    // TODO: Submit to API
+    setSubmitError(null);
+
+    try {
+      const response = await fetch('/api/v1/registrations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Personal Info
+          nameEn: data.nameEn,
+          nameBn: data.nameBn,
+          fatherName: data.fatherName,
+          motherName: data.motherName,
+          phone: data.phone,
+          email: data.email,
+          nidNumber: data.nidNumber,
+          maritalStatus: data.maritalStatus,
+          childrenCount: data.childrenCount,
+          gender: data.gender,
+          dateOfBirth: data.dateOfBirth,
+          password: data.password,
+
+          // Permanent Address
+          permanentHouseNo: data.permanentHouseNo,
+          permanentRoadNo: data.permanentRoadNo,
+          permanentVillage: data.permanentVillage,
+          permanentUnion: data.permanentUnion,
+          permanentPoliceStation: data.permanentPoliceStation,
+          permanentDistrict: data.permanentDistrict,
+
+          // Present Address
+          sameAsPermanent: data.sameAsPermanent ?? false,
+          presentHouseNo: data.presentHouseNo,
+          presentRoadNo: data.presentRoadNo,
+          presentVillage: data.presentVillage,
+          presentUnion: data.presentUnion,
+          presentPoliceStation: data.presentPoliceStation,
+          presentDistrict: data.presentDistrict,
+
+          // Nominee
+          nomineeName: data.nomineeName,
+          nomineeRelationship: data.nomineeRelationship,
+          nomineeNid: data.nomineeNid,
+          nomineePhone: data.nomineePhone,
+        }),
+      });
+
+      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setSubmitError(json?.error ?? 'Registration failed');
+        return;
+      }
+
+      router.push(`/${locale}/login`);
+    } catch {
+      setSubmitError('Registration failed. Please try again.');
+    }
   };
 
   const nextStep = () => {
@@ -198,6 +255,11 @@ export default function RegisterPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {submitError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {submitError}
+                </div>
+              )}
               <form onSubmit={handleSubmit(onSubmit)}>
                 {/* Step 1: Personal Information */}
                 {currentStep === 0 && (
@@ -466,7 +528,11 @@ export default function RegisterPage() {
                         type="checkbox"
                         id="sameAsPermanent"
                         checked={sameAsPermanent}
-                        onChange={(e) => setSameAsPermanent(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSameAsPermanent(checked);
+                          setValue('sameAsPermanent', checked);
+                        }}
                         className="h-4 w-4"
                       />
                       <Label htmlFor="sameAsPermanent" className="text-sm font-normal">

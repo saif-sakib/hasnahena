@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import {
   HandCoins,
   Plus,
@@ -22,7 +23,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiGet } from '@/lib/api';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -48,53 +48,61 @@ interface GuarantorRequest {
   requestDate: string;
 }
 
+type AvailableGuarantor = { id: string; name: string; deposit: number };
+
 export default function LoansPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const router = useRouter();
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [loanAmount, setLoanAmount] = useState('');
   const [loanPurpose, setLoanPurpose] = useState('');
   const [selectedGuarantor, setSelectedGuarantor] = useState('');
-
+  const [installments, setInstallments] = useState<number>(6);
   const [currentDeposit, setCurrentDeposit] = useState(0);
-  const [minDepositRequired, setMinDepositRequired] = useState(8000);
-  const [maxLoanMultiplier, setMaxLoanMultiplier] = useState(5);
-  const [maxLoanAmount, setMaxLoanAmount] = useState(0);
-  const [isEligible, setIsEligible] = useState(false);
+  const minDepositRequired = 8000;
+  const maxLoanMultiplier = 5;
+  const maxLoanAmount = currentDeposit * maxLoanMultiplier;
+  const isEligible = currentDeposit >= minDepositRequired;
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
   const [loanHistory, setLoanHistory] = useState<Loan[]>([]);
   const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequest[]>([]);
-  const [availableGuarantors, setAvailableGuarantors] = useState<Array<{ id: string; name: string; deposit: number }>>([]);
+  const [availableGuarantors, setAvailableGuarantors] = useState<AvailableGuarantor[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const token = localStorage.getItem('hn_access_token');
+    if (!token) {
+      router.push(`/${locale}/login`);
+      return;
+    }
+
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch('/api/v1/me/loans', { headers });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? 'Failed to load loans');
+
+      const data = json?.data;
+      setCurrentDeposit(data?.currentDeposit ?? 0);
+      setActiveLoan(data?.activeLoan ?? null);
+      setLoanHistory(data?.loanHistory ?? []);
+      setGuarantorRequests(data?.guarantorRequests ?? []);
+      setAvailableGuarantors(data?.availableGuarantors ?? []);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to load loans');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadLoans = async () => {
-      try {
-        const data = await apiGet<{
-          currentDeposit: number;
-          minDepositRequired: number;
-          maxLoanMultiplier: number;
-          maxLoanAmount: number;
-          isEligible: boolean;
-          activeLoan: Loan | null;
-          loanHistory: Loan[];
-          guarantorRequests: GuarantorRequest[];
-          availableGuarantors: Array<{ id: string; name: string; deposit: number }>;
-        }>('/v1/dashboard/member/loans');
-        setCurrentDeposit(data.currentDeposit || 0);
-        setMinDepositRequired(data.minDepositRequired || 8000);
-        setMaxLoanMultiplier(data.maxLoanMultiplier || 5);
-        setMaxLoanAmount(data.maxLoanAmount || 0);
-        setIsEligible(Boolean(data.isEligible));
-        setActiveLoan(data.activeLoan || null);
-        setLoanHistory(data.loanHistory || []);
-        setGuarantorRequests(data.guarantorRequests || []);
-        setAvailableGuarantors(data.availableGuarantors || []);
-      } catch {
-        setActiveLoan(null);
-      }
-    };
-    loadLoans();
-  }, []);
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -127,22 +135,97 @@ export default function LoansPage() {
 
   const handleLoanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Call API to submit loan application
-    console.log('Loan application:', { loanAmount, loanPurpose, selectedGuarantor });
-    setShowLoanForm(false);
-    setLoanAmount('');
-    setLoanPurpose('');
-    setSelectedGuarantor('');
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const amount = Number(loanAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setActionError('Invalid loan amount');
+        return;
+      }
+      if (!loanPurpose.trim()) {
+        setActionError('Loan purpose is required');
+        return;
+      }
+      if (!selectedGuarantor) {
+        setActionError('Guarantor is required');
+        return;
+      }
+
+      const res = await fetch('/api/v1/loans/applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          amount,
+          installments,
+          purpose: loanPurpose,
+          guarantorId: selectedGuarantor,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to submit loan application');
+        return;
+      }
+
+      setShowLoanForm(false);
+      setLoanAmount('');
+      setLoanPurpose('');
+      setSelectedGuarantor('');
+      setInstallments(6);
+      await refresh();
+    })();
   };
 
   const handleAcceptGuarantor = (requestId: string) => {
-    // TODO: Call API to accept guarantor request
-    console.log('Accepting guarantor request:', requestId);
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const res = await fetch(`/api/v1/loans/${requestId}/guarantor-approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accepted: true }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to accept guarantor request');
+        return;
+      }
+      await refresh();
+    })();
   };
 
   const handleRejectGuarantor = (requestId: string) => {
-    // TODO: Call API to reject guarantor request
-    console.log('Rejecting guarantor request:', requestId);
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const res = await fetch(`/api/v1/loans/${requestId}/guarantor-approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accepted: false }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to reject guarantor request');
+        return;
+      }
+      await refresh();
+    })();
   };
 
   return (
@@ -286,6 +369,11 @@ export default function LoansPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {actionError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {actionError}
+              </div>
+            )}
             <form onSubmit={handleLoanSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -310,6 +398,8 @@ export default function LoansPage() {
                   <select
                     id="installments"
                     className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                    value={installments}
+                    onChange={(e) => setInstallments(Number(e.target.value))}
                     required
                   >
                     <option value="6">6 {locale === 'bn' ? 'কিস্তি' : 'installments'}</option>

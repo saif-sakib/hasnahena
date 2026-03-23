@@ -45,12 +45,32 @@ enum TransactionType {
   FEE
 }
 
+enum TransactionStatus {
+  PENDING
+  PROCESSED
+  CONFIRMED
+  REJECTED
+  DISPUTED
+  REVERSED
+}
+
 enum LoanStatus {
+  // Kept legacy values for compatibility with older UI mocks.
   PENDING
   APPROVED
+
+  // Spec-aligned loan workflow states (used by member UI).
+  PENDING_GUARANTOR
+  PENDING_APPROVAL
   ACTIVE
+
+  // Settlement/closure.
   COMPLETED
+  SETTLED
+
+  // Risk outcomes.
   DEFAULTED
+  REJECTED
 }
 
 enum RequestStatus {
@@ -210,6 +230,14 @@ model Transaction {
   receiptNumber String?         // রশিদ নম্বর
   description   String?
   
+  status        TransactionStatus @default(PENDING)
+  processedAt   DateTime?
+  confirmedAt   DateTime?
+
+  // Used for incorrect amount disputes.
+  disputeReason       String?
+  disputeCorrectAmount BigInt?
+
   // Balance snapshots after transaction
   savingsAfter  BigInt?
   loanAfter     BigInt?
@@ -226,7 +254,7 @@ model Transaction {
   loan          Loan?           @relation(fields: [loanId], references: [id])
   loanId        String?
   
-  processedBy   String?         // Worker who processed
+  processedBy   String?         // Worker who processed (store display name)
   
   @@map("transactions")
 }

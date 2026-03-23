@@ -54,17 +54,62 @@ func main() {
 			auth.Post("/login", authHandler.Login)
 		})
 		v1.Route("/dashboard", func(dashboard chi.Router) {
+			dashboard.Get("/user", dashboardHandler.UserInfo)
+
+			// Member routes
 			dashboard.Get("/member", dashboardHandler.MemberDashboard)
 			dashboard.Get("/notifications", dashboardHandler.Notifications)
 			dashboard.Get("/member/deposits", dashboardHandler.MemberDeposits)
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
 			dashboard.Get("/member/profile", dashboardHandler.MemberProfile)
+
+			// Worker routes
 			dashboard.Get("/worker", dashboardHandler.WorkerDashboard)
 			dashboard.Get("/worker/members", dashboardHandler.WorkerMembers)
+			dashboard.Get("/worker/requests", dashboardHandler.WorkerRequests)
+			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
+			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)
+			dashboard.Get("/worker/profile", dashboardHandler.WorkerProfile)
+			dashboard.Put("/worker/profile", dashboardHandler.UpdateProfile)
+			dashboard.Post("/worker/deposit", dashboardHandler.ProcessDeposit)
+			dashboard.Post("/worker/withdrawal", dashboardHandler.ProcessWithdrawal)
+
+			// Admin dashboard
 			dashboard.Get("/admin", dashboardHandler.AdminDashboard)
 			dashboard.Get("/admin/members", dashboardHandler.AdminMembers)
 			dashboard.Get("/admin/workers", dashboardHandler.AdminWorkers)
+			dashboard.Post("/admin/members/status", dashboardHandler.UpdateMemberStatus)
+
+			// Admin approvals
+			dashboard.Get("/admin/approvals", dashboardHandler.AdminApprovals)
+			dashboard.Post("/admin/approvals/registration", dashboardHandler.ApproveRegistration)
+			dashboard.Post("/admin/approvals/registration/reject", dashboardHandler.RejectRegistration)
+			dashboard.Post("/admin/approvals/loan", dashboardHandler.ApproveLoan)
+			dashboard.Post("/admin/approvals/loan/reject", dashboardHandler.RejectLoan)
+			dashboard.Post("/admin/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
+			dashboard.Post("/admin/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
+
+			// Admin deposits
+			dashboard.Get("/admin/deposits", dashboardHandler.AdminDeposits)
+
+			// Admin loans
+			dashboard.Get("/admin/loans", dashboardHandler.AdminLoans)
+			dashboard.Get("/admin/loans/detail", dashboardHandler.AdminLoanDetail)
+			dashboard.Post("/admin/loans/default", dashboardHandler.MarkLoanDefaulted)
+
+			// Admin donations
+			dashboard.Get("/admin/donations", dashboardHandler.AdminDonations)
+			dashboard.Post("/admin/donations", dashboardHandler.RecordDonation)
+
+			// Admin reports
+			dashboard.Get("/admin/reports/monthly", dashboardHandler.MonthlyReport)
+			dashboard.Get("/admin/reports/yearly", dashboardHandler.YearlyReport)
+			dashboard.Get("/admin/reports/loans", dashboardHandler.LoanPerformanceReport)
+
+			// Admin profile
+			dashboard.Get("/admin/profile", dashboardHandler.AdminProfile)
+			dashboard.Put("/admin/profile", dashboardHandler.UpdateProfile)
 		})
 	})
 

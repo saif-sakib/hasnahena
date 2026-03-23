@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import {
   Wallet,
   Plus,
@@ -18,7 +19,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiGet } from '@/lib/api';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED';
 
@@ -35,41 +35,57 @@ interface Deposit {
 export default function DepositsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const router = useRouter();
   const [showDepositForm, setShowDepositForm] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed'>('all');
-
   const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [summary, setSummary] = useState({
-    totalDeposited: 0,
-    pendingAmount: 0,
-    currentBalance: 0,
-  });
+  const [currentBalance, setCurrentBalance] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const token = localStorage.getItem('hn_access_token');
+    if (!token) {
+      router.push(`/${locale}/login`);
+      return;
+    }
+
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [depRes, sumRes] = await Promise.all([
+        fetch('/api/v1/me/deposits', { headers }),
+        fetch('/api/v1/me/summary', { headers }),
+      ]);
+
+      if (!depRes.ok) throw new Error('Failed to load deposits');
+      if (!sumRes.ok) throw new Error('Failed to load balance');
+
+      const depJson = await depRes.json();
+      const sumJson = await sumRes.json();
+      setDeposits(depJson?.data ?? []);
+      setCurrentBalance(sumJson?.data?.currentBalance ?? 0);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadDeposits = async () => {
-      try {
-        const data = await apiGet<{
-          deposits: Deposit[];
-          totalDeposited: number;
-          pendingAmount: number;
-          currentBalance: number;
-        }>('/v1/dashboard/member/deposits');
-        setDeposits(data.deposits || []);
-        setSummary({
-          totalDeposited: data.totalDeposited || 0,
-          pendingAmount: data.pendingAmount || 0,
-          currentBalance: data.currentBalance || 0,
-        });
-      } catch {
-        setDeposits([]);
-      }
-    };
-    loadDeposits();
-  }, []);
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
-  const totalDeposited = summary.totalDeposited;
-  const pendingAmount = summary.pendingAmount;
+  const totalDeposited = deposits
+    .filter((d) => d.status === 'CONFIRMED')
+    .reduce((sum, d) => sum + d.amount, 0);
+
+  const pendingAmount = deposits
+    .filter((d) => d.status === 'PENDING' || d.status === 'PROCESSED')
+    .reduce((sum, d) => sum + d.amount, 0);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -118,20 +134,82 @@ export default function DepositsPage() {
 
   const handleDepositSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Call API to submit deposit request
-    console.log('Deposit request:', depositAmount);
-    setShowDepositForm(false);
-    setDepositAmount('');
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const amount = Number(depositAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setActionError('Invalid deposit amount');
+        return;
+      }
+
+      const res = await fetch('/api/v1/transactions/deposit-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ amount }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to submit deposit request');
+        return;
+      }
+
+      setShowDepositForm(false);
+      setDepositAmount('');
+      await refresh();
+    })();
   };
 
   const handleConfirmDeposit = (depositId: string) => {
-    // TODO: Call API to confirm deposit
-    console.log('Confirming deposit:', depositId);
+    void (async () => {
+      setActionError(null);
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const res = await fetch(`/api/v1/member/transactions/${depositId}/confirm`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to confirm deposit');
+        return;
+      }
+      await refresh();
+    })();
   };
 
   const handleDisputeDeposit = (depositId: string) => {
-    // TODO: Open dispute modal
-    console.log('Disputing deposit:', depositId);
+    void (async () => {
+      const token = localStorage.getItem('hn_access_token');
+      if (!token) {
+        router.push(`/${locale}/login`);
+        return;
+      }
+
+      const reason = window.prompt(locale === 'bn' ? 'বিবাদের কারণ লিখুন' : 'Enter dispute reason');
+      if (!reason) return;
+
+      const res = await fetch(`/api/v1/member/transactions/${depositId}/dispute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(json?.error ?? 'Failed to raise dispute');
+        return;
+      }
+      await refresh();
+    })();
   };
 
   return (
@@ -188,7 +266,7 @@ export default function DepositsPage() {
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{formatCurrency(summary.currentBalance)}</div>
+            <div className="text-2xl font-bold text-primary">{formatCurrency(currentBalance)}</div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings balance'}
             </p>
@@ -212,6 +290,11 @@ export default function DepositsPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleDepositSubmit} className="space-y-4">
+              {actionError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {actionError}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="amount">{t('depositAmount')}</Label>
                 <Input

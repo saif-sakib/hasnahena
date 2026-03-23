@@ -40,6 +40,18 @@ interface NotificationItem {
   read: boolean;
 }
 
+interface UserInfo {
+  id: string;
+  nameEn: string;
+  nameBn: string;
+  email: string;
+  phone: string;
+  role: string;
+  status: string;
+  avatarUrl: string;
+  memberId: string;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   role: 'member' | 'worker' | 'admin';
