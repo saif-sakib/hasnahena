@@ -1,25 +1,26 @@
 'use client';
 
 import { useTranslations, useLocale } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { Users, Wallet, HandCoins, TrendingUp, Building, AlertTriangle, PieChart, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { apiGet } from '@/lib/api';
 
 export default function AdminDashboard() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
 
-  // Mock data
-  const stats = {
-    totalMembers: 125,
-    totalWorkers: 5,
-    totalDeposits: 2500000,
-    totalLoans: 1800000,
-    activeLoanCount: 45,
-    defaultedLoans: 2,
-    charityFund: 125000,
-    monthlyGrowth: 12.5,
-  };
+  const [stats, setStats] = useState({
+    totalMembers: 0,
+    totalWorkers: 0,
+    totalDeposits: 0,
+    totalLoans: 0,
+    activeLoanCount: 0,
+    defaultedLoans: 0,
+    charityFund: 0,
+    monthlyGrowth: 0,
+  });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -29,12 +30,23 @@ export default function AdminDashboard() {
     }).format(amount);
   };
 
-  const recentActivity = [
-    { id: 1, action: 'নতুন সদস্য নিবন্ধন', user: 'নূর হোসেন', time: '5 মিনিট আগে' },
-    { id: 2, action: 'ঋণ অনুমোদন', user: 'ফাতেমা বেগম', time: '15 মিনিট আগে' },
-    { id: 3, action: 'জমা গ্রহণ', user: 'আব্দুল করিম', time: '30 মিনিট আগে' },
-    { id: 4, action: 'কর্মী যোগ', user: 'রফিকুল ইসলাম', time: '1 ঘণ্টা আগে' },
-  ];
+  const [recentActivity, setRecentActivity] = useState<Array<{ id: number; action: string; user: string; time: string }>>([]);
+
+  useEffect(() => {
+    const loadAdminDashboard = async () => {
+      try {
+        const data = await apiGet<{
+          stats: typeof stats;
+          recentActivity: Array<{ id: number; action: string; user: string; time: string }>;
+        }>('/v1/dashboard/admin');
+        setStats(data.stats);
+        setRecentActivity(data.recentActivity || []);
+      } catch {
+        setRecentActivity([]);
+      }
+    };
+    loadAdminDashboard();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -204,7 +216,7 @@ export default function AdminDashboard() {
                     <p className="font-medium">{activity.action}</p>
                     <p className="text-sm text-muted-foreground">{activity.user}</p>
                   </div>
-                  <span className="text-xs text-muted-foreground">{activity.time}</span>
+                  <span className="text-xs text-muted-foreground">{new Date(activity.time).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}</span>
                 </div>
               ))}
             </div>

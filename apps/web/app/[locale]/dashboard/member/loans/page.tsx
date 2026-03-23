@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import {
   HandCoins,
@@ -22,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -55,58 +56,45 @@ export default function LoansPage() {
   const [loanPurpose, setLoanPurpose] = useState('');
   const [selectedGuarantor, setSelectedGuarantor] = useState('');
 
-  // Mock data
-  const currentDeposit = 15000;
-  const minDepositRequired = 8000;
-  const maxLoanMultiplier = 5;
-  const maxLoanAmount = currentDeposit * maxLoanMultiplier;
-  const isEligible = currentDeposit >= minDepositRequired;
+  const [currentDeposit, setCurrentDeposit] = useState(0);
+  const [minDepositRequired, setMinDepositRequired] = useState(8000);
+  const [maxLoanMultiplier, setMaxLoanMultiplier] = useState(5);
+  const [maxLoanAmount, setMaxLoanAmount] = useState(0);
+  const [isEligible, setIsEligible] = useState(false);
+  const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
+  const [loanHistory, setLoanHistory] = useState<Loan[]>([]);
+  const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequest[]>([]);
+  const [availableGuarantors, setAvailableGuarantors] = useState<Array<{ id: string; name: string; deposit: number }>>([]);
 
-  const activeLoan: Loan | null = {
-    id: '1',
-    loanNumber: 'LN-2024-001',
-    principalAmount: 50000,
-    remainingAmount: 35000,
-    totalInstallments: 10,
-    paidInstallments: 3,
-    installmentAmount: 5000,
-    disbursementDate: '2024-01-15',
-    nextDueDate: '2024-04-15',
-    purpose: 'ব্যবসা সম্প্রসারণ',
-    status: 'ACTIVE',
-    guarantor: 'মোহাম্মদ আলী',
-  };
-
-  const loanHistory: Loan[] = [
-    {
-      id: '2',
-      loanNumber: 'LN-2023-005',
-      principalAmount: 30000,
-      remainingAmount: 0,
-      totalInstallments: 6,
-      paidInstallments: 6,
-      installmentAmount: 5000,
-      disbursementDate: '2023-06-01',
-      purpose: 'চিকিৎসা খরচ',
-      status: 'COMPLETED',
-      guarantor: 'করিম সাহেব',
-    },
-  ];
-
-  const guarantorRequests: GuarantorRequest[] = [
-    {
-      id: 'gr-1',
-      borrowerName: 'আবদুল রহমান',
-      loanAmount: 40000,
-      requestDate: '2024-03-18',
-    },
-  ];
-
-  const availableGuarantors = [
-    { id: 'g1', name: 'মোহাম্মদ করিম', deposit: 25000 },
-    { id: 'g2', name: 'আবু বকর সিদ্দিক', deposit: 30000 },
-    { id: 'g3', name: 'নূর মোহাম্মদ', deposit: 20000 },
-  ];
+  useEffect(() => {
+    const loadLoans = async () => {
+      try {
+        const data = await apiGet<{
+          currentDeposit: number;
+          minDepositRequired: number;
+          maxLoanMultiplier: number;
+          maxLoanAmount: number;
+          isEligible: boolean;
+          activeLoan: Loan | null;
+          loanHistory: Loan[];
+          guarantorRequests: GuarantorRequest[];
+          availableGuarantors: Array<{ id: string; name: string; deposit: number }>;
+        }>('/v1/dashboard/member/loans');
+        setCurrentDeposit(data.currentDeposit || 0);
+        setMinDepositRequired(data.minDepositRequired || 8000);
+        setMaxLoanMultiplier(data.maxLoanMultiplier || 5);
+        setMaxLoanAmount(data.maxLoanAmount || 0);
+        setIsEligible(Boolean(data.isEligible));
+        setActiveLoan(data.activeLoan || null);
+        setLoanHistory(data.loanHistory || []);
+        setGuarantorRequests(data.guarantorRequests || []);
+        setAvailableGuarantors(data.availableGuarantors || []);
+      } catch {
+        setActiveLoan(null);
+      }
+    };
+    loadLoans();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {

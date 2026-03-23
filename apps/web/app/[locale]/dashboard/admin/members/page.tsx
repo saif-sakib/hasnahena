@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Users,
@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { apiGet } from '@/lib/api';
 
 type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
@@ -71,81 +72,33 @@ export default function AdminMembersPage() {
   const [actionType, setActionType] = useState<'approve' | 'reject' | 'suspend' | 'activate' | null>(null);
   const [actionReason, setActionReason] = useState('');
 
-  // Mock data
-  const members: Member[] = [
-    {
-      id: '1',
-      name: 'আব্দুল করিম',
-      email: 'abdul.karim@email.com',
-      phone: '01712345678',
-      nidNumber: '1234567890123',
-      status: 'ACTIVE',
-      joinDate: '2024-01-15',
-      currentDeposit: 85000,
-      activeLoan: 50000,
-      area: 'ঢাকা',
-    },
-    {
-      id: '2',
-      name: 'ফাতেমা বেগম',
-      email: 'fatema.begum@email.com',
-      phone: '01812345678',
-      nidNumber: '2345678901234',
-      status: 'ACTIVE',
-      joinDate: '2024-02-20',
-      currentDeposit: 120000,
-      activeLoan: 0,
-      area: 'চট্টগ্রাম',
-    },
-    {
-      id: '3',
-      name: 'নূর হোসেন',
-      email: 'nur.hossain@email.com',
-      phone: '01912345678',
-      nidNumber: '3456789012345',
-      status: 'PENDING',
-      joinDate: '2025-01-10',
-      currentDeposit: 0,
-      activeLoan: 0,
-      area: 'সিলেট',
-    },
-    {
-      id: '4',
-      name: 'রফিকুল ইসলাম',
-      email: 'rafiqul@email.com',
-      phone: '01612345678',
-      nidNumber: '4567890123456',
-      status: 'SUSPENDED',
-      joinDate: '2023-06-01',
-      currentDeposit: 45000,
-      activeLoan: 30000,
-      area: 'রাজশাহী',
-    },
-    {
-      id: '5',
-      name: 'সালমা আক্তার',
-      email: 'salma.akter@email.com',
-      phone: '01512345678',
-      nidNumber: '5678901234567',
-      status: 'REJECTED',
-      joinDate: '2025-01-05',
-      currentDeposit: 0,
-      activeLoan: 0,
-      area: 'খুলনা',
-    },
-    {
-      id: '6',
-      name: 'মোহাম্মদ আলী',
-      email: 'mohammad.ali@email.com',
-      phone: '01412345678',
-      nidNumber: '6789012345678',
-      status: 'PENDING',
-      joinDate: '2025-01-12',
-      currentDeposit: 0,
-      activeLoan: 0,
-      area: 'বরিশাল',
-    },
-  ];
+  const [members, setMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    const loadMembers = async () => {
+      try {
+        const data = await apiGet<Array<Member & { role?: string }>>('/v1/dashboard/admin/members');
+        setMembers(
+          data.map((member) => {
+            const normalized = member.status.toUpperCase();
+            return {
+              ...member,
+              status: normalized === 'ACTIVE'
+                ? 'ACTIVE'
+                : normalized === 'PENDING'
+                  ? 'PENDING'
+                  : normalized === 'SUSPENDED'
+                    ? 'SUSPENDED'
+                    : 'REJECTED',
+            };
+          })
+        );
+      } catch {
+        setMembers([]);
+      }
+    };
+    loadMembers();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {

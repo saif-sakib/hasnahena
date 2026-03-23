@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useTranslations, useLocale } from 'next-intl';
+import { useEffect, useState } from 'react';
 import {
   Wallet,
   HandCoins,
@@ -18,42 +19,83 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { apiGet } from '@/lib/api';
+
+interface DashboardStats {
+  currentBalance: number;
+  totalDeposited: number;
+  loanBalance: number;
+  loanEligibility: number;
+}
+
+interface PendingConfirmation {
+  id: string;
+  type: string;
+  amount: number;
+  date: string;
+  receipt: string;
+}
+
+interface GuarantorRequest {
+  id: string;
+  borrowerName: string;
+  loanAmount: number;
+  requestDate: string;
+}
+
+interface ActiveLoanData {
+  loanNumber: string;
+  remainingAmount: number;
+  nextInstallment: number;
+  nextDueDate: string;
+  paidInstallments: number;
+  totalInstallments: number;
+}
+
+interface RecentTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  date: string;
+  receipt: string;
+}
+
+interface MemberDashboardResponse {
+  stats: DashboardStats;
+  pendingConfirmations: PendingConfirmation[];
+  guarantorRequests: GuarantorRequest[];
+  activeLoan: ActiveLoanData | null;
+  recentTransactions: RecentTransaction[];
+}
 
 export default function MemberDashboard() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const [data, setData] = useState<MemberDashboardResponse>({
+    stats: {
+      currentBalance: 0,
+      totalDeposited: 0,
+      loanBalance: 0,
+      loanEligibility: 0,
+    },
+    pendingConfirmations: [],
+    guarantorRequests: [],
+    activeLoan: null,
+    recentTransactions: [],
+  });
 
-  // Mock data - will be replaced with API calls
-  const stats = {
-    currentBalance: 15000,
-    totalDeposited: 25000,
-    loanBalance: 35000,
-    loanEligibility: 75000,
-  };
+  useEffect(() => {
+    const loadDashboard = async () => {
+      try {
+        const response = await apiGet<MemberDashboardResponse>('/v1/dashboard/member');
+        setData(response);
+      } catch {
+        setData((prev) => ({ ...prev }));
+      }
+    };
 
-  const pendingConfirmations = [
-    { id: 'p1', type: 'DEPOSIT', amount: 3000, date: '2024-03-15', receipt: 'RCP-2024-002' },
-  ];
-
-  const guarantorRequests = [
-    { id: 'gr1', borrowerName: 'আবদুল রহমান', loanAmount: 40000, requestDate: '2024-03-18' },
-  ];
-
-  const activeLoan = {
-    loanNumber: 'LN-2024-001',
-    remainingAmount: 35000,
-    nextInstallment: 5000,
-    nextDueDate: '2024-04-15',
-    paidInstallments: 3,
-    totalInstallments: 10,
-  };
-
-  const recentTransactions = [
-    { id: 1, type: 'DEPOSIT', amount: 5000, date: '2024-03-20', receipt: 'RCP-2024-001' },
-    { id: 2, type: 'LOAN_REPAYMENT', amount: 5000, date: '2024-03-15', receipt: 'RCP-2024-002' },
-    { id: 3, type: 'DEPOSIT', amount: 3000, date: '2024-03-10', receipt: 'RCP-2024-003' },
-    { id: 4, type: 'WITHDRAWAL', amount: 2000, date: '2024-03-05', receipt: 'RCP-2024-004' },
-  ];
+    loadDashboard();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -92,10 +134,10 @@ export default function MemberDashboard() {
       </div>
 
       {/* Alerts Section */}
-      {(pendingConfirmations.length > 0 || guarantorRequests.length > 0) && (
+      {(data.pendingConfirmations.length > 0 || data.guarantorRequests.length > 0) && (
         <div className="space-y-3">
           {/* Pending Confirmations Alert */}
-          {pendingConfirmations.length > 0 && (
+          {data.pendingConfirmations.length > 0 && (
             <Card className="rounded-2xl border-amber-200 bg-amber-50/50 shadow-sm">
               <CardContent className="py-4">
                 <div className="flex items-start gap-3">
@@ -116,8 +158,8 @@ export default function MemberDashboard() {
                     </div>
                     <p className="text-sm text-amber-700">
                       {locale === 'bn'
-                        ? `${pendingConfirmations.length}টি লেনদেন আপনার নিশ্চিতকরণ অপেক্ষা করছে`
-                        : `${pendingConfirmations.length} transaction(s) awaiting your confirmation`}
+                        ? `${data.pendingConfirmations.length}টি লেনদেন আপনার নিশ্চিতকরণ অপেক্ষা করছে`
+                        : `${data.pendingConfirmations.length} transaction(s) awaiting your confirmation`}
                     </p>
                   </div>
                 </div>
@@ -126,7 +168,7 @@ export default function MemberDashboard() {
           )}
 
           {/* Guarantor Requests Alert */}
-          {guarantorRequests.length > 0 && (
+          {data.guarantorRequests.length > 0 && (
             <Card className="rounded-2xl border-blue-200 bg-blue-50/50 shadow-sm">
               <CardContent className="py-4">
                 <div className="flex items-start gap-3">
@@ -147,8 +189,8 @@ export default function MemberDashboard() {
                     </div>
                     <p className="text-sm text-blue-700">
                       {locale === 'bn'
-                        ? `${guarantorRequests.length} সদস্য আপনাকে জামিনদার হিসেবে অনুরোধ করেছেন`
-                        : `${guarantorRequests.length} member(s) requested you as guarantor`}
+                        ? `${data.guarantorRequests.length} সদস্য আপনাকে জামিনদার হিসেবে অনুরোধ করেছেন`
+                        : `${data.guarantorRequests.length} member(s) requested you as guarantor`}
                     </p>
                   </div>
                 </div>
@@ -167,7 +209,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-              {formatCurrency(stats.currentBalance)}
+               {formatCurrency(data.stats.currentBalance)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings Balance'}
@@ -181,7 +223,7 @@ export default function MemberDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalDeposited)}</div>
+             <div className="text-2xl font-bold">{formatCurrency(data.stats.totalDeposited)}</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <ArrowUpRight className="h-3 w-3 text-green-500" />
               {locale === 'bn' ? 'মোট জমা' : 'Total deposits'}
@@ -196,7 +238,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(stats.loanBalance)}
+               {formatCurrency(data.stats.loanBalance)}
             </div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <ArrowDownRight className="h-3 w-3 text-amber-500" />
@@ -212,7 +254,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(stats.loanEligibility)}
+               {formatCurrency(data.stats.loanEligibility)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সর্বোচ্চ ঋণ পরিমাণ' : 'Max loan amount'}
@@ -222,13 +264,13 @@ export default function MemberDashboard() {
       </div>
 
       {/* Active Loan Card */}
-      {activeLoan && (
+      {data.activeLoan && (
         <Card className="rounded-2xl border-emerald-200 shadow-sm overflow-hidden">
           <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-3">
             <div className="flex items-center justify-between">
               <div className="text-white">
                 <p className="text-sm opacity-90">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</p>
-                <p className="font-semibold">{activeLoan.loanNumber}</p>
+                <p className="font-semibold">{data.activeLoan.loanNumber}</p>
               </div>
               <Link href={`/${locale}/dashboard/member/loans`}>
                 <Button size="sm" variant="secondary" className="gap-1">
@@ -242,17 +284,17 @@ export default function MemberDashboard() {
             <div className="grid gap-4 sm:grid-cols-4">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'অবশিষ্ট' : 'Remaining'}</p>
-                <p className="text-xl font-bold text-amber-600">{formatCurrency(activeLoan.remainingAmount)}</p>
+                <p className="text-xl font-bold text-amber-600">{formatCurrency(data.activeLoan.remainingAmount)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'পরবর্তী কিস্তি' : 'Next Installment'}</p>
-                <p className="text-xl font-bold">{formatCurrency(activeLoan.nextInstallment)}</p>
+                <p className="text-xl font-bold">{formatCurrency(data.activeLoan.nextInstallment)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'নির্ধারিত তারিখ' : 'Due Date'}</p>
                 <p className="text-xl font-bold flex items-center gap-1">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  {formatDate(activeLoan.nextDueDate)}
+                   {formatDate(data.activeLoan.nextDueDate)}
                 </p>
               </div>
               <div>
@@ -261,10 +303,10 @@ export default function MemberDashboard() {
                   <div className="flex-1 h-2 rounded-full bg-slate-200">
                     <div
                       className="h-2 rounded-full bg-emerald-500"
-                      style={{ width: `${(activeLoan.paidInstallments / activeLoan.totalInstallments) * 100}%` }}
+                       style={{ width: `${(data.activeLoan.paidInstallments / data.activeLoan.totalInstallments) * 100}%` }}
                     />
                   </div>
-                  <span className="text-sm font-medium">{activeLoan.paidInstallments}/{activeLoan.totalInstallments}</span>
+                   <span className="text-sm font-medium">{data.activeLoan.paidInstallments}/{data.activeLoan.totalInstallments}</span>
                 </div>
               </div>
             </div>
@@ -312,7 +354,7 @@ export default function MemberDashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {recentTransactions.map((tx) => (
+            {data.recentTransactions.map((tx) => (
               <div
                 key={tx.id}
                 className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"

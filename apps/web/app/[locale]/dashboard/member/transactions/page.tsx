@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import {
   Receipt,
@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT';
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
@@ -47,95 +48,19 @@ export default function TransactionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Mock data
-  const transactions: Transaction[] = [
-    {
-      id: 't1',
-      type: 'DEPOSIT',
-      amount: 5000,
-      date: '2024-03-20T10:30:00',
-      receiptNumber: 'RCP-2024-001',
-      description: 'Monthly deposit',
-      status: 'CONFIRMED',
-      balanceAfter: 15000,
-      processedBy: 'Worker-01',
-    },
-    {
-      id: 't2',
-      type: 'LOAN_REPAYMENT',
-      amount: 5000,
-      date: '2024-03-15T14:20:00',
-      receiptNumber: 'RCP-2024-002',
-      description: 'Installment #3',
-      status: 'CONFIRMED',
-      balanceAfter: 10000,
-      processedBy: 'Worker-01',
-    },
-    {
-      id: 't3',
-      type: 'DEPOSIT',
-      amount: 3000,
-      date: '2024-03-10T09:15:00',
-      receiptNumber: 'RCP-2024-003',
-      status: 'PROCESSED',
-      balanceAfter: 15000,
-      processedBy: 'Worker-02',
-    },
-    {
-      id: 't4',
-      type: 'WITHDRAWAL',
-      amount: 2000,
-      date: '2024-03-05T16:45:00',
-      receiptNumber: 'RCP-2024-004',
-      description: 'Personal needs',
-      status: 'CONFIRMED',
-      balanceAfter: 12000,
-      processedBy: 'Worker-01',
-    },
-    {
-      id: 't5',
-      type: 'LOAN_DISBURSEMENT',
-      amount: 50000,
-      date: '2024-01-15T11:00:00',
-      receiptNumber: 'LN-2024-001',
-      description: 'Business loan',
-      status: 'CONFIRMED',
-      balanceAfter: 14000,
-      processedBy: 'Worker-01',
-    },
-    {
-      id: 't6',
-      type: 'DEPOSIT',
-      amount: 4000,
-      date: '2024-02-20T10:00:00',
-      receiptNumber: 'RCP-2024-005',
-      status: 'CONFIRMED',
-      balanceAfter: 14000,
-      processedBy: 'Worker-01',
-    },
-    {
-      id: 't7',
-      type: 'LOAN_REPAYMENT',
-      amount: 5000,
-      date: '2024-02-15T15:30:00',
-      receiptNumber: 'RCP-2024-006',
-      description: 'Installment #2',
-      status: 'CONFIRMED',
-      balanceAfter: 10000,
-      processedBy: 'Worker-02',
-    },
-    {
-      id: 't8',
-      type: 'LOAN_REPAYMENT',
-      amount: 5000,
-      date: '2024-01-30T12:00:00',
-      receiptNumber: 'RCP-2024-007',
-      description: 'Installment #1',
-      status: 'CONFIRMED',
-      balanceAfter: 15000,
-      processedBy: 'Worker-01',
-    },
-  ];
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  useEffect(() => {
+    const loadTransactions = async () => {
+      try {
+        const data = await apiGet<Transaction[]>('/v1/dashboard/member/transactions');
+        setTransactions(data || []);
+      } catch {
+        setTransactions([]);
+      }
+    };
+    loadTransactions();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {

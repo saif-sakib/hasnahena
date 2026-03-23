@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import Link from 'next/link';
 import {
@@ -44,6 +44,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { apiGet } from '@/lib/api';
 
 interface Member {
   id: string;
@@ -66,83 +67,24 @@ export default function WorkerMembersPage() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Mock data - members assigned to this worker's area
-  const members: Member[] = [
-    {
-      id: '1',
-      name: 'আব্দুল করিম',
-      phone: '01712345678',
-      email: 'abdul.karim@email.com',
-      nidNumber: '1234567890123',
-      address: 'ঢাকা উত্তর',
-      status: 'ACTIVE',
-      joinDate: '2024-01-15',
-      currentDeposit: 85000,
-      activeLoan: 50000,
-      lastTransaction: '2025-01-10',
-    },
-    {
-      id: '2',
-      name: 'ফাতেমা বেগম',
-      phone: '01812345678',
-      email: 'fatema.begum@email.com',
-      nidNumber: '2345678901234',
-      address: 'ঢাকা উত্তর',
-      status: 'ACTIVE',
-      joinDate: '2024-02-20',
-      currentDeposit: 120000,
-      activeLoan: 0,
-      lastTransaction: '2025-01-12',
-    },
-    {
-      id: '3',
-      name: 'রহিম উদ্দিন',
-      phone: '01912345678',
-      nidNumber: '3456789012345',
-      address: 'ঢাকা উত্তর',
-      status: 'ACTIVE',
-      joinDate: '2024-03-10',
-      currentDeposit: 45000,
-      activeLoan: 30000,
-      lastTransaction: '2025-01-08',
-    },
-    {
-      id: '4',
-      name: 'সাদিয়া আক্তার',
-      phone: '01612345678',
-      email: 'sadia.akter@email.com',
-      nidNumber: '4567890123456',
-      address: 'ঢাকা উত্তর',
-      status: 'ACTIVE',
-      joinDate: '2024-05-01',
-      currentDeposit: 95000,
-      activeLoan: 80000,
-      lastTransaction: '2025-01-14',
-    },
-    {
-      id: '5',
-      name: 'জাকির হোসেন',
-      phone: '01512345678',
-      nidNumber: '5678901234567',
-      address: 'ঢাকা উত্তর',
-      status: 'ACTIVE',
-      joinDate: '2024-06-15',
-      currentDeposit: 75000,
-      activeLoan: 0,
-      lastTransaction: '2025-01-05',
-    },
-    {
-      id: '6',
-      name: 'নূর হোসেন',
-      phone: '01412345678',
-      nidNumber: '6789012345678',
-      address: 'ঢাকা উত্তর',
-      status: 'PENDING',
-      joinDate: '2025-01-10',
-      currentDeposit: 0,
-      activeLoan: 0,
-    },
-  ];
+  const [members, setMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    const loadMembers = async () => {
+      try {
+        const data = await apiGet<Member[]>('/v1/dashboard/worker/members');
+        setMembers(
+          data.map((member) => ({
+            ...member,
+            status: member.status === 'PENDING' ? 'PENDING' : 'ACTIVE',
+          }))
+        );
+      } catch {
+        setMembers([]);
+      }
+    };
+    loadMembers();
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
