@@ -27,8 +27,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Logo, LogoIcon } from '@/components/ui/logo';
-import Image from 'next/image';
+import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { apiGet } from '@/lib/api';
 
@@ -185,16 +184,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Logo Section */}
           <div className="flex items-center justify-between h-20 px-5 border-b border-white/10">
             <Link href={`/${locale}`} className="flex items-center gap-3 group">
-              <Image
-                src="/images/dashboard-logo.png"
-                alt="Hasnahena"
-                width={48}
-                height={48}
-                className="rounded-lg"
-              />
-              <span className="font-bold text-xl text-white">
-                {locale === 'bn' ? 'হাসনাহেনা' : 'Hasnahena'}
-              </span>
+              <Logo size="sm" showTagline={false} className="brightness-0 invert" />
             </Link>
             <Button
               variant="ghost"

@@ -47,8 +47,16 @@ EOF
 This creates your 3 login users and comprehensive test data:
 
 ```bash
-cd apps/api
-go run cmd/seed/main.go
+cd ../..
+pnpm db:seed
+```
+
+See detailed seed usage notes in `docs/SEED_DATA.md`.
+
+If you want a clean reset first:
+
+```bash
+pnpm db:seed:reset
 ```
 
 Expected output:

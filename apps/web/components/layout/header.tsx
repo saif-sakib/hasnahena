@@ -7,7 +7,6 @@ import { Menu, X, Globe, LogOut, LayoutDashboard } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
-import Image from 'next/image';
 
 const navigation = [
   { name: 'home', href: '/' },
@@ -63,22 +62,7 @@ export function Header() {
       <nav className="container-wide flex h-16 items-center justify-between">
         {/* Logo */}
         <Link href={`/${locale}`} className="flex items-center">
-          <span className="hidden sm:block">
-            <Logo size="sm" showTagline={false} />
-          </span>
-          <span className="sm:hidden flex items-center gap-2">
-            <Image
-              src="/images/dashboard-logo.png"
-              alt="হাসনাহেনা"
-              width={32}
-              height={32}
-              className="object-contain rounded-lg"
-              priority
-            />
-            <span className="font-bold text-base text-primary">
-              {locale === 'bn' ? 'হাসনাহেনা' : 'Hasnahena'}
-            </span>
-          </span>
+          <Logo size="sm" showTagline={false} />
         </Link>
 
         {/* Desktop Navigation */}
