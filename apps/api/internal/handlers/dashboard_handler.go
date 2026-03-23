@@ -16,6 +16,11 @@ type DashboardHandler struct {
 	userRepo    *repositories.UserRepository
 }
 
+type authContext struct {
+	UserID string
+	Role   string
+}
+
 func NewDashboardHandler(authService *services.AuthService, userRepo *repositories.UserRepository) *DashboardHandler {
 	return &DashboardHandler{
 		authService: authService,
@@ -24,13 +29,12 @@ func NewDashboardHandler(authService *services.AuthService, userRepo *repositori
 }
 
 func (h *DashboardHandler) MemberDashboard(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetMemberDashboardData(r.Context(), userID)
+	data, err := h.userRepo.GetMemberDashboardData(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "DASHBOARD_FETCH_FAILED", "Failed to load dashboard data")
 		return
@@ -40,13 +44,12 @@ func (h *DashboardHandler) MemberDashboard(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *DashboardHandler) Notifications(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetNotifications(r.Context(), userID)
+	data, err := h.userRepo.GetNotifications(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "NOTIFICATION_FETCH_FAILED", "Failed to load notifications")
 		return
@@ -56,12 +59,11 @@ func (h *DashboardHandler) Notifications(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) MemberDeposits(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
 		return
 	}
-	data, err := h.userRepo.GetMemberDeposits(r.Context(), userID)
+	data, err := h.userRepo.GetMemberDeposits(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "MEMBER_DEPOSITS_FETCH_FAILED", "Failed to load member deposits")
 		return
@@ -70,12 +72,11 @@ func (h *DashboardHandler) MemberDeposits(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) MemberTransactions(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
 		return
 	}
-	data, err := h.userRepo.GetMemberTransactions(r.Context(), userID)
+	data, err := h.userRepo.GetMemberTransactions(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "MEMBER_TRANSACTIONS_FETCH_FAILED", "Failed to load member transactions")
 		return
@@ -84,12 +85,11 @@ func (h *DashboardHandler) MemberTransactions(w http.ResponseWriter, r *http.Req
 }
 
 func (h *DashboardHandler) MemberLoans(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
 		return
 	}
-	data, err := h.userRepo.GetMemberLoans(r.Context(), userID)
+	data, err := h.userRepo.GetMemberLoans(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "MEMBER_LOANS_FETCH_FAILED", "Failed to load member loans")
 		return
@@ -98,12 +98,11 @@ func (h *DashboardHandler) MemberLoans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) MemberProfile(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
 		return
 	}
-	data, err := h.userRepo.GetMemberProfile(r.Context(), userID)
+	data, err := h.userRepo.GetMemberProfile(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "MEMBER_PROFILE_FETCH_FAILED", "Failed to load member profile")
 		return
@@ -112,8 +111,7 @@ func (h *DashboardHandler) MemberProfile(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) WorkerDashboard(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetWorkerDashboard(r.Context())
@@ -125,8 +123,7 @@ func (h *DashboardHandler) WorkerDashboard(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *DashboardHandler) WorkerMembers(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetMembersList(r.Context(), false)
@@ -138,8 +135,7 @@ func (h *DashboardHandler) WorkerMembers(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetAdminDashboard(r.Context())
@@ -151,8 +147,7 @@ func (h *DashboardHandler) AdminDashboard(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) AdminMembers(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetMembersList(r.Context(), false)
@@ -164,8 +159,7 @@ func (h *DashboardHandler) AdminMembers(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *DashboardHandler) AdminWorkers(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetMembersList(r.Context(), true)
@@ -176,29 +170,75 @@ func (h *DashboardHandler) AdminWorkers(w http.ResponseWriter, r *http.Request) 
 	utils.Success(w, http.StatusOK, data)
 }
 
-func (h *DashboardHandler) userIDFromRequest(r *http.Request) (string, error) {
+func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-		return "", errors.New("missing bearer token")
+		return nil, errors.New("missing bearer token")
 	}
 
 	tokenString := strings.TrimSpace(authHeader[7:])
 	claims, err := h.authService.ParseAccessToken(tokenString)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	subValue, ok := claims["sub"]
 	if !ok {
-		return "", errors.New("missing sub claim")
+		return nil, errors.New("missing sub claim")
 	}
 
 	userID, ok := subValue.(string)
 	if !ok || strings.TrimSpace(userID) == "" {
-		return "", errors.New("invalid sub claim")
+		return nil, errors.New("invalid sub claim")
 	}
 
-	return userID, nil
+	roleValue, ok := claims["role"]
+	if !ok {
+		return nil, errors.New("missing role claim")
+	}
+	role, ok := roleValue.(string)
+	if !ok || strings.TrimSpace(role) == "" {
+		return nil, errors.New("invalid role claim")
+	}
+
+	return &authContext{
+		UserID: userID,
+		Role:   strings.ToUpper(strings.TrimSpace(role)),
+	}, nil
+}
+
+func (h *DashboardHandler) userIDFromRequest(r *http.Request) (string, error) {
+	auth, err := h.authFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	return auth.UserID, nil
+}
+
+func (h *DashboardHandler) requireAuthenticated(w http.ResponseWriter, r *http.Request) (*authContext, bool) {
+	auth, err := h.authFromRequest(r)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+		return nil, false
+	}
+	return auth, true
+}
+
+func (h *DashboardHandler) requireRoles(w http.ResponseWriter, r *http.Request, roles ...string) (*authContext, bool) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return nil, false
+	}
+
+	allowed := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		allowed[strings.ToUpper(strings.TrimSpace(role))] = struct{}{}
+	}
+	if _, exists := allowed[auth.Role]; !exists {
+		utils.Error(w, http.StatusForbidden, "AUTH_FORBIDDEN", "Insufficient permissions")
+		return nil, false
+	}
+	return auth, true
 }
 
 func (h *DashboardHandler) UserInfo(w http.ResponseWriter, r *http.Request) {
