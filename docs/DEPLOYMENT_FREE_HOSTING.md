@@ -12,6 +12,25 @@ This guide documents a full no-cost deployment setup for:
 
 ---
 
+## Current Deployment Snapshot (What is done already)
+
+This is the current known state:
+
+- Frontend deployed on Vercel: `https://hasnahena-web.vercel.app`
+- Backend deployed on Render: `https://hasnahena-api.onrender.com`
+- Domain configured: `hasnahenafoundation.com`
+- Database configured on Neon and schema/seed applied
+- Cloudinary credentials added in Render environment variables
+
+Items still recommended to complete:
+
+- Create Cloudinary upload preset and enforce restrictions
+- Add folder strategy in Cloudinary (or enforce folder path from backend)
+- Confirm DNS records use latest Vercel recommended targets
+- Keep production and development secrets separated and rotated
+
+---
+
 ## 0) Prerequisites
 
 - GitHub repository is pushed and accessible
@@ -172,6 +191,44 @@ CLOUDINARY_API_SECRET=your-api-secret
    - Render (if backend performs uploads)
    - Vercel (only if Next.js server routes handle uploads)
 
+### 4.1 Recommended Cloudinary folder strategy
+
+Cloudinary does not require pre-creating folders. Folders are auto-created when first file is uploaded to that path.
+
+Recommended paths:
+
+- `hasnahena/members/` (member photos)
+- `hasnahena/nid/` (NID front/back)
+- `hasnahena/nominee/` (nominee documents)
+- `hasnahena/misc/` (other documents)
+
+Store both `secure_url` and `public_id` in your database so files can be updated/deleted later.
+
+### 4.2 Recommended upload restrictions
+
+In Cloudinary -> **Settings -> Upload** -> **Upload presets**:
+
+1. Create preset: `hasnahena-docs`
+2. Use **Signed** uploads (recommended for backend-controlled security)
+3. Set allowed formats:
+   - `jpg,jpeg,png,pdf`
+4. Set max file size (recommended):
+   - `5MB` for images/documents (or your policy)
+5. Optionally set:
+   - Folder (default path): `hasnahena/misc`
+   - Unique filename enabled
+   - Overwrite disabled
+
+Enforce the same checks in backend too (MIME type and file size) before upload.
+
+### 4.3 Where to put Cloudinary env vars
+
+- Render: required if Go API uploads files
+- Vercel: required only if Next.js server routes upload files
+- Local: optional, only if you test uploads locally
+
+If upload code runs only in Go API, keep Cloudinary secrets only in Render/local API env.
+
 ---
 
 ## 5) Namecheap DNS Configuration
@@ -182,11 +239,11 @@ Create/update records:
 
 - `A` record
   - Host: `@`
-  - Value: `76.76.21.21`
+  - Value: `216.198.79.1`
   - Purpose: apex domain to Vercel
 - `CNAME` record
   - Host: `www`
-  - Value: `cname.vercel-dns.com`
+  - Value: `291e3aff994166f3.vercel-dns-017.com`
   - Purpose: www to Vercel
 - `CNAME` record
   - Host: `api`
@@ -205,8 +262,8 @@ Wait for DNS propagation (can take some time).
 1. Namecheap -> **Domain List** -> **Manage** (for `hasnahenafoundation.com`)
 2. Open **Advanced DNS**
 3. In **Host Records**, add/edit:
-   - `A Record`, Host `@`, Value `76.76.21.21`, TTL `Automatic`
-   - `CNAME Record`, Host `www`, Value `cname.vercel-dns.com`, TTL `Automatic`
+   - `A Record`, Host `@`, Value `216.198.79.1`, TTL `Automatic`
+   - `CNAME Record`, Host `www`, Value `291e3aff994166f3.vercel-dns-017.com`, TTL `Automatic`
    - `CNAME Record`, Host `api`, Value `hasnahena-api.onrender.com`, TTL `Automatic`
 4. Remove conflicting old records for `@`, `www`, or `api`
 5. Save all changes
@@ -218,6 +275,8 @@ Wait for DNS propagation (can take some time).
 8. After SSL is issued, update frontend env in Vercel:
    - `NEXT_PUBLIC_API_URL=https://api.hasnahenafoundation.com`
    - Redeploy Vercel
+
+Note: older Vercel targets (`76.76.21.21` and `cname.vercel-dns.com`) can still work, but using the latest recommended values is preferred.
 
 ---
 
@@ -331,3 +390,88 @@ API_PORT=8080
 JWT_EXPIRY_SECONDS=86400
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 ```
+
+---
+
+## 10) Environment Variables: Local vs Production
+
+### 10.1 Why they are different
+
+- **Local env**: for your machine only (development/testing)
+- **Vercel env**: for frontend deployment runtime/build
+- **Render env**: for backend API runtime
+
+They are isolated from each other. Updating one does not update others.
+
+### 10.2 Management rules
+
+1. Never commit real secrets to git (`.env`, `.env.local`, screenshots, chat)
+2. Keep separate secrets per environment:
+   - local/dev secrets
+   - production secrets
+3. Rotate secrets if exposed
+4. Maintain a safe template in `.env.example` only (no real values)
+5. Update Vercel/Render env in their dashboards, then redeploy
+
+### 10.3 Should you use everything locally?
+
+Recommended local-first workflow:
+
+- Database: local PostgreSQL for daily development
+- API + Web: run locally
+- Cloudinary: either use a separate dev Cloudinary account/preset, or skip upload testing until needed
+
+Use Neon mostly for shared/staging/production data.
+
+---
+
+## 11) Full Local Development Setup
+
+### 11.1 Local PostgreSQL (recommended for daily coding)
+
+This repo already includes Docker Compose for Postgres:
+
+```bash
+cd /home/sword/Documents/Github/Hasnahena
+docker compose up -d postgres
+```
+
+Use local DB URL:
+
+```dotenv
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_dev
+```
+
+Then create schema and seed:
+
+```bash
+cd apps/web
+npx prisma db push
+
+cd ../api
+go run cmd/seed/main.go
+```
+
+### 11.2 Run app locally
+
+From repository root:
+
+```bash
+pnpm dev
+```
+
+Expected:
+
+- Frontend: `http://localhost:3000`
+- API: `http://localhost:8080`
+
+### 11.3 Cloudinary for local development
+
+Cloudinary has no full local emulator. Best practice:
+
+1. Create a separate Cloudinary account or separate dev preset
+2. Put dev Cloudinary credentials in local `.env.local`
+3. Use a dev-only folder prefix, e.g. `hasnahena-dev/...`
+4. Never reuse production Cloudinary secrets locally
+
+Optional shortcut: if you are not testing uploads, leave Cloudinary vars unset locally and test non-upload features only.
