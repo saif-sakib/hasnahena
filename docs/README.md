@@ -31,13 +31,12 @@ Original source materials and organized specifications:
 | [Registration Form](references/registration-form.md) | Member registration form field specification |
 | [Passbook Specification](references/passbook-specification.md) | Savings and loan passbook structure |
 | [Requirements.txt](references/Requirements.txt) | Original requirements notes |
-| [Tech stack.txt](references/Tech%20stack.txt) | Original tech stack decisions |
-| [Hosting.txt](references/Hosting.txt) | Original hosting decisions |
 
-### Deployment Guides
+### Setup & Deployment Guides
 
 | Document | Description |
 |----------|-------------|
+| [Quick Start](../QUICKSTART.md) | Local run, database seed, and API smoke-test flow |
 | [Free Hosting Deployment Guide](DEPLOYMENT_FREE_HOSTING.md) | Step-by-step setup for Neon, Vercel, Render, Cloudinary, and Namecheap DNS |
 
 ### LaTeX Source Files
