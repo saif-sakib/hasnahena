@@ -74,6 +74,24 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const t = useTranslations('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([
+    {
+      id: 1,
+      title: locale === 'bn' ? 'আমানত নিশ্চিত হয়েছে' : 'Deposit Confirmed',
+      description: locale === 'bn' ? '৳৫,০০০ আমানত সফলভাবে নিশ্চিত হয়েছে' : '৳5,000 deposit has been confirmed',
+      time: locale === 'bn' ? '৫ মিনিট আগে' : '5 minutes ago',
+      read: false,
+    },
+    {
+      id: 2,
+      title: locale === 'bn' ? 'ঋণ কিস্তির রিমাইন্ডার' : 'Loan Installment Reminder',
+      description: locale === 'bn'
+        ? 'আগামীকাল আপনার কিস্তির শেষ তারিখ'
+        : 'Your installment due date is tomorrow',
+      time: locale === 'bn' ? '১ ঘন্টা আগে' : '1 hour ago',
+      read: false,
+    },
+  ]);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -84,16 +102,28 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     admin: locale === 'bn' ? 'অ্যাডমিন' : 'Admin',
   };
 
-  // Sample notifications - replace with real data
-  const notifications = [
-    {
-      id: 1,
-      title: locale === 'bn' ? 'আমানত নিশ্চিত হয়েছে' : 'Deposit Confirmed',
-      description: locale === 'bn' ? '৳৫,০০০ আমানত সফলভাবে নিশ্চিত হয়েছে' : '৳5,000 deposit has been confirmed',
-      time: locale === 'bn' ? '৫ মিনিট আগে' : '5 minutes ago',
-      read: false,
-    },
-  ];
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markNotificationAsRead = (id: number) => {
+    setNotifications((prev) =>
+      prev.map((notification) =>
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    );
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((notification) => ({ ...notification, read: true })));
+    toast({
+      title: locale === 'bn' ? 'সব বিজ্ঞপ্তি পঠিত হিসেবে চিহ্নিত হয়েছে' : 'All notifications marked as read',
+      variant: 'success',
+    });
+  };
+
+  const handleViewAllNotifications = () => {
+    setShowNotifications(false);
+    router.push(basePath);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('hn_access_token');
@@ -255,9 +285,9 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 onClick={() => setShowNotifications(!showNotifications)}
               >
                 <Bell className="h-5 w-5 text-slate-600" />
-                {notifications.filter(n => !n.read).length > 0 && (
+                {unreadCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 h-4 w-4 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
-                    {notifications.filter(n => !n.read).length}
+                    {unreadCount}
                   </span>
                 )}
               </Button>
@@ -274,9 +304,21 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       <h3 className="font-semibold text-slate-900">
                         {locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'}
                       </h3>
-                      <span className="text-xs text-muted-foreground">
-                        {notifications.filter(n => !n.read).length} {locale === 'bn' ? 'নতুন' : 'new'}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {unreadCount} {locale === 'bn' ? 'নতুন' : 'new'}
+                        </span>
+                        {unreadCount > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={markAllNotificationsAsRead}
+                          >
+                            {locale === 'bn' ? 'সব পঠিত' : 'Mark all read'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="max-h-80 overflow-y-auto">
                       {notifications.length > 0 ? (
@@ -286,6 +328,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                             className={`p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer ${
                               !notification.read ? 'bg-emerald-50/50' : ''
                             }`}
+                            onClick={() => {
+                              markNotificationAsRead(notification.id);
+                              setShowNotifications(false);
+                            }}
                           >
                             <div className="flex gap-3">
                               <div className="flex-shrink-0">
@@ -302,6 +348,19 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   {notification.time}
                                 </p>
                               </div>
+                              {!notification.read && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    markNotificationAsRead(notification.id);
+                                  }}
+                                >
+                                  {locale === 'bn' ? 'পঠিত' : 'Mark read'}
+                                </Button>
+                              )}
                             </div>
                           </div>
                         ))
@@ -315,7 +374,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       )}
                     </div>
                     <div className="p-3 border-t border-slate-100 bg-slate-50">
-                      <Button variant="ghost" size="sm" className="w-full text-sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-sm"
+                        onClick={handleViewAllNotifications}
+                      >
                         {locale === 'bn' ? 'সব দেখুন' : 'View all'}
                       </Button>
                     </div>

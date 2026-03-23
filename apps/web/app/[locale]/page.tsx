@@ -2,12 +2,13 @@ import { useTranslations } from 'next-intl';
 import { unstable_setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowRight, Shield, Users, Eye, Lock, Wallet, HandHeart, FileText, HeadphonesIcon, BookOpen, Quote, Phone, Mail, MapPin, GraduationCap, Heart, Briefcase, Calendar, Image as ImageIcon } from 'lucide-react';
+import { ArrowRight, Shield, Users, Eye, Lock, Wallet, HandHeart, FileText, HeadphonesIcon, BookOpen, Quote, Phone, Mail, MapPin, GraduationCap, Heart, Briefcase, Calendar, Image as ImageIcon, LayoutDashboard } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
+import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales } from '@/i18n';
 
 export default function HomePage({ params: { locale } }: { params: { locale: string } }) {
@@ -121,19 +122,7 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
                 <p className="text-lg md:text-xl text-muted-foreground max-w-xl">
                   {t('hero.subtitle')}
                 </p>
-                <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                  <Link href={`/${locale}/register`}>
-                    <Button size="xl" className="gap-2 w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-                      {t('hero.cta')}
-                      <ArrowRight className="h-5 w-5" />
-                    </Button>
-                  </Link>
-                  <Link href="#how-it-works">
-                    <Button variant="outline" size="xl" className="w-full sm:w-auto">
-                      {t('hero.learnMore')}
-                    </Button>
-                  </Link>
-                </div>
+                <AuthAwareCTA locale={locale} ctaText={t('hero.cta')} learnMoreText={t('hero.learnMore')} variant="hero" />
               </div>
 
               {/* Stats Cards */}
@@ -375,30 +364,11 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
         </section>
 
         {/* CTA Section */}
-        <section className="py-16 md:py-20 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white">
-          <div className="container-wide text-center">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">
-              {locale === 'bn'
-                ? 'আজই সুদমুক্ত অর্থায়নে যোগ দিন'
-                : 'Join Interest-Free Finance Today'}
-            </h2>
-            <p className="text-lg mb-8 opacity-90 max-w-2xl mx-auto">
-              {locale === 'bn'
-                ? 'হাসনাহেনার সদস্য হয়ে সুদমুক্ত ঋণের সুবিধা নিন'
-                : 'Become a member of Hasnahena and enjoy interest-free loans'}
-            </p>
-            <Link href={`/${locale}/register`}>
-              <Button
-                size="xl"
-                variant="secondary"
-                className="gap-2 text-primary shadow-lg hover:shadow-xl transition-all"
-              >
-                {t('hero.cta')}
-                <ArrowRight className="h-5 w-5" />
-              </Button>
-            </Link>
-          </div>
-        </section>
+        <AuthAwareCTA
+          locale={locale}
+          ctaText={t('hero.cta')}
+          variant="footer"
+        />
       </main>
       <Footer />
     </>
