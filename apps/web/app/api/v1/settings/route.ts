@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET() {
   try {
@@ -23,6 +23,11 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const authUser = requireAuth(request);
+    if (authUser.role !== UserRole.ADMIN && authUser.role !== UserRole.SUPER_ADMIN) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = await request.json();
     
     // Process all keys in the body
@@ -48,6 +53,10 @@ export async function PUT(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to update system config:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update settings';
+    if (message.toLowerCase().includes('authorization') || message.toLowerCase().includes('token')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
   }
 }

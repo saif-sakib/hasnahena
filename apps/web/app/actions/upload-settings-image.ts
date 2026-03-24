@@ -2,9 +2,9 @@
 
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
-import { verifyHs256Jwt } from '@/lib/jwt';
 import { uploadSettingsImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { revalidatePath } from 'next/cache';
+import { authorizeServerActionRoles } from '@/lib/server-auth';
 
 interface UploadSettingsImageResult {
   success: boolean;
@@ -41,23 +41,13 @@ export async function uploadSettingsImageAction(
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify token
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return { success: false, error: 'Server configuration error' };
-    }
-
-    let claims;
-    try {
-      claims = verifyHs256Jwt(authToken, secret);
-    } catch (error) {
-      return { success: false, error: 'Invalid authentication token' };
-    }
-
-    // Check if user is admin
-    const role = String(claims.role ?? '').toUpperCase();
-    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
-      return { success: false, error: 'Unauthorized. Only admins can upload settings images.' };
+    const auth = await authorizeServerActionRoles(
+      authToken,
+      ['ADMIN', 'SUPER_ADMIN'],
+      'Unauthorized. Only admins can upload settings images.'
+    );
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     // Get file from form data
@@ -148,23 +138,13 @@ export async function deleteSettingsImageAction(
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify token
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return { success: false, error: 'Server configuration error' };
-    }
-
-    let claims;
-    try {
-      claims = verifyHs256Jwt(authToken, secret);
-    } catch (error) {
-      return { success: false, error: 'Invalid authentication token' };
-    }
-
-    // Check if user is admin
-    const role = String(claims.role ?? '').toUpperCase();
-    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
-      return { success: false, error: 'Unauthorized. Only admins can delete settings images.' };
+    const auth = await authorizeServerActionRoles(
+      authToken,
+      ['ADMIN', 'SUPER_ADMIN'],
+      'Unauthorized. Only admins can delete settings images.'
+    );
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     // Get existing setting

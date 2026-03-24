@@ -281,9 +281,13 @@ export default function AdminSettingsPage() {
       };
 
       // Save to API
+      const authToken = getAuthToken();
       const response = await fetch('/api/v1/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify(settingsToSave),
       });
 
