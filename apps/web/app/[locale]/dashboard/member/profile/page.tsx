@@ -26,6 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AvatarUpload } from '@/components/ui/avatar-upload';
 
 interface UserProfile {
   memberId: string;
@@ -270,7 +271,15 @@ export default function ProfilePage() {
         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-8">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="h-24 w-24 rounded-full bg-white/20 flex items-center justify-center text-white text-4xl font-bold border-4 border-white/30">
-              {profile.nameBn.charAt(0)}
+              <AvatarUpload
+                currentAvatarUrl={profile.avatarUrl}
+                userName={locale === 'bn' ? profile.nameBn || profile.nameEn : profile.nameEn || profile.nameBn}
+                size="lg"
+                editable
+                onUploadComplete={(avatarUrl) =>
+                  setProfile((prev) => ({ ...prev, avatarUrl: avatarUrl || undefined }))
+                }
+              />
             </div>
             <div className="text-center sm:text-left text-white flex-1">
               <h2 className="text-2xl font-bold">{locale === 'bn' ? profile.nameBn : profile.nameEn}</h2>

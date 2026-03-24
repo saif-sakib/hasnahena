@@ -389,3 +389,21 @@ model Notification {
   @@index([targetUserId, isRead])
   @@map("notifications")
 }
+
+// ============================================================
+// CONTENT MANAGEMENT
+// ============================================================
+
+model GalleryItem {
+  id          String   @id @default(cuid())
+  imageUrl    String
+  captionEn   String?
+  captionBn   String?
+  date        DateTime @default(now())
+  likes       Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("gallery_items")
+}

@@ -9,7 +9,6 @@ import {
   MapPin,
   Shield,
   Calendar,
-  Camera,
   Edit,
   Lock,
   Save,
@@ -21,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { AvatarUpload } from '@/components/ui/avatar-upload';
 import {
   Dialog,
   DialogContent,
@@ -124,18 +124,12 @@ export default function AdminProfilePage() {
             {/* Avatar */}
             <div className="flex flex-col items-center">
               <div className="relative">
-                <div className="h-32 w-32 rounded-full bg-primary/10 flex items-center justify-center text-primary text-4xl font-semibold">
-                  {adminData.name.charAt(0)}
-                </div>
-                {isEditing && (
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="absolute bottom-0 right-0 rounded-full"
-                  >
-                    <Camera className="h-4 w-4" />
-                  </Button>
-                )}
+                <AvatarUpload
+                  currentAvatarUrl={null}
+                  userName={adminData.nameEn || adminData.name}
+                  size="xl"
+                  editable={isEditing}
+                />
               </div>
               <div className="mt-4 text-center">
                 <h2 className="text-xl font-semibold">{adminData.name}</h2>

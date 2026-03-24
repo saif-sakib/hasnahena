@@ -33,13 +33,15 @@
     "register": "Register",
     "dashboard": "Dashboard",
     "logout": "Logout",
-    "language": "Language"
+    "language": "Language",
+    "features": "Features"
   },
   "hero": {
     "title": "Interest-Free Finance",
     "subtitle": "Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest",
     "cta": "Become a Member",
-    "learnMore": "Learn More"
+    "learnMore": "Learn More",
+    "tagline": "Shariah Compliant Finance"
   },
   "hadith": {
     "title": "In Light of Hadith",
@@ -166,6 +168,7 @@
   "auth": {
     "loginTitle": "Welcome Back",
     "loginSubtitle": "Sign in to access your account",
+    "welcomeBack": "Welcome Back",
     "registerTitle": "Join Hasnahena",
     "registerSubtitle": "Start your journey to interest-free finance",
     "email": "Email",

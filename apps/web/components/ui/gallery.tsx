@@ -4,7 +4,8 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Heart, MessageCircle, Share2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Heart, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 export interface GalleryItem {
   id: string;
@@ -23,8 +24,27 @@ export function Gallery({ items, locale }: GalleryProps) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   const [likedItems, setLikedItems] = useState<Set<string>>(new Set());
 
+  const { toast } = useToast();
+
+  const checkAuth = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+    return !!token;
+  };
+
   const handleLike = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    if (!checkAuth()) {
+      toast({
+        title: locale === 'bn' ? 'লগইন প্রয়োজন' : 'Login Required',
+        description: locale === 'bn' 
+          ? 'অনুগ্রহ করে লাইক দিতে লগইন করুন' 
+          : 'Please login to like this post',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLikedItems(prev => {
       const newSet = new Set(prev);
       if (newSet.has(id)) {
@@ -93,7 +113,7 @@ export function Gallery({ items, locale }: GalleryProps) {
               <p className="font-medium line-clamp-2 text-slate-800 dark:text-slate-200">
                 {item.caption}
               </p>
-              <div className="flex items-center gap-4 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
+              <div className="flex items-center mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -102,12 +122,6 @@ export function Gallery({ items, locale }: GalleryProps) {
                 >
                   <Heart className={`h-4 w-4 ${likedItems.has(item.id) ? 'fill-current' : ''}`} />
                   <span className="text-xs">{(item.likes || 0) + (likedItems.has(item.id) ? 1 : 0)}</span>
-                </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5 h-8 px-2 text-muted-foreground">
-                  <MessageCircle className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5 h-8 px-2 text-muted-foreground ml-auto">
-                  <Share2 className="h-4 w-4" />
                 </Button>
               </div>
             </CardContent>
@@ -118,13 +132,13 @@ export function Gallery({ items, locale }: GalleryProps) {
       {/* Lightbox Modal */}
       {selectedImage !== null && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 md:p-8"
           onClick={closeLightbox}
         >
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4 text-white hover:bg-white/20 z-10"
+            className="absolute top-4 right-4 text-white hover:bg-white/20 z-20 rounded-full"
             onClick={closeLightbox}
           >
             <X className="h-6 w-6" />
@@ -134,7 +148,7 @@ export function Gallery({ items, locale }: GalleryProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute left-4 text-white hover:bg-white/20 z-10"
+              className="absolute left-3 md:left-6 text-white hover:bg-white/20 z-20 rounded-full"
               onClick={(e) => {
                 e.stopPropagation();
                 goToPrevious();
@@ -148,7 +162,7 @@ export function Gallery({ items, locale }: GalleryProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-4 text-white hover:bg-white/20 z-10"
+              className="absolute right-3 md:right-6 text-white hover:bg-white/20 z-20 rounded-full"
               onClick={(e) => {
                 e.stopPropagation();
                 goToNext();
@@ -159,19 +173,20 @@ export function Gallery({ items, locale }: GalleryProps) {
           )}
 
           <div
-            className="max-w-4xl max-h-[80vh] relative"
+            className="w-full max-w-5xl relative rounded-2xl overflow-hidden bg-slate-950/80 border border-white/10 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <Image
-              src={items[selectedImage].image}
-              alt={items[selectedImage].caption}
-              width={1200}
-              height={800}
-              className="object-contain max-h-[70vh] w-auto"
-            />
-            <div className="text-white text-center mt-4 px-4">
-              <p className="text-lg font-medium">{items[selectedImage].caption}</p>
-              <p className="text-sm text-white/70 mt-1">
+            <div className="relative w-full h-[55vh] md:h-[72vh] bg-black">
+              <Image
+                src={items[selectedImage].image}
+                alt={items[selectedImage].caption}
+                fill
+                className="object-contain"
+              />
+            </div>
+            <div className="px-4 md:px-6 py-4 text-white">
+              <p className="text-base md:text-lg font-semibold">{items[selectedImage].caption}</p>
+              <p className="text-xs md:text-sm text-white/70 mt-1">
                 {new Date(items[selectedImage].date).toLocaleDateString(
                   locale === 'bn' ? 'bn-BD' : 'en-US',
                   { year: 'numeric', month: 'long', day: 'numeric' }

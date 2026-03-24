@@ -7,6 +7,7 @@ interface LogoProps {
   variant?: 'default' | 'light';
   showTagline?: boolean;
   className?: string;
+  src?: string;
 }
 
 const sizeMap = {
@@ -22,12 +23,13 @@ export function Logo({
   variant = 'default',
   showTagline = true, 
   className,
+  src = '/images/logo.png',
 }: LogoProps) {
   const { width, height } = sizeMap[size];
   
   return (
     <Image
-      src="/images/logo.png"
+      src={src}
       alt="হাসনাহেনা - Hasnahena"
       width={width}
       height={showTagline ? height : Math.round(height * 0.7)}
