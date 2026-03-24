@@ -31,6 +31,105 @@ Items still recommended to complete:
 
 ---
 
+## Namecheap Migration Runbook (Your Requested Order)
+
+This section is for your current situation:
+
+- You have Namecheap domain + Stellar Plus shared hosting
+- Current stack is Vercel (web) + Render (API) + Neon (PostgreSQL) + Cloudinary
+- You want migration order: **database -> frontend -> file cloud**
+
+### Important reality before you start
+
+- `apps/api` is a **Go** server. Stellar Plus shared hosting is not suitable for running Go APIs directly.
+- `apps/web` is a **Next.js** app with server routes and Prisma usage. Stellar Plus shared hosting is not suitable for running this Next.js runtime directly.
+- Best safe path with your current codebase:
+  - Keep runtime hosting on Vercel/Render (or move to Namecheap VPS, not shared hosting)
+  - Use Namecheap mainly for DNS and domain management
+
+If you still want to move runtime to Namecheap, use a **Namecheap VPS** plan and follow Section **12.4** below.
+
+### 12.1 Database migration first (Neon)
+
+If your DB is already on Neon and working, this is mainly a safe cutover checklist.
+
+1. In Neon, create a new production database/branch (optional but recommended for clean migration).
+2. Copy two URLs:
+   - Direct URL (no `-pooler`) -> for schema push/seed jobs
+   - Pooled URL (`-pooler`) -> for app runtime (`DATABASE_URL`)
+3. Apply schema:
+
+```bash
+cd /home/sword/Documents/Github/Hasnahena/apps/web
+export DATABASE_URL='postgresql://USER:PASSWORD@<direct-host>.neon.tech/hasnahena_dev?sslmode=require'
+npx prisma db push
+```
+
+4. Seed data:
+
+```bash
+cd /home/sword/Documents/Github/Hasnahena/apps/api
+export DATABASE_URL='postgresql://USER:PASSWORD@<direct-host>.neon.tech/hasnahena_dev?sslmode=require'
+go run cmd/seed/main.go
+```
+
+5. Update runtime environments to pooled URL:
+   - Render `DATABASE_URL`
+   - Vercel `DATABASE_URL` (only because server routes use Prisma)
+6. Verify:
+   - API health endpoint works
+   - Login works
+   - Dashboard data loads
+
+### 12.2 Frontend migration second (domain/DNS + Vercel)
+
+You can fully migrate the **domain** side to Namecheap DNS while keeping frontend runtime on Vercel.
+
+1. Namecheap -> Domain List -> Manage -> Advanced DNS
+2. Keep/add records:
+   - `A @ -> 216.198.79.1` (or current Vercel-recommended A target)
+   - `CNAME www -> <your-vercel-target>`
+3. In Vercel project Domains, ensure:
+   - `hasnahenafoundation.com`
+   - `www.hasnahenafoundation.com`
+4. In Vercel env vars set:
+   - `NEXT_PUBLIC_API_URL=https://api.hasnahenafoundation.com`
+5. Redeploy Vercel and verify site open/login flow.
+
+### 12.3 File cloud migration third (Cloudinary)
+
+If you are already on Cloudinary free tier, no platform migration is required; do a safe reconfiguration.
+
+1. Create a dedicated upload preset (example: `hasnahena-docs`).
+2. Add/rotate credentials in runtime envs:
+   - `CLOUDINARY_CLOUD_NAME`
+   - `CLOUDINARY_API_KEY`
+   - `CLOUDINARY_API_SECRET`
+3. Keep signed uploads and restrictions:
+   - allowed formats: `jpg,jpeg,png,pdf`
+   - max size: e.g. `5MB`
+4. Verify upload + delete flows from app.
+
+### 12.4 Backend migration to Namecheap (only if using VPS)
+
+If you upgrade to Namecheap VPS, backend can be moved from Render to VPS.
+
+1. Build API binary locally:
+
+```bash
+cd /home/sword/Documents/Github/Hasnahena/apps/api
+go build -o app ./cmd/server
+```
+
+2. Copy binary to VPS and set env vars (`DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `API_PORT`/`PORT`).
+3. Run app behind reverse proxy (Nginx/Apache) and HTTPS.
+4. Point Namecheap `api` DNS record to VPS.
+5. Update Vercel `NEXT_PUBLIC_API_URL` to new API domain and redeploy.
+
+Note: API now supports both `API_PORT` and `PORT` env vars for easier compatibility across hosts.
+
+---
+
 ## 0) Prerequisites
 
 - GitHub repository is pushed and accessible

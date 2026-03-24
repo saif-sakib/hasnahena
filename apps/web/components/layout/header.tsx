@@ -51,10 +51,25 @@ export function Header({ settings }: HeaderProps) {
       if (token) {
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
+          
+          // Check for token expiration
+          const now = Math.floor(Date.now() / 1000);
+          if (payload.exp && payload.exp < now) {
+            localStorage.removeItem('hn_access_token');
+            setIsLoggedIn(false);
+            setUserRole('member');
+            window.dispatchEvent(new Event('auth-change'));
+            return;
+          }
+
           const role = payload.role?.toLowerCase() || 'member';
           setUserRole(role);
         } catch (e) {
+          // Invalid token
+          localStorage.removeItem('hn_access_token');
+          setIsLoggedIn(false);
           setUserRole('member');
+          window.dispatchEvent(new Event('auth-change'));
         }
       }
     };
@@ -87,9 +102,11 @@ export function Header({ settings }: HeaderProps) {
   return (
     <header 
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled || mobileMenuOpen 
-          ? 'bg-white/90 dark:bg-slate-950/90 backdrop-blur-md shadow-sm border-b border-slate-200/50 dark:border-slate-800/50' 
-          : 'bg-transparent border-transparent'
+        mobileMenuOpen
+          ? 'bg-emerald-900/98 backdrop-blur-md border-b border-emerald-800'
+          : isScrolled
+            ? 'bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-sm border-b border-slate-200/50 dark:border-slate-800/50' 
+            : 'bg-transparent border-transparent'
       }`}
     >
       <nav className="container-wide flex h-16 items-center justify-between">
@@ -98,6 +115,7 @@ export function Header({ settings }: HeaderProps) {
           <Logo
             size="md"
             showTagline={false}
+            variant={mobileMenuOpen ? 'light' : 'default'}
             src={settings?.['branding.logo'] || '/images/logo.png'}
           />
         </Link>
@@ -125,7 +143,9 @@ export function Header({ settings }: HeaderProps) {
               variant="ghost" 
               size="sm" 
               className={`gap-2 transition-colors ${
-                isScrolled || mobileMenuOpen ? 'text-muted-foreground hover:text-foreground' : 'text-slate-700 dark:text-slate-200 hover:text-primary hover:bg-white/20'
+                isScrolled || mobileMenuOpen 
+                  ? mobileMenuOpen ? 'text-white hover:text-emerald-100 hover:bg-emerald-800' : 'text-muted-foreground hover:text-foreground'
+                  : 'text-slate-700 dark:text-slate-200 hover:text-primary hover:bg-white/20'
               }`}
             >
               <Globe className="h-4 w-4" />
@@ -169,7 +189,7 @@ export function Header({ settings }: HeaderProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden relative z-50"
+            className={`md:hidden relative z-50 ${mobileMenuOpen ? 'text-white hover:bg-emerald-800' : ''}`}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -184,23 +204,38 @@ export function Header({ settings }: HeaderProps) {
 
       {/* Mobile Navigation Overlay */}
       <div 
-        className={`fixed inset-0 bg-background/98 backdrop-blur-xl z-40 md:hidden transition-all duration-300 ease-in-out ${
+        className={`fixed inset-0 bg-gradient-to-b from-emerald-800 to-emerald-950 backdrop-blur-xl z-[49] md:hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'
         }`}
-        style={{ top: '0', paddingTop: '80px' }}
+        style={{ top: '0', paddingTop: '90px', height: '100dvh' }}
       >
-        <div className="flex flex-col h-full px-6 pb-8 overflow-y-auto">
+        <div className="flex flex-col h-full px-6 pb-24 overflow-y-auto">
+          {!isLoggedIn && (
+            <div className="grid grid-cols-1 gap-4 mb-6">
+              <Link href={`/${locale}/login`} onClick={() => setMobileMenuOpen(false)}>
+                <Button size="lg" className="w-full text-base h-12 shadow-sm font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
+                  {t('login')}
+                </Button>
+              </Link>
+              <Link href={`/${locale}/register`} onClick={() => setMobileMenuOpen(false)}>
+                <Button variant="outline" size="lg" className="w-full text-base h-12 border-emerald-600 text-white hover:bg-emerald-800 font-semibold bg-transparent">
+                  {t('register')}
+                </Button>
+              </Link>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2 mt-4">
             {navigation.map((item, index) => (
               <Link
                 key={item.name}
                 href={`/${locale}${item.href === '/' ? '' : item.href}`}
-                className="group flex items-center justify-between py-4 text-lg font-medium border-b border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-primary transition-colors"
+                className="group flex items-center justify-between py-4 text-lg font-medium border-b border-emerald-700/30 text-emerald-100 hover:text-white transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
                 style={{ transitionDelay: `${index * 50}ms` }}
               >
                 <span>{(item.name === 'features' && settings?.['navigation.features']) || t(item.name)}</span>
-                <ChevronRight className="h-5 w-5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                <ChevronRight className="h-5 w-5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-emerald-200" />
               </Link>
             ))}
           </div>
@@ -209,32 +244,19 @@ export function Header({ settings }: HeaderProps) {
             {isLoggedIn ? (
               <div className="grid gap-3">
                 <Link href={`/${locale}/dashboard/${userRole}`} onClick={() => setMobileMenuOpen(false)}>
-                  <Button size="lg" className="w-full gap-2 text-base">
+                  <Button size="lg" className="w-full gap-2 text-base bg-white text-emerald-900 hover:bg-emerald-50">
                     <LayoutDashboard className="h-5 w-5" />
                     {t('dashboard')}
                   </Button>
                 </Link>
-                <Button variant="outline" size="lg" className="w-full gap-2 text-base" onClick={() => { handleLogout(); setMobileMenuOpen(false); }}>
+                <Button variant="outline" size="lg" className="w-full gap-2 text-base border-emerald-600 text-white hover:bg-emerald-800 bg-transparent" onClick={() => { handleLogout(); setMobileMenuOpen(false); }}>
                   <LogOut className="h-5 w-5" />
                   {t('logout')}
                 </Button>
               </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4">
-                <Link href={`/${locale}/login`} onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="outline" size="lg" className="w-full text-base h-12">
-                    {t('login')}
-                  </Button>
-                </Link>
-                <Link href={`/${locale}/register`} onClick={() => setMobileMenuOpen(false)}>
-                  <Button size="lg" className="w-full text-base h-12 shadow-lg shadow-primary/20">
-                    {t('register')}
-                  </Button>
-                </Link>
-              </div>
-            )}
+            ) : null}
             
-            <div className="pt-6 text-center text-sm text-muted-foreground">
+            <div className="pt-6 text-center text-sm text-emerald-200/60">
               <p>© {new Date().getFullYear()} Hasnahena</p>
             </div>
           </div>
