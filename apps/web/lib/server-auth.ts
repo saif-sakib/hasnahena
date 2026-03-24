@@ -69,6 +69,27 @@ export async function authenticateServerActionToken(
   return { ok: true, user: apiUser };
 }
 
+export function extractBearerToken(request: Request): string | null {
+  const auth = request.headers.get('authorization') ?? request.headers.get('Authorization');
+  if (!auth) {
+    return null;
+  }
+
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return match[1]?.trim() || null;
+}
+
+export async function authenticateRequest(
+  request: Request
+): Promise<{ ok: true; user: AuthenticatedUser } | { ok: false; error: string }> {
+  const token = extractBearerToken(request);
+  return authenticateServerActionToken(token);
+}
+
 export async function authorizeServerActionRoles(
   token: string | null | undefined,
   allowedRoles: string[],

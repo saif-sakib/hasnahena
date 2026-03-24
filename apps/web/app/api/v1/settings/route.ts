@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { UserRole } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { authenticateRequest } from '@/lib/server-auth';
 
 export async function GET() {
   try {
@@ -23,8 +23,11 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const authUser = requireAuth(request);
-    if (authUser.role !== UserRole.ADMIN && authUser.role !== UserRole.SUPER_ADMIN) {
+    const auth = await authenticateRequest(request);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: 401 });
+    }
+    if (auth.user.role !== UserRole.ADMIN && auth.user.role !== UserRole.SUPER_ADMIN) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
