@@ -291,7 +291,10 @@ export default function AdminSettingsPage() {
         body: JSON.stringify(settingsToSave),
       });
 
-      if (!response.ok) throw new Error('Failed to save');
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to save');
+      }
 
       toast({
         title: 'Success',
@@ -301,7 +304,7 @@ export default function AdminSettingsPage() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to save settings',
+        description: error instanceof Error ? error.message : 'Failed to save settings',
         variant: 'destructive',
       });
     } finally {
