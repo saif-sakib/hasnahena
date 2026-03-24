@@ -55,11 +55,20 @@ export default function LoginPage() {
     setSubmitError(null);
 
     try {
-      const response = await fetch(`${apiBase}/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: data.identifier, password: data.password }),
-      });
+      const controller = new AbortController();
+      // Increased timeout to 60s to handle Render cold starts
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      let response: Response;
+      try {
+        response = await fetch(`${apiBase}/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: data.identifier, password: data.password }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       const payload = await response.json();
       if (!response.ok || !payload?.success) {
@@ -101,11 +110,19 @@ export default function LoginPage() {
 
     router.push(rolePath);
     router.refresh();
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setSubmitError(
+          locale === 'bn'
+            ? 'লগইন সার্ভার সাড়া দিতে দেরি করছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
+            : 'Login server is taking too long. Please try again.'
+        );
+        return;
+      }
       setSubmitError(
         locale === 'bn'
-          ? 'সার্ভারের সাথে সংযোগ করতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
-          : 'Failed to connect to server. Please try again.'
+          ? 'সার্ভারের সাথে সংযোগ করতে ব্যর্থ হয়েছে। Render backend চালু আছে কিনা যাচাই করুন এবং আবার চেষ্টা করুন।'
+          : 'Failed to connect to server. Please verify Render backend is up and try again.'
       );
     }
   };
