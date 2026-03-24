@@ -24,12 +24,15 @@ import {
   FileText,
   Shield,
   CheckCircle2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { apiGet } from '@/lib/api';
+import { getInitials, getAvatarColor } from '@/lib/image-utils';
+import Image from 'next/image';
 
 interface NotificationItem {
   id: string;
@@ -86,6 +89,7 @@ const adminNav = [
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'All Deposits', bn: 'সকল আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'All Loans', bn: 'সকল ঋণ' },
   { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
+  { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
   { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
@@ -98,6 +102,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const notificationRef = useRef<HTMLDivElement | null>(null);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
@@ -110,6 +115,50 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+        if (!token) return;
+
+        const response = await fetch('/api/v1/me/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.ok && result.data?.profile) {
+            const profile = result.data.profile;
+            setUserInfo({
+              id: profile.memberId || '',
+              nameEn: profile.nameEn || '',
+              nameBn: profile.nameBn || '',
+              email: profile.email || '',
+              phone: profile.phone || '',
+              role: role,
+              status: profile.status || '',
+              avatarUrl: profile.avatarUrl || '',
+              memberId: profile.memberId || '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load user info:', error);
+      }
+    };
+
+    loadUserInfo();
+    const onAuthChange = () => {
+      void loadUserInfo();
+    };
+    window.addEventListener('auth-change', onAuthChange);
+    return () => window.removeEventListener('auth-change', onAuthChange);
+  }, [role]);
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -260,7 +309,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Logo Section */}
           <div className="flex items-center justify-between h-20 px-5 border-b border-white/10">
             <Link href={`/${locale}`} className="flex items-center gap-3 group">
-              <Logo size="sm" showTagline={false} className="brightness-0 invert" />
+              <Logo size="md" showTagline={false} className="brightness-0 invert" />
             </Link>
             <Button
               variant="ghost"
@@ -479,15 +528,28 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </div>
 
             {/* User Avatar - Clickable to Profile */}
-            <Link 
+            <Link
               href={`${basePath}/profile`}
               className="flex items-center gap-2 pl-2 border-l border-slate-200 hover:bg-slate-100 rounded-lg py-1.5 px-2 -mr-2 transition-colors"
             >
-              <div className="h-9 w-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-semibold text-sm">
-                S
+              <div className="relative h-9 w-9 rounded-full overflow-hidden flex-shrink-0">
+                {userInfo?.avatarUrl ? (
+                  <Image
+                    src={userInfo.avatarUrl}
+                    alt={userInfo.nameEn || 'User'}
+                    fill
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className={`h-full w-full ${getAvatarColor(userInfo?.nameEn || 'User')} flex items-center justify-center font-semibold text-sm text-white`}>
+                    {getInitials(userInfo?.nameEn || (locale === 'bn' ? userInfo?.nameBn : '') || 'U')}
+                  </div>
+                )}
               </div>
               <div className="hidden sm:block">
-                <p className="text-sm font-medium text-slate-700">Saif</p>
+                <p className="text-sm font-medium text-slate-700">
+                  {locale === 'bn' ? (userInfo?.nameBn || userInfo?.nameEn) : (userInfo?.nameEn || userInfo?.nameBn) || 'User'}
+                </p>
                 <p className="text-xs text-slate-500">{roleLabels[role]}</p>
               </div>
             </Link>

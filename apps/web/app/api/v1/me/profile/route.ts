@@ -23,6 +23,7 @@ export async function GET(req: Request) {
         gender: true,
         status: true,
         createdAt: true,
+        avatarUrl: true,
         permanentAddress: {
           select: { houseNo: true, village: true, union: true, policeStation: true, district: true },
         },
@@ -67,7 +68,7 @@ export async function GET(req: Request) {
           presentAddress: user.presentAddress ?? null,
           memberSince: user.createdAt ? user.createdAt.toISOString().slice(0, 10) : '',
           status: user.status,
-          avatarUrl: null,
+          avatarUrl: user.avatarUrl || null,
         },
         nominee: user.nominee
           ? {

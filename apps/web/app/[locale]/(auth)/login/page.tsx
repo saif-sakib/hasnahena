@@ -6,7 +6,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Eye, EyeOff, ArrowRight, Home, Globe, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,19 @@ export default function LoginPage() {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [welcomeMessage, setWelcomeMessage] = useState('');
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+  useEffect(() => {
+    fetch('/api/v1/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data['auth.welcomeBack']) {
+          setWelcomeMessage(data['auth.welcomeBack']);
+        }
+      })
+      .catch(() => {}); // Silently fail
+  }, []);
 
   const otherLocale = locale === 'en' ? 'bn' : 'en';
 
@@ -125,76 +137,60 @@ export default function LoginPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex pt-14">
+      <div className="flex-1 flex pt-16">
         {/* Left Panel - Branding */}
-        <aside className="hidden lg:flex lg:w-[45%] bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 p-12 flex-col justify-between relative overflow-hidden">
-          {/* Background Pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-20 left-10 w-72 h-72 rounded-full border-2 border-white" />
-            <div className="absolute bottom-32 right-10 w-48 h-48 rounded-full border-2 border-white" />
-            <div className="absolute top-1/2 left-1/3 w-32 h-32 rounded-full border border-white" />
+        <aside className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between p-16 bg-gradient-to-br from-emerald-800 to-emerald-950">
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?q=80&w=2071&auto=format&fit=crop')] bg-cover bg-center opacity-10 mix-blend-overlay"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-emerald-900/90 via-emerald-800/80 to-transparent" />
+          
+          <div className="relative z-10 animate-in slide-in-from-left-10 fade-in duration-700">
+            <Link href={`/${locale}`} className="inline-block mb-12">
+              <Logo size="lg" variant="light" showTagline={false} />
+            </Link>
+            
+            <h1 className="text-5xl font-bold text-white leading-tight mb-6">
+              {locale === 'bn' 
+                ? 'আর্থিক স্বাধীনতার পথে আপনাকে স্বাগতম' 
+                : 'Your Gateway to Financial Freedom'}
+            </h1>
+            <p className="text-lg text-emerald-100/80 max-w-lg leading-relaxed">
+              {locale === 'bn'
+                ? 'হাসনাহেনা কো-অপারেটিভ সোসাইটি - যেখানে বিশ্বাস এবং স্বচ্ছতাই আমাদের মূলধন।'
+                : 'Join a community built on trust, transparency, and shared prosperity. Experience interest-free banking like never before.'}
+            </p>
           </div>
 
           <div className="relative z-10">
-            <Link href={`/${locale}`}>
-              <Logo size="lg" variant="light" showTagline={false} />
-            </Link>
-          </div>
-
-          <div className="relative z-10 space-y-6">
-            <h1 className="text-4xl font-bold text-white leading-tight">
-              {locale === 'bn' 
-                ? 'সুদমুক্ত আর্থিক সেবায় স্বাগতম' 
-                : 'Welcome to Interest-Free Finance'}
-            </h1>
-            <p className="text-lg text-emerald-100/90 max-w-md">
-              {locale === 'bn'
-                ? 'আপনার সমবায় অ্যাকাউন্টে লগইন করে সঞ্চয়, ঋণ এবং আরও অনেক কিছু পরিচালনা করুন।'
-                : 'Login to your cooperative account to manage savings, loans, and more.'}
-            </p>
-          </div>
-
-          <div className="relative z-10 space-y-4">
-            <p className="text-sm text-emerald-200/80">
-              {locale === 'bn' ? 'সংযোগ হোক আর্থিক আস্থায়' : 'Connecting people and trust'}
-            </p>
-            {/* Quick Links */}
-            <div className="flex gap-4 text-sm">
-              <Link href={`/${locale}/#about`} className="text-emerald-200 hover:text-white transition-colors">
-                {locale === 'bn' ? 'আমাদের সম্পর্কে' : 'About Us'}
-              </Link>
-              <Link href={`/${locale}/#how-it-works`} className="text-emerald-200 hover:text-white transition-colors">
-                {locale === 'bn' ? 'কিভাবে কাজ করে' : 'How It Works'}
-              </Link>
-              <Link href={`/${locale}/#contact`} className="text-emerald-200 hover:text-white transition-colors">
-                {locale === 'bn' ? 'যোগাযোগ' : 'Contact'}
-              </Link>
+            <div className="flex gap-8 text-sm text-emerald-200/60 font-medium uppercase tracking-widest">
+              <span>Secure</span>
+              <span>Transparent</span>
+              <span>Halal</span>
             </div>
           </div>
         </aside>
 
         {/* Right Panel - Login Form */}
-        <main className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-slate-50">
-          <div className="w-full max-w-md">
+        <main className="flex-1 flex items-center justify-center p-6 sm:p-12 lg:p-24 bg-slate-50 dark:bg-slate-950">
+          <div className="w-full max-w-[400px] animate-in slide-in-from-bottom-5 fade-in duration-700">
             {/* Mobile Logo */}
-            <div className="lg:hidden mb-8 text-center">
+            <div className="lg:hidden mb-10 text-center">
               <Link href={`/${locale}`} className="inline-block">
                 <Logo size="md" showTagline={false} />
               </Link>
             </div>
 
             {/* Form Header */}
-            <div className="mb-8">
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-2">
-                {t('loginTitle')}
+            <div className="mb-10 text-center lg:text-left">
+              <h2 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
+                {welcomeMessage || t('welcomeBack')}
               </h2>
-              <p className="text-muted-foreground">
+              <p className="text-slate-500 dark:text-slate-400">
                 {t('loginSubtitle')}
               </p>
             </div>
 
             {/* Login Form */}
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="identifier" className="text-sm font-medium">
                   {t('email')}
@@ -202,8 +198,8 @@ export default function LoginPage() {
                 <Input
                   id="identifier"
                   type="text"
-                  className="h-11 bg-white border-slate-200 focus:border-primary focus:ring-primary/20"
-                  placeholder={locale === 'bn' ? 'ইমেইল বা ফোন নম্বর' : 'Email or phone number'}
+                  className="h-12 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg transition-all"
+                  placeholder={locale === 'bn' ? 'ইমেইল বা ফোন নম্বর' : 'name@example.com'}
                   {...register('identifier')}
                 />
                 {errors.identifier && (
@@ -227,7 +223,7 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    className="h-11 bg-white border-slate-200 pr-11 focus:border-primary focus:ring-primary/20"
+                    className="h-12 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 pr-11 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg transition-all"
                     placeholder="••••••••"
                     {...register('password')}
                   />
@@ -253,7 +249,7 @@ export default function LoginPage() {
 
               <Button 
                 type="submit" 
-                className="w-full h-11 text-base font-medium shadow-sm" 
+                className="w-full h-12 text-base font-semibold shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 transition-all rounded-lg" 
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

@@ -3,7 +3,11 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Facebook, Twitter, Mail, Phone, MapPin } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 
-export function Footer() {
+interface FooterProps {
+  settings?: Record<string, string>;
+}
+
+export function Footer({ settings }: FooterProps) {
   const t = useTranslations('footer');
   const tNav = useTranslations('navigation');
   const locale = useLocale();
@@ -15,7 +19,11 @@ export function Footer() {
           {/* Brand Section */}
           <div className="space-y-4 lg:col-span-1">
             <Link href={`/${locale}`} className="inline-block">
-              <Logo size="md" showTagline={false} />
+              <Logo
+                size="md"
+                showTagline={false}
+                src={settings?.['branding.logo'] || '/images/logo.png'}
+              />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {t('description')}
@@ -95,15 +103,15 @@ export function Footer() {
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-primary" />
-                <span>Dhaka, Bangladesh</span>
+                <span>{settings?.['org.address'] || 'Dhaka, Bangladesh'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Phone className="h-4 w-4 flex-shrink-0 text-primary" />
-                <span>+880 1XXX-XXXXXX</span>
+                <span>{settings?.['org.phone'] || '+880 1XXX-XXXXXX'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 flex-shrink-0 text-primary" />
-                <span>contact@hasnahena.org</span>
+                <span>{settings?.['org.email'] || 'contact@hasnahena.org'}</span>
               </li>
             </ul>
           </div>

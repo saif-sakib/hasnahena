@@ -1,4 +1,5 @@
 import { useTranslations } from 'next-intl';
+import { getTranslations } from 'next-intl/server';
 import { unstable_setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -11,149 +12,230 @@ import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales } from '@/i18n';
 
-export default function HomePage({ params: { locale } }: { params: { locale: string } }) {
+import { prisma } from '@/lib/prisma';
+import { GalleryItem as DbGalleryItem } from '@prisma/client';
+
+export default async function HomePage({ params: { locale } }: { params: { locale: string } }) {
   if (!locales.includes(locale as (typeof locales)[number])) {
     notFound();
   }
 
   unstable_setRequestLocale(locale);
-  const t = useTranslations();
+  const t = await getTranslations({locale, namespace: 'common'});
+  const tFeatures = await getTranslations({locale, namespace: 'features'});
+  const tActivities = await getTranslations({locale, namespace: 'activities'});
+  const tHero = await getTranslations({locale, namespace: 'hero'});
+  const tStats = await getTranslations({locale, namespace: 'stats'});
+  const tQuran = await getTranslations({locale, namespace: 'quran'});
+  const tHadith = await getTranslations({locale, namespace: 'hadith'});
+  const tGallery = await getTranslations({locale, namespace: 'gallery'});
+  const tHowItWorks = await getTranslations({locale, namespace: 'howItWorks'});
+  const tContact = await getTranslations({locale, namespace: 'contact'});
+  
+  // Fetch gallery items from DB
+  let dbGalleryItems: DbGalleryItem[] = [];
+  let settings: Record<string, string> = {};
+
+  try {
+      const [galleryResult, settingsResult] = await Promise.all([
+        prisma.galleryItem.findMany({
+          take: 6,
+          orderBy: { date: 'desc' },
+        }),
+        prisma.systemConfig.findMany()
+      ]);
+      
+      dbGalleryItems = galleryResult;
+      
+      settings = settingsResult.reduce((acc, config) => {
+        acc[config.key] = config.value;
+        return acc;
+      }, {} as Record<string, string>);
+  } catch (e) {
+      console.error("Failed to fetch data", e);
+  }
+
+  const galleryItems: GalleryItem[] = dbGalleryItems.map(item => ({
+    id: item.id,
+    image: item.imageUrl,
+    caption: locale === 'bn' ? (item.captionBn || item.captionEn || '') : (item.captionEn || item.captionBn || ''),
+    date: item.date.toISOString(),
+    likes: item.likes,
+  }));
 
   const features = [
     {
       icon: Shield,
-      title: t('features.noInterest.title'),
-      description: t('features.noInterest.description'),
+      title: tFeatures('noInterest.title'),
+      description: tFeatures('noInterest.description'),
     },
     {
       icon: Users,
-      title: t('features.community.title'),
-      description: t('features.community.description'),
+      title: tFeatures('community.title'),
+      description: tFeatures('community.description'),
     },
     {
       icon: Eye,
-      title: t('features.transparent.title'),
-      description: t('features.transparent.description'),
+      title: tFeatures('transparent.title'),
+      description: tFeatures('transparent.description'),
     },
     {
       icon: Lock,
-      title: t('features.secure.title'),
-      description: t('features.secure.description'),
+      title: tFeatures('secure.title'),
+      description: tFeatures('secure.description'),
     },
   ];
 
   const activities = [
     {
       icon: Wallet,
-      title: t('activities.finance.title'),
-      description: t('activities.finance.description'),
+      title: tActivities('finance.title'),
+      description: tActivities('finance.description'),
     },
     {
       icon: GraduationCap,
-      title: t('activities.education.title'),
-      description: t('activities.education.description'),
+      title: tActivities('education.title'),
+      description: tActivities('education.description'),
     },
     {
       icon: Heart,
-      title: t('activities.health.title'),
-      description: t('activities.health.description'),
+      title: tActivities('health.title'),
+      description: tActivities('health.description'),
     },
     {
       icon: HandHeart,
-      title: t('activities.charity.title'),
-      description: t('activities.charity.description'),
+      title: tActivities('charity.title'),
+      description: tActivities('charity.description'),
     },
     {
       icon: Briefcase,
-      title: t('activities.training.title'),
-      description: t('activities.training.description'),
+      title: tActivities('training.title'),
+      description: tActivities('training.description'),
     },
     {
       icon: Calendar,
-      title: t('activities.social.title'),
-      description: t('activities.social.description'),
-    },
-  ];
-
-  // Sample gallery items - replace with actual data from your backend
-  const galleryItems: GalleryItem[] = [
-    {
-      id: '1',
-      image: '/images/gallery/activity-1.jpg',
-      caption: locale === 'bn' ? 'সুদমুক্ত ঋণ বিতরণ অনুষ্ঠান ২০২৪' : 'Interest-Free Loan Distribution Event 2024',
-      date: '2024-01-15',
-      likes: 45,
-    },
-    {
-      id: '2',
-      image: '/images/gallery/activity-2.jpg',
-      caption: locale === 'bn' ? 'শিক্ষা বৃত্তি প্রদান' : 'Education Scholarship Distribution',
-      date: '2024-02-20',
-      likes: 32,
-    },
-    {
-      id: '3',
-      image: '/images/gallery/activity-3.jpg',
-      caption: locale === 'bn' ? 'বিনামূল্যে স্বাস্থ্য ক্যাম্প' : 'Free Health Camp',
-      date: '2024-03-10',
-      likes: 56,
+      title: tActivities('social.title'),
+      description: tActivities('social.description'),
     },
   ];
 
   const steps = [
-    { step: 1, icon: FileText, ...getStepContent(t, 'step1') },
-    { step: 2, icon: Wallet, ...getStepContent(t, 'step2') },
-    { step: 3, icon: HandHeart, ...getStepContent(t, 'step3') },
-    { step: 4, icon: HeadphonesIcon, ...getStepContent(t, 'step4') },
+    { step: 1, icon: FileText, ...getStepContent(tHowItWorks, 'step1') },
+    { step: 2, icon: Wallet, ...getStepContent(tHowItWorks, 'step2') },
+    { step: 3, icon: HandHeart, ...getStepContent(tHowItWorks, 'step3') },
+    { step: 4, icon: HeadphonesIcon, ...getStepContent(tHowItWorks, 'step4') },
   ];
 
   return (
     <>
-      <Header />
+      <Header settings={settings} />
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950">
-          <div className="container-wide py-16 md:py-20 lg:py-24">
+        <section className="relative overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center">
+          {settings['hero.backgroundImage'] && (
+            <div className="absolute inset-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={settings['hero.backgroundImage']}
+                alt="Hero background"
+                className="h-full w-full object-cover opacity-15"
+              />
+            </div>
+          )}
+          <div className="container-wide py-16 md:py-24 lg:py-32 relative z-10">
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-              <div className="space-y-6">
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-slate-900 dark:text-white">
-                  {t('hero.title')}
+              <div className="space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
+                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-sm">
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2 animate-pulse"></span>
+                  {settings['hero.tagline'] || tHero('tagline') || (locale === 'bn' ? 'ইসলামী শরীয়াহ সম্মত' : 'Shariah Compliant Finance')}
+                </div>
+                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 dark:text-white leading-[1.1]">
+                  {tHero('title')}
                 </h1>
-                <p className="text-lg md:text-xl text-muted-foreground max-w-xl">
-                  {t('hero.subtitle')}
+                <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-xl leading-relaxed">
+                  {tHero('subtitle')}
                 </p>
-                <AuthAwareCTA locale={locale} ctaText={t('hero.cta')} learnMoreText={t('hero.learnMore')} variant="hero" />
+                <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                  <AuthAwareCTA locale={locale} ctaText={tHero('cta')} learnMoreText={tHero('learnMore')} variant="hero" />
+                </div>
+                
+                <div className="pt-8 border-t border-slate-200 dark:border-slate-800">
+                  <p className="text-sm text-slate-500 mb-4 font-medium uppercase tracking-wider">{locale === 'bn' ? 'আমাদের পার্টনার' : 'Trusted by community'}</p>
+                  <div className="flex gap-8 grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all duration-500">
+                    {(
+                      [
+                        settings['hero.partnerLogo1'],
+                        settings['hero.partnerLogo2'],
+                        settings['hero.partnerLogo3'],
+                      ].filter(Boolean) as string[]
+                    ).length > 0 ? (
+                      ([
+                        settings['hero.partnerLogo1'],
+                        settings['hero.partnerLogo2'],
+                        settings['hero.partnerLogo3'],
+                      ]
+                        .filter(Boolean) as string[]
+                      ).map((logo, index) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={logo}
+                          src={logo}
+                          alt={`Partner ${index + 1}`}
+                          className="h-8 w-24 rounded object-contain bg-white/30 p-1"
+                        />
+                      ))
+                    ) : (
+                      <>
+                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse" />
+                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse delay-75" />
+                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse delay-150" />
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Stats Cards */}
-              <div className="grid grid-cols-2 gap-4">
-                <StatCard
-                  value="১২৫+"
-                  label={t('stats.totalMembers')}
-                  delay={0}
-                />
-                <StatCard
-                  value="৳২.৫ লক্ষ+"
-                  label={t('stats.totalDeposits')}
-                  delay={100}
-                />
-                <StatCard
-                  value="৳১.৮ লক্ষ+"
-                  label={t('stats.loansDistributed')}
-                  delay={200}
-                />
-                <StatCard
-                  value="৳২৫,০০০+"
-                  label={t('stats.charitableFund')}
-                  delay={300}
-                />
+              {/* Stats Cards - Floating layout */}
+              <div className="relative mx-auto w-full max-w-[500px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
+                <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
+                
+                <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
+                  <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
+                    <StatCard
+                      value="১২৫+"
+                      label={tStats('totalMembers')}
+                      delay={0}
+                      icon={<Users className="h-6 w-6 text-emerald-600" />}
+                    />
+                    <StatCard
+                      value="৳১.৮ লক্ষ+"
+                      label={tStats('loansDistributed')}
+                      delay={200}
+                      icon={<HandHeart className="h-6 w-6 text-blue-600" />}
+                    />
+                  </div>
+                  <div className="space-y-4 sm:space-y-6">
+                    <StatCard
+                      value="৳২.৫ লক্ষ+"
+                      label={tStats('totalDeposits')}
+                      delay={100}
+                      icon={<Wallet className="h-6 w-6 text-amber-600" />}
+                    />
+                    <StatCard
+                      value="৳২৫,০০০+"
+                      label={tStats('charitableFund')}
+                      delay={300}
+                      icon={<Heart className="h-6 w-6 text-rose-600" />}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Background decoration */}
-          <div className="absolute -top-32 -right-32 w-96 h-96 bg-emerald-200/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-teal-200/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-gradient-to-b from-emerald-100/30 to-transparent blur-3xl" />
+          <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-gradient-to-t from-teal-100/30 to-transparent blur-3xl" />
         </section>
 
         {/* Islamic Teachings Section - Quran & Hadith */}
@@ -166,23 +248,23 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
                   <BookOpen className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                  {t('quran.title')}
+                  {tQuran('title')}
                 </h2>
                 <p className="text-muted-foreground max-w-2xl mx-auto">
-                  {t('quran.subtitle')}
+                  {tQuran('subtitle')}
                 </p>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
                   <Card key={num} className="relative overflow-hidden border-emerald-100 dark:border-emerald-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-                    <CardContent className="pt-8 pb-6 px-6">
-                      <Quote className="absolute top-4 right-4 h-8 w-8 text-emerald-200 dark:text-emerald-800/50" />
-                      <p className="text-base leading-relaxed mb-4 font-bengali">
-                        {t(`quran.ayah${num}.text`)}
+                    <CardContent className="pt-8 pb-8 px-6 relative">
+                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-emerald-100 dark:text-emerald-900/50 rotate-180 -z-0 opacity-40 pointer-events-none" />
+                      <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
+                        {tQuran(`ayah${num}.text`)}
                       </p>
-                      <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
-                        — {t(`quran.ayah${num}.source`)}
+                      <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium relative z-10 text-right">
+                        — {tQuran(`ayah${num}.source`)}
                       </p>
                     </CardContent>
                   </Card>
@@ -197,23 +279,23 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
                   <BookOpen className="h-7 w-7 text-amber-600 dark:text-amber-400" />
                 </div>
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                  {t('hadith.title')}
+                  {tHadith('title')}
                 </h2>
                 <p className="text-muted-foreground max-w-2xl mx-auto">
-                  {t('hadith.subtitle')}
+                  {tHadith('subtitle')}
                 </p>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
                   <Card key={num} className="relative overflow-hidden border-amber-100 dark:border-amber-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-                    <CardContent className="pt-8 pb-6 px-6">
-                      <Quote className="absolute top-4 right-4 h-8 w-8 text-amber-200 dark:text-amber-800/50" />
-                      <p className="text-base leading-relaxed mb-4 font-bengali">
-                        {t(`hadith.hadith${num}.text`)}
+                    <CardContent className="pt-8 pb-8 px-6 relative">
+                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-amber-100 dark:text-amber-900/50 rotate-180 -z-0 opacity-40 pointer-events-none" />
+                      <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
+                        {tHadith(`hadith${num}.text`)}
                       </p>
-                      <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
-                        — {t(`hadith.hadith${num}.source`)}
+                      <p className="text-sm text-amber-600 dark:text-amber-400 font-medium relative z-10 text-right">
+                        — {tHadith(`hadith${num}.source`)}
                       </p>
                     </CardContent>
                   </Card>
@@ -228,10 +310,10 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {t('activities.title')}
+                {tActivities('title')}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                {t('activities.subtitle')}
+                {tActivities('subtitle')}
               </p>
             </div>
 
@@ -258,10 +340,10 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {t('features.title')}
+                {settings['features.title'] || tFeatures('title')}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                {t('features.subtitle')}
+                {tFeatures('subtitle')}
               </p>
             </div>
 
@@ -284,21 +366,37 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
         </section>
 
         {/* Gallery Section */}
-        <section id="gallery" className="py-16 md:py-20 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-background">
-          <div className="container-wide">
-            <div className="text-center mb-12">
-              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 mb-4">
-                <ImageIcon className="h-7 w-7 text-primary" />
+        <section id="gallery" className="py-20 md:py-32 bg-slate-50 dark:bg-slate-900 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[url('/patterns/grid.svg')] opacity-[0.03]" />
+          <div className="container-wide relative z-10">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6">
+                  <ImageIcon className="h-6 w-6" />
+                </div>
+                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 text-slate-900 dark:text-white">
+                  {tGallery('title')}
+                </h2>
+                <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {tGallery('subtitle')}
+                </p>
               </div>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {t('gallery.title')}
-              </h2>
-              <p className="text-muted-foreground max-w-2xl mx-auto">
-                {t('gallery.subtitle')}
-              </p>
+              <Link href={`/${locale}/gallery`}>
+                <Button variant="outline" className="hidden md:flex gap-2">
+                    {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
             </div>
 
             <Gallery items={galleryItems} locale={locale} />
+            
+            <div className="mt-12 text-center md:hidden">
+              <Link href={`/${locale}/gallery`}>
+                <Button variant="outline" className="w-full gap-2">
+                    {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
         </section>
 
@@ -307,7 +405,7 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">
-                {t('howItWorks.title')}
+                {tHowItWorks('title')}
               </h2>
             </div>
 
@@ -339,15 +437,15 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {t('contact.title')}
+                {settings['contact.title'] || tContact('title')}
               </h2>
             </div>
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {[
-                { icon: MapPin, title: t('contact.address'), value: t('contact.officeAddress') },
-                { icon: Phone, title: t('contact.phone'), value: '+880 1XXX-XXXXXX' },
-                { icon: Mail, title: t('contact.email'), value: 'contact@hasnahena.org' },
+                { icon: MapPin, title: tContact('address'), value: settings['org.address'] || tContact('officeAddress') },
+                { icon: Phone, title: tContact('phone'), value: settings['org.phone'] || '+880 1XXX-XXXXXX' },
+                { icon: Mail, title: tContact('email'), value: settings['org.email'] || 'contact@hasnahena.org' },
               ].map((item, index) => (
                 <Card key={index} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">
@@ -366,11 +464,11 @@ export default function HomePage({ params: { locale } }: { params: { locale: str
         {/* CTA Section */}
         <AuthAwareCTA
           locale={locale}
-          ctaText={t('hero.cta')}
+          ctaText={tHero('cta')}
           variant="footer"
         />
       </main>
-      <Footer />
+      <Footer settings={settings} />
     </>
   );
 }
@@ -379,18 +477,25 @@ function StatCard({
   value,
   label,
   delay,
+  icon,
 }: {
   value: string;
   label: string;
   delay: number;
+  icon?: React.ReactNode;
 }) {
   return (
-    <Card className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm border-slate-100 dark:border-slate-800 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-      <CardContent className="p-6 text-center">
-        <div className="text-2xl sm:text-3xl md:text-4xl font-bold text-primary mb-1">
+    <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-slate-100 dark:border-slate-800 hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group animate-in zoom-in fade-in fill-mode-both" style={{ animationDelay: `${delay}ms` }}>
+      <CardContent className="p-6 md:p-8 flex flex-col items-center text-center">
+        {icon && (
+          <div className="mb-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 group-hover:scale-110 transition-transform duration-300 ring-1 ring-slate-100 dark:ring-slate-700">
+            {icon}
+          </div>
+        )}
+        <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
           {value}
         </div>
-        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">{label}</div>
       </CardContent>
     </Card>
   );
@@ -398,7 +503,7 @@ function StatCard({
 
 function getStepContent(t: any, step: string) {
   return {
-    title: t(`howItWorks.${step}.title`),
-    description: t(`howItWorks.${step}.description`),
+    title: t(`${step}.title`),
+    description: t(`${step}.description`),
   };
 }

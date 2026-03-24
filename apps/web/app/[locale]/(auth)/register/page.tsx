@@ -266,56 +266,54 @@ export default function RegisterPage() {
       <main className="py-8 px-4">
         <div className="container-wide max-w-4xl">
           {/* Progress Steps */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between">
+          <div className="mb-12 relative">
+            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-200 dark:bg-slate-800 -translate-y-1/2 rounded-full z-0" />
+            <div className="flex items-center justify-between relative z-10">
               {steps.map((step, index) => (
-                <div key={step.id} className="flex items-center">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`h-11 w-11 rounded-xl flex items-center justify-center border-2 transition-all ${
-                        index < currentStep
-                          ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-primary/25'
-                          : index === currentStep
-                          ? 'border-primary text-primary bg-primary/5'
-                          : 'border-slate-200 text-slate-400 bg-white'
-                      }`}
-                    >
-                      {index < currentStep ? (
-                        <Check className="h-5 w-5" />
-                      ) : (
-                        <step.icon className="h-5 w-5" />
-                      )}
-                    </div>
-                    <span className={`text-xs mt-2 hidden sm:block font-medium ${
-                      index <= currentStep ? 'text-primary' : 'text-muted-foreground'
-                    }`}>
-                      {stepTitles[index]}
-                    </span>
+                <div key={step.id} className="flex flex-col items-center group">
+                  <div
+                    className={`h-14 w-14 rounded-2xl flex items-center justify-center border-4 transition-all duration-500 ${
+                      index < currentStep
+                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-100'
+                        : index === currentStep
+                        ? 'bg-white border-emerald-600 text-emerald-600 shadow-xl shadow-emerald-600/20 scale-110'
+                        : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
+                    }`}
+                  >
+                    {index < currentStep ? (
+                      <Check className="h-6 w-6 animate-in zoom-in duration-300" />
+                    ) : (
+                      <step.icon className={`h-6 w-6 ${index === currentStep ? 'animate-bounce' : ''}`} />
+                    )}
                   </div>
-                  {index < steps.length - 1 && (
-                    <div
-                      className={`h-0.5 w-12 sm:w-24 mx-2 rounded-full transition-colors ${
-                        index < currentStep ? 'bg-primary' : 'bg-slate-200'
-                      }`}
-                    />
-                  )}
+                  <span className={`text-sm mt-3 font-semibold transition-colors duration-300 ${
+                    index <= currentStep ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'
+                  }`}>
+                    {stepTitles[index]}
+                  </span>
                 </div>
               ))}
             </div>
+            
+            <div 
+              className="absolute top-1/2 left-0 h-1 bg-emerald-600 -translate-y-1/2 rounded-full z-0 transition-all duration-700 ease-in-out"
+              style={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
+            />
           </div>
 
-          <Card className="border-slate-100 shadow-xl shadow-slate-200/50">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-2xl font-bold">
+          <Card className="border-0 shadow-2xl shadow-emerald-900/10 dark:shadow-black/40 overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
+            <div className="h-2 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+            <CardHeader className="pb-8 text-center border-b border-slate-100 dark:border-slate-800/50">
+              <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
                 {locale === 'bn' ? 'হাসনাহেনায় নিবন্ধন' : 'Register for Hasnahena'}
               </CardTitle>
-              <CardDescription className="text-base">
+              <CardDescription className="text-lg mt-2 text-slate-500 dark:text-slate-400">
                 {locale === 'bn'
                   ? 'সুদমুক্ত অর্থায়নে আপনার যাত্রা শুরু করুন'
                   : 'Start your journey to interest-free finance'}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-8 md:p-10">
               {submitError && (
                 <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {submitError}
