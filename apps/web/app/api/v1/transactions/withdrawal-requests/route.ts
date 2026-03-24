@@ -17,6 +17,15 @@ function makeReceipt(prefix: string) {
   return `${prefix}-${date}-${suffix}`;
 }
 
+// Convert BigInt fields to numbers for JSON serialization
+function serializeTransaction(tx: any) {
+  return {
+    ...tx,
+    amount: tx.amount ? Number(tx.amount) : null,
+    balanceAfter: tx.balanceAfter ? Number(tx.balanceAfter) : null,
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -67,9 +76,31 @@ export async function POST(req: Request) {
         accountId: account.id,
         userId: auth.id,
       },
+      include: {
+        user: {
+          select: { nameEn: true, memberId: true },
+        },
+      },
     });
 
-    return NextResponse.json({ ok: true, data: tx }, { status: 201 });
+    // Create notification for admins about the new withdrawal request
+    prisma.notification.create({
+      data: {
+        type: 'WITHDRAWAL_REQUEST',
+        title: 'New Withdrawal Request',
+        message: `${tx.user.nameEn} (${tx.user.memberId}) has requested a withdrawal of ৳${Number(amountBig).toLocaleString()}`,
+        targetRole: UserRole.ADMIN,
+        data: {
+          transactionId: tx.id,
+          userId: auth.id,
+          amount: Number(amountBig),
+          receiptNumber,
+          type: 'WITHDRAWAL',
+        },
+      },
+    }).catch((err) => console.error('Failed to create withdrawal notification:', err));
+
+    return NextResponse.json({ ok: true, data: serializeTransaction(tx) }, { status: 201 });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });

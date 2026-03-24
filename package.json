@@ -12,10 +12,13 @@
     "build": "pnpm --filter @hasnahena/web build",
     "start": "pnpm --filter @hasnahena/web start",
     "lint": "pnpm --filter @hasnahena/web lint",
+    "db:reset": "./scripts/db-reset-seed.sh",
+    "db:push": "pnpm --filter @hasnahena/web prisma db push",
     "db:seed": "cd apps/api && go run cmd/seed/main.go",
     "db:seed:api": "cd apps/api && go run cmd/seed/main.go",
     "db:seed:reset": "cd apps/api && go run cmd/seed/main.go --reset",
     "db:seed:web": "pnpm --filter @hasnahena/web db:seed",
+    "db:studio": "pnpm --filter @hasnahena/web prisma studio",
     "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
     "typecheck": "pnpm --filter @hasnahena/web typecheck",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"

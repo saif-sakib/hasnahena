@@ -7,12 +7,13 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Logo } from '@/components/ui/logo';
+import { toast } from '@/hooks/use-toast';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -84,6 +85,7 @@ export default function RegisterPage() {
     handleSubmit,
     watch,
     setValue,
+    trigger,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -92,7 +94,20 @@ export default function RegisterPage() {
       gender: 'MALE',
       childrenCount: 0,
     },
+    mode: 'onBlur', // Validate on blur for better UX
   });
+
+  // Fields to validate per step
+  const stepFields: (keyof RegisterFormData)[][] = [
+    // Step 0: Personal Info
+    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'maritalStatus', 'password', 'confirmPassword'],
+    // Step 1: Address
+    ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict'],
+    // Step 2: Nominee
+    ['nomineeName', 'nomineeRelationship', 'nomineeNid'],
+    // Step 3: Documents & Agreement
+    ['agreeToTerms'],
+  ];
 
   const onSubmit = async (data: RegisterFormData) => {
     setSubmitError(null);
@@ -141,21 +156,67 @@ export default function RegisterPage() {
         }),
       });
 
-      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        details?: { fieldErrors?: Record<string, string[]> }
+      };
+
       if (!response.ok) {
-        setSubmitError(json?.error ?? 'Registration failed');
+        // Show detailed validation errors if available
+        if (json?.details?.fieldErrors) {
+          const fieldErrors = json.details.fieldErrors;
+          const errorMessages = Object.entries(fieldErrors)
+            .map(([field, messages]) => `${field}: ${messages.join(', ')}`)
+            .join('\n');
+          setSubmitError(
+            locale === 'bn'
+              ? `ফর্মে ত্রুটি রয়েছে:\n${errorMessages}`
+              : `Form has errors:\n${errorMessages}`
+          );
+        } else {
+          setSubmitError(json?.error ?? (locale === 'bn' ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed'));
+        }
         return;
       }
 
-      router.push(`/${locale}/login`);
+      // Show success toast
+      toast({
+        title: locale === 'bn' ? 'নিবন্ধন সফল!' : 'Registration Successful!',
+        description: locale === 'bn'
+          ? 'আপনার আবেদন জমা হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।'
+          : 'Your application has been submitted. Please wait for admin approval.',
+        variant: 'success',
+      });
+
+      // Redirect after a short delay so user can see the message
+      setTimeout(() => {
+        router.push(`/${locale}/login`);
+      }, 2000);
     } catch {
-      setSubmitError('Registration failed. Please try again.');
+      setSubmitError(
+        locale === 'bn'
+          ? 'নিবন্ধন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
+          : 'Registration failed. Please try again.'
+      );
     }
   };
 
-  const nextStep = () => {
-    if (currentStep < steps.length - 1) {
+  const nextStep = async () => {
+    // Validate current step fields before proceeding
+    const fieldsToValidate = stepFields[currentStep];
+    const isValid = await trigger(fieldsToValidate);
+
+    if (isValid && currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
+    } else if (!isValid) {
+      // Show toast about validation errors
+      toast({
+        title: locale === 'bn' ? 'অনুগ্রহ করে ত্রুটি সংশোধন করুন' : 'Please fix the errors',
+        description: locale === 'bn'
+          ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
+          : 'Please fill all required fields correctly.',
+        variant: 'destructive',
+      });
     }
   };
 

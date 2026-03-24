@@ -343,12 +343,49 @@ model AuditLog {
   entityId    String
   oldValue    Json?
   newValue    Json?
-  
+
   userId      String
   userIp      String?
   userAgent   String?
-  
+
   createdAt   DateTime @default(now())
-  
+
   @@map("audit_logs")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+enum NotificationType {
+  NEW_REGISTRATION
+  LOAN_REQUEST
+  WITHDRAWAL_REQUEST
+  DEPOSIT_CONFIRMED
+  LOAN_APPROVED
+  LOAN_REJECTED
+  ACCOUNT_ACTIVATED
+  SYSTEM_ALERT
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  type        NotificationType
+  title       String
+  message     String
+  data        Json?            // Additional data for the notification
+
+  // Target (who should see this)
+  targetRole  UserRole?        // If set, all users with this role see it
+  targetUserId String?         // If set, specific user sees it
+
+  // Status
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+
+  createdAt   DateTime         @default(now())
+
+  @@index([targetRole, isRead])
+  @@index([targetUserId, isRead])
+  @@map("notifications")
 }

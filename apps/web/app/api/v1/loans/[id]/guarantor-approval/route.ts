@@ -8,6 +8,18 @@ const bodySchema = z.object({
   accepted: z.boolean(),
 });
 
+// Convert BigInt fields to numbers for JSON serialization
+function serializeLoan(loan: any) {
+  return {
+    ...loan,
+    principalAmount: loan.principalAmount ? Number(loan.principalAmount) : null,
+    remainingAmount: loan.remainingAmount ? Number(loan.remainingAmount) : null,
+    installmentAmount: loan.installmentAmount ? Number(loan.installmentAmount) : null,
+    applicationFee: loan.applicationFee ? Number(loan.applicationFee) : null,
+    totalPaid: loan.totalPaid ? Number(loan.totalPaid) : null,
+  };
+}
+
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const auth = requireAuth(req);
@@ -20,14 +32,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const member = await prisma.user.findUnique({
       where: { id: auth.id },
-      select: { id: true, role: true },
+      select: { id: true, role: true, nameEn: true },
     });
     if (!member) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
     if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
 
     const loan = await prisma.loan.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true, guarantorId: true },
+      include: {
+        borrower: { select: { nameEn: true, memberId: true } },
+      },
     });
     if (!loan) return NextResponse.json({ ok: false, error: 'Loan not found' }, { status: 404 });
     if (loan.guarantorId !== auth.id) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
@@ -40,7 +54,45 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     });
 
-    return NextResponse.json({ ok: true, data: updated }, { status: 200 });
+    // Notify the borrower about guarantor's decision
+    prisma.notification.create({
+      data: {
+        type: payload.accepted ? 'LOAN_REQUEST' : 'LOAN_REJECTED',
+        title: payload.accepted ? 'Guarantor Approved' : 'Guarantor Declined',
+        message: payload.accepted
+          ? `${member.nameEn} has agreed to be your guarantor. Your loan is now pending admin approval.`
+          : `${member.nameEn} has declined to be your guarantor for the loan.`,
+        targetUserId: loan.borrowerId,
+        data: {
+          loanId: loan.id,
+          loanNumber: loan.loanNumber,
+          guarantorId: auth.id,
+          guarantorName: member.nameEn,
+          accepted: payload.accepted,
+        },
+      },
+    }).catch((err) => console.error('Failed to create borrower notification:', err));
+
+    // If accepted, notify admins that loan is ready for approval
+    if (payload.accepted) {
+      prisma.notification.create({
+        data: {
+          type: 'LOAN_REQUEST',
+          title: 'Loan Ready for Approval',
+          message: `Loan ${loan.loanNumber} for ${loan.borrower.nameEn} (৳${Number(loan.principalAmount).toLocaleString()}) is ready for admin approval.`,
+          targetRole: UserRole.ADMIN,
+          data: {
+            loanId: loan.id,
+            loanNumber: loan.loanNumber,
+            borrowerId: loan.borrowerId,
+            borrowerName: loan.borrower.nameEn,
+            amount: Number(loan.principalAmount),
+          },
+        },
+      }).catch((err) => console.error('Failed to create admin notification:', err));
+    }
+
+    return NextResponse.json({ ok: true, data: serializeLoan(updated) }, { status: 200 });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
@@ -50,4 +102,3 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-

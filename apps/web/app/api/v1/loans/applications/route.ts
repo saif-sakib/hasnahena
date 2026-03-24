@@ -18,6 +18,18 @@ function makeLoanNumber() {
   return `LN-${date}-${suffix}`;
 }
 
+// Convert BigInt fields to numbers for JSON serialization
+function serializeLoan(loan: any) {
+  return {
+    ...loan,
+    principalAmount: loan.principalAmount ? Number(loan.principalAmount) : null,
+    remainingAmount: loan.remainingAmount ? Number(loan.remainingAmount) : null,
+    installmentAmount: loan.installmentAmount ? Number(loan.installmentAmount) : null,
+    applicationFee: loan.applicationFee ? Number(loan.applicationFee) : null,
+    totalPaid: loan.totalPaid ? Number(loan.totalPaid) : null,
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -71,6 +83,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Invalid installments' }, { status: 422 });
     }
 
+    const duplicateWindowStart = new Date(Date.now() - 2 * 60 * 1000);
+    const existingPendingLoan = await prisma.loan.findFirst({
+      where: {
+        borrowerId: auth.id,
+        guarantorId: guarantor.id,
+        principalAmount: amountBig,
+        totalInstallments: installments,
+        purpose: payload.purpose.trim(),
+        status: { in: [LoanStatus.PENDING_GUARANTOR, LoanStatus.PENDING_APPROVAL] },
+        createdAt: { gte: duplicateWindowStart },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (existingPendingLoan) {
+      return NextResponse.json(
+        { ok: false, error: 'DUPLICATE_LOAN_APPLICATION', details: { loanId: existingPendingLoan.id } },
+        { status: 409 },
+      );
+    }
+
     const loan = await prisma.loan.create({
       data: {
         loanNumber: makeLoanNumber(),
@@ -86,9 +119,56 @@ export async function POST(req: Request) {
         accountId: borrowerAccount.id,
         guarantorId: guarantor.id,
       },
+      include: {
+        borrower: {
+          select: { nameEn: true, memberId: true },
+        },
+        guarantor: {
+          select: { nameEn: true, memberId: true },
+        },
+      },
     });
 
-    return NextResponse.json({ ok: true, data: loan }, { status: 201 });
+    // Create notification for guarantor to approve the loan
+    await prisma.notification.create({
+      data: {
+        type: 'LOAN_REQUEST',
+        title: 'Guarantor Request',
+        message: `${loan.borrower.nameEn} has requested you to be their guarantor for a loan of ৳${Number(amountBig).toLocaleString()}`,
+        targetUserId: guarantor.id,
+        data: {
+          loanId: loan.id,
+          loanNumber: loan.loanNumber,
+          borrowerId: auth.id,
+          borrowerName: loan.borrower.nameEn,
+          amount: Number(amountBig),
+          purpose: payload.purpose.trim(),
+        },
+      },
+    });
+
+    // Create notification for admins about the new loan application
+    await prisma.notification.create({
+      data: {
+        type: 'LOAN_REQUEST',
+        title: 'New Loan Application',
+        message: `${loan.borrower.nameEn} (${loan.borrower.memberId}) has applied for a loan of ৳${Number(amountBig).toLocaleString()}`,
+        targetRole: UserRole.ADMIN,
+        data: {
+          loanId: loan.id,
+          loanNumber: loan.loanNumber,
+          borrowerId: auth.id,
+          borrowerName: loan.borrower.nameEn,
+          guarantorId: guarantor.id,
+          guarantorName: loan.guarantor?.nameEn ?? 'Guarantor',
+          amount: Number(amountBig),
+          installments,
+          purpose: payload.purpose.trim(),
+        },
+      },
+    });
+
+    return NextResponse.json({ ok: true, data: serializeLoan(loan) }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
@@ -99,4 +179,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-
