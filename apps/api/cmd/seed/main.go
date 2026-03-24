@@ -159,6 +159,7 @@ func normalizeEnvValue(raw string) string {
 func resetData(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
 		TRUNCATE TABLE
+			notifications,
 			transactions,
 			loans,
 			accounts,

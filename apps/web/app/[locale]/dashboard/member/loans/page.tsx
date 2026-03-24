@@ -69,6 +69,7 @@ export default function LoansPage() {
   const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequest[]>([]);
   const [availableGuarantors, setAvailableGuarantors] = useState<AvailableGuarantor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -157,28 +158,33 @@ export default function LoansPage() {
         return;
       }
 
-      const res = await fetch('/api/v1/loans/applications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          amount,
-          installments,
-          purpose: loanPurpose,
-          guarantorId: selectedGuarantor,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to submit loan application');
-        return;
-      }
+      setIsSubmitting(true);
+      try {
+        const res = await fetch('/api/v1/loans/applications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            amount,
+            installments,
+            purpose: loanPurpose,
+            guarantorId: selectedGuarantor,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setActionError(json?.error ?? 'Failed to submit loan application');
+          return;
+        }
 
-      setShowLoanForm(false);
-      setLoanAmount('');
-      setLoanPurpose('');
-      setSelectedGuarantor('');
-      setInstallments(6);
-      await refresh();
+        setShowLoanForm(false);
+        setLoanAmount('');
+        setLoanPurpose('');
+        setSelectedGuarantor('');
+        setInstallments(6);
+        await refresh();
+      } finally {
+        setIsSubmitting(false);
+      }
     })();
   };
 
@@ -454,7 +460,7 @@ export default function LoansPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button type="submit" className="gap-2">
+                <Button type="submit" className="gap-2" disabled={isSubmitting}>
                   <Check className="h-4 w-4" />
                   {t('submitRequest')}
                 </Button>

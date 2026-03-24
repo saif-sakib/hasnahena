@@ -42,17 +42,28 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     setSubmitError(null);
 
-    const response = await fetch(`${apiBase}/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: data.identifier, password: data.password }),
-    });
+    try {
+      const response = await fetch(`${apiBase}/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: data.identifier, password: data.password }),
+      });
 
-    const payload = await response.json();
-    if (!response.ok || !payload?.success) {
-      setSubmitError(payload?.error?.message || 'Login failed');
-      return;
-    }
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        // Handle pending user case with a more helpful message
+        const errorMessage = payload?.error?.message || 'Login failed';
+        if (errorMessage.toLowerCase().includes('not active')) {
+          setSubmitError(
+            locale === 'bn'
+              ? 'আপনার অ্যাকাউন্ট এখনও সক্রিয় হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।'
+              : 'Your account is not active yet. Please wait for admin approval.'
+          );
+        } else {
+          setSubmitError(errorMessage);
+        }
+        return;
+      }
 
     const role = payload?.data?.user?.role;
     const token = payload?.data?.accessToken;
@@ -78,6 +89,13 @@ export default function LoginPage() {
 
     router.push(rolePath);
     router.refresh();
+    } catch {
+      setSubmitError(
+        locale === 'bn'
+          ? 'সার্ভারের সাথে সংযোগ করতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
+          : 'Failed to connect to server. Please try again.'
+      );
+    }
   };
 
   return (

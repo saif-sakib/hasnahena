@@ -34,9 +34,12 @@ import { apiGet } from '@/lib/api';
 interface NotificationItem {
   id: string;
   title: string;
-  description: string;
+  message?: string;
+  description?: string;
   time: string;
   read: boolean;
+  type?: string;
+  data?: Record<string, unknown>;
 }
 
 interface UserInfo {
@@ -110,6 +113,30 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   useEffect(() => {
     const loadNotifications = async () => {
       try {
+        // Try Next.js API first, fallback to Go backend
+        const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+        if (!token) {
+          setNotifications([]);
+          return;
+        }
+
+        // Try our Next.js API route first
+        const response = await fetch('/api/v1/notifications', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            setNotifications(result.data);
+            return;
+          }
+        }
+
+        // Fallback to Go backend
         const data = await apiGet<NotificationItem[]>('/v1/dashboard/notifications');
         setNotifications(data);
       } catch {
@@ -120,20 +147,54 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     loadNotifications();
   }, []);
 
-  const markNotificationAsRead = (id: string) => {
+  const markNotificationAsRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((notification) =>
         notification.id === id ? { ...notification, read: true } : notification
       )
     );
+
+    // Persist to backend
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      if (token) {
+        await fetch('/api/v1/notifications', {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ notificationId: id }),
+        });
+      }
+    } catch {
+      // Silently fail, UI already updated
+    }
   };
 
-  const markAllNotificationsAsRead = () => {
+  const markAllNotificationsAsRead = async () => {
     setNotifications((prev) => prev.map((notification) => ({ ...notification, read: true })));
     toast({
       title: locale === 'bn' ? 'সব বিজ্ঞপ্তি পঠিত হিসেবে চিহ্নিত হয়েছে' : 'All notifications marked as read',
       variant: 'success',
     });
+
+    // Persist to backend
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      if (token) {
+        await fetch('/api/v1/notifications', {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ markAll: true }),
+        });
+      }
+    } catch {
+      // Silently fail, UI already updated
+    }
   };
 
   const handleViewAllNotifications = () => {
@@ -362,7 +423,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   {notification.title}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  {notification.description}
+                                  {notification.message || notification.description}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-1">
                                   {formatNotificationTime(notification.time)}

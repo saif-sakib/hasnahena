@@ -42,6 +42,7 @@ export default function DepositsPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [currentBalance, setCurrentBalance] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -148,20 +149,25 @@ export default function DepositsPage() {
         return;
       }
 
-      const res = await fetch('/api/v1/transactions/deposit-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to submit deposit request');
-        return;
-      }
+      setIsSubmitting(true);
+      try {
+        const res = await fetch('/api/v1/transactions/deposit-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ amount }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setActionError(json?.error ?? 'Failed to submit deposit request');
+          return;
+        }
 
-      setShowDepositForm(false);
-      setDepositAmount('');
-      await refresh();
+        setShowDepositForm(false);
+        setDepositAmount('');
+        await refresh();
+      } finally {
+        setIsSubmitting(false);
+      }
     })();
   };
 
@@ -310,10 +316,10 @@ export default function DepositsPage() {
                 <p className="text-xs text-muted-foreground">{t('minDeposit')}</p>
               </div>
               <div className="flex gap-2">
-                <Button type="submit" className="gap-2">
-                  <Check className="h-4 w-4" />
-                  {t('submitRequest')}
-                </Button>
+                 <Button type="submit" className="gap-2" disabled={isSubmitting}>
+                   <Check className="h-4 w-4" />
+                   {t('submitRequest')}
+                 </Button>
                 <Button
                   type="button"
                   variant="outline"

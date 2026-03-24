@@ -8,26 +8,26 @@ import { UserRole, UserStatus } from '@prisma/client';
 const registerSchema = z
   .object({
     // Personal Info
-    nameEn: z.string().min(3),
+    nameEn: z.string().min(3, 'Name must be at least 3 characters'),
     nameBn: z.string().optional(),
-    fatherName: z.string().min(3),
-    motherName: z.string().min(3),
-    phone: z.string().regex(/^01\d{9}$/),
-    email: z.string().optional().or(z.literal('')),
-    nidNumber: z.string().min(10),
+    fatherName: z.string().min(3, 'Father name is required'),
+    motherName: z.string().min(3, 'Mother name is required'),
+    phone: z.string().regex(/^01\d{9}$/, 'Invalid phone number format'),
+    email: z.string().email().optional().or(z.literal('')),
+    nidNumber: z.string().min(10, 'NID must be at least 10 digits'),
     maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
     childrenCount: z.number().min(0).optional(),
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     dateOfBirth: z.string().optional(),
-    password: z.string().min(6),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
 
     // Permanent Address
-    permanentHouseNo: z.string().min(1),
+    permanentHouseNo: z.string().min(1, 'House number is required'),
     permanentRoadNo: z.string().optional(),
-    permanentVillage: z.string().min(1),
-    permanentUnion: z.string().min(1),
-    permanentPoliceStation: z.string().min(1),
-    permanentDistrict: z.string().min(1),
+    permanentVillage: z.string().min(1, 'Village is required'),
+    permanentUnion: z.string().min(1, 'Union is required'),
+    permanentPoliceStation: z.string().min(1, 'Police station is required'),
+    permanentDistrict: z.string().min(1, 'District is required'),
 
     // Present Address
     sameAsPermanent: z.boolean().optional(),
@@ -39,9 +39,9 @@ const registerSchema = z
     presentDistrict: z.string().optional(),
 
     // Nominee
-    nomineeName: z.string().min(3),
-    nomineeRelationship: z.string().min(1),
-    nomineeNid: z.string().min(10),
+    nomineeName: z.string().min(3, 'Nominee name is required'),
+    nomineeRelationship: z.string().min(1, 'Relationship is required'),
+    nomineeNid: z.string().min(10, 'Nominee NID is required'),
     nomineePhone: z.string().optional(),
   })
   .strict();
@@ -61,11 +61,41 @@ function parseOptionalDate(v: string | undefined): Date | null {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const payload = registerSchema.parse(body);
+    const parsed = registerSchema.safeParse(body);
 
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const payload = parsed.data;
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { phone: payload.phone },
+          ...(payload.email ? [{ email: payload.email }] : []),
+        ],
+      },
+      select: { phone: true, email: true },
+    });
+
+    if (existingUser) {
+      const field = existingUser.phone === payload.phone ? 'phone number' : 'email';
+      return NextResponse.json(
+        { ok: false, error: `A user with this ${field} already exists` },
+        { status: 409 },
+      );
+    }
+
+    // Generate unique IDs
+    const timestamp = Date.now();
     const phoneDigits = payload.phone.replace(/\D/g, '');
-    const memberId = `MBR-${phoneDigits}`;
-    const accountNumber = `ACC-${phoneDigits}`;
+    const memberId = `MBR-${phoneDigits}-${timestamp.toString(36)}`;
+    const accountNumber = `ACC-${phoneDigits}-${timestamp.toString(36)}`;
 
     const sameAsPermanent = payload.sameAsPermanent ?? false;
     const hasAllPresentFields =
@@ -168,7 +198,26 @@ export async function POST(req: Request) {
         phone: true,
         role: true,
         status: true,
+        nameEn: true,
       },
+    });
+
+    // Create notification for admins (non-blocking)
+    prisma.notification.create({
+      data: {
+        type: 'NEW_REGISTRATION',
+        title: 'New Member Registration',
+        message: `${created.nameEn} (${created.phone}) has submitted a registration request and is awaiting approval.`,
+        targetRole: UserRole.ADMIN,
+        data: {
+          userId: created.id,
+          memberId: created.memberId,
+          name: created.nameEn,
+          phone: created.phone,
+        },
+      },
+    }).catch((notifErr) => {
+      console.error('Failed to create notification:', notifErr);
     });
 
     return NextResponse.json({ ok: true, user: created }, { status: 201 });
@@ -181,18 +230,28 @@ export async function POST(req: Request) {
     }
 
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      // Common case: duplicate email/phone.
+      console.error('Prisma error:', err.code, err.message);
+
       if (err.code === 'P2002') {
+        const target = (err.meta?.target as string[])?.join(', ') || 'field';
         return NextResponse.json(
-          { ok: false, error: 'User already exists (email/phone taken)' },
+          { ok: false, error: `A user with this ${target} already exists` },
           { status: 409 },
+        );
+      }
+
+      if (err.code === 'P2003') {
+        return NextResponse.json(
+          { ok: false, error: 'Database constraint violation' },
+          { status: 400 },
         );
       }
     }
 
     console.error('Registration failed:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json(
-      { ok: false, error: 'Registration failed' },
+      { ok: false, error: `Registration failed: ${errorMessage}` },
       { status: 500 },
     );
   }

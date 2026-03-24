@@ -17,6 +17,15 @@ function makeReceipt(prefix: string) {
   return `${prefix}-${date}-${suffix}`;
 }
 
+// Convert BigInt fields to numbers for JSON serialization
+function serializeTransaction(tx: any) {
+  return {
+    ...tx,
+    amount: tx.amount ? Number(tx.amount) : null,
+    balanceAfter: tx.balanceAfter ? Number(tx.balanceAfter) : null,
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -42,6 +51,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });
     }
 
+    const duplicateWindowStart = new Date(Date.now() - 2 * 60 * 1000);
+    const existingPending = await prisma.transaction.findFirst({
+      where: {
+        userId: auth.id,
+        type: TransactionType.DEPOSIT,
+        status: TransactionStatus.PENDING,
+        amount: amountBig,
+        createdAt: { gte: duplicateWindowStart },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        amount: true,
+        receiptNumber: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    if (existingPending) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'DUPLICATE_DEPOSIT_REQUEST',
+          data: serializeTransaction(existingPending),
+        },
+        { status: 409 },
+      );
+    }
+
     const tx = await prisma.transaction.create({
       data: {
         type: TransactionType.DEPOSIT,
@@ -52,9 +90,31 @@ export async function POST(req: Request) {
         accountId: account.id,
         userId: auth.id,
       },
+      include: {
+        user: {
+          select: { nameEn: true, memberId: true },
+        },
+      },
     });
 
-    return NextResponse.json({ ok: true, data: tx }, { status: 201 });
+    // Create notification for admins about the new deposit request
+    await prisma.notification.create({
+      data: {
+        type: 'SYSTEM_ALERT',
+        title: 'New Deposit Request',
+        message: `${tx.user.nameEn} (${tx.user.memberId}) has requested a deposit of ৳${Number(amountBig).toLocaleString()}`,
+        targetRole: UserRole.ADMIN,
+        data: {
+          transactionId: tx.id,
+          userId: auth.id,
+          amount: Number(amountBig),
+          receiptNumber,
+          type: 'DEPOSIT',
+        },
+      },
+    });
+
+    return NextResponse.json({ ok: true, data: serializeTransaction(tx) }, { status: 201 });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
@@ -66,4 +126,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });
   }
 }
-
