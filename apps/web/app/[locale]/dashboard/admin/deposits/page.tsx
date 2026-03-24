@@ -79,6 +79,7 @@ export default function AdminDepositsPage() {
       const token = localStorage.getItem('hn_access_token');
       const res = await fetch('/api/v1/admin/deposits', {
         headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error ?? 'Failed to load transactions');
@@ -192,6 +193,7 @@ export default function AdminDepositsPage() {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        cache: 'no-store',
         body: JSON.stringify({ action }),
       });
       const json = await res.json().catch(() => ({}));
@@ -492,4 +494,3 @@ export default function AdminDepositsPage() {
     </div>
   );
 }
-

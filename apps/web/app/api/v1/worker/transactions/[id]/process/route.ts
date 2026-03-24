@@ -34,9 +34,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const { nextStatus, accountDeltaSavings, accountDeltaLoan } =
       tx.type === TransactionType.DEPOSIT
-        ? { nextStatus: TransactionStatus.PROCESSED, accountDeltaSavings: BigInt(0), accountDeltaLoan: BigInt(0) }
+        ? { nextStatus: TransactionStatus.CONFIRMED, accountDeltaSavings: tx.amount, accountDeltaLoan: BigInt(0) }
         : tx.type === TransactionType.WITHDRAWAL
-          ? { nextStatus: TransactionStatus.CONFIRMED, accountDeltaSavings: -tx.amount, accountDeltaLoan: BigInt(0) }
+          ? { nextStatus: TransactionStatus.PROCESSED, accountDeltaSavings: BigInt(0), accountDeltaLoan: BigInt(0) }
           : tx.type === TransactionType.LOAN_DISBURSEMENT
             ? { nextStatus: TransactionStatus.CONFIRMED, accountDeltaSavings: BigInt(0), accountDeltaLoan: tx.amount }
             : tx.type === TransactionType.LOAN_REPAYMENT
@@ -97,4 +97,3 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-

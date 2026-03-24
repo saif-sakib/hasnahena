@@ -62,9 +62,9 @@ export default function AdminApprovalsPage() {
     setError(null);
     try {
       const [regRes, loanRes, depRes] = await Promise.all([
-        fetch('/api/v1/admin/pending-users', { headers: tokenHeader() }),
-        fetch('/api/v1/admin/loans', { headers: tokenHeader() }),
-        fetch('/api/v1/admin/deposits', { headers: tokenHeader() }),
+        fetch('/api/v1/admin/pending-users', { headers: tokenHeader(), cache: 'no-store' }),
+        fetch('/api/v1/admin/loans', { headers: tokenHeader(), cache: 'no-store' }),
+        fetch('/api/v1/admin/deposits', { headers: tokenHeader(), cache: 'no-store' }),
       ]);
 
       const regJson = await regRes.json().catch(() => ({}));
@@ -110,6 +110,7 @@ export default function AdminApprovalsPage() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { ...tokenHeader(), 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
@@ -220,4 +221,3 @@ export default function AdminApprovalsPage() {
     </div>
   );
 }
-

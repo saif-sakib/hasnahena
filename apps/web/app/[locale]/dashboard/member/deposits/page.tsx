@@ -7,7 +7,6 @@ import {
   Wallet,
   Plus,
   Check,
-  AlertCircle,
   Clock,
   CheckCircle2,
   XCircle,
@@ -20,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED';
+type DepositStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
 interface Deposit {
   id: string;
@@ -85,7 +84,7 @@ export default function DepositsPage() {
     .reduce((sum, d) => sum + d.amount, 0);
 
   const pendingAmount = deposits
-    .filter((d) => d.status === 'PENDING' || d.status === 'PROCESSED')
+    .filter((d) => d.status === 'PENDING')
     .reduce((sum, d) => sum + d.amount, 0);
 
   const formatCurrency = (amount: number) => {
@@ -108,11 +107,11 @@ export default function DepositsPage() {
     switch (status) {
       case 'PENDING':
         return <Clock className="h-4 w-4 text-amber-500" />;
-      case 'PROCESSED':
-        return <AlertCircle className="h-4 w-4 text-blue-500" />;
       case 'CONFIRMED':
         return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case 'DISPUTED':
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case 'REJECTED':
         return <XCircle className="h-4 w-4 text-red-500" />;
     }
   };
@@ -120,15 +119,15 @@ export default function DepositsPage() {
   const getStatusLabel = (status: DepositStatus) => {
     const labels: Record<DepositStatus, { bn: string; en: string; color: string }> = {
       PENDING: { bn: 'অপেক্ষমান', en: 'Pending', color: 'bg-amber-100 text-amber-700' },
-      PROCESSED: { bn: 'প্রক্রিয়াকৃত', en: 'Processed', color: 'bg-blue-100 text-blue-700' },
       CONFIRMED: { bn: 'নিশ্চিত', en: 'Confirmed', color: 'bg-green-100 text-green-700' },
       DISPUTED: { bn: 'বিবাদিত', en: 'Disputed', color: 'bg-red-100 text-red-700' },
+      REJECTED: { bn: 'প্রত্যাখ্যাত', en: 'Rejected', color: 'bg-gray-100 text-gray-700' },
     };
     return labels[status];
   };
 
   const filteredDeposits = deposits.filter((d) => {
-    if (activeTab === 'pending') return d.status === 'PENDING' || d.status === 'PROCESSED';
+    if (activeTab === 'pending') return d.status === 'PENDING';
     if (activeTab === 'confirmed') return d.status === 'CONFIRMED';
     return true;
   });
@@ -168,53 +167,6 @@ export default function DepositsPage() {
       } finally {
         setIsSubmitting(false);
       }
-    })();
-  };
-
-  const handleConfirmDeposit = (depositId: string) => {
-    void (async () => {
-      setActionError(null);
-      const token = localStorage.getItem('hn_access_token');
-      if (!token) {
-        router.push(`/${locale}/login`);
-        return;
-      }
-
-      const res = await fetch(`/api/v1/member/transactions/${depositId}/confirm`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to confirm deposit');
-        return;
-      }
-      await refresh();
-    })();
-  };
-
-  const handleDisputeDeposit = (depositId: string) => {
-    void (async () => {
-      const token = localStorage.getItem('hn_access_token');
-      if (!token) {
-        router.push(`/${locale}/login`);
-        return;
-      }
-
-      const reason = window.prompt(locale === 'bn' ? 'বিবাদের কারণ লিখুন' : 'Enter dispute reason');
-      if (!reason) return;
-
-      const res = await fetch(`/api/v1/member/transactions/${depositId}/dispute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reason }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to raise dispute');
-        return;
-      }
-      await refresh();
     })();
   };
 
@@ -290,8 +242,8 @@ export default function DepositsPage() {
             </CardTitle>
             <CardDescription>
               {locale === 'bn'
-                ? 'নতুন আমানতের জন্য অনুরোধ করুন। কর্মী প্রক্রিয়া করার পর আপনাকে নিশ্চিত করতে হবে।'
-                : 'Request a new deposit. You will need to confirm after the worker processes it.'}
+                ? 'নতুন আমানতের জন্য অনুরোধ করুন। কর্মী/প্রশাসন টাকা গ্রহণের পর সরাসরি নিশ্চিত হবে।'
+                : 'Request a new deposit. It will be finalized by worker/admin after receiving cash.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -353,7 +305,7 @@ export default function DepositsPage() {
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          {t('pendingDeposits')} ({deposits.filter((d) => d.status === 'PENDING' || d.status === 'PROCESSED').length})
+          {t('pendingDeposits')} ({deposits.filter((d) => d.status === 'PENDING').length})
         </button>
         <button
           onClick={() => setActiveTab('confirmed')}
@@ -418,28 +370,7 @@ export default function DepositsPage() {
                       </div>
                     </div>
 
-                    {/* Actions for PROCESSED deposits */}
-                    {deposit.status === 'PROCESSED' && (
-                      <div className="flex gap-2 ml-14 sm:ml-0">
-                        <Button
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => handleConfirmDeposit(deposit.id)}
-                        >
-                          <Check className="h-3 w-3" />
-                          {t('confirm')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1 text-red-600 hover:text-red-700"
-                          onClick={() => handleDisputeDeposit(deposit.id)}
-                        >
-                          <AlertCircle className="h-3 w-3" />
-                          {t('dispute')}
-                        </Button>
-                      </div>
-                    )}
+                    {/* No member-side confirmation for deposits */}
                   </div>
                 );
               })

@@ -25,7 +25,7 @@ import {
   Shield,
   CheckCircle2,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
@@ -98,6 +98,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const notificationRef = useRef<HTMLDivElement | null>(null);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -126,6 +127,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
+          cache: 'no-store',
         });
 
         if (response.ok) {
@@ -146,6 +148,19 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     loadNotifications();
   }, []);
+
+  useEffect(() => {
+    const onDown = (event: MouseEvent) => {
+      if (!showNotifications) return;
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (notificationRef.current && !notificationRef.current.contains(target)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showNotifications]);
 
   const markNotificationAsRead = async (id: string) => {
     setNotifications((prev) =>
@@ -358,7 +373,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </Link>
 
             {/* Notifications */}
-            <div className="relative">
+            <div className="relative" ref={notificationRef}>
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -375,11 +390,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-40" 
-                    onClick={() => setShowNotifications(false)}
-                  />
                   <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
                     <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                       <h3 className="font-semibold text-slate-900">
@@ -465,7 +475,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       </Button>
                     </div>
                   </div>
-                </>
               )}
             </div>
 

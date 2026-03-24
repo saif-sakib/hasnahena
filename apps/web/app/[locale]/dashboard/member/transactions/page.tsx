@@ -11,6 +11,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   AlertCircle,
+  CheckCircle2,
   X,
   Calendar,
   ChevronLeft,
@@ -393,15 +394,33 @@ export default function TransactionsPage() {
                           <p className="font-medium">{formatCurrency(tx.balanceAfter)}</p>
                         </div>
                       )}
-                      {tx.status === 'PROCESSED' && (
+                      {tx.status === 'PROCESSED' && tx.type === 'WITHDRAWAL' && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="gap-1 text-red-600 hover:text-red-700"
-                          onClick={() => handleOpenDispute(tx)}
+                          className="gap-1"
+                          onClick={() => {
+                            void (async () => {
+                              setActionError(null);
+                              const token = localStorage.getItem('hn_access_token');
+                              if (!token) {
+                                router.push(`/${locale}/login`);
+                                return;
+                              }
+                              const res = await fetch(`/api/v1/member/transactions/${tx.id}/confirm`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              const json = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                setActionError(json?.error ?? 'Failed to confirm withdrawal');
+                                return;
+                              }
+                              await refresh();
+                            })();
+                          }}
                         >
-                          <AlertCircle className="h-3 w-3" />
-                          {t('dispute')}
+                          <CheckCircle2 className="h-3 w-3" />
+                          {t('confirm')}
                         </Button>
                       )}
                     </div>
