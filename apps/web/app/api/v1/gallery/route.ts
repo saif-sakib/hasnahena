@@ -8,6 +8,7 @@ export async function GET() {
     });
     return NextResponse.json(items);
   } catch (error) {
+    console.error('Failed to fetch gallery items:', error);
     return NextResponse.json({ error: 'Failed to fetch items' }, { status: 500 });
   }
 }
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(item);
   } catch (error) {
+    console.error('Failed to create gallery item:', error);
     return NextResponse.json({ error: 'Failed to create item' }, { status: 500 });
   }
 }
@@ -49,6 +51,7 @@ export async function PUT(request: NextRequest) {
     });
     return NextResponse.json(item);
   } catch (error) {
+    console.error('Failed to update gallery item:', error);
     return NextResponse.json({ error: 'Failed to update item' }, { status: 500 });
   }
 }
@@ -67,6 +70,7 @@ export async function DELETE(request: NextRequest) {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error('Failed to delete gallery item:', error);
     return NextResponse.json({ error: 'Failed to delete item' }, { status: 500 });
   }
 }

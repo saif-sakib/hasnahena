@@ -2,8 +2,8 @@
 
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
-import { verifyHs256Jwt } from '@/lib/jwt';
 import { uploadAvatar, deleteOldAvatar, extractPublicId, deleteImage } from '@/lib/cloudinary';
+import { authenticateServerActionToken } from '@/lib/server-auth';
 
 interface UploadAvatarResult {
   success: boolean;
@@ -30,25 +30,13 @@ export async function uploadAvatarAction(
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify token
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return { success: false, error: 'Server configuration error' };
+    const auth = await authenticateServerActionToken(authToken);
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
-    let claims;
-    try {
-      claims = verifyHs256Jwt(authToken, secret);
-    } catch (error) {
-      return { success: false, error: 'Invalid authentication token' };
-    }
-
-    if (!claims.sub) {
-      return { success: false, error: 'Invalid token claims' };
-    }
-
-    const userId = claims.sub;
-    const userRole = claims.role || 'member';
+    const userId = auth.user.id;
+    const userRole = (auth.user.role || 'member').toLowerCase();
 
     // Get file from form data
     const file = formData.get('avatar') as File;
@@ -129,24 +117,13 @@ export async function deleteAvatarAction(
       return { success: false, error: 'Not authenticated' };
     }
 
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return { success: false, error: 'Server configuration error' };
-    }
-
-    let claims;
-    try {
-      claims = verifyHs256Jwt(authToken, secret);
-    } catch {
-      return { success: false, error: 'Invalid authentication token' };
-    }
-
-    if (!claims.sub) {
-      return { success: false, error: 'Invalid token claims' };
+    const auth = await authenticateServerActionToken(authToken);
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     const currentUser = await prisma.user.findUnique({
-      where: { id: claims.sub },
+      where: { id: auth.user.id },
       select: { avatarUrl: true },
     });
 
@@ -155,7 +132,7 @@ export async function deleteAvatarAction(
     }
 
     await prisma.user.update({
-      where: { id: claims.sub },
+      where: { id: auth.user.id },
       data: { avatarUrl: null },
     });
 
