@@ -8,7 +8,7 @@ type Deposit = {
   amount: number;
   date: string;
   receiptNumber: string;
-  status: 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED';
+  status: 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
   processedBy?: string | null;
   balanceAfter?: number | null;
 };
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       where: {
         userId: auth.id,
         type: TransactionType.DEPOSIT,
-        status: { in: ['PENDING', 'PROCESSED', 'CONFIRMED', 'DISPUTED'] },
+        status: { in: ['PENDING', 'CONFIRMED', 'DISPUTED', 'REJECTED'] },
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -62,4 +62,3 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-

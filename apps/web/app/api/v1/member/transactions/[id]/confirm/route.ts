@@ -33,8 +33,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!tx) return NextResponse.json({ ok: false, error: 'Transaction not found' }, { status: 404 });
     if (tx.userId !== auth.id) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     if (tx.status !== TransactionStatus.PROCESSED) return NextResponse.json({ ok: false, error: 'Invalid state' }, { status: 409 });
-    if (tx.type !== TransactionType.DEPOSIT) {
-      return NextResponse.json({ ok: false, error: 'Only deposits require confirmation (MVP)' }, { status: 422 });
+    if (tx.type !== TransactionType.WITHDRAWAL) {
+      return NextResponse.json({ ok: false, error: 'Only withdrawals require member confirmation' }, { status: 422 });
     }
 
     const updated = await prisma.$transaction(async (prismaTx) => {
@@ -44,7 +44,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
       if (!account) throw new Error('Account not found');
 
-      const newSavings = account.savingsBalance + tx.amount;
+      const newSavings = account.savingsBalance - tx.amount;
+      if (newSavings < BigInt(0)) throw new Error('INSUFFICIENT_FUNDS');
 
       await prismaTx.account.update({
         where: { id: account.id },
@@ -63,12 +64,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return { newSavings, confirmedTx };
     });
 
-    // Notify user about confirmed deposit
+    // Notify user about confirmed withdrawal handover
     prisma.notification.create({
       data: {
-        type: 'DEPOSIT_CONFIRMED',
-        title: 'Deposit Confirmed',
-        message: `Your deposit of ৳${Number(tx.amount).toLocaleString()} has been confirmed and added to your savings.`,
+        type: 'WITHDRAWAL_REQUEST',
+        title: 'Withdrawal Confirmed',
+        message: `Your withdrawal of ৳${Number(tx.amount).toLocaleString()} has been confirmed.`,
         targetUserId: auth.id,
         data: {
           transactionId: tx.id,
@@ -84,6 +85,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const msg = typeof err?.message === 'string' ? err.message : 'Server error';
     if (msg.toLowerCase().includes('authorization')) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     if (msg === 'Account not found') return NextResponse.json({ ok: false, error: msg }, { status: 404 });
+    if (msg.includes('INSUFFICIENT_FUNDS')) return NextResponse.json({ ok: false, error: 'INSUFFICIENT_FUNDS' }, { status: 422 });
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

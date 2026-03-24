@@ -85,21 +85,39 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     if (tx.type === TransactionType.DEPOSIT) {
-      const processed = await prisma.transaction.update({
-        where: { id: tx.id },
-        data: {
-          status: TransactionStatus.PROCESSED,
-          processedAt: new Date(),
-          processedBy: authUser.id,
-          description: reason ? `Deposit processed: ${reason}` : undefined,
-        },
+      const processed = await prisma.$transaction(async (trx) => {
+        const account = await trx.account.findFirst({
+          where: { userId: tx.userId },
+          select: { id: true, savingsBalance: true, loanBalance: true },
+        });
+        if (!account) throw new Error('Account not found');
+
+        const newSavings = account.savingsBalance + tx.amount;
+
+        await trx.account.update({
+          where: { id: account.id },
+          data: { savingsBalance: newSavings, loanBalance: account.loanBalance },
+        });
+
+        return trx.transaction.update({
+          where: { id: tx.id },
+          data: {
+            status: TransactionStatus.CONFIRMED,
+            processedAt: new Date(),
+            confirmedAt: new Date(),
+            processedBy: authUser.id,
+            savingsAfter: newSavings,
+            loanAfter: account.loanBalance,
+            description: reason ? `Deposit confirmed: ${reason}` : undefined,
+          },
+        });
       });
 
       await prisma.notification.create({
         data: {
           type: 'SYSTEM_ALERT',
-          title: 'Deposit Ready for Confirmation',
-          message: `Your deposit request for ৳${Number(tx.amount).toLocaleString()} has been processed. Please confirm it.`,
+          title: 'Deposit Confirmed',
+          message: `Your deposit request for ৳${Number(tx.amount).toLocaleString()} has been confirmed.`,
           targetUserId: tx.userId,
           data: {
             transactionId: tx.id,
@@ -112,40 +130,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ ok: true, data: serializeTransaction(processed) });
     }
 
-    const updated = await prisma.$transaction(async (trx) => {
-      const account = await trx.account.findFirst({
-        where: { userId: tx.userId },
-        select: { id: true, savingsBalance: true, loanBalance: true },
-      });
-      if (!account) throw new Error('Account not found');
-
-      const newSavings = account.savingsBalance - tx.amount;
-      if (newSavings < BigInt(0)) throw new Error('INSUFFICIENT_FUNDS');
-
-      await trx.account.update({
-        where: { id: account.id },
-        data: { savingsBalance: newSavings, loanBalance: account.loanBalance },
-      });
-
-      return trx.transaction.update({
-        where: { id: tx.id },
-        data: {
-          status: TransactionStatus.CONFIRMED,
-          processedAt: new Date(),
-          confirmedAt: new Date(),
-          processedBy: authUser.id,
-          savingsAfter: newSavings,
-          loanAfter: account.loanBalance,
-          description: reason ? `Withdrawal approved: ${reason}` : undefined,
-        },
-      });
+    const updated = await prisma.transaction.update({
+      where: { id: tx.id },
+      data: {
+        status: TransactionStatus.PROCESSED,
+        processedAt: new Date(),
+        processedBy: authUser.id,
+        description: reason ? `Withdrawal processed: ${reason}` : undefined,
+      },
     });
 
     await prisma.notification.create({
       data: {
         type: 'WITHDRAWAL_REQUEST',
-        title: 'Withdrawal Approved',
-        message: `Your withdrawal request for ৳${Number(tx.amount).toLocaleString()} has been approved.`,
+        title: 'Withdrawal Ready',
+        message: `Your withdrawal request for ৳${Number(tx.amount).toLocaleString()} has been processed. Please confirm after receiving cash.`,
         targetUserId: tx.userId,
         data: {
           transactionId: tx.id,
@@ -163,9 +162,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const message = error instanceof Error ? error.message : 'Failed to process deposit review';
     if (message.toLowerCase().includes('authorization') || message.toLowerCase().includes('token')) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
-    if (message.includes('INSUFFICIENT_FUNDS')) {
-      return NextResponse.json({ ok: false, error: 'INSUFFICIENT_FUNDS' }, { status: 422 });
     }
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
