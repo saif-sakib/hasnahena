@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { LoanStatus, UserRole } from '@prisma/client';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 const bodySchema = z.object({
   amount: z.number().positive(),
   installments: z.number().int().positive(),
@@ -171,11 +173,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, data: serializeLoan(loan) }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'Validation failed', ...(isDev && { details: err.flatten() }) }, { status: 400 });
     }
     const msg = typeof (err as any)?.message === 'string' ? (err as any).message : 'Server error';
+    console.error('[Loans/Applications] Error:', msg);
     if (msg.toLowerCase().includes('authorization')) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    console.error('Loan application failed:', err);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to create loan application', ...(isDev && { details: msg }) }, { status: 500 });
   }
 }

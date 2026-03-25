@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { TransactionType } from '@prisma/client';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 type Deposit = {
   id: string;
   amount: number;
@@ -56,9 +58,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, data });
   } catch (err: any) {
     const msg = typeof err?.message === 'string' ? err.message : 'Unauthorized';
+    console.error('[Me/Deposits] Error:', msg);
     if (msg.toLowerCase().includes('authorization')) {
-      return NextResponse.json({ ok: false, error: msg }, { status: 401 });
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to fetch deposits', ...(isDev && { details: msg }) }, { status: 500 });
   }
 }
