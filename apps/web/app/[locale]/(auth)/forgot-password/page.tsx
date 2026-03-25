@@ -78,8 +78,8 @@ export default function ForgotPasswordPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {locale === 'bn'
-                ? 'যদি এই ইমেইল/ফোন আমাদের সিস্টেমে থাকে, আপনি একটি পাসওয়ার্ড রিসেট লিঙ্ক পাবেন। আপনার ইনবক্স চেক করুন।'
-                : 'If this email/phone exists in our system, you will receive a password reset link. Please check your inbox.'}
+                ? 'পাসওয়ার্ড রিসেট লিঙ্ক আপনার ইমেইলে পাঠানো হয়েছে। আপনার ইনবক্স চেক করুন।'
+                : 'Password reset link was sent to your email. Please check your inbox.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

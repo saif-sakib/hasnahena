@@ -88,9 +88,15 @@ export default function LoginPage() {
 
     const role = payload?.data?.user?.role;
     const token = payload?.data?.accessToken;
+    const mustChangePassword = Boolean(payload?.data?.user?.mustChangePassword);
     if (token) {
       localStorage.setItem('hn_access_token', token);
       document.cookie = `hn_access_token=${token}; path=/; SameSite=Lax`;
+      if (mustChangePassword) {
+        localStorage.setItem('hn_force_password_change', '1');
+      } else {
+        localStorage.removeItem('hn_force_password_change');
+      }
       // Dispatch custom event for header to update
       window.dispatchEvent(new Event('auth-change'));
     }
@@ -109,8 +115,11 @@ export default function LoginPage() {
           ? `/${locale}/dashboard/worker`
           : `/${locale}/dashboard/member`;
 
-    // Use replace for faster navigation (no need for back button to login page)
-    router.replace(rolePath);
+    if (mustChangePassword) {
+      router.replace(`${rolePath}/profile?forcePasswordChange=1`);
+    } else {
+      router.replace(rolePath);
+    }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setSubmitError(

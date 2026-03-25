@@ -70,8 +70,10 @@ export async function sendEmail(options: SendEmailOptions): Promise<{ success: b
   }
 
   try {
+    const fromAddress = EMAIL_USER || EMAIL_FROM;
     await transporter.sendMail({
-      from: `"Hasnahena Foundation" <${EMAIL_FROM}>`,
+      from: `"Hasnahena Foundation" <${fromAddress}>`,
+      replyTo: EMAIL_FROM,
       to: options.to,
       subject: options.subject,
       text: options.text,
@@ -158,6 +160,53 @@ export function generatePasswordResetEmail(resetUrl: string, locale: string = 'e
   const text = isbn
     ? `পাসওয়ার্ড রিসেট অনুরোধ\n\nআপনি আপনার অ্যাকাউন্টের পাসওয়ার্ড রিসেট করার অনুরোধ করেছেন।\n\nনিচের লিঙ্কে ক্লিক করুন:\n${resetUrl}\n\nএই লিঙ্কটি ১ ঘন্টার মধ্যে মেয়াদ উত্তীর্ণ হবে।\n\nহাসনাহেনা ফাউন্ডেশন`
     : `Password Reset Request\n\nYou requested to reset your account password.\n\nClick this link to reset: ${resetUrl}\n\nThis link expires in 1 hour.\n\nHasnahena Foundation`;
+
+  return { subject, html, text };
+}
+
+export function generateStaffWelcomeEmail(params: {
+  locale?: string;
+  name: string;
+  role: 'WORKER' | 'ADMIN';
+  email: string;
+  phone: string;
+  temporaryPassword: string;
+}) {
+  const locale = params.locale || 'en';
+  const isBn = locale === 'bn';
+  const appUrl = getAppUrl();
+  const loginUrl = `${appUrl}/${locale}/login`;
+  const roleLabel = params.role === 'ADMIN'
+    ? (isBn ? 'অ্যাডমিন' : 'Admin')
+    : (isBn ? 'কর্মী' : 'Worker');
+
+  const subject = isBn
+    ? 'নতুন স্টাফ অ্যাকাউন্ট - হাসনাহেনা ফাউন্ডেশন'
+    : 'New Staff Account - Hasnahena Foundation';
+
+  const html = `
+  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+    <h2>${isBn ? 'আপনার অ্যাকাউন্ট তৈরি হয়েছে' : 'Your account has been created'}</h2>
+    <p>${isBn ? `প্রিয় ${params.name},` : `Dear ${params.name},`}</p>
+    <p>${isBn
+      ? `আপনাকে ${roleLabel} হিসেবে যুক্ত করা হয়েছে। প্রথম লগইনের পরে আপনাকে অবশ্যই পাসওয়ার্ড পরিবর্তন করতে হবে।`
+      : `You were added as ${roleLabel}. You must change your password immediately after first login.`}</p>
+    <p><strong>${isBn ? 'ইমেইল' : 'Email'}:</strong> ${params.email}</p>
+    <p><strong>${isBn ? 'ফোন' : 'Phone'}:</strong> ${params.phone}</p>
+    <p><strong>${isBn ? 'অস্থায়ী পাসওয়ার্ড' : 'Temporary Password'}:</strong> ${params.temporaryPassword}</p>
+    <p><a href="${loginUrl}" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">
+      ${isBn ? 'লগইন করুন' : 'Login'}
+    </a></p>
+    <p style="font-size:12px;color:#6B7280;">
+      ${isBn
+        ? 'নিরাপত্তার জন্য এই পাসওয়ার্ড কারও সাথে শেয়ার করবেন না।'
+        : 'Do not share this password with anyone for security reasons.'}
+    </p>
+  </div>`;
+
+  const text = isBn
+    ? `প্রিয় ${params.name},\nআপনাকে ${roleLabel} হিসেবে যুক্ত করা হয়েছে।\nইমেইল: ${params.email}\nফোন: ${params.phone}\nঅস্থায়ী পাসওয়ার্ড: ${params.temporaryPassword}\nলগইন: ${loginUrl}\nপ্রথম লগইনের পর পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।`
+    : `Dear ${params.name},\nYou were added as ${roleLabel}.\nEmail: ${params.email}\nPhone: ${params.phone}\nTemporary password: ${params.temporaryPassword}\nLogin: ${loginUrl}\nPassword change is mandatory after first login.`;
 
   return { subject, html, text };
 }
