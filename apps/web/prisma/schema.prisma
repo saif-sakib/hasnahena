@@ -401,9 +401,29 @@ model GalleryItem {
   captionBn   String?
   date        DateTime @default(now())
   likes       Int      @default(0)
-  
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
+
   @@map("gallery_items")
+}
+
+// ============================================================
+// PASSWORD RESET
+// ============================================================
+
+model PasswordResetToken {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  email       String?
+  phone       String?
+
+  expiresAt   DateTime
+  usedAt      DateTime?
+
+  createdAt   DateTime @default(now())
+
+  @@index([email])
+  @@index([phone])
+  @@map("password_reset_tokens")
 }
