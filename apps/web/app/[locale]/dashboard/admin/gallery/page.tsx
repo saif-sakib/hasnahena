@@ -41,6 +41,7 @@ interface GalleryItem {
 export default function GalleryManagementPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<GalleryItem | null>(null);
   const [formData, setFormData] = useState<GalleryFormData>({});
@@ -56,13 +57,33 @@ export default function GalleryManagementPage() {
 
   const fetchItems = async () => {
     try {
+      setFetchError(null);
       const response = await fetch('/api/v1/gallery');
-      if (response.ok) {
-        const data = await response.json();
-        setItems(data);
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Server returned an error - show the details
+        const errorMsg = data.details || data.error || `Server error: ${response.status}`;
+        console.error('Gallery fetch error:', data);
+        setFetchError(errorMsg);
+        toast({
+          title: 'Error',
+          description: errorMsg,
+          variant: 'destructive',
+        });
+        return;
       }
+
+      setItems(data);
     } catch (error) {
-      console.error('Failed to fetch gallery items', error);
+      const errorMsg = error instanceof Error ? error.message : 'Network error';
+      console.error('Failed to fetch gallery items:', error);
+      setFetchError(errorMsg);
+      toast({
+        title: 'Error',
+        description: `Failed to fetch gallery items: ${errorMsg}`,
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -313,6 +334,15 @@ export default function GalleryManagementPage() {
           {isLoading ? (
             <div className="flex justify-center p-8">
               <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+            </div>
+          ) : fetchError ? (
+            <div className="text-center p-12 text-red-500 border-2 border-dashed border-red-200 rounded-lg bg-red-50">
+              <ImageIcon className="h-10 w-10 mx-auto mb-3 opacity-50" />
+              <p className="font-medium mb-2">Failed to load gallery</p>
+              <p className="text-sm text-red-400 mb-4">{fetchError}</p>
+              <Button variant="outline" onClick={() => { setIsLoading(true); fetchItems(); }}>
+                Try Again
+              </Button>
             </div>
           ) : items.length === 0 ? (
             <div className="text-center p-12 text-muted-foreground border-2 border-dashed rounded-lg">

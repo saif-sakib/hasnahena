@@ -282,6 +282,8 @@ export default function AdminSettingsPage() {
 
       // Save to API
       const authToken = getAuthToken();
+      console.log('[Settings Save] Token exists:', !!authToken);
+
       const response = await fetch('/api/v1/settings', {
         method: 'PUT',
         headers: {
@@ -291,9 +293,13 @@ export default function AdminSettingsPage() {
         body: JSON.stringify(settingsToSave),
       });
 
+      const payload = await response.json().catch(() => null);
+      console.log('[Settings Save] Response:', response.status, payload);
+
       if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || 'Failed to save');
+        // Show verbose error with details from server
+        const errorMsg = payload?.details || payload?.error || `Server error: ${response.status}`;
+        throw new Error(errorMsg);
       }
 
       toast({
@@ -302,9 +308,11 @@ export default function AdminSettingsPage() {
         variant: 'default',
       });
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to save settings';
+      console.error('[Settings Save] Error:', errorMsg);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to save settings',
+        description: errorMsg,
         variant: 'destructive',
       });
     } finally {
