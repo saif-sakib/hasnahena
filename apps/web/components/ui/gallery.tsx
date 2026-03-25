@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Heart, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Heart, X, ChevronLeft, ChevronRight, ImageOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export interface GalleryItem {
@@ -23,8 +23,13 @@ interface GalleryProps {
 export function Gallery({ items, locale }: GalleryProps) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   const [likedItems, setLikedItems] = useState<Set<string>>(new Set());
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
   const { toast } = useToast();
+
+  const handleImageError = (id: string) => {
+    setFailedImages(prev => new Set(prev).add(id));
+  };
 
   const checkAuth = () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
@@ -94,12 +99,20 @@ export function Gallery({ items, locale }: GalleryProps) {
             onClick={() => openLightbox(index)}
           >
             <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 dark:bg-slate-800">
-              <Image
-                src={item.image}
-                alt={item.caption}
-                fill
-                className="object-cover group-hover:scale-105 transition-transform duration-500"
-              />
+              {failedImages.has(item.id) ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                  <ImageOff className="h-10 w-10 mb-2" />
+                  <span className="text-xs">{locale === 'bn' ? 'ছবি লোড হয়নি' : 'Image failed to load'}</span>
+                </div>
+              ) : (
+                <Image
+                  src={item.image}
+                  alt={item.caption}
+                  fill
+                  className="object-cover group-hover:scale-105 transition-transform duration-500"
+                  onError={() => handleImageError(item.id)}
+                />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </div>
             <CardContent className="p-4">
