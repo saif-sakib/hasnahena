@@ -1,22 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from 'next-intl';
 import {
   User,
   Mail,
   Phone,
   MapPin,
+  Shield,
   Calendar,
   Edit,
   Lock,
   Save,
   Eye,
   EyeOff,
-  Briefcase,
-  Users,
-  Receipt,
-  TrendingUp,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,24 +31,35 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
+
+interface ProfileData {
+  id: string;
+  memberId: string;
+  nameEn: string;
+  nameBn: string;
+  email: string;
+  phone: string;
+  role: string;
+  status: string;
+  address: string;
+  memberSince: string;
+  lastUpdated: string;
+  avatarUrl: string | null;
+}
 
 export default function WorkerProfilePage() {
   const locale = useLocale();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock worker data
-  const [workerData, setWorkerData] = useState({
-    name: 'রফিকুল ইসলাম',
-    nameEn: 'Rafiqul Islam',
-    email: 'rafiqul.worker@hasnahena.org',
-    phone: '01711111111',
-    assignedArea: 'ঢাকা উত্তর',
-    joinDate: '2023-06-15',
-    lastActive: '2025-01-14T10:30:00',
-    address: 'মিরপুর, ঢাকা',
-  });
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+  const [editData, setEditData] = useState<Partial<ProfileData>>({});
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -57,24 +67,238 @@ export default function WorkerProfilePage() {
     confirmPassword: '',
   });
 
-  // Activity stats
-  const stats = {
-    totalMembers: 45,
-    processedDeposits: 156,
-    processedLoans: 45,
-    thisMonthTransactions: 89,
+  const getToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+
+  const fetchProfile = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = getToken();
+      if (!token) {
+        setError('Not authenticated');
+        return;
+      }
+
+      const response = await fetch('/api/v1/me/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to fetch profile');
+      }
+
+      const profile = result.data.profile;
+      setProfileData({
+        id: profile.id,
+        memberId: profile.memberId || '',
+        nameEn: profile.nameEn || '',
+        nameBn: profile.nameBn || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+        role: profile.role || 'WORKER',
+        status: profile.status || 'ACTIVE',
+        address: profile.address || '',
+        memberSince: profile.memberSince || '',
+        lastUpdated: profile.lastUpdated || '',
+        avatarUrl: profile.avatarUrl,
+      });
+      setEditData({
+        nameEn: profile.nameEn || '',
+        nameBn: profile.nameBn || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load profile';
+      setError(message);
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [locale]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const handleSave = async () => {
+    if (!profileData) return;
+
+    setIsSaving(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/v1/me/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(editData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to update profile');
+      }
+
+      setProfileData(prev => prev ? {
+        ...prev,
+        ...editData,
+        lastUpdated: result.data?.profile?.lastUpdated || new Date().toISOString(),
+      } : null);
+
+      setIsEditing(false);
+      window.dispatchEvent(new Event('auth-change'));
+
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn' ? 'প্রোফাইল আপডেট হয়েছে' : 'Profile updated successfully',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save profile';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleSave = () => {
-    console.log('Saving worker data:', workerData);
+  const handleCancelEdit = () => {
     setIsEditing(false);
+    if (profileData) {
+      setEditData({
+        nameEn: profileData.nameEn,
+        nameBn: profileData.nameBn,
+        email: profileData.email,
+        phone: profileData.phone,
+      });
+    }
   };
 
-  const handlePasswordChange = () => {
-    console.log('Changing password');
-    setShowPasswordModal(false);
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const handlePasswordChange = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: locale === 'bn' ? 'নতুন পাসওয়ার্ড মিলছে না' : 'New passwords do not match',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/v1/me/password', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to change password');
+      }
+
+      setShowPasswordModal(false);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন হয়েছে' : 'Password changed successfully',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to change password';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
+
+  const handleAvatarChange = (newUrl: string) => {
+    setProfileData(prev => prev ? { ...prev, avatarUrl: newUrl || null } : null);
+    // Cache will be cleared on auth-change event from AvatarUpload
+  };
+
+  const getRoleBadge = (role: string) => {
+    switch (role) {
+      case 'WORKER':
+        return (
+          <Badge className="bg-green-100 text-green-700">
+            <Shield className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'কর্মী' : 'Worker'}
+          </Badge>
+        );
+      default:
+        return (
+          <Badge className="bg-slate-100 text-slate-700">
+            <Shield className="h-3 w-3 mr-1" />
+            {role}
+          </Badge>
+        );
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-600" />
+          <p className="mt-2 text-muted-foreground">
+            {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !profileData) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">
+            {locale === 'bn' ? 'প্রোফাইল লোড করতে ব্যর্থ' : 'Failed to load profile'}
+          </h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={fetchProfile}>
+            {locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try Again'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -82,7 +306,7 @@ export default function WorkerProfilePage() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'আমার প্রোফাইল' : 'My Profile'}
+            {locale === 'bn' ? 'প্রোফাইল' : 'Profile'}
           </h1>
           <p className="text-muted-foreground">
             {locale === 'bn' ? 'আপনার অ্যাকাউন্ট তথ্য পরিচালনা করুন' : 'Manage your account information'}
@@ -94,10 +318,19 @@ export default function WorkerProfilePage() {
             {locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন' : 'Change Password'}
           </Button>
           {isEditing ? (
-            <Button onClick={handleSave}>
-              <Save className="h-4 w-4 mr-2" />
-              {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleCancelEdit} disabled={isSaving}>
+                {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+              </Button>
+              <Button onClick={handleSave} disabled={isSaving}>
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
+              </Button>
+            </>
           ) : (
             <Button onClick={() => setIsEditing(true)}>
               <Edit className="h-4 w-4 mr-2" />
@@ -115,19 +348,21 @@ export default function WorkerProfilePage() {
             <div className="flex flex-col items-center">
               <div className="relative">
                 <AvatarUpload
-                  currentAvatarUrl={null}
-                  userName={workerData.nameEn || workerData.name}
+                  currentAvatarUrl={profileData.avatarUrl}
+                  userName={profileData.nameEn || profileData.nameBn}
                   size="xl"
                   editable={isEditing}
+                  onUploadComplete={handleAvatarChange}
                 />
               </div>
               <div className="mt-4 text-center">
-                <h2 className="text-xl font-semibold">{workerData.name}</h2>
-                <p className="text-sm text-muted-foreground">{workerData.nameEn}</p>
-                <Badge className="mt-2 bg-blue-100 text-blue-700">
-                  <Briefcase className="h-3 w-3 mr-1" />
-                  {locale === 'bn' ? 'কর্মী' : 'Worker'}
-                </Badge>
+                <h2 className="text-xl font-semibold">
+                  {locale === 'bn' ? profileData.nameBn || profileData.nameEn : profileData.nameEn}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {locale === 'bn' ? profileData.nameEn : profileData.nameBn}
+                </p>
+                <div className="mt-2">{getRoleBadge(profileData.role)}</div>
               </div>
             </div>
 
@@ -141,11 +376,14 @@ export default function WorkerProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={workerData.name}
-                      onChange={(e) => setWorkerData({ ...workerData, name: e.target.value })}
+                      value={editData.nameBn || ''}
+                      onChange={(e) => setEditData({ ...editData, nameBn: e.target.value })}
+                      placeholder={locale === 'bn' ? 'বাংলায় নাম লিখুন' : 'Enter name in Bengali'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.name}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.nameBn || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -156,11 +394,14 @@ export default function WorkerProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={workerData.nameEn}
-                      onChange={(e) => setWorkerData({ ...workerData, nameEn: e.target.value })}
+                      value={editData.nameEn || ''}
+                      onChange={(e) => setEditData({ ...editData, nameEn: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ইংরেজিতে নাম লিখুন' : 'Enter name in English'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.nameEn}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.nameEn || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -172,11 +413,14 @@ export default function WorkerProfilePage() {
                   {isEditing ? (
                     <Input
                       type="email"
-                      value={workerData.email}
-                      onChange={(e) => setWorkerData({ ...workerData, email: e.target.value })}
+                      value={editData.email || ''}
+                      onChange={(e) => setEditData({ ...editData, email: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ইমেইল লিখুন' : 'Enter email'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.email}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.email || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -187,20 +431,15 @@ export default function WorkerProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={workerData.phone}
-                      onChange={(e) => setWorkerData({ ...workerData, phone: e.target.value })}
+                      value={editData.phone || ''}
+                      onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ফোন নম্বর লিখুন' : 'Enter phone number'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.phone}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.phone || '-'}
+                    </p>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4" />
-                    {locale === 'bn' ? 'নির্ধারিত এলাকা' : 'Assigned Area'}
-                  </Label>
-                  <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.assignedArea}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -208,14 +447,9 @@ export default function WorkerProfilePage() {
                     <MapPin className="h-4 w-4" />
                     {locale === 'bn' ? 'ঠিকানা' : 'Address'}
                   </Label>
-                  {isEditing ? (
-                    <Input
-                      value={workerData.address}
-                      onChange={(e) => setWorkerData({ ...workerData, address: e.target.value })}
-                    />
-                  ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{workerData.address}</p>
-                  )}
+                  <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                    {profileData.address || (locale === 'bn' ? 'দেওয়া হয়নি' : 'Not provided')}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -224,60 +458,64 @@ export default function WorkerProfilePage() {
                     {locale === 'bn' ? 'যোগদানের তারিখ' : 'Join Date'}
                   </Label>
                   <p className="text-sm font-medium p-2 bg-slate-50 rounded">
-                    {new Date(workerData.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                    {profileData.memberSince
+                      ? new Date(profileData.memberSince).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')
+                      : '-'}
                   </p>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-xl">
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'সর্বশেষ সক্রিয়:' : 'Last Active:'}{' '}
-                  <span className="font-medium text-foreground">
-                    {new Date(workerData.lastActive).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                  </span>
-                </p>
-              </div>
+              {profileData.lastUpdated && (
+                <div className="p-4 bg-slate-50 rounded-xl">
+                  <p className="text-sm text-muted-foreground">
+                    {locale === 'bn' ? 'সর্বশেষ আপডেট:' : 'Last Updated:'}{' '}
+                    <span className="font-medium text-foreground">
+                      {new Date(profileData.lastUpdated).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Activity Stats */}
+      {/* Account Status Card */}
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>{locale === 'bn' ? 'কার্যক্রম সারসংক্ষেপ' : 'Activity Summary'}</CardTitle>
+          <CardTitle>{locale === 'bn' ? 'অ্যাকাউন্ট স্থিতি' : 'Account Status'}</CardTitle>
           <CardDescription>
-            {locale === 'bn' ? 'আপনার কর্মদক্ষতার পরিসংখ্যান' : 'Your performance statistics'}
+            {locale === 'bn' ? 'আপনার অ্যাকাউন্টের বর্তমান অবস্থা' : 'Your current account status'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="p-4 bg-blue-50 rounded-xl text-center">
-              <Users className="h-8 w-8 mx-auto text-blue-600 mb-2" />
-              <p className="text-3xl font-bold text-blue-600">{stats.totalMembers}</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'নির্ধারিত সদস্য' : 'Assigned Members'}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="p-4 bg-emerald-50 rounded-xl text-center">
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'অ্যাকাউন্ট স্ট্যাটাস' : 'Account Status'}
               </p>
+              <Badge className={
+                profileData.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                profileData.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                'bg-red-100 text-red-700'
+              }>
+                {profileData.status === 'ACTIVE' ? (locale === 'bn' ? 'সক্রিয়' : 'Active') :
+                 profileData.status === 'PENDING' ? (locale === 'bn' ? 'অপেক্ষমান' : 'Pending') :
+                 profileData.status}
+              </Badge>
             </div>
-            <div className="p-4 bg-green-50 rounded-xl text-center">
-              <TrendingUp className="h-8 w-8 mx-auto text-green-600 mb-2" />
-              <p className="text-3xl font-bold text-green-600">{stats.processedDeposits}</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'প্রসেসকৃত জমা' : 'Processed Deposits'}
+            <div className="p-4 bg-blue-50 rounded-xl text-center">
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'ভূমিকা' : 'Role'}
               </p>
+              {getRoleBadge(profileData.role)}
             </div>
             <div className="p-4 bg-purple-50 rounded-xl text-center">
-              <Receipt className="h-8 w-8 mx-auto text-purple-600 mb-2" />
-              <p className="text-3xl font-bold text-purple-600">{stats.processedLoans}</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'প্রসেসকৃত ঋণ কিস্তি' : 'Loan Payments'}
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}
               </p>
-            </div>
-            <div className="p-4 bg-amber-50 rounded-xl text-center">
-              <Receipt className="h-8 w-8 mx-auto text-amber-600 mb-2" />
-              <p className="text-3xl font-bold text-amber-600">{stats.thisMonthTransactions}</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'এই মাসের লেনদেন' : 'This Month'}
+              <p className="text-lg font-semibold text-purple-700">
+                {profileData.memberId || '-'}
               </p>
             </div>
           </div>
@@ -305,6 +543,7 @@ export default function WorkerProfilePage() {
                   onChange={(e) =>
                     setPasswordData({ ...passwordData, currentPassword: e.target.value })
                   }
+                  placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
                 />
                 <Button
                   type="button"
@@ -323,6 +562,7 @@ export default function WorkerProfilePage() {
                 type="password"
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড লিখুন' : 'Enter new password'}
               />
             </div>
             <div className="space-y-2">
@@ -333,21 +573,34 @@ export default function WorkerProfilePage() {
                 onChange={(e) =>
                   setPasswordData({ ...passwordData, confirmPassword: e.target.value })
                 }
+                placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড আবার লিখুন' : 'Confirm new password'}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPasswordModal(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPasswordModal(false);
+                setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+              }}
+              disabled={isChangingPassword}
+            >
               {locale === 'bn' ? 'বাতিল' : 'Cancel'}
             </Button>
             <Button
               onClick={handlePasswordChange}
               disabled={
+                isChangingPassword ||
                 !passwordData.currentPassword ||
                 !passwordData.newPassword ||
-                passwordData.newPassword !== passwordData.confirmPassword
+                passwordData.newPassword !== passwordData.confirmPassword ||
+                passwordData.newPassword.length < 6
               }
             >
+              {isChangingPassword ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
               {locale === 'bn' ? 'পরিবর্তন করুন' : 'Change Password'}
             </Button>
           </DialogFooter>

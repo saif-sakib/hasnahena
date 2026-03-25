@@ -26,7 +26,7 @@ import {
   CheckCircle2,
   Image as ImageIcon,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
@@ -62,6 +62,11 @@ interface DashboardLayoutProps {
   role: 'member' | 'worker' | 'admin';
 }
 
+// Cache keys for sessionStorage
+const USER_INFO_CACHE_KEY = 'hn_user_info_cache';
+const USER_INFO_CACHE_TIMESTAMP_KEY = 'hn_user_info_timestamp';
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes cache
+
 // Member navigation - based on requirements: deposits, loans, transactions
 const memberNav = [
   { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
@@ -94,6 +99,44 @@ const adminNav = [
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
 
+// Helper functions for caching
+function getCachedUserInfo(): UserInfo | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = sessionStorage.getItem(USER_INFO_CACHE_KEY);
+    const timestamp = sessionStorage.getItem(USER_INFO_CACHE_TIMESTAMP_KEY);
+    if (cached && timestamp) {
+      const age = Date.now() - parseInt(timestamp, 10);
+      if (age < CACHE_DURATION_MS) {
+        return JSON.parse(cached);
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
+}
+
+function setCachedUserInfo(userInfo: UserInfo) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(USER_INFO_CACHE_KEY, JSON.stringify(userInfo));
+    sessionStorage.setItem(USER_INFO_CACHE_TIMESTAMP_KEY, Date.now().toString());
+  } catch {
+    // Ignore errors
+  }
+}
+
+function clearCachedUserInfo() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(USER_INFO_CACHE_KEY);
+    sessionStorage.removeItem(USER_INFO_CACHE_TIMESTAMP_KEY);
+  } catch {
+    // Ignore errors
+  }
+}
+
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -102,8 +145,9 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(() => getCachedUserInfo());
   const notificationRef = useRef<HTMLDivElement | null>(null);
+  const hasFetchedRef = useRef(false);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -116,49 +160,71 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  useEffect(() => {
-    const loadUserInfo = async () => {
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
-        if (!token) return;
-
-        const response = await fetch('/api/v1/me/profile', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          cache: 'no-store',
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.ok && result.data?.profile) {
-            const profile = result.data.profile;
-            setUserInfo({
-              id: profile.memberId || '',
-              nameEn: profile.nameEn || '',
-              nameBn: profile.nameBn || '',
-              email: profile.email || '',
-              phone: profile.phone || '',
-              role: role,
-              status: profile.status || '',
-              avatarUrl: profile.avatarUrl || '',
-              memberId: profile.memberId || '',
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load user info:', error);
+  const loadUserInfo = useCallback(async (forceRefresh = false) => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      if (!token) {
+        clearCachedUserInfo();
+        setUserInfo(null);
+        return;
       }
-    };
 
-    loadUserInfo();
+      // Use cached data if available and not forcing refresh
+      if (!forceRefresh) {
+        const cached = getCachedUserInfo();
+        if (cached) {
+          setUserInfo(cached);
+          return;
+        }
+      }
+
+      const response = await fetch('/api/v1/me/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        // Use cache for GET requests
+        next: { revalidate: 300 }, // 5 minutes
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.ok && result.data?.profile) {
+          const profile = result.data.profile;
+          const newUserInfo: UserInfo = {
+            id: profile.id || profile.memberId || '',
+            nameEn: profile.nameEn || '',
+            nameBn: profile.nameBn || '',
+            email: profile.email || '',
+            phone: profile.phone || '',
+            role: profile.role || role,
+            status: profile.status || '',
+            avatarUrl: profile.avatarUrl || '',
+            memberId: profile.memberId || '',
+          };
+          setUserInfo(newUserInfo);
+          setCachedUserInfo(newUserInfo);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load user info:', error);
+    }
+  }, [role]);
+
+  useEffect(() => {
+    // Only fetch once on mount, use cache for subsequent renders
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      loadUserInfo();
+    }
+
     const onAuthChange = () => {
-      void loadUserInfo();
+      clearCachedUserInfo();
+      loadUserInfo(true); // Force refresh on auth change
     };
     window.addEventListener('auth-change', onAuthChange);
     return () => window.removeEventListener('auth-change', onAuthChange);
-  }, [role]);
+  }, [loadUserInfo]);
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -176,7 +242,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          cache: 'no-store',
         });
 
         if (response.ok) {
@@ -281,12 +346,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('hn_access_token');
+    clearCachedUserInfo(); // Clear user cache on logout
     window.dispatchEvent(new Event('auth-change'));
     toast({
       title: locale === 'bn' ? 'সফলভাবে লগআউট হয়েছে' : 'Logged out successfully',
       variant: 'success',
     });
-    router.push(`/${locale}`);
+    // Use replace for faster navigation and prevent going back to dashboard
+    router.replace(`/${locale}`);
   };
 
   return (

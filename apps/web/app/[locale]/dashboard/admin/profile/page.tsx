@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from 'next-intl';
 import {
   User,
@@ -14,6 +14,8 @@ import {
   Save,
   Eye,
   EyeOff,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,24 +31,35 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
+
+interface ProfileData {
+  id: string;
+  memberId: string;
+  nameEn: string;
+  nameBn: string;
+  email: string;
+  phone: string;
+  role: string;
+  status: string;
+  address: string;
+  memberSince: string;
+  lastUpdated: string;
+  avatarUrl: string | null;
+}
 
 export default function AdminProfilePage() {
   const locale = useLocale();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock admin data
-  const [adminData, setAdminData] = useState({
-    name: 'নাজমুল হক',
-    nameEn: 'Nazmul Haque',
-    email: 'nazmul.admin@hasnahena.org',
-    phone: '01733333333',
-    role: 'SUPER_ADMIN',
-    joinDate: '2023-01-01',
-    lastLogin: '2025-01-14T10:30:00',
-    address: 'ঢাকা, বাংলাদেশ',
-  });
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+  const [editData, setEditData] = useState<Partial<ProfileData>>({});
 
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -54,15 +67,192 @@ export default function AdminProfilePage() {
     confirmPassword: '',
   });
 
-  const handleSave = () => {
-    console.log('Saving admin data:', adminData);
-    setIsEditing(false);
+  const getToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+
+  const fetchProfile = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = getToken();
+      if (!token) {
+        setError('Not authenticated');
+        return;
+      }
+
+      const response = await fetch('/api/v1/me/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to fetch profile');
+      }
+
+      const profile = result.data.profile;
+      setProfileData({
+        id: profile.id,
+        memberId: profile.memberId || '',
+        nameEn: profile.nameEn || '',
+        nameBn: profile.nameBn || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+        role: profile.role || 'ADMIN',
+        status: profile.status || 'ACTIVE',
+        address: profile.address || '',
+        memberSince: profile.memberSince || '',
+        lastUpdated: profile.lastUpdated || '',
+        avatarUrl: profile.avatarUrl,
+      });
+      setEditData({
+        nameEn: profile.nameEn || '',
+        nameBn: profile.nameBn || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load profile';
+      setError(message);
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [locale]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const handleSave = async () => {
+    if (!profileData) return;
+
+    setIsSaving(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/v1/me/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(editData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to update profile');
+      }
+
+      // Update local state with new data
+      setProfileData(prev => prev ? {
+        ...prev,
+        ...editData,
+        lastUpdated: result.data?.profile?.lastUpdated || new Date().toISOString(),
+      } : null);
+
+      setIsEditing(false);
+
+      // Dispatch event to update header
+      window.dispatchEvent(new Event('auth-change'));
+
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn' ? 'প্রোফাইল আপডেট হয়েছে' : 'Profile updated successfully',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save profile';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handlePasswordChange = () => {
-    console.log('Changing password');
-    setShowPasswordModal(false);
-    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    // Reset edit data to current profile data
+    if (profileData) {
+      setEditData({
+        nameEn: profileData.nameEn,
+        nameBn: profileData.nameBn,
+        email: profileData.email,
+        phone: profileData.phone,
+      });
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: locale === 'bn' ? 'নতুন পাসওয়ার্ড মিলছে না' : 'New passwords do not match',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/v1/me/password', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to change password');
+      }
+
+      setShowPasswordModal(false);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন হয়েছে' : 'Password changed successfully',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to change password';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleAvatarChange = (newUrl: string) => {
+    setProfileData(prev => prev ? { ...prev, avatarUrl: newUrl || null } : null);
+    // Cache will be cleared on auth-change event from AvatarUpload
   };
 
   const getRoleBadge = (role: string) => {
@@ -81,10 +271,52 @@ export default function AdminProfilePage() {
             {locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}
           </Badge>
         );
+      case 'WORKER':
+        return (
+          <Badge className="bg-green-100 text-green-700">
+            <Shield className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'কর্মী' : 'Worker'}
+          </Badge>
+        );
       default:
-        return null;
+        return (
+          <Badge className="bg-slate-100 text-slate-700">
+            <Shield className="h-3 w-3 mr-1" />
+            {role}
+          </Badge>
+        );
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-600" />
+          <p className="mt-2 text-muted-foreground">
+            {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !profileData) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">
+            {locale === 'bn' ? 'প্রোফাইল লোড করতে ব্যর্থ' : 'Failed to load profile'}
+          </h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={fetchProfile}>
+            {locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try Again'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -104,10 +336,19 @@ export default function AdminProfilePage() {
             {locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন' : 'Change Password'}
           </Button>
           {isEditing ? (
-            <Button onClick={handleSave}>
-              <Save className="h-4 w-4 mr-2" />
-              {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleCancelEdit} disabled={isSaving}>
+                {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+              </Button>
+              <Button onClick={handleSave} disabled={isSaving}>
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
+              </Button>
+            </>
           ) : (
             <Button onClick={() => setIsEditing(true)}>
               <Edit className="h-4 w-4 mr-2" />
@@ -125,16 +366,21 @@ export default function AdminProfilePage() {
             <div className="flex flex-col items-center">
               <div className="relative">
                 <AvatarUpload
-                  currentAvatarUrl={null}
-                  userName={adminData.nameEn || adminData.name}
+                  currentAvatarUrl={profileData.avatarUrl}
+                  userName={profileData.nameEn || profileData.nameBn}
                   size="xl"
                   editable={isEditing}
+                  onUploadComplete={handleAvatarChange}
                 />
               </div>
               <div className="mt-4 text-center">
-                <h2 className="text-xl font-semibold">{adminData.name}</h2>
-                <p className="text-sm text-muted-foreground">{adminData.nameEn}</p>
-                <div className="mt-2">{getRoleBadge(adminData.role)}</div>
+                <h2 className="text-xl font-semibold">
+                  {locale === 'bn' ? profileData.nameBn || profileData.nameEn : profileData.nameEn}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {locale === 'bn' ? profileData.nameEn : profileData.nameBn}
+                </p>
+                <div className="mt-2">{getRoleBadge(profileData.role)}</div>
               </div>
             </div>
 
@@ -148,11 +394,14 @@ export default function AdminProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={adminData.name}
-                      onChange={(e) => setAdminData({ ...adminData, name: e.target.value })}
+                      value={editData.nameBn || ''}
+                      onChange={(e) => setEditData({ ...editData, nameBn: e.target.value })}
+                      placeholder={locale === 'bn' ? 'বাংলায় নাম লিখুন' : 'Enter name in Bengali'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{adminData.name}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.nameBn || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -163,11 +412,14 @@ export default function AdminProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={adminData.nameEn}
-                      onChange={(e) => setAdminData({ ...adminData, nameEn: e.target.value })}
+                      value={editData.nameEn || ''}
+                      onChange={(e) => setEditData({ ...editData, nameEn: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ইংরেজিতে নাম লিখুন' : 'Enter name in English'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{adminData.nameEn}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.nameEn || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -179,11 +431,14 @@ export default function AdminProfilePage() {
                   {isEditing ? (
                     <Input
                       type="email"
-                      value={adminData.email}
-                      onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
+                      value={editData.email || ''}
+                      onChange={(e) => setEditData({ ...editData, email: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ইমেইল লিখুন' : 'Enter email'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{adminData.email}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.email || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -194,11 +449,14 @@ export default function AdminProfilePage() {
                   </Label>
                   {isEditing ? (
                     <Input
-                      value={adminData.phone}
-                      onChange={(e) => setAdminData({ ...adminData, phone: e.target.value })}
+                      value={editData.phone || ''}
+                      onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                      placeholder={locale === 'bn' ? 'ফোন নম্বর লিখুন' : 'Enter phone number'}
                     />
                   ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{adminData.phone}</p>
+                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                      {profileData.phone || '-'}
+                    </p>
                   )}
                 </div>
 
@@ -207,14 +465,9 @@ export default function AdminProfilePage() {
                     <MapPin className="h-4 w-4" />
                     {locale === 'bn' ? 'ঠিকানা' : 'Address'}
                   </Label>
-                  {isEditing ? (
-                    <Input
-                      value={adminData.address}
-                      onChange={(e) => setAdminData({ ...adminData, address: e.target.value })}
-                    />
-                  ) : (
-                    <p className="text-sm font-medium p-2 bg-slate-50 rounded">{adminData.address}</p>
-                  )}
+                  <p className="text-sm font-medium p-2 bg-slate-50 rounded">
+                    {profileData.address || (locale === 'bn' ? 'দেওয়া হয়নি' : 'Not provided')}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -223,50 +476,64 @@ export default function AdminProfilePage() {
                     {locale === 'bn' ? 'যোগদানের তারিখ' : 'Join Date'}
                   </Label>
                   <p className="text-sm font-medium p-2 bg-slate-50 rounded">
-                    {new Date(adminData.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                    {profileData.memberSince
+                      ? new Date(profileData.memberSince).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')
+                      : '-'}
                   </p>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-xl">
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'সর্বশেষ লগইন:' : 'Last Login:'}{' '}
-                  <span className="font-medium text-foreground">
-                    {new Date(adminData.lastLogin).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                  </span>
-                </p>
-              </div>
+              {profileData.lastUpdated && (
+                <div className="p-4 bg-slate-50 rounded-xl">
+                  <p className="text-sm text-muted-foreground">
+                    {locale === 'bn' ? 'সর্বশেষ আপডেট:' : 'Last Updated:'}{' '}
+                    <span className="font-medium text-foreground">
+                      {new Date(profileData.lastUpdated).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                    </span>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Activity Summary */}
+      {/* Account Status Card */}
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>{locale === 'bn' ? 'কার্যক্রম সারসংক্ষেপ' : 'Activity Summary'}</CardTitle>
+          <CardTitle>{locale === 'bn' ? 'অ্যাকাউন্ট স্থিতি' : 'Account Status'}</CardTitle>
           <CardDescription>
-            {locale === 'bn' ? 'আপনার সাম্প্রতিক কার্যক্রম' : 'Your recent activity'}
+            {locale === 'bn' ? 'আপনার অ্যাকাউন্টের বর্তমান অবস্থা' : 'Your current account status'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="p-4 bg-blue-50 rounded-xl text-center">
-              <p className="text-3xl font-bold text-blue-600">89</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'অনুমোদিত ঋণ' : 'Loans Approved'}
+            <div className="p-4 bg-emerald-50 rounded-xl text-center">
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'অ্যাকাউন্ট স্ট্যাটাস' : 'Account Status'}
               </p>
+              <Badge className={
+                profileData.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                profileData.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
+                'bg-red-100 text-red-700'
+              }>
+                {profileData.status === 'ACTIVE' ? (locale === 'bn' ? 'সক্রিয়' : 'Active') :
+                 profileData.status === 'PENDING' ? (locale === 'bn' ? 'অপেক্ষমান' : 'Pending') :
+                 profileData.status}
+              </Badge>
             </div>
-            <div className="p-4 bg-green-50 rounded-xl text-center">
-              <p className="text-3xl font-bold text-green-600">156</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'অনুমোদিত সদস্য' : 'Members Approved'}
+            <div className="p-4 bg-blue-50 rounded-xl text-center">
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'ভূমিকা' : 'Role'}
               </p>
+              {getRoleBadge(profileData.role)}
             </div>
             <div className="p-4 bg-purple-50 rounded-xl text-center">
-              <p className="text-3xl font-bold text-purple-600">12</p>
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn' ? 'নিষ্পত্তিকৃত বিরোধ' : 'Disputes Resolved'}
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}
+              </p>
+              <p className="text-lg font-semibold text-purple-700">
+                {profileData.memberId || '-'}
               </p>
             </div>
           </div>
@@ -294,6 +561,7 @@ export default function AdminProfilePage() {
                   onChange={(e) =>
                     setPasswordData({ ...passwordData, currentPassword: e.target.value })
                   }
+                  placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
                 />
                 <Button
                   type="button"
@@ -312,6 +580,7 @@ export default function AdminProfilePage() {
                 type="password"
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড লিখুন' : 'Enter new password'}
               />
             </div>
             <div className="space-y-2">
@@ -322,21 +591,34 @@ export default function AdminProfilePage() {
                 onChange={(e) =>
                   setPasswordData({ ...passwordData, confirmPassword: e.target.value })
                 }
+                placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড আবার লিখুন' : 'Confirm new password'}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPasswordModal(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPasswordModal(false);
+                setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+              }}
+              disabled={isChangingPassword}
+            >
               {locale === 'bn' ? 'বাতিল' : 'Cancel'}
             </Button>
             <Button
               onClick={handlePasswordChange}
               disabled={
+                isChangingPassword ||
                 !passwordData.currentPassword ||
                 !passwordData.newPassword ||
-                passwordData.newPassword !== passwordData.confirmPassword
+                passwordData.newPassword !== passwordData.confirmPassword ||
+                passwordData.newPassword.length < 6
               }
             >
+              {isChangingPassword ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
               {locale === 'bn' ? 'পরিবর্তন করুন' : 'Change Password'}
             </Button>
           </DialogFooter>
