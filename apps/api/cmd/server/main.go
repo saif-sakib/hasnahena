@@ -27,7 +27,17 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	dbPool, err := pgxpool.New(ctx, config.DatabaseURL)
+	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
+	if err != nil {
+		log.Fatalf("failed to parse database config: %v", err)
+	}
+	poolConfig.MaxConns = config.DBMaxConns
+	poolConfig.MinConns = config.DBMinConns
+	poolConfig.MaxConnIdleTime = config.DBMaxConnIdleTime
+	poolConfig.MaxConnLifetime = config.DBMaxConnLifetime
+	poolConfig.HealthCheckPeriod = config.DBHealthCheckPeriod
+
+	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatalf("failed to connect db: %v", err)
 	}

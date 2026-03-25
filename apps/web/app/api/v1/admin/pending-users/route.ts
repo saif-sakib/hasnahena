@@ -17,26 +17,41 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Fetch all pending users with their details
-    const pendingUsers = await prisma.user.findMany({
-      where: {
-        status: 'PENDING',
-      },
-      include: {
-        permanentAddress: true,
-        presentAddress: true,
-        nominee: true,
-        accounts: {
-          select: {
-            accountNumber: true,
-            savingsBalance: true,
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('limit') || '50', 10) || 50));
+    const skip = (page - 1) * limit;
+
+    // Fetch pending users with pagination to reduce payload size/latency.
+    const [pendingUsers, total] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          status: 'PENDING',
+        },
+        include: {
+          permanentAddress: true,
+          presentAddress: true,
+          nominee: true,
+          accounts: {
+            select: {
+              accountNumber: true,
+              savingsBalance: true,
+            },
+            take: 1,
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+      prisma.user.count({
+        where: {
+          status: 'PENDING',
+        },
+      }),
+    ]);
 
     // Transform for response
     const transformed = pendingUsers.map((user) => ({
@@ -88,6 +103,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: transformed,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch pending users';

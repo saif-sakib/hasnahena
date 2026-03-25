@@ -12,23 +12,18 @@ interface AuditLogInput {
 }
 
 export async function createAuditLog(input: AuditLogInput) {
-  try {
-    await prisma.auditLog.create({
-      data: {
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        userId: input.userId,
-        oldValue: input.oldValue ?? undefined,
-        newValue: input.newValue ?? undefined,
-        userIp: input.userIp,
-        userAgent: input.userAgent,
-      },
-    });
-  } catch (error) {
-    console.error('[AuditLog] Failed to create audit log:', error);
-    // Don't throw - audit logging should not break the main flow
-  }
+  await prisma.auditLog.create({
+    data: {
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      userId: input.userId,
+      oldValue: input.oldValue ?? undefined,
+      newValue: input.newValue ?? undefined,
+      userIp: input.userIp,
+      userAgent: input.userAgent,
+    },
+  });
 }
 
 // Common action types

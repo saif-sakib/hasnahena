@@ -18,6 +18,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('limit') || '100', 10) || 100));
+    const skip = (page - 1) * limit;
+
     const loans = await prisma.loan.findMany({
       where: {
         status: {
@@ -45,8 +50,19 @@ export async function GET(req: NextRequest) {
           select: { savingsBalance: true },
         },
       },
-      take: 300,
+      skip,
+      take: limit,
     });
+
+    const approverIds = [...new Set(loans.map((loan) => loan.approvedBy).filter((v): v is string => Boolean(v)))];
+    const approvers =
+      approverIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: approverIds } },
+            select: { id: true, nameEn: true, nameBn: true },
+          })
+        : [];
+    const approverMap = new Map(approvers.map((user) => [user.id, user.nameBn ?? user.nameEn]));
 
     const data = loans.map((loan) => ({
       id: loan.id,
@@ -60,6 +76,7 @@ export async function GET(req: NextRequest) {
       monthlyInstallment: toNumber(loan.installmentAmount) ?? 0,
       purpose: loan.purpose ?? '',
       approvedDate: loan.approvedAt?.toISOString() ?? null,
+      approvedBy: loan.approvedBy ? (approverMap.get(loan.approvedBy) ?? loan.approvedBy) : null,
       disbursedDate: loan.disbursementDate?.toISOString() ?? null,
       dueDate: loan.expectedEndDate?.toISOString() ?? null,
       member: {
@@ -88,4 +105,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Failed to fetch loans', ...(isDev && { details: message }) }, { status: 500 });
   }
 }
-

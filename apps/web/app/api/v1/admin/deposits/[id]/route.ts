@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { createAuditLog, AuditActions } from '@/lib/audit';
 
 const bodySchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -34,6 +35,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const { action, reason } = bodySchema.parse(await req.json());
     const txId = params.id;
+    const now = new Date();
+    const actor = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { nameEn: true, nameBn: true },
+    });
+    const actorName = actor?.nameBn ?? actor?.nameEn ?? authUser.id;
 
     const tx = await prisma.transaction.findUnique({
       where: { id: txId },
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         where: { id: tx.id },
         data: {
           status: TransactionStatus.REJECTED,
-          processedAt: new Date(),
+          processedAt: now,
           processedBy: authUser.id,
           description: reason ? `${tx.type} rejected: ${reason}` : `${tx.type} rejected`,
         },
@@ -77,8 +84,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             transactionId: tx.id,
             action,
             reason: reason ?? null,
+            handledBy: actorName,
+            handledAt: now.toISOString(),
           },
         },
+      });
+
+      await createAuditLog({
+        action: AuditActions.TRANSACTION_REJECTED,
+        entityType: 'Transaction',
+        entityId: tx.id,
+        userId: authUser.id,
+        oldValue: { status: tx.status, type: tx.type },
+        newValue: {
+          status: TransactionStatus.REJECTED,
+          reason: reason ?? null,
+          actorName,
+          handledAt: now.toISOString(),
+        },
+        userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+        userAgent: req.headers.get('user-agent') || undefined,
       });
 
       return NextResponse.json({ ok: true, data: serializeTransaction(rejected) });
@@ -103,8 +128,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           where: { id: tx.id },
           data: {
             status: TransactionStatus.CONFIRMED,
-            processedAt: new Date(),
-            confirmedAt: new Date(),
+            processedAt: now,
+            confirmedAt: now,
             processedBy: authUser.id,
             savingsAfter: newSavings,
             loanAfter: account.loanBalance,
@@ -123,8 +148,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             transactionId: tx.id,
             action,
             receiptNumber: tx.receiptNumber,
+            handledBy: actorName,
+            handledAt: now.toISOString(),
           },
         },
+      });
+
+      await createAuditLog({
+        action: AuditActions.DEPOSIT_CONFIRMED,
+        entityType: 'Transaction',
+        entityId: tx.id,
+        userId: authUser.id,
+        oldValue: { status: tx.status, type: tx.type },
+        newValue: {
+          status: TransactionStatus.CONFIRMED,
+          reason: reason ?? null,
+          actorName,
+          handledAt: now.toISOString(),
+        },
+        userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+        userAgent: req.headers.get('user-agent') || undefined,
       });
 
       return NextResponse.json({ ok: true, data: serializeTransaction(processed) });
@@ -134,7 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       where: { id: tx.id },
       data: {
         status: TransactionStatus.PROCESSED,
-        processedAt: new Date(),
+        processedAt: now,
         processedBy: authUser.id,
         description: reason ? `Withdrawal processed: ${reason}` : undefined,
       },
@@ -150,8 +193,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           transactionId: tx.id,
           action,
           receiptNumber: tx.receiptNumber,
+          handledBy: actorName,
+          handledAt: now.toISOString(),
         },
       },
+    });
+
+    await createAuditLog({
+      action: AuditActions.WITHDRAWAL_APPROVED,
+      entityType: 'Transaction',
+      entityId: tx.id,
+      userId: authUser.id,
+      oldValue: { status: tx.status, type: tx.type },
+      newValue: {
+        status: TransactionStatus.PROCESSED,
+        reason: reason ?? null,
+        actorName,
+        handledAt: now.toISOString(),
+      },
+      userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+      userAgent: req.headers.get('user-agent') || undefined,
     });
 
     return NextResponse.json({ ok: true, data: serializeTransaction(updated) });

@@ -18,6 +18,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('limit') || '100', 10) || 100));
+    const skip = (page - 1) * limit;
+
     const txs = await prisma.transaction.findMany({
       where: {
         type: { in: [TransactionType.DEPOSIT, TransactionType.WITHDRAWAL] },
@@ -34,8 +39,19 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      take: 300,
+      skip,
+      take: limit,
     });
+
+    const processorIds = [...new Set(txs.map((tx) => tx.processedBy).filter((v): v is string => Boolean(v)))];
+    const processors =
+      processorIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: processorIds } },
+            select: { id: true, nameEn: true, nameBn: true },
+          })
+        : [];
+    const processorMap = new Map(processors.map((user) => [user.id, user.nameBn ?? user.nameEn]));
 
     const data = txs.map((tx) => ({
       id: tx.id,
@@ -44,7 +60,7 @@ export async function GET(req: NextRequest) {
       status: tx.status,
       receiptNumber: tx.receiptNumber ?? tx.id,
       notes: tx.description,
-      processedBy: tx.processedBy,
+      processedBy: tx.processedBy ? (processorMap.get(tx.processedBy) ?? tx.processedBy) : null,
       processedDate: tx.processedAt?.toISOString() ?? tx.createdAt.toISOString(),
       confirmedDate: tx.confirmedAt?.toISOString() ?? null,
       balanceAfter: toNumber(tx.savingsAfter ?? tx.loanAfter) ?? null,
@@ -66,4 +82,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Failed to fetch deposits', ...(isDev && { details: message }) }, { status: 500 });
   }
 }
-

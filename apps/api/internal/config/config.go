@@ -7,14 +7,20 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	Port        string
-	DatabaseURL string
-	JWTSecret   string
-	JWTExpiry   int64
-	CORSOrigins []string
+	Port                string
+	DatabaseURL         string
+	JWTSecret           string
+	JWTExpiry           int64
+	CORSOrigins         []string
+	DBMaxConns          int32
+	DBMinConns          int32
+	DBMaxConnIdleTime   time.Duration
+	DBMaxConnLifetime   time.Duration
+	DBHealthCheckPeriod time.Duration
 }
 
 func Load() Config {
@@ -22,11 +28,16 @@ func Load() Config {
 	loadEnvironment()
 
 	return Config{
-		Port:        getEnv("API_PORT", getEnv("PORT", "8080")),
-		DatabaseURL: getEnv("DATABASE_URL", ""),
-		JWTSecret:   getEnv("JWT_SECRET", "change-this-in-production"),
-		JWTExpiry:   getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
-		CORSOrigins: parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		Port:                getEnv("API_PORT", getEnv("PORT", "8080")),
+		DatabaseURL:         getEnv("DATABASE_URL", ""),
+		JWTSecret:           getEnv("JWT_SECRET", "change-this-in-production"),
+		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
+		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
+		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
+		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
+		DBMaxConnLifetime:   getEnvDuration("DB_MAX_CONN_LIFETIME", 30*time.Minute),
+		DBHealthCheckPeriod: getEnvDuration("DB_HEALTH_CHECK_PERIOD", 1*time.Minute),
 	}
 }
 
@@ -130,6 +141,30 @@ func getEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
 	if err != nil {
 		return fallback
 	}

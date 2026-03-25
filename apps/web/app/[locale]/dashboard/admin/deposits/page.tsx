@@ -50,6 +50,7 @@ interface Deposit {
   receiptNumber: string;
   notes?: string | null;
   processedBy?: string | null;
+  processedDateTime?: string | null;
   processedDate: string;
   confirmedDate?: string | null;
   balanceAfter?: number | null;
@@ -383,7 +384,7 @@ export default function AdminDepositsPage() {
                         </p>
                         <p className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {new Date(deposit.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                          {new Date(deposit.processedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}
                         </p>
                       </div>
                     </div>
@@ -474,7 +475,7 @@ export default function AdminDepositsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{locale === 'bn' ? 'প্রসেসের তারিখ' : 'Processed Date'}</span>
                 <span className="font-medium">
-                  {new Date(selectedDeposit.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                  {new Date(selectedDeposit.processedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}
                 </span>
               </div>
               {selectedDeposit.notes && (

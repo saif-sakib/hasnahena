@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LoanStatus, TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { createAuditLog, AuditActions } from '@/lib/audit';
 
 const bodySchema = z.object({
   action: z.enum(['approve', 'reject']),
@@ -40,6 +41,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const { action, reason } = bodySchema.parse(await req.json());
     const loanId = params.id;
+    const actor = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { nameEn: true, nameBn: true },
+    });
+    const actorName = actor?.nameBn ?? actor?.nameEn ?? authUser.id;
 
     const loan = await prisma.loan.findUnique({
       where: { id: loanId },
@@ -79,8 +85,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             loanNumber: loan.loanNumber,
             action,
             reason: reason ?? null,
+            handledBy: actorName,
+            handledAt: new Date().toISOString(),
           },
         },
+      });
+
+      await createAuditLog({
+        action: AuditActions.LOAN_REJECTED,
+        entityType: 'Loan',
+        entityId: loan.id,
+        userId: authUser.id,
+        oldValue: { status: loan.status },
+        newValue: {
+          status: LoanStatus.REJECTED,
+          reason: reason ?? null,
+          actorName,
+          handledAt: new Date().toISOString(),
+        },
+        userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+        userAgent: req.headers.get('user-agent') || undefined,
       });
 
       return NextResponse.json({ ok: true, data: serializeLoan(updated) });
@@ -143,8 +167,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           loanId: loan.id,
           loanNumber: loan.loanNumber,
           action,
+          handledBy: actorName,
+          handledAt: now.toISOString(),
         },
       },
+    });
+
+    await createAuditLog({
+      action: AuditActions.LOAN_APPROVED,
+      entityType: 'Loan',
+      entityId: loan.id,
+      userId: authUser.id,
+      oldValue: { status: loan.status },
+      newValue: {
+        status: LoanStatus.ACTIVE,
+        reason: reason ?? null,
+        actorName,
+        handledAt: now.toISOString(),
+      },
+      userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+      userAgent: req.headers.get('user-agent') || undefined,
     });
 
     return NextResponse.json({ ok: true, data: serializeLoan(updated) });

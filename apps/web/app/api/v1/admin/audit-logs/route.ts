@@ -32,6 +32,17 @@ export async function GET(req: Request) {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        select: {
+          id: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          oldValue: true,
+          newValue: true,
+          userIp: true,
+          createdAt: true,
+          userId: true,
+        },
       }),
       prisma.auditLog.count({ where }),
     ]);
@@ -55,6 +66,7 @@ export async function GET(req: Request) {
       newValue: log.newValue,
       userIp: log.userIp,
       createdAt: log.createdAt.toISOString(),
+      actorName: userMap.get(log.userId)?.nameBn || userMap.get(log.userId)?.nameEn || log.userId,
     }));
 
     return NextResponse.json({
