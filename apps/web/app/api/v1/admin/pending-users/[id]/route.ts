@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { createAuditLog, AuditActions } from '@/lib/audit';
 import { UserStatus } from '@prisma/client';
 
 // POST - Approve or reject a user registration
@@ -33,7 +34,7 @@ export async function POST(
     // Get the user to approve/reject
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, status: true, nameEn: true, phone: true },
+      select: { id: true, status: true, nameEn: true, phone: true, email: true },
     });
 
     if (!user) {
@@ -67,6 +68,18 @@ export async function POST(
         phone: true,
         status: true,
       },
+    });
+
+    // Create audit log
+    await createAuditLog({
+      action: action === 'approve' ? AuditActions.USER_APPROVED : AuditActions.USER_REJECTED,
+      entityType: 'User',
+      entityId: userId,
+      userId: authUser.id,
+      oldValue: { status: user.status, name: user.nameEn },
+      newValue: { status: newStatus, reason: reason || null },
+      userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
+      userAgent: req.headers.get('user-agent') || undefined,
     });
 
     // Create notification for the user about the decision
