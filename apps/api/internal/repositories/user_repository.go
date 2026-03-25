@@ -828,14 +828,57 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 	}
 
 	const activityQuery = `
-		SELECT
-			COALESCE(t.type::text, 'ACTIVITY'),
-			COALESCE(u."nameEn", ''),
-			t."createdAt"
-		FROM transactions t
-		LEFT JOIN users u ON u.id = t."userId"
-		ORDER BY t."createdAt" DESC
-		LIMIT 8
+		SELECT action, subject_user, actor_name, event_time, entity_type
+		FROM (
+			SELECT
+				'USER_APPROVED'::text as action,
+				COALESCE(target_user."nameEn", '') as subject_user,
+				COALESCE(actor_user."nameEn", actor_user."nameBn", 'System') as actor_name,
+				u."approvedAt" as event_time,
+				'USER'::text as entity_type
+			FROM users u
+			LEFT JOIN users actor_user ON actor_user.id = u."approvedBy"
+			LEFT JOIN users target_user ON target_user.id = u.id
+			WHERE u."approvedAt" IS NOT NULL
+
+			UNION ALL
+
+			SELECT
+				CASE
+					WHEN l.status = 'REJECTED' THEN 'LOAN_REJECTED'
+					ELSE 'LOAN_APPROVED'
+				END as action,
+				COALESCE(borrower."nameEn", borrower."nameBn", '') as subject_user,
+				COALESCE(actor_user."nameEn", actor_user."nameBn", 'System') as actor_name,
+				COALESCE(l."approvedAt", l."updatedAt") as event_time,
+				'LOAN'::text as entity_type
+			FROM loans l
+			JOIN users borrower ON borrower.id = l."borrowerId"
+			LEFT JOIN users actor_user ON actor_user.id = l."approvedBy"
+			WHERE l."approvedBy" IS NOT NULL
+
+			UNION ALL
+
+			SELECT
+				CASE
+					WHEN t.status = 'REJECTED' THEN 'TRANSACTION_REJECTED'
+					WHEN t.type = 'DEPOSIT' AND t.status = 'CONFIRMED' THEN 'DEPOSIT_CONFIRMED'
+					WHEN t.type = 'WITHDRAWAL' AND t.status = 'PROCESSED' THEN 'WITHDRAWAL_PROCESSED'
+					ELSE t.type::text
+				END as action,
+				COALESCE(member_user."nameEn", member_user."nameBn", '') as subject_user,
+				COALESCE(actor_user."nameEn", actor_user."nameBn", t."processedBy", 'System') as actor_name,
+				COALESCE(t."processedAt", t."createdAt") as event_time,
+				'TRANSACTION'::text as entity_type
+			FROM transactions t
+			JOIN users member_user ON member_user.id = t."userId"
+			LEFT JOIN users actor_user ON actor_user.id = t."processedBy"
+			WHERE t.type IN ('DEPOSIT', 'WITHDRAWAL', 'LOAN_DISBURSEMENT')
+			  AND t.status IN ('PROCESSED', 'CONFIRMED', 'REJECTED')
+			  AND t."processedBy" IS NOT NULL
+		) activity
+		ORDER BY event_time DESC
+		LIMIT 12
 	`
 	rows, err := r.db.Query(ctx, activityQuery)
 	if err != nil {
@@ -846,16 +889,18 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 	recentActivity := make([]map[string]interface{}, 0)
 	var idx int64 = 1
 	for rows.Next() {
-		var action, user string
+		var action, user, actorName, entityType string
 		var createdAt time.Time
-		if scanErr := rows.Scan(&action, &user, &createdAt); scanErr != nil {
+		if scanErr := rows.Scan(&action, &user, &actorName, &createdAt, &entityType); scanErr != nil {
 			continue
 		}
 		recentActivity = append(recentActivity, map[string]interface{}{
-			"id":     idx,
-			"action": action,
-			"user":   user,
-			"time":   createdAt.Format(time.RFC3339),
+			"id":         idx,
+			"action":     action,
+			"user":       user,
+			"actorName":  actorName,
+			"entityType": entityType,
+			"time":       createdAt.Format(time.RFC3339),
 		})
 		idx++
 	}
@@ -1265,16 +1310,16 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			continue
 		}
 		deposits = append(deposits, map[string]interface{}{
-			"id":            id,
-			"type":          txType,
-			"amount":        amount,
-			"receipt":       receipt,
-			"description":   description,
-			"date":          createdAt.Format(time.RFC3339),
-			"memberName":    memberName,
-			"memberNameBn":  memberNameBn,
-			"memberId":      memberId,
-			"processedBy":   processorName,
+			"id":           id,
+			"type":         txType,
+			"amount":       amount,
+			"receipt":      receipt,
+			"description":  description,
+			"date":         createdAt.Format(time.RFC3339),
+			"memberName":   memberName,
+			"memberNameBn": memberNameBn,
+			"memberId":     memberId,
+			"processedBy":  processorName,
 		})
 	}
 
@@ -1375,20 +1420,20 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		}
 
 		loan := map[string]interface{}{
-			"id":               id,
-			"loanNumber":       loanNumber,
-			"principalAmount":  principalAmount,
-			"remainingAmount":  remainingAmount,
+			"id":                id,
+			"loanNumber":        loanNumber,
+			"principalAmount":   principalAmount,
+			"remainingAmount":   remainingAmount,
 			"totalInstallments": totalInstallments,
-			"paidInstallments": paidInstallments,
-			"purpose":          purpose,
-			"status":           status,
-			"borrowerName":     borrowerName,
-			"borrowerNameBn":   borrowerNameBn,
-			"borrowerMemberId": borrowerMemberId,
-			"guarantorName":    guarantorName,
+			"paidInstallments":  paidInstallments,
+			"purpose":           purpose,
+			"status":            status,
+			"borrowerName":      borrowerName,
+			"borrowerNameBn":    borrowerNameBn,
+			"borrowerMemberId":  borrowerMemberId,
+			"guarantorName":     guarantorName,
 			"guarantorMemberId": guarantorMemberId,
-			"createdAt":        createdAt.Format(time.RFC3339),
+			"createdAt":         createdAt.Format(time.RFC3339),
 		}
 
 		if !disbursementDate.IsZero() {
@@ -1435,13 +1480,13 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 	}
 
 	return map[string]interface{}{
-		"totalDisbursed":  totalDisbursed,
-		"totalRecovered":  totalRecovered,
-		"recoveryRate":    recoveryRate,
-		"activeLoans":     activeLoans,
-		"defaultedLoans":  defaultedLoans,
-		"pendingLoans":    pendingLoans,
-		"completedLoans":  completedLoans,
+		"totalDisbursed": totalDisbursed,
+		"totalRecovered": totalRecovered,
+		"recoveryRate":   recoveryRate,
+		"activeLoans":    activeLoans,
+		"defaultedLoans": defaultedLoans,
+		"pendingLoans":   pendingLoans,
+		"completedLoans": completedLoans,
 	}, nil
 }
 
@@ -1755,14 +1800,14 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 			continue
 		}
 		donations = append(donations, map[string]interface{}{
-			"id":           id,
-			"amount":       amount,
-			"receipt":      receipt,
-			"description":  description,
-			"date":         createdAt.Format(time.RFC3339),
-			"donorName":    donorName,
-			"donorNameBn":  donorNameBn,
-			"donorId":      donorId,
+			"id":          id,
+			"amount":      amount,
+			"receipt":     receipt,
+			"description": description,
+			"date":        createdAt.Format(time.RFC3339),
+			"donorName":   donorName,
+			"donorNameBn": donorNameBn,
+			"donorId":     donorId,
 		})
 	}
 
@@ -1878,15 +1923,15 @@ func (r *UserRepository) GetLoanPerformanceReport(ctx context.Context) (map[stri
 	loanStats, _ := r.GetLoanStats(ctx)
 
 	return map[string]interface{}{
-		"totalLoans":      totalLoans,
-		"avgLoanAmount":   avgLoanAmount,
-		"defaultedCount":  defaultedCount,
-		"completedCount":  completedCount,
-		"activeCount":     activeCount,
-		"defaultRate":     defaultRate,
-		"recoveryRate":    loanStats["recoveryRate"],
-		"totalDisbursed":  loanStats["totalDisbursed"],
-		"totalRecovered":  loanStats["totalRecovered"],
+		"totalLoans":     totalLoans,
+		"avgLoanAmount":  avgLoanAmount,
+		"defaultedCount": defaultedCount,
+		"completedCount": completedCount,
+		"activeCount":    activeCount,
+		"defaultRate":    defaultRate,
+		"recoveryRate":   loanStats["recoveryRate"],
+		"totalDisbursed": loanStats["totalDisbursed"],
+		"totalRecovered": loanStats["totalRecovered"],
 	}, nil
 }
 

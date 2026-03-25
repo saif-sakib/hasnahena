@@ -30,14 +30,23 @@ export default function AdminDashboard() {
     }).format(amount);
   };
 
-  const [recentActivity, setRecentActivity] = useState<Array<{ id: number; action: string; user: string; time: string }>>([]);
+  const [recentActivity, setRecentActivity] = useState<
+    Array<{ id: number; action: string; user: string; actorName?: string; entityType?: string; time: string }>
+  >([]);
 
   useEffect(() => {
     const loadAdminDashboard = async () => {
       try {
         const data = await apiGet<{
           stats: typeof stats;
-          recentActivity: Array<{ id: number; action: string; user: string; time: string }>;
+          recentActivity: Array<{
+            id: number;
+            action: string;
+            user: string;
+            actorName?: string;
+            entityType?: string;
+            time: string;
+          }>;
         }>('/v1/dashboard/admin');
         setStats(data.stats);
         setRecentActivity(data.recentActivity || []);
@@ -214,7 +223,10 @@ export default function AdminDashboard() {
                 >
                   <div>
                     <p className="font-medium">{activity.action}</p>
-                    <p className="text-sm text-muted-foreground">{activity.user}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {activity.user}
+                      {activity.actorName ? ` • ${locale === 'bn' ? 'কর্মী' : 'Staff'}: ${activity.actorName}` : ''}
+                    </p>
                   </div>
                   <span className="text-xs text-muted-foreground">{new Date(activity.time).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}</span>
                 </div>

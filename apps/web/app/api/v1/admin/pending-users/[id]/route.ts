@@ -23,6 +23,12 @@ export async function POST(
     const userId = params.id;
     const body = await req.json();
     const { action, reason } = body as { action: 'approve' | 'reject'; reason?: string };
+    const actionTime = new Date();
+    const actor = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { nameEn: true, nameBn: true },
+    });
+    const actorName = actor?.nameBn ?? actor?.nameEn ?? authUser.id;
 
     if (!action || !['approve', 'reject'].includes(action)) {
       return NextResponse.json(
@@ -58,7 +64,7 @@ export async function POST(
       where: { id: userId },
       data: {
         status: newStatus,
-        approvedAt: action === 'approve' ? new Date() : null,
+        approvedAt: action === 'approve' ? actionTime : null,
         approvedBy: action === 'approve' ? authUser.id : null,
       },
       select: {
@@ -77,7 +83,12 @@ export async function POST(
       entityId: userId,
       userId: authUser.id,
       oldValue: { status: user.status, name: user.nameEn },
-      newValue: { status: newStatus, reason: reason || null },
+      newValue: {
+        status: newStatus,
+        reason: reason || null,
+        actorName,
+        actionTime: actionTime.toISOString(),
+      },
       userIp: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || undefined,
       userAgent: req.headers.get('user-agent') || undefined,
     });
@@ -101,6 +112,8 @@ export async function POST(
           action,
           reason: reason || null,
           approvedBy: authUser.id,
+          approvedByName: actorName,
+          actionTime: actionTime.toISOString(),
         },
       },
     });

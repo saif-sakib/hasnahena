@@ -62,6 +62,7 @@ interface Loan {
   approvedDate?: string | null;
   disbursedDate?: string | null;
   dueDate?: string | null;
+  approvedBy?: string | null;
   member: {
     id: string;
     memberId?: string | null;
@@ -386,6 +387,15 @@ export default function AdminLoansPage() {
                               {new Date(loan.disbursedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
                             </p>
                           )}
+                          {(loan.approvedBy || loan.approvedDate) && (
+                            <p>
+                              {locale === 'bn' ? 'অনুমোদন:' : 'Approved:'}{' '}
+                              <span className="font-medium">{loan.approvedBy ?? '-'}</span>
+                              {loan.approvedDate
+                                ? ` • ${new Date(loan.approvedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}`
+                                : ''}
+                            </p>
+                          )}
                         </div>
 
                         {(loan.status === 'ACTIVE' || loan.status === 'DEFAULTED') && (
@@ -491,6 +501,18 @@ export default function AdminLoansPage() {
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'সদস্যের জমা' : 'Member Deposit'}</span>
                   <p className="font-medium">{formatCurrency(selectedLoan.memberDeposit)}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'অনুমোদনকারী' : 'Approved By'}</span>
+                  <p className="font-medium">{selectedLoan.approvedBy ?? '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'অনুমোদনের সময়' : 'Approved At'}</span>
+                  <p className="font-medium">
+                    {selectedLoan.approvedDate
+                      ? new Date(selectedLoan.approvedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')
+                      : '-'}
+                  </p>
                 </div>
               </div>
             </div>
