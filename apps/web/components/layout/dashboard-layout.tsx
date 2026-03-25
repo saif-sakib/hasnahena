@@ -156,6 +156,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(() => getCachedUserInfo());
   const notificationRef = useRef<HTMLDivElement | null>(null);
   const hasFetchedRef = useRef(false);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
 
   const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -259,6 +260,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [showNotifications]);
+
+  useEffect(() => {
+    if (pendingHref && pathname === pendingHref) {
+      setPendingHref(null);
+    }
+  }, [pathname, pendingHref]);
 
   const markNotificationAsRead = async (id: string) => {
     setNotifications((prev) =>
@@ -403,10 +410,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         ? 'bg-white text-emerald-800 shadow-lg'
                         : 'text-emerald-100 hover:bg-white/10 hover:text-white'
                     }`}
-                    onClick={() => setSidebarOpen(false)}
+                    onClick={() => {
+                      setPendingHref(href);
+                      setSidebarOpen(false);
+                    }}
                   >
                     <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
                     {locale === 'bn' ? item.bn : item.en}
+                    {pendingHref === href ? <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
                   </Link>
                 );
               })}

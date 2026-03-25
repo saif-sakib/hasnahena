@@ -35,8 +35,6 @@ const registerSchema = z.object({
   childrenCount: z.number().min(0).optional(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
   dateOfBirth: z.string().optional(),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
   
   // Permanent Address
   permanentHouseNo: z.string().min(1, 'House number is required'),
@@ -65,9 +63,6 @@ const registerSchema = z.object({
   agreeToTerms: z.literal(true, {
     errorMap: () => ({ message: 'You must agree to the terms' }),
   }),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
 });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
@@ -100,7 +95,7 @@ export default function RegisterPage() {
   // Fields to validate per step
   const stepFields: (keyof RegisterFormData)[][] = [
     // Step 0: Personal Info
-    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'maritalStatus', 'password', 'confirmPassword'],
+    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'maritalStatus'],
     // Step 1: Address
     ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict'],
     // Step 2: Nominee
@@ -129,8 +124,6 @@ export default function RegisterPage() {
           childrenCount: data.childrenCount,
           gender: data.gender,
           dateOfBirth: data.dateOfBirth,
-          password: data.password,
-
           // Permanent Address
           permanentHouseNo: data.permanentHouseNo,
           permanentRoadNo: data.permanentRoadNo,
@@ -483,34 +476,10 @@ export default function RegisterPage() {
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="password">
-                          {locale === 'bn' ? 'পাসওয়ার্ড *' : 'Password *'}
-                        </Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          {...register('password')}
-                        />
-                        {errors.password && (
-                          <p className="text-sm text-destructive">{errors.password.message}</p>
-                        )}
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="confirmPassword">
-                          {locale === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন *' : 'Confirm Password *'}
-                        </Label>
-                        <Input
-                          id="confirmPassword"
-                          type="password"
-                          {...register('confirmPassword')}
-                        />
-                        {errors.confirmPassword && (
-                          <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
-                        )}
-                      </div>
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                      {locale === 'bn'
+                        ? 'অনুমোদনের পরে আপনাকে ইমেইলে অস্থায়ী পাসওয়ার্ড পাঠানো হবে। প্রথম লগইনের পর পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।'
+                        : 'After approval, a temporary password will be sent to your email. You must change it after first login.'}
                     </div>
                   </div>
                 )}

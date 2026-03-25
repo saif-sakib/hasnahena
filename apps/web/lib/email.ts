@@ -7,22 +7,41 @@ const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '587');
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 
-// Get the app URL - prioritize production URLs
+function normalizeAbsoluteUrl(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) {
+      return null;
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+// Get the app URL - always prefer canonical production domain.
 function getProductionUrl(): string {
-  // Vercel production URL
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+  const explicitCandidates = [
+    process.env.PRODUCTION_APP_URL,
+    process.env.APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ];
+  for (const candidate of explicitCandidates) {
+    const normalized = normalizeAbsoluteUrl(candidate);
+    if (normalized) return normalized;
   }
-  // Custom domain
-  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
-    return process.env.NEXT_PUBLIC_APP_URL;
+
+  if (process.env.VERCEL_ENV === 'production') {
+    const vercelProd = normalizeAbsoluteUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL);
+    if (vercelProd) return vercelProd;
   }
-  // App URL
-  if (process.env.APP_URL && !process.env.APP_URL.includes('localhost')) {
-    return process.env.APP_URL;
-  }
-  // Fallback for production
-  return process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://hasnahenafoundation.com';
+
+  return 'https://hasnahenafoundation.com';
 }
 
 // Create transporter with connection pooling for better performance
@@ -208,6 +227,83 @@ export function generateStaffWelcomeEmail(params: {
     ? `প্রিয় ${params.name},\nআপনাকে ${roleLabel} হিসেবে যুক্ত করা হয়েছে।\nইমেইল: ${params.email}\nফোন: ${params.phone}\nঅস্থায়ী পাসওয়ার্ড: ${params.temporaryPassword}\nলগইন: ${loginUrl}\nপ্রথম লগইনের পর পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।`
     : `Dear ${params.name},\nYou were added as ${roleLabel}.\nEmail: ${params.email}\nPhone: ${params.phone}\nTemporary password: ${params.temporaryPassword}\nLogin: ${loginUrl}\nPassword change is mandatory after first login.`;
 
+  return { subject, html, text };
+}
+
+export function generateMemberApprovalEmail(params: {
+  locale?: string;
+  name: string;
+  temporaryPassword: string;
+}) {
+  const locale = params.locale || 'en';
+  const isBn = locale === 'bn';
+  const appUrl = getAppUrl();
+  const loginUrl = `${appUrl}/${locale}/login`;
+
+  const subject = isBn
+    ? 'আপনার সদস্যপদ অনুমোদিত হয়েছে - হাসনাহেনা ফাউন্ডেশন'
+    : 'Your Membership Has Been Approved - Hasnahena Foundation';
+
+  const html = `
+  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+    <h2>${isBn ? 'অভিনন্দন! আপনার আবেদন অনুমোদিত হয়েছে' : 'Congratulations! Your application has been approved'}</h2>
+    <p>${isBn ? `প্রিয় ${params.name},` : `Dear ${params.name},`}</p>
+    <p>${isBn
+      ? 'আপনার সদস্য অ্যাকাউন্ট সক্রিয় করা হয়েছে। নিচের অস্থায়ী পাসওয়ার্ড দিয়ে লগইন করুন এবং প্রথম লগইনের পরে অবিলম্বে পাসওয়ার্ড পরিবর্তন করুন।'
+      : 'Your member account is now active. Use the temporary password below to log in and change your password immediately after first login.'}</p>
+    <p><strong>${isBn ? 'অস্থায়ী পাসওয়ার্ড' : 'Temporary Password'}:</strong> ${params.temporaryPassword}</p>
+    <p><a href="${loginUrl}" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">
+      ${isBn ? 'লগইন করুন' : 'Login'}
+    </a></p>
+  </div>`;
+
+  const text = isBn
+    ? `প্রিয় ${params.name},\nআপনার সদস্য আবেদন অনুমোদিত হয়েছে।\nঅস্থায়ী পাসওয়ার্ড: ${params.temporaryPassword}\nলগইন: ${loginUrl}\nপ্রথম লগইনের পর পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।`
+    : `Dear ${params.name},\nYour membership application has been approved.\nTemporary password: ${params.temporaryPassword}\nLogin: ${loginUrl}\nPassword change is mandatory after first login.`;
+
+  return { subject, html, text };
+}
+
+export function generatePasswordChangeCodeEmail(code: string, locale: string = 'en') {
+  const isBn = locale === 'bn';
+  const subject = isBn
+    ? 'পাসওয়ার্ড পরিবর্তন যাচাইকরণ কোড'
+    : 'Password Change Verification Code';
+  const html = `
+  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+    <h2>${isBn ? 'পাসওয়ার্ড পরিবর্তন যাচাই' : 'Password Change Verification'}</h2>
+    <p>${isBn ? 'আপনার যাচাইকরণ কোড:' : 'Your verification code is:'}</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#059669;">${code}</p>
+    <p style="font-size:12px;color:#6B7280;">
+      ${isBn ? 'এই কোড ১০ মিনিটের মধ্যে মেয়াদ উত্তীর্ণ হবে।' : 'This code will expire in 10 minutes.'}
+    </p>
+  </div>`;
+  const text = isBn
+    ? `পাসওয়ার্ড পরিবর্তন যাচাইকরণ কোড: ${code}\nএই কোড ১০ মিনিটের মধ্যে মেয়াদ উত্তীর্ণ হবে।`
+    : `Password change verification code: ${code}\nThis code will expire in 10 minutes.`;
+  return { subject, html, text };
+}
+
+export function generatePasswordChangedEmail(locale: string = 'en') {
+  const isBn = locale === 'bn';
+  const subject = isBn
+    ? 'পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে'
+    : 'Password Changed Successfully';
+  const html = `
+  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+    <h2>${isBn ? 'আপনার পাসওয়ার্ড পরিবর্তিত হয়েছে' : 'Your password has been changed'}</h2>
+    <p>${isBn
+      ? 'আপনার অ্যাকাউন্টের পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।'
+      : 'Your account password has been updated successfully.'}</p>
+    <p style="font-size:12px;color:#6B7280;">
+      ${isBn
+        ? 'আপনি যদি এটি না করে থাকেন, অনুগ্রহ করে দ্রুত সাপোর্টের সাথে যোগাযোগ করুন।'
+        : 'If this was not you, please contact support immediately.'}
+    </p>
+  </div>`;
+  const text = isBn
+    ? 'আপনার অ্যাকাউন্টের পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।'
+    : 'Your account password has been changed successfully.';
   return { subject, html, text };
 }
 

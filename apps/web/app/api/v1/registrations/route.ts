@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -19,7 +18,6 @@ const registerSchema = z
     childrenCount: z.number().min(0).optional(),
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     dateOfBirth: z.string().optional(),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
 
     // Permanent Address
     permanentHouseNo: z.string().min(1, 'House number is required'),
@@ -125,13 +123,13 @@ export async function POST(req: Request) {
       district: presentFallback ? permanentAddress.district : payload.presentDistrict!,
     };
 
-    const passwordHash = await bcrypt.hash(payload.password, 10);
+    const provisionalPasswordHash = '__PENDING_APPROVAL_NO_LOGIN__';
 
     const created = await prisma.user.create({
       data: {
         email: normalizeOptionalString(payload.email),
         phone: payload.phone,
-        passwordHash,
+        passwordHash: provisionalPasswordHash,
         role: UserRole.MEMBER,
         status: UserStatus.PENDING,
 
@@ -255,4 +253,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

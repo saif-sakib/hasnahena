@@ -118,7 +118,19 @@ export default function AdminApprovalsPage() {
     try {
       if (kind === 'registration') {
         if (action === 'approve') {
-          await apiPost('/v1/dashboard/admin/approvals/registration', { userId: id });
+          const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+          const response = await fetch('/api/v1/admin/approvals/registration', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ userId: id, locale }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload?.ok) {
+            throw new Error(payload?.error || 'Failed to approve registration');
+          }
         } else {
           await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
         }

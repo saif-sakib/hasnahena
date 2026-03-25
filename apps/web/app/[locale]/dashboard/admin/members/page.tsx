@@ -17,7 +17,6 @@ import {
   Calendar,
   ChevronDown,
   Download,
-  UserPlus,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -208,10 +207,6 @@ export default function AdminMembersPage() {
           <Button variant="outline">
             <Download className="h-4 w-4 mr-2" />
             {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
-          </Button>
-          <Button>
-            <UserPlus className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'সদস্য যোগ' : 'Add Member'}
           </Button>
         </div>
       </div>
