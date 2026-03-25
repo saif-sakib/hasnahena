@@ -11,6 +11,9 @@
     "db:seed": "node prisma/seed.js",
     "postinstall": "prisma generate"
   },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
     "@prisma/client": "5.22.0",
