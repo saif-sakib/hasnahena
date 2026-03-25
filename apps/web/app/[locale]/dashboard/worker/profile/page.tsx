@@ -61,8 +61,11 @@ export default function WorkerProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
 
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [editData, setEditData] = useState<Partial<ProfileData>>({});
@@ -177,6 +180,47 @@ export default function WorkerProfilePage() {
     }
   };
 
+  const requestPasswordChangeCode = async () => {
+    setIsSendingCode(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/v1/auth/password-change/request-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: forcePasswordChange ? undefined : passwordData.currentPassword,
+          locale,
+        }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error || 'Failed to send verification code');
+      }
+      setCodeSent(true);
+      toast({
+        title: locale === 'bn' ? 'কোড পাঠানো হয়েছে' : 'Code sent',
+        description: locale === 'bn'
+          ? 'আপনার ইমেইলে যাচাইকরণ কোড পাঠানো হয়েছে'
+          : 'A verification code has been sent to your email',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to send verification code';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
   const handlePasswordChange = async () => {
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       toast({
@@ -189,15 +233,30 @@ export default function WorkerProfilePage() {
 
     setIsChangingPassword(true);
     try {
-      if (!getToken()) throw new Error('Not authenticated');
-      await apiPut('/v1/dashboard/password', {
-        currentPassword: passwordData.currentPassword,
-        newPassword: passwordData.newPassword,
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+      const response = await fetch('/api/v1/auth/password-change/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          code: verificationCode.trim(),
+          newPassword: passwordData.newPassword,
+          locale,
+        }),
       });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json?.ok) {
+        throw new Error(json?.error || 'Failed to change password');
+      }
 
       setShowPasswordModal(false);
       localStorage.removeItem('hn_force_password_change');
       setForcePasswordChange(false);
+      setCodeSent(false);
+      setVerificationCode('');
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
       toast({
@@ -506,31 +565,46 @@ export default function WorkerProfilePage() {
             <DialogTitle>{locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন' : 'Change Password'}</DialogTitle>
             <DialogDescription>
               {locale === 'bn'
-                ? 'আপনার নতুন পাসওয়ার্ড সেট করুন'
-                : 'Set your new password'}
+                ? 'ইমেইল যাচাইকরণ কোড দিয়ে নিরাপদে নতুন পাসওয়ার্ড সেট করুন'
+                : 'Set your new password securely using an email verification code'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {!forcePasswordChange && (
+              <div className="space-y-2">
+                <Label>{locale === 'bn' ? 'বর্তমান পাসওয়ার্ড' : 'Current Password'}</Label>
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordData.currentPassword}
+                    onChange={(e) =>
+                      setPasswordData({ ...passwordData, currentPassword: e.target.value })
+                    }
+                    placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'বর্তমান পাসওয়ার্ড' : 'Current Password'}</Label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  value={passwordData.currentPassword}
-                  onChange={(e) =>
-                    setPasswordData({ ...passwordData, currentPassword: e.target.value })
-                  }
-                  placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+              <Label>{locale === 'bn' ? 'যাচাইকরণ কোড' : 'Verification Code'}</Label>
+              <Input
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder={locale === 'bn' ? '৬ সংখ্যার কোড লিখুন' : 'Enter 6-digit code'}
+              />
+              <div className="text-xs text-muted-foreground">
+                {locale === 'bn'
+                  ? 'কোড আপনার ইমেইলে পাঠানো হবে'
+                  : 'The code will be sent to your email'}
               </div>
             </div>
             <div className="space-y-2">
@@ -571,7 +645,8 @@ export default function WorkerProfilePage() {
               onClick={handlePasswordChange}
               disabled={
                 isChangingPassword ||
-                !passwordData.currentPassword ||
+                !codeSent ||
+                verificationCode.trim().length !== 6 ||
                 !passwordData.newPassword ||
                 passwordData.newPassword !== passwordData.confirmPassword ||
                 passwordData.newPassword.length < 6
@@ -581,6 +656,17 @@ export default function WorkerProfilePage() {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : null}
               {locale === 'bn' ? 'পরিবর্তন করুন' : 'Change Password'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={requestPasswordChangeCode}
+              disabled={isSendingCode || (!forcePasswordChange && !passwordData.currentPassword)}
+            >
+              {isSendingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+              {codeSent
+                ? (locale === 'bn' ? 'আবার কোড পাঠান' : 'Resend code')
+                : (locale === 'bn' ? 'কোড পাঠান' : 'Send code')}
             </Button>
           </DialogFooter>
         </DialogContent>
