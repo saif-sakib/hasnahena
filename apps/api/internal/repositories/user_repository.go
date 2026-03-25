@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1293,7 +1294,25 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 		args = append(args, "%"+search+"%")
 	}
 
-	query += ` ORDER BY t."createdAt" DESC LIMIT 100`
+	page := 1
+	limit := 100
+	if rawPage, ok := filters["page"].(string); ok && rawPage != "" {
+		if parsed, err := strconv.Atoi(rawPage); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	if rawLimit, ok := filters["limit"].(string); ok && rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			if parsed > 200 {
+				parsed = 200
+			}
+			limit = parsed
+		}
+	}
+	offset := (page - 1) * limit
+
+	query += fmt.Sprintf(` ORDER BY t."createdAt" DESC LIMIT $%d OFFSET $%d`, argCount+1, argCount+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
@@ -1330,6 +1349,10 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 		"deposits": deposits,
 		"total":    len(deposits),
 		"stats":    stats,
+		"pagination": map[string]interface{}{
+			"page":  page,
+			"limit": limit,
+		},
 	}, nil
 }
 
@@ -1398,7 +1421,25 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		args = append(args, "%"+search+"%")
 	}
 
-	query += ` ORDER BY l."createdAt" DESC LIMIT 100`
+	page := 1
+	limit := 100
+	if rawPage, ok := filters["page"].(string); ok && rawPage != "" {
+		if parsed, err := strconv.Atoi(rawPage); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	if rawLimit, ok := filters["limit"].(string); ok && rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			if parsed > 200 {
+				parsed = 200
+			}
+			limit = parsed
+		}
+	}
+	offset := (page - 1) * limit
+
+	query += fmt.Sprintf(` ORDER BY l."createdAt" DESC LIMIT $%d OFFSET $%d`, argCount+1, argCount+2)
+	args = append(args, limit, offset)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
