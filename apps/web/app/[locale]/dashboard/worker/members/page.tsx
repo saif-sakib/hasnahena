@@ -2,18 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
-import Link from 'next/link';
 import {
   Users,
   Search,
   Phone,
-  Mail,
   MapPin,
   Calendar,
   Wallet,
   HandCoins,
   Eye,
-  Plus,
   MoreHorizontal,
   CheckCircle2,
   Clock,
@@ -137,10 +134,7 @@ export default function WorkerMembersPage() {
               : 'Members assigned to your area'}
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          {locale === 'bn' ? 'নতুন সদস্য' : 'New Member'}
-        </Button>
+        <div />
       </div>
 
       {/* Stats */}
@@ -296,16 +290,10 @@ export default function WorkerMembersPage() {
                         {locale === 'bn' ? 'বিস্তারিত দেখুন' : 'View Details'}
                       </DropdownMenuItem>
                       {member.status === 'ACTIVE' && (
-                        <>
-                          <DropdownMenuItem>
-                            <Wallet className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'জমা গ্রহণ' : 'Accept Deposit'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <HandCoins className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}
-                          </DropdownMenuItem>
-                        </>
+                        <DropdownMenuItem>
+                          <HandCoins className="h-4 w-4 mr-2" />
+                          {locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}
+                        </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -386,10 +374,6 @@ export default function WorkerMembersPage() {
 
               {selectedMember.status === 'ACTIVE' && (
                 <div className="flex gap-2 pt-4">
-                  <Button className="flex-1">
-                    <Wallet className="h-4 w-4 mr-2" />
-                    {locale === 'bn' ? 'জমা গ্রহণ' : 'Accept Deposit'}
-                  </Button>
                   <Button variant="outline" className="flex-1">
                     <HandCoins className="h-4 w-4 mr-2" />
                     {locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}

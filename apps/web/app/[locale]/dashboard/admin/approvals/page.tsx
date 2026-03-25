@@ -15,8 +15,37 @@ interface RegistrationRequest {
   id: string;
   name: string;
   nameBn?: string;
+  email?: string;
   phone: string;
   nidNumber?: string;
+  fatherName?: string;
+  motherName?: string;
+  gender?: string;
+  maritalStatus?: string;
+  childrenCount?: number;
+  dateOfBirth?: string;
+  permanentAddress?: {
+    houseNo?: string;
+    roadNo?: string;
+    village?: string;
+    union?: string;
+    policeStation?: string;
+    district?: string;
+  };
+  presentAddress?: {
+    houseNo?: string;
+    roadNo?: string;
+    village?: string;
+    union?: string;
+    policeStation?: string;
+    district?: string;
+  };
+  nominee?: {
+    name?: string;
+    relationship?: string;
+    nidNumber?: string;
+    phone?: string;
+  };
   requestDate: string;
 }
 
@@ -155,7 +184,7 @@ export default function AdminApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">{locale === 'bn' ? 'অনুমোদন' : 'Approvals'}</h1>
           <p className="text-muted-foreground">
@@ -179,7 +208,7 @@ export default function AdminApprovalsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
-        <TabsList>
+        <TabsList className="w-full overflow-x-auto justify-start">
           <TabsTrigger value="registrations">{locale === 'bn' ? 'নিবন্ধন' : 'Registrations'}</TabsTrigger>
           <TabsTrigger value="loans">{locale === 'bn' ? 'ঋণ' : 'Loans'}</TabsTrigger>
           <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</TabsTrigger>
@@ -190,12 +219,41 @@ export default function AdminApprovalsPage() {
             <CardHeader><CardTitle>{locale === 'bn' ? 'নিবন্ধন অনুরোধ' : 'Registration Requests'}</CardTitle><CardDescription>{counts.registrations}</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {isLoading ? <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div> : registrations.map((r) => (
-                <div key={r.id} className="rounded-xl bg-slate-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div key={r.id} className="rounded-xl bg-slate-50 p-4 flex flex-col gap-4">
                   <div>
                     <p className="font-semibold">{r.name} {r.nameBn ? `(${r.nameBn})` : ''}</p>
-                    <p className="text-sm text-muted-foreground">{r.phone} • {r.nidNumber ?? '-'} • {new Date(r.requestDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p>
+                    <p className="text-sm text-muted-foreground break-words">{r.phone} • {r.email || '-'} • {r.nidNumber ?? '-'}</p>
+                    <p className="text-sm text-muted-foreground">{new Date(r.requestDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="grid gap-2 text-sm md:grid-cols-2">
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'পিতার নাম:' : 'Father:'}</span> {r.fatherName || '-'}</p>
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'মাতার নাম:' : 'Mother:'}</span> {r.motherName || '-'}</p>
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'লিঙ্গ:' : 'Gender:'}</span> {r.gender || '-'}</p>
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'বৈবাহিক অবস্থা:' : 'Marital Status:'}</span> {r.maritalStatus || '-'}</p>
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'সন্তান:' : 'Children:'}</span> {r.childrenCount ?? 0}</p>
+                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'জন্ম তারিখ:' : 'DOB:'}</span> {r.dateOfBirth ? new Date(r.dateOfBirth).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB') : '-'}</p>
+                  </div>
+                  <div className="grid gap-2 text-sm md:grid-cols-2">
+                    <div>
+                      <p className="font-medium">{locale === 'bn' ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}</p>
+                      <p className="text-muted-foreground break-words">
+                        {[r.permanentAddress?.houseNo, r.permanentAddress?.roadNo, r.permanentAddress?.village, r.permanentAddress?.union, r.permanentAddress?.policeStation, r.permanentAddress?.district].filter(Boolean).join(', ') || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{locale === 'bn' ? 'বর্তমান ঠিকানা' : 'Present Address'}</p>
+                      <p className="text-muted-foreground break-words">
+                        {[r.presentAddress?.houseNo, r.presentAddress?.roadNo, r.presentAddress?.village, r.presentAddress?.union, r.presentAddress?.policeStation, r.presentAddress?.district].filter(Boolean).join(', ') || '-'}
+                      </p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <p className="font-medium">{locale === 'bn' ? 'নমিনী' : 'Nominee'}</p>
+                      <p className="text-muted-foreground break-words">
+                        {[r.nominee?.name, r.nominee?.relationship, r.nominee?.nidNumber, r.nominee?.phone].filter(Boolean).join(' • ') || '-'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
                     <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
                   </div>

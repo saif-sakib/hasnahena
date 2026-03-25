@@ -1001,11 +1001,34 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 			COALESCE(u.email, ''),
 			u.phone,
 			COALESCE(u."nidNumber", ''),
+			COALESCE(u."fatherName", ''),
+			COALESCE(u."motherName", ''),
+			COALESCE(u.gender::text, ''),
+			COALESCE(u."maritalStatus"::text, ''),
+			COALESCE(u."childrenCount", 0),
+			u."dateOfBirth",
 			COALESCE(a.district, ''),
+			COALESCE(a."houseNo", ''),
+			COALESCE(a."roadNo", ''),
+			COALESCE(a.village, ''),
+			COALESCE(a.union, ''),
+			COALESCE(a."policeStation", ''),
+			COALESCE(pa.district, ''),
+			COALESCE(pa."houseNo", ''),
+			COALESCE(pa."roadNo", ''),
+			COALESCE(pa.village, ''),
+			COALESCE(pa.union, ''),
+			COALESCE(pa."policeStation", ''),
+			COALESCE(n.name, ''),
+			COALESCE(n.relationship, ''),
+			COALESCE(n."nidNumber", ''),
+			COALESCE(n.phone, ''),
 			u."createdAt",
 			ARRAY[]::text[] as documents
 		FROM users u
 		LEFT JOIN addresses a ON a."userPermanentId" = u.id
+		LEFT JOIN addresses pa ON pa.id = u."presentAddressId"
+		LEFT JOIN nominees n ON n."userId" = u.id
 		WHERE u.status = 'PENDING' AND u.role = 'MEMBER'
 		ORDER BY u."createdAt" DESC
 	`
@@ -1014,11 +1037,28 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 		defer regRows.Close()
 		registrations := []map[string]interface{}{}
 		for regRows.Next() {
-			var id, name, nameBn, email, phone, nid, area string
+			var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, area string
+			var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
+			var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
+			var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
+			var childrenCount int
+			var dateOfBirth *time.Time
 			var createdAt time.Time
 			var documents []string
-			if err := regRows.Scan(&id, &name, &nameBn, &email, &phone, &nid, &area, &createdAt, &documents); err != nil {
+			if err := regRows.Scan(
+				&id, &name, &nameBn, &email, &phone, &nid,
+				&fatherName, &motherName, &gender, &maritalStatus, &childrenCount, &dateOfBirth,
+				&area,
+				&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
+				&presentDistrict, &presentHouseNo, &presentRoadNo, &presentVillage, &presentUnion, &presentPoliceStation,
+				&nomineeName, &nomineeRelationship, &nomineeNID, &nomineePhone,
+				&createdAt, &documents,
+			); err != nil {
 				continue
+			}
+			dateOfBirthValue := ""
+			if dateOfBirth != nil {
+				dateOfBirthValue = dateOfBirth.Format(time.RFC3339)
 			}
 			registrations = append(registrations, map[string]interface{}{
 				"id":          id,
@@ -1028,6 +1068,34 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 				"phone":       phone,
 				"nidNumber":   nid,
 				"area":        area,
+				"fatherName":  fatherName,
+				"motherName":  motherName,
+				"gender":      gender,
+				"maritalStatus": maritalStatus,
+				"childrenCount": childrenCount,
+				"dateOfBirth": dateOfBirthValue,
+				"permanentAddress": map[string]interface{}{
+					"houseNo":       permanentHouseNo,
+					"roadNo":        permanentRoadNo,
+					"village":       permanentVillage,
+					"union":         permanentUnion,
+					"policeStation": permanentPoliceStation,
+					"district":      area,
+				},
+				"presentAddress": map[string]interface{}{
+					"houseNo":       presentHouseNo,
+					"roadNo":        presentRoadNo,
+					"village":       presentVillage,
+					"union":         presentUnion,
+					"policeStation": presentPoliceStation,
+					"district":      presentDistrict,
+				},
+				"nominee": map[string]interface{}{
+					"name":         nomineeName,
+					"relationship": nomineeRelationship,
+					"nidNumber":    nomineeNID,
+					"phone":        nomineePhone,
+				},
 				"requestDate": createdAt.Format(time.RFC3339),
 				"documents":   documents,
 			})

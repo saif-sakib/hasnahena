@@ -150,9 +150,11 @@ export default function TransactionsPage() {
 
   // Filter transactions
   const filteredTransactions = transactions.filter((tx) => {
+    const receipt = tx.receiptNumber ?? '';
+    const description = tx.description ?? '';
     const matchesSearch =
-      tx.receiptNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      receipt.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'ALL' || tx.type === filterType;
     return matchesSearch && matchesType;
   });
@@ -380,12 +382,12 @@ export default function TransactionsPage() {
                           {tx.description && ` • ${tx.description}`}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {tx.receiptNumber} • {formatDate(tx.date)} {formatTime(tx.date)}
+                          {(tx.receiptNumber || '-') } • {formatDate(tx.date)} {formatTime(tx.date)}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 ml-14 sm:ml-0">
+                    <div className="flex items-center gap-3 sm:ml-0">
                       {tx.balanceAfter !== undefined && (
                         <div className="text-right hidden sm:block">
                           <p className="text-xs text-muted-foreground">{t('balance')}</p>

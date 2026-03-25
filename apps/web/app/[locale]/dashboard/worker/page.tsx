@@ -2,7 +2,7 @@
 
 import { useTranslations, useLocale } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { Users, Wallet, HandCoins, Clock, ArrowUpRight, ArrowDownRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { Users, HandCoins, Clock, ArrowUpRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
@@ -137,22 +137,18 @@ export default function WorkerDashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        <Button className="h-auto py-4 flex flex-col gap-2">
-          <Wallet className="h-6 w-6" />
-          <span>{locale === 'bn' ? 'জমা গ্রহণ' : 'Accept Deposit'}</span>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+        <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" asChild>
+          <a href={`/${locale}/dashboard/worker/requests`}>
+            <Clock className="h-6 w-6" />
+            <span>{locale === 'bn' ? 'সদস্যের অনুরোধ দেখুন' : 'View Member Requests'}</span>
+          </a>
         </Button>
-        <Button variant="outline" className="h-auto py-4 flex flex-col gap-2">
-          <ArrowDownRight className="h-6 w-6" />
-          <span>{locale === 'bn' ? 'উত্তোলন প্রক্রিয়া' : 'Process Withdrawal'}</span>
-        </Button>
-        <Button variant="outline" className="h-auto py-4 flex flex-col gap-2">
-          <HandCoins className="h-6 w-6" />
-          <span>{locale === 'bn' ? 'ঋণ বিতরণ' : 'Disburse Loan'}</span>
-        </Button>
-        <Button variant="outline" className="h-auto py-4 flex flex-col gap-2">
-          <Users className="h-6 w-6" />
-          <span>{locale === 'bn' ? 'নতুন সদস্য' : 'New Member'}</span>
+        <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" asChild>
+          <a href={`/${locale}/dashboard/worker/members`}>
+            <Users className="h-6 w-6" />
+            <span>{locale === 'bn' ? 'সদস্য তালিকা' : 'Member List'}</span>
+          </a>
         </Button>
       </div>
 
