@@ -3,6 +3,8 @@ import { TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 function toNumber(v: bigint | null | undefined) {
   if (v === null || v === undefined) return null;
   const n = Number(v);
@@ -57,10 +59,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch deposits';
+    console.error('[Admin/Deposits] Error:', message);
     if (message.toLowerCase().includes('authorization') || message.toLowerCase().includes('token')) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to fetch deposits', ...(isDev && { details: message }) }, { status: 500 });
   }
 }
 

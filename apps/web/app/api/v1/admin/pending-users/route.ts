@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // GET - Fetch all pending registration requests
 export async function GET(req: NextRequest) {
   try {
@@ -88,8 +90,8 @@ export async function GET(req: NextRequest) {
       data: transformed,
     });
   } catch (error) {
-    console.error('Fetch pending users error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch pending users';
+    console.error('[Admin/PendingUsers] Error:', message);
     if (message.includes('Authorization') || message.includes('token')) {
       return NextResponse.json(
         { success: false, error: { message: 'Unauthorized' } },
@@ -97,7 +99,7 @@ export async function GET(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { success: false, error: { message } },
+      { success: false, error: { message: 'Failed to fetch pending users', ...(isDev && { details: message }) } },
       { status: 500 }
     );
   }

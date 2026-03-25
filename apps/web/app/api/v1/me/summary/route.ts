@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { LoanStatus } from '@prisma/client';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 export async function GET(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -48,10 +50,11 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     const msg = typeof err?.message === 'string' ? err.message : 'Unauthorized';
+    console.error('[Me/Summary] Error:', msg);
     if (msg.toLowerCase().includes('authorization')) {
-      return NextResponse.json({ ok: false, error: msg }, { status: 401 });
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to fetch summary', ...(isDev && { details: msg }) }, { status: 500 });
   }
 }
 

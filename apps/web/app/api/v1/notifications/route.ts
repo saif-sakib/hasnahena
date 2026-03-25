@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // GET - Fetch notifications for the current user
 export async function GET(req: NextRequest) {
   try {
@@ -48,8 +50,8 @@ export async function GET(req: NextRequest) {
       data: transformed,
     });
   } catch (error) {
-    console.error('Fetch notifications error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch notifications';
+    console.error('[Notifications] GET Error:', message);
     if (message.includes('Authorization') || message.includes('token')) {
       return NextResponse.json(
         { success: false, error: { message: 'Unauthorized' } },
@@ -57,7 +59,7 @@ export async function GET(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { success: false, error: { message } },
+      { success: false, error: { message: 'Failed to fetch notifications', ...(isDev && { details: message }) } },
       { status: 500 }
     );
   }
@@ -111,8 +113,8 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: null });
   } catch (error) {
-    console.error('Mark notification read error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update notification';
+    console.error('[Notifications] PATCH Error:', message);
     if (message.includes('Authorization') || message.includes('token')) {
       return NextResponse.json(
         { success: false, error: { message: 'Unauthorized' } },
@@ -120,7 +122,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { success: false, error: { message } },
+      { success: false, error: { message: 'Failed to update notification', ...(isDev && { details: message }) } },
       { status: 500 }
     );
   }
