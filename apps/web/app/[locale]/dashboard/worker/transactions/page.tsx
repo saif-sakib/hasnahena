@@ -37,6 +37,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { formatCurrency } from '@/lib/utils';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_PAYMENT';
 type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'DISPUTED';
@@ -167,13 +168,6 @@ export default function WorkerTransactionsPage() {
     },
   ];
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDateTime = (dateString: string) => {
     return new Date(dateString).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
@@ -316,7 +310,7 @@ export default function WorkerTransactionsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'জমা সংগ্রহ' : 'Deposits Collected'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(todayDeposits)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(todayDeposits, locale)}</p>
               </div>
               <Wallet className="h-8 w-8 text-green-600" />
             </div>
@@ -327,7 +321,7 @@ export default function WorkerTransactionsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'ঋণ কিস্তি সংগ্রহ' : 'Loan Payments'}</p>
-                <p className="text-2xl font-bold text-amber-600">{formatCurrency(todayPayments)}</p>
+                <p className="text-2xl font-bold text-amber-600">{formatCurrency(todayPayments, locale)}</p>
               </div>
               <Receipt className="h-8 w-8 text-amber-600" />
             </div>
@@ -458,10 +452,10 @@ export default function WorkerTransactionsPage() {
                       }`}
                     >
                       {isIncoming(transaction.type) ? '+' : '-'}
-                      {formatCurrency(transaction.amount)}
+                      {formatCurrency(transaction.amount, locale)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter)}
+                      {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter, locale)}
                     </p>
                   </div>
                   <Button
@@ -516,7 +510,7 @@ export default function WorkerTransactionsPage() {
                   }`}
                 >
                   {isIncoming(selectedTransaction.type) ? '+' : '-'}
-                  {formatCurrency(selectedTransaction.amount)}
+                  {formatCurrency(selectedTransaction.amount, locale)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -535,7 +529,7 @@ export default function WorkerTransactionsPage() {
               )}
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{locale === 'bn' ? 'পরবর্তী ব্যালেন্স' : 'Balance After'}</span>
-                <span className="font-medium">{formatCurrency(selectedTransaction.balanceAfter)}</span>
+                <span className="font-medium">{formatCurrency(selectedTransaction.balanceAfter, locale)}</span>
               </div>
               {selectedTransaction.notes && (
                 <div className="p-3 bg-slate-50 rounded-lg">

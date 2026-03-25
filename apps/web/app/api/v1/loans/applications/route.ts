@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { makeReceipt, serializeLoan } from '@/lib/api-utils';
 import { LoanStatus, UserRole } from '@prisma/client';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -12,25 +13,6 @@ const bodySchema = z.object({
   purpose: z.string().min(3),
   guarantorId: z.string().min(1),
 });
-
-function makeLoanNumber() {
-  const d = new Date();
-  const date = d.toISOString().slice(0, 10).replace(/-/g, '');
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `LN-${date}-${suffix}`;
-}
-
-// Convert BigInt fields to numbers for JSON serialization
-function serializeLoan(loan: any) {
-  return {
-    ...loan,
-    principalAmount: loan.principalAmount ? Number(loan.principalAmount) : null,
-    remainingAmount: loan.remainingAmount ? Number(loan.remainingAmount) : null,
-    installmentAmount: loan.installmentAmount ? Number(loan.installmentAmount) : null,
-    applicationFee: loan.applicationFee ? Number(loan.applicationFee) : null,
-    totalPaid: loan.totalPaid ? Number(loan.totalPaid) : null,
-  };
-}
 
 export async function POST(req: Request) {
   try {
@@ -108,7 +90,7 @@ export async function POST(req: Request) {
 
     const loan = await prisma.loan.create({
       data: {
-        loanNumber: makeLoanNumber(),
+        loanNumber: makeReceipt('LN'),
         principalAmount: amountBig,
         remainingAmount: amountBig,
         totalInstallments: installments,

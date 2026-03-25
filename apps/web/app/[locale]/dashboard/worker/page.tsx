@@ -6,6 +6,7 @@ import { Users, HandCoins, Clock, ArrowUpRight, CheckCircle, AlertCircle } from 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 export default function WorkerDashboard() {
   const t = useTranslations('dashboard');
@@ -39,14 +40,6 @@ export default function WorkerDashboard() {
     };
     loadWorkerDashboard();
   }, []);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const requestLabels: Record<string, { bn: string; en: string; color: string }> = {
     DEPOSIT: { bn: 'জমা', en: 'Deposit', color: 'bg-green-100 text-green-600' },
@@ -110,7 +103,7 @@ export default function WorkerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(stats.todayDeposits)}
+              {formatCurrency(stats.todayDeposits, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'আজ সংগৃহীত' : 'Collected today'}
@@ -127,7 +120,7 @@ export default function WorkerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(stats.todayLoans)}
+              {formatCurrency(stats.todayLoans, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'আজ বিতরণ' : 'Disbursed today'}
@@ -192,7 +185,7 @@ export default function WorkerDashboard() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-medium">{formatCurrency(req.amount)}</span>
+                  <span className="font-medium">{formatCurrency(req.amount, locale)}</span>
                   <div className="flex gap-1">
                     <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-green-600">
                       <CheckCircle className="h-4 w-4" />

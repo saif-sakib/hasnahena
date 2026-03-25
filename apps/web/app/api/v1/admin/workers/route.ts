@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { generateStaffWelcomeEmail, sendEmail } from '@/lib/email';
 
@@ -16,15 +17,13 @@ const createStaffSchema = z.object({
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
 
-function generateTemporaryPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-  const bytes = crypto.randomBytes(12);
-  let out = '';
-  for (let i = 0; i < 12; i++) {
-    out += chars[bytes[i] % chars.length];
-  }
-  return out;
-}
+const updateStaffSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(2),
+  phone: z.string().min(11).max(14),
+  role: z.enum(['WORKER', 'ADMIN']),
+  assignedArea: z.string().optional(),
+});
 
 export async function POST(req: Request) {
   try {
@@ -87,7 +86,7 @@ export async function POST(req: Request) {
 
     await prisma.passwordResetToken.create({
       data: {
-        token: `first-login-${crypto.randomBytes(24).toString('hex')}`,
+        token: `first-login-${randomBytes(24).toString('hex')}`,
         email: created.email,
         phone: created.phone,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
@@ -141,5 +140,74 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('[Admin/CreateStaff] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to create staff account' }, { status: 500 });
+  }
+}
+
+export async function PUT(req: Request) {
+  try {
+    const auth = requireAuth(req);
+    if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+    }
+
+    const parsed = updateStaffSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const { id, name, phone, role, assignedArea } = parsed.data;
+    const normalizedPhone = phone.trim();
+
+    const existingPhone = await prisma.user.findFirst({
+      where: {
+        phone: normalizedPhone,
+        id: { not: id },
+      },
+      select: { id: true },
+    });
+    if (existingPhone) {
+      return NextResponse.json({ ok: false, error: 'Phone already in use' }, { status: 409 });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        nameEn: name.trim(),
+        phone: normalizedPhone,
+        role: role === 'ADMIN' ? UserRole.ADMIN : UserRole.WORKER,
+        assignedBranch: assignedArea?.trim() || null,
+      },
+      select: {
+        id: true,
+        nameEn: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        memberId: true,
+        createdAt: true,
+        assignedBranch: true,
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        id: updated.id,
+        name: updated.nameEn,
+        email: updated.email,
+        phone: updated.phone,
+        role: updated.role,
+        status: updated.status,
+        assignedArea: updated.assignedBranch || '',
+        joinDate: updated.createdAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[Admin/UpdateStaff] Error:', error);
+    return NextResponse.json({ ok: false, error: 'Failed to update staff account' }, { status: 500 });
   }
 }

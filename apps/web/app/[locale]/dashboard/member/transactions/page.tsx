@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT';
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
@@ -78,13 +79,6 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -237,7 +231,7 @@ export default function TransactionsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{t('totalDeposited')}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
                 <ArrowUpRight className="h-5 w-5 text-green-600" />
@@ -253,7 +247,7 @@ export default function TransactionsPage() {
                 <p className="text-sm text-muted-foreground">
                   {locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}
                 </p>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(totalWithdrawals)}</p>
+                <p className="text-2xl font-bold text-red-600">{formatCurrency(totalWithdrawals, locale)}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
                 <ArrowDownRight className="h-5 w-5 text-red-600" />
@@ -269,7 +263,7 @@ export default function TransactionsPage() {
                 <p className="text-sm text-muted-foreground">
                   {locale === 'bn' ? 'কিস্তি পরিশোধ' : 'Loan Repayments'}
                 </p>
-                <p className="text-2xl font-bold text-amber-600">{formatCurrency(totalLoanRepayments)}</p>
+                <p className="text-2xl font-bold text-amber-600">{formatCurrency(totalLoanRepayments, locale)}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
                 <Receipt className="h-5 w-5 text-amber-600" />
@@ -369,7 +363,7 @@ export default function TransactionsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className={`font-semibold ${typeInfo.color}`}>
                             {tx.type === 'DEPOSIT' || tx.type === 'LOAN_DISBURSEMENT' ? '+' : '-'}
-                            {formatCurrency(tx.amount)}
+                            {formatCurrency(tx.amount, locale)}
                           </p>
                           <span
                             className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}
@@ -391,7 +385,7 @@ export default function TransactionsPage() {
                       {tx.balanceAfter !== undefined && (
                         <div className="text-right hidden sm:block">
                           <p className="text-xs text-muted-foreground">{t('balance')}</p>
-                          <p className="font-medium">{formatCurrency(tx.balanceAfter)}</p>
+                          <p className="font-medium">{formatCurrency(tx.balanceAfter, locale)}</p>
                         </div>
                       )}
                       {tx.status === 'PROCESSED' && tx.type === 'WITHDRAWAL' && (
@@ -493,7 +487,7 @@ export default function TransactionsPage() {
                 <p className="text-sm text-muted-foreground">{t('receiptNumber')}</p>
                 <p className="font-medium">{selectedTransaction.receiptNumber}</p>
                 <p className="text-sm text-muted-foreground mt-2">{t('amount')}</p>
-                <p className="font-medium">{formatCurrency(selectedTransaction.amount)}</p>
+                <p className="font-medium">{formatCurrency(selectedTransaction.amount, locale)}</p>
               </div>
               {actionError && (
                 <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

@@ -69,6 +69,7 @@ export default function AdminWorkersPage() {
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Form state for new worker
@@ -78,6 +79,12 @@ export default function AdminWorkersPage() {
     phone: '',
     role: 'WORKER' as 'WORKER' | 'ADMIN',
     assignedArea: '',
+  });
+  const [editWorker, setEditWorker] = useState({
+    name: '',
+    phone: '',
+    assignedArea: '',
+    role: 'WORKER' as 'WORKER' | 'ADMIN',
   });
 
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -196,6 +203,55 @@ export default function AdminWorkersPage() {
     console.log('Deleting worker:', selectedWorker?.id);
     setShowDeleteModal(false);
     setSelectedWorker(null);
+  };
+
+  const handleStartEdit = (worker: Worker) => {
+    setSelectedWorker(worker);
+    setEditWorker({
+      name: worker.name,
+      phone: worker.phone,
+      assignedArea: worker.assignedArea,
+      role: worker.role,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedWorker) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const response = await fetch('/api/v1/admin/workers', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          id: selectedWorker.id,
+          name: editWorker.name,
+          phone: editWorker.phone,
+          role: editWorker.role,
+          assignedArea: editWorker.assignedArea,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        throw new Error(result?.error || 'Failed to update worker');
+      }
+      setWorkers((prev) => prev.map((w) => (w.id === selectedWorker.id ? normalizeWorker(result.data) : w)));
+      setShowEditModal(false);
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn' ? 'কর্মীর তথ্য আপডেট হয়েছে' : 'Worker information updated',
+        variant: 'success',
+      });
+    } catch (error) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: error instanceof Error ? error.message : (locale === 'bn' ? 'আপডেট ব্যর্থ হয়েছে' : 'Update failed'),
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleToggleStatus = (worker: Worker) => {
@@ -378,7 +434,7 @@ export default function AdminWorkersPage() {
                         <Eye className="h-4 w-4 mr-2" />
                         {locale === 'bn' ? 'বিস্তারিত দেখুন' : 'View Details'}
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
                         <Edit className="h-4 w-4 mr-2" />
                         {locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
                       </DropdownMenuItem>
@@ -553,6 +609,66 @@ export default function AdminWorkersPage() {
             </Button>
             <Button onClick={handleAddWorker}>
               {locale === 'bn' ? 'যোগ করুন' : 'Add Worker'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Worker Modal */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{locale === 'bn' ? 'কর্মী সম্পাদনা' : 'Edit Worker'}</DialogTitle>
+            <DialogDescription>
+              {locale === 'bn' ? 'কর্মীর তথ্য আপডেট করুন' : 'Update worker information'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>{locale === 'bn' ? 'নাম' : 'Name'}</Label>
+              <Input
+                value={editWorker.name}
+                onChange={(e) => setEditWorker((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>{locale === 'bn' ? 'ফোন' : 'Phone'}</Label>
+              <Input
+                value={editWorker.phone}
+                onChange={(e) => setEditWorker((prev) => ({ ...prev, phone: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>{locale === 'bn' ? 'নির্ধারিত এলাকা' : 'Assigned Area'}</Label>
+              <Input
+                value={editWorker.assignedArea}
+                onChange={(e) => setEditWorker((prev) => ({ ...prev, assignedArea: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
+              <Select
+                value={editWorker.role}
+                onValueChange={(value: 'WORKER' | 'ADMIN') =>
+                  setEditWorker((prev) => ({ ...prev, role: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</SelectItem>
+                  <SelectItem value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditModal(false)}>
+              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+            </Button>
+            <Button onClick={handleSaveEdit}>
+              {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -37,7 +37,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 type LoanStatus =
   | 'PENDING_GUARANTOR'
@@ -81,7 +82,6 @@ export default function AdminLoansPage() {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isActionLoading, setIsActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [loans, setLoans] = useState<Loan[]>([]);
 
@@ -102,14 +102,6 @@ export default function AdminLoansPage() {
   useEffect(() => {
     void loadLoans();
   }, []);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const getStatusBadge = (status: LoanStatus) => {
     switch (status) {
@@ -182,27 +174,6 @@ export default function AdminLoansPage() {
   const defaultedLoans = loans.filter((l) => l.status === 'DEFAULTED').length;
   const recoveryRate = totalDisbursed > 0 ? ((totalRecovered / totalDisbursed) * 100).toFixed(1) : '0';
 
-  const handleReview = async (loan: Loan, action: 'approve' | 'reject') => {
-    setIsActionLoading(true);
-    setActionError(null);
-    try {
-      if (action === 'approve') {
-        await apiPost('/v1/dashboard/admin/approvals/loan', { loanId: loan.id });
-      } else {
-        await apiPost('/v1/dashboard/admin/approvals/loan/reject', { loanId: loan.id, reason: '' });
-      }
-      await loadLoans();
-      if (selectedLoan?.id === loan.id) {
-        setShowDetailModal(false);
-        setSelectedLoan(null);
-      }
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to review loan');
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -232,7 +203,7 @@ export default function AdminLoansPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট বিতরণ' : 'Total Disbursed'}</p>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalDisbursed)}</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalDisbursed, locale)}</p>
               </div>
               <CreditCard className="h-8 w-8 text-blue-600" />
             </div>
@@ -243,7 +214,7 @@ export default function AdminLoansPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট পুনরুদ্ধার' : 'Total Recovered'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecovered)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecovered, locale)}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-600" />
             </div>
@@ -357,10 +328,10 @@ export default function AdminLoansPage() {
                         <div className="text-sm text-muted-foreground space-y-1">
                           <p>
                             {locale === 'bn' ? 'ঋণ:' : 'Loan:'}{' '}
-                            <span className="font-bold text-blue-600">{formatCurrency(loan.amount)}</span>
+                            <span className="font-bold text-blue-600">{formatCurrency(loan.amount, locale)}</span>
                             {' • '}
                             {locale === 'bn' ? 'মাসিক কিস্তি:' : 'Monthly:'}{' '}
-                            <span className="font-medium">{formatCurrency(loan.monthlyInstallment)}</span>
+                            <span className="font-medium">{formatCurrency(loan.monthlyInstallment, locale)}</span>
                           </p>
                           <p>
                             <Users className="inline h-3 w-3 mr-1" />
@@ -403,24 +374,6 @@ export default function AdminLoansPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {loan.status === 'PENDING_APPROVAL' && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-red-600 border-red-200 hover:bg-red-50"
-                            disabled={isActionLoading}
-                            onClick={() => void handleReview(loan, 'reject')}
-                          >
-                            <XCircle className="h-4 w-4 mr-1" />
-                            {locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}
-                          </Button>
-                          <Button size="sm" disabled={isActionLoading} onClick={() => void handleReview(loan, 'approve')}>
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            {locale === 'bn' ? 'অনুমোদন' : 'Approve'}
-                          </Button>
-                        </>
-                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -472,15 +425,15 @@ export default function AdminLoansPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণের পরিমাণ' : 'Loan Amount'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedLoan.amount)}</p>
+                  <p className="font-medium text-blue-600">{formatCurrency(selectedLoan.amount, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'পরিশোধিত' : 'Paid'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedLoan.paidAmount)}</p>
+                  <p className="font-medium text-green-600">{formatCurrency(selectedLoan.paidAmount, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি' : 'Remaining'}</span>
-                  <p className="font-medium text-amber-600">{formatCurrency(selectedLoan.remainingAmount)}</p>
+                  <p className="font-medium text-amber-600">{formatCurrency(selectedLoan.remainingAmount, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'গ্যারান্টর' : 'Guarantor'}</span>
@@ -488,7 +441,7 @@ export default function AdminLoansPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'সদস্যের জমা' : 'Member Deposit'}</span>
-                  <p className="font-medium">{formatCurrency(selectedLoan.memberDeposit)}</p>
+                  <p className="font-medium">{formatCurrency(selectedLoan.memberDeposit, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'অনুমোদনকারী' : 'Approved By'}</span>

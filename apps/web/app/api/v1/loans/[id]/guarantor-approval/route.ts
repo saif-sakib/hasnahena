@@ -2,23 +2,12 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { serializeLoan } from '@/lib/api-utils';
 import { LoanStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
   accepted: z.boolean(),
 });
-
-// Convert BigInt fields to numbers for JSON serialization
-function serializeLoan(loan: any) {
-  return {
-    ...loan,
-    principalAmount: loan.principalAmount ? Number(loan.principalAmount) : null,
-    remainingAmount: loan.remainingAmount ? Number(loan.remainingAmount) : null,
-    installmentAmount: loan.installmentAmount ? Number(loan.installmentAmount) : null,
-    applicationFee: loan.applicationFee ? Number(loan.applicationFee) : null,
-    totalPaid: loan.totalPaid ? Number(loan.totalPaid) : null,
-  };
-}
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {

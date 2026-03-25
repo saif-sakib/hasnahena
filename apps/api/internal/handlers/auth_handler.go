@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"hasnahena/apps/api/internal/models"
 	"hasnahena/apps/api/internal/services"
@@ -27,6 +28,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.authService.Login(r.Context(), req.Identifier, req.Password)
 	if err != nil {
+		var rateLimited *services.ErrRateLimited
+		if errors.As(err, &rateLimited) {
+			utils.Error(w, http.StatusTooManyRequests, "AUTH_RATE_LIMITED", "Too many failed attempts. Try again in "+strconv.Itoa(rateLimited.RetryAfterSeconds)+" seconds")
+			return
+		}
 		if errors.Is(err, services.ErrInvalidCredentials) {
 			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Incorrect email/phone or password")
 			return

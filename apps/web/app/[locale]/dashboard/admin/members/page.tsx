@@ -5,8 +5,6 @@ import { useLocale } from 'next-intl';
 import {
   Users,
   Search,
-  Filter,
-  MoreHorizontal,
   Eye,
   Ban,
   CheckCircle2,
@@ -15,27 +13,14 @@ import {
   Mail,
   Phone,
   Calendar,
-  ChevronDown,
   Download,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -43,14 +28,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
 interface Member {
   id: string;
+  memberId?: string;
   name: string;
+  nameBn?: string;
   email: string;
   phone: string;
   nidNumber: string;
@@ -59,26 +53,36 @@ interface Member {
   currentDeposit: number;
   activeLoan: number;
   area: string;
+  fatherName?: string;
+  motherName?: string;
+  gender?: string;
+  maritalStatus?: string;
+  dateOfBirth?: string;
+  permanentAddress?: any;
+  presentAddress?: any;
+  nominee?: any;
+  avatarUrl?: string;
 }
+
+const INITIAL_DISPLAY_COUNT = 10;
 
 export default function AdminMembersPage() {
   const locale = useLocale();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showActionModal, setShowActionModal] = useState(false);
-  const [actionType, setActionType] = useState<'approve' | 'reject' | 'suspend' | 'activate' | null>(null);
-  const [actionReason, setActionReason] = useState('');
-
+  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
   const [members, setMembers] = useState<Member[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadMembers = async () => {
+      setIsLoading(true);
       try {
         const data = await apiGet<Array<Member & { role?: string }>>('/v1/dashboard/admin/members');
         setMembers(
-          data.map((member) => {
+          data.map((member): Member => {
             const normalized = member.status.toUpperCase();
             return {
               ...member,
@@ -90,54 +94,31 @@ export default function AdminMembersPage() {
                     ? 'SUSPENDED'
                     : 'REJECTED',
             };
-          })
+          }).sort((a, b) => new Date(b.joinDate).getTime() - new Date(a.joinDate).getTime())
         );
       } catch {
         setMembers([]);
+      } finally {
+        setIsLoading(false);
       }
     };
     loadMembers();
   }, []);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
   const getStatusBadge = (status: MemberStatus) => {
-    switch (status) {
-      case 'ACTIVE':
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'সক্রিয়' : 'Active'}
-          </Badge>
-        );
-      case 'PENDING':
-        return (
-          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
-          </Badge>
-        );
-      case 'SUSPENDED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <Ban className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'স্থগিত' : 'Suspended'}
-          </Badge>
-        );
-      case 'REJECTED':
-        return (
-          <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
-            <XCircle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}
-          </Badge>
-        );
-    }
+    const config = {
+      ACTIVE: { color: 'bg-green-100 text-green-700', icon: CheckCircle2, label: locale === 'bn' ? 'সক্রিয়' : 'Active' },
+      PENDING: { color: 'bg-amber-100 text-amber-700', icon: Clock, label: locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending' },
+      SUSPENDED: { color: 'bg-red-100 text-red-700', icon: Ban, label: locale === 'bn' ? 'স্থগিত' : 'Suspended' },
+      REJECTED: { color: 'bg-gray-100 text-gray-700', icon: XCircle, label: locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected' },
+    };
+    const { color, icon: Icon, label } = config[status];
+    return (
+      <Badge className={`${color} hover:${color}`}>
+        <Icon className="h-3 w-3 mr-1" />
+        {label}
+      </Badge>
+    );
   };
 
   const filteredMembers = members.filter((member) => {
@@ -150,94 +131,40 @@ export default function AdminMembersPage() {
     return matchesSearch && matchesStatus;
   });
 
+  const displayedMembers = filteredMembers.slice(0, displayCount);
+  const hasMore = filteredMembers.length > displayCount;
+
   const statusCounts = {
     all: members.length,
     ACTIVE: members.filter((m) => m.status === 'ACTIVE').length,
     PENDING: members.filter((m) => m.status === 'PENDING').length,
     SUSPENDED: members.filter((m) => m.status === 'SUSPENDED').length,
-    REJECTED: members.filter((m) => m.status === 'REJECTED').length,
   };
 
-  const handleAction = (member: Member, type: 'approve' | 'reject' | 'suspend' | 'activate') => {
-    setSelectedMember(member);
-    setActionType(type);
-    setActionReason('');
-    setShowActionModal(true);
-  };
-
-  const confirmAction = () => {
-    // In a real app, make API call here
-    console.log(`Action: ${actionType} for member: ${selectedMember?.id}, reason: ${actionReason}`);
-    setShowActionModal(false);
-    setSelectedMember(null);
-    setActionType(null);
-    setActionReason('');
-  };
-
-  const getActionTitle = () => {
-    switch (actionType) {
-      case 'approve':
-        return locale === 'bn' ? 'সদস্য অনুমোদন' : 'Approve Member';
-      case 'reject':
-        return locale === 'bn' ? 'আবেদন প্রত্যাখ্যান' : 'Reject Application';
-      case 'suspend':
-        return locale === 'bn' ? 'সদস্যপদ স্থগিত' : 'Suspend Membership';
-      case 'activate':
-        return locale === 'bn' ? 'সদস্যপদ সক্রিয়' : 'Activate Membership';
-      default:
-        return '';
-    }
+  const formatAddress = (addr: any) => {
+    if (!addr) return '-';
+    return [addr.houseNo, addr.roadNo, addr.village, addr.union, addr.policeStation, addr.district]
+      .filter(Boolean).join(', ') || '-';
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">
             {locale === 'bn' ? 'সদস্য ব্যবস্থাপনা' : 'Member Management'}
           </h1>
           <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'সকল সদস্যদের তালিকা দেখুন এবং পরিচালনা করুন'
-              : 'View and manage all members'}
+            {locale === 'bn' ? 'সকল সদস্যদের তালিকা দেখুন' : 'View all members'}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
-          </Button>
-        </div>
+        <Button variant="outline">
+          <Download className="h-4 w-4 mr-2" />
+          {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
+        </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          { key: 'all', label: locale === 'bn' ? 'মোট' : 'Total', color: 'bg-slate-100 text-slate-700' },
-          { key: 'ACTIVE', label: locale === 'bn' ? 'সক্রিয়' : 'Active', color: 'bg-green-100 text-green-700' },
-          { key: 'PENDING', label: locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending', color: 'bg-amber-100 text-amber-700' },
-          { key: 'SUSPENDED', label: locale === 'bn' ? 'স্থগিত' : 'Suspended', color: 'bg-red-100 text-red-700' },
-          { key: 'REJECTED', label: locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected', color: 'bg-gray-100 text-gray-700' },
-        ].map((item) => (
-          <Card
-            key={item.key}
-            className={`cursor-pointer transition-all ${statusFilter === item.key ? 'ring-2 ring-primary' : ''}`}
-            onClick={() => setStatusFilter(item.key)}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{item.label}</span>
-                <Badge className={item.color}>
-                  {statusCounts[item.key as keyof typeof statusCounts]}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Search and Filter */}
+      {/* Search */}
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardContent className="p-4">
           <div className="flex flex-col md:flex-row gap-4">
@@ -250,17 +177,15 @@ export default function AdminMembersPage() {
                 className="pl-10"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-48">
-                <Filter className="h-4 w-4 mr-2" />
+            <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setDisplayCount(INITIAL_DISPLAY_COUNT); }}>
+              <SelectTrigger className="w-full md:w-52">
                 <SelectValue placeholder={locale === 'bn' ? 'স্ট্যাটাস' : 'Status'} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'}</SelectItem>
-                <SelectItem value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</SelectItem>
-                <SelectItem value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</SelectItem>
-                <SelectItem value="SUSPENDED">{locale === 'bn' ? 'স্থগিত' : 'Suspended'}</SelectItem>
-                <SelectItem value="REJECTED">{locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}</SelectItem>
+                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'} ({statusCounts.all})</SelectItem>
+                <SelectItem value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'} ({statusCounts.ACTIVE})</SelectItem>
+                <SelectItem value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'} ({statusCounts.PENDING})</SelectItem>
+                <SelectItem value="SUSPENDED">{locale === 'bn' ? 'স্থগিত' : 'Suspended'} ({statusCounts.SUSPENDED})</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -281,144 +206,122 @@ export default function AdminMembersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {filteredMembers.map((member) => (
-              <div
-                key={member.id}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    {member.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold">{member.name}</span>
-                      {getStatusBadge(member.status)}
+          {isLoading ? (
+            <div className="py-12 text-center text-muted-foreground">
+              {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {displayedMembers.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
+                  onClick={() => { setSelectedMember(member); setShowDetailModal(true); }}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                      {member.name.charAt(0)}
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <div className="flex items-center gap-4">
-                        <span className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" /> {member.email}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {member.phone}
-                        </span>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-semibold">{member.name}</span>
+                        {member.memberId && <Badge variant="outline">{member.memberId}</Badge>}
+                        {getStatusBadge(member.status)}
                       </div>
-                      <div className="flex items-center gap-4">
-                        <span className="flex items-center gap-1">
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Mail className="h-3 w-3" /> {member.email || '-'}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" /> {member.phone}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
                           {locale === 'bn' ? 'যোগদান:' : 'Joined:'} {new Date(member.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                        </span>
-                        <span>{locale === 'bn' ? 'এলাকা:' : 'Area:'} {member.area}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-4">
-                  {member.status === 'ACTIVE' && (
-                    <div className="text-right text-sm">
-                      <div>
-                        <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
-                        <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit)}</span>
+                  <div className="flex items-center gap-4">
+                    {member.status === 'ACTIVE' && (
+                      <div className="text-right text-sm">
+                        <div>
+                          <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
+                          <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit, locale)}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
+                          <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan, locale)}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
-                        <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan)}</span>
-                      </div>
-                    </div>
-                  )}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setShowDetailModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        {locale === 'bn' ? 'বিস্তারিত দেখুন' : 'View Details'}
-                      </DropdownMenuItem>
-                      {member.status === 'PENDING' && (
-                        <>
-                          <DropdownMenuItem
-                            onClick={() => handleAction(member, 'approve')}
-                            className="text-green-600"
-                          >
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'অনুমোদন করুন' : 'Approve'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleAction(member, 'reject')}
-                            className="text-red-600"
-                          >
-                            <XCircle className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'প্রত্যাখ্যান করুন' : 'Reject'}
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {member.status === 'ACTIVE' && (
-                        <DropdownMenuItem
-                          onClick={() => handleAction(member, 'suspend')}
-                          className="text-red-600"
-                        >
-                          <Ban className="h-4 w-4 mr-2" />
-                          {locale === 'bn' ? 'স্থগিত করুন' : 'Suspend'}
-                        </DropdownMenuItem>
-                      )}
-                      {member.status === 'SUSPENDED' && (
-                        <DropdownMenuItem
-                          onClick={() => handleAction(member, 'activate')}
-                          className="text-green-600"
-                        >
-                          <CheckCircle2 className="h-4 w-4 mr-2" />
-                          {locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    )}
+                    <Button variant="ghost" size="sm">
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {filteredMembers.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}</p>
-              </div>
-            )}
-          </div>
+              {filteredMembers.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}</p>
+                </div>
+              )}
+
+              {hasMore && (
+                <div className="text-center pt-4">
+                  <Button variant="outline" onClick={() => setDisplayCount((prev) => prev + 10)}>
+                    <ChevronDown className="h-4 w-4 mr-2" />
+                    {locale === 'bn' ? `আরও ${filteredMembers.length - displayCount} জন দেখুন` : `Show ${filteredMembers.length - displayCount} more`}
+                  </Button>
+                </div>
+              )}
+
+              {displayCount > INITIAL_DISPLAY_COUNT && (
+                <div className="text-center">
+                  <Button variant="ghost" size="sm" onClick={() => setDisplayCount(INITIAL_DISPLAY_COUNT)}>
+                    <ChevronUp className="h-4 w-4 mr-2" />
+                    {locale === 'bn' ? 'কম দেখুন' : 'Show less'}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Member Detail Modal */}
+      {/* Full Member Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'সদস্য বিস্তারিত' : 'Member Details'}</DialogTitle>
           </DialogHeader>
           {selectedMember && (
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Header */}
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-semibold">
+                <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center text-primary text-3xl font-semibold">
                   {selectedMember.name.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold">{selectedMember.name}</h3>
-                  {getStatusBadge(selectedMember.status)}
+                  <h3 className="text-xl font-semibold">{selectedMember.name}</h3>
+                  {selectedMember.nameBn && <p className="text-muted-foreground">{selectedMember.nameBn}</p>}
+                  <div className="flex gap-2 mt-2">
+                    {selectedMember.memberId && <Badge variant="outline">{selectedMember.memberId}</Badge>}
+                    {getStatusBadge(selectedMember.status)}
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              {/* Contact Info */}
+              <div className="grid grid-cols-2 gap-4 text-sm border-t pt-4">
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ইমেইল' : 'Email'}</span>
-                  <p className="font-medium">{selectedMember.email}</p>
+                  <p className="font-medium">{selectedMember.email || '-'}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ফোন' : 'Phone'}</span>
@@ -426,11 +329,7 @@ export default function AdminMembersPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'NID নম্বর' : 'NID Number'}</span>
-                  <p className="font-medium">{selectedMember.nidNumber}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'এলাকা' : 'Area'}</span>
-                  <p className="font-medium">{selectedMember.area}</p>
+                  <p className="font-medium">{selectedMember.nidNumber || '-'}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'যোগদানের তারিখ' : 'Join Date'}</span>
@@ -438,56 +337,91 @@ export default function AdminMembersPage() {
                     {new Date(selectedMember.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
                   </p>
                 </div>
+              </div>
+
+              {/* Personal Info */}
+              <div className="grid grid-cols-2 gap-4 text-sm border-t pt-4">
                 <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'বর্তমান জমা' : 'Current Deposit'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedMember.currentDeposit)}</p>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'পিতার নাম' : "Father's Name"}</span>
+                  <p className="font-medium">{selectedMember.fatherName || '-'}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedMember.activeLoan)}</p>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'মাতার নাম' : "Mother's Name"}</span>
+                  <p className="font-medium">{selectedMember.motherName || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'লিঙ্গ' : 'Gender'}</span>
+                  <p className="font-medium">{selectedMember.gender || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'বৈবাহিক অবস্থা' : 'Marital Status'}</span>
+                  <p className="font-medium">{selectedMember.maritalStatus || '-'}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">{locale === 'bn' ? 'জন্ম তারিখ' : 'Date of Birth'}</span>
+                  <p className="font-medium">
+                    {selectedMember.dateOfBirth
+                      ? new Date(selectedMember.dateOfBirth).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')
+                      : '-'}
+                  </p>
                 </div>
               </div>
+
+              {/* Addresses */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t pt-4">
+                <div>
+                  <span className="text-muted-foreground font-medium">{locale === 'bn' ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}</span>
+                  <p className="mt-1">{formatAddress(selectedMember.permanentAddress)}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground font-medium">{locale === 'bn' ? 'বর্তমান ঠিকানা' : 'Present Address'}</span>
+                  <p className="mt-1">{formatAddress(selectedMember.presentAddress)}</p>
+                </div>
+              </div>
+
+              {/* Nominee */}
+              {selectedMember.nominee && (
+                <div className="text-sm border-t pt-4">
+                  <span className="text-muted-foreground font-medium">{locale === 'bn' ? 'নমিনী' : 'Nominee'}</span>
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                    <div>
+                      <span className="text-muted-foreground">{locale === 'bn' ? 'নাম' : 'Name'}</span>
+                      <p className="font-medium">{selectedMember.nominee.name || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{locale === 'bn' ? 'সম্পর্ক' : 'Relationship'}</span>
+                      <p className="font-medium">{selectedMember.nominee.relationship || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{locale === 'bn' ? 'NID' : 'NID'}</span>
+                      <p className="font-medium">{selectedMember.nominee.nidNumber || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{locale === 'bn' ? 'ফোন' : 'Phone'}</span>
+                      <p className="font-medium">{selectedMember.nominee.phone || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Financial Info */}
+              {selectedMember.status === 'ACTIVE' && (
+                <div className="grid grid-cols-2 gap-4 text-sm border-t pt-4">
+                  <div className="p-4 bg-green-50 rounded-xl">
+                    <span className="text-muted-foreground">{locale === 'bn' ? 'বর্তমান জমা' : 'Current Deposit'}</span>
+                    <p className="text-xl font-bold text-green-600">{formatCurrency(selectedMember.currentDeposit, locale)}</p>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-xl">
+                    <span className="text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</span>
+                    <p className="text-xl font-bold text-blue-600">{formatCurrency(selectedMember.activeLoan, locale)}</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDetailModal(false)}>
               {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Action Confirmation Modal */}
-      <Dialog open={showActionModal} onOpenChange={setShowActionModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{getActionTitle()}</DialogTitle>
-            <DialogDescription>
-              {selectedMember?.name} - {locale === 'bn' ? 'এই কাজটি নিশ্চিত করুন' : 'Confirm this action'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">
-                {locale === 'bn' ? 'কারণ (ঐচ্ছিক)' : 'Reason (optional)'}
-              </label>
-              <Textarea
-                placeholder={locale === 'bn' ? 'কারণ লিখুন...' : 'Enter reason...'}
-                value={actionReason}
-                onChange={(e) => setActionReason(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowActionModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button
-              onClick={confirmAction}
-              variant={actionType === 'reject' || actionType === 'suspend' ? 'destructive' : 'default'}
-            >
-              {locale === 'bn' ? 'নিশ্চিত করুন' : 'Confirm'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -122,7 +122,7 @@ export function extractPublicId(url: string): string | null {
   }
 }
 
-export function isCloudinaryUrl(url: string): boolean {
+function isCloudinaryUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.hostname.includes('res.cloudinary.com');

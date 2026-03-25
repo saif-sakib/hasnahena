@@ -193,7 +193,7 @@ export default function WorkerProfilePage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          currentPassword: forcePasswordChange ? undefined : passwordData.currentPassword,
+          currentPassword: passwordData.currentPassword,
           locale,
         }),
       });
@@ -570,30 +570,32 @@ export default function WorkerProfilePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {!forcePasswordChange && (
-              <div className="space-y-2">
-                <Label>{locale === 'bn' ? 'বর্তমান পাসওয়ার্ড' : 'Current Password'}</Label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={passwordData.currentPassword}
-                    onChange={(e) =>
-                      setPasswordData({ ...passwordData, currentPassword: e.target.value })
+            <div className="space-y-2">
+              <Label>{locale === 'bn' ? 'বর্তমান পাসওয়ার্ড' : 'Current Password'}</Label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  value={passwordData.currentPassword}
+                  onChange={(e) => {
+                    setPasswordData({ ...passwordData, currentPassword: e.target.value });
+                    if (codeSent) {
+                      setCodeSent(false);
+                      setVerificationCode('');
                     }
-                    placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
+                  }}
+                  placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
               </div>
-            )}
+            </div>
             <div className="space-y-2">
               <Label>{locale === 'bn' ? 'যাচাইকরণ কোড' : 'Verification Code'}</Label>
               <Input
@@ -660,9 +662,9 @@ export default function WorkerProfilePage() {
             <Button
               type="button"
               variant="outline"
-              onClick={requestPasswordChangeCode}
-              disabled={isSendingCode || (!forcePasswordChange && !passwordData.currentPassword)}
-            >
+               onClick={requestPasswordChangeCode}
+               disabled={isSendingCode || !passwordData.currentPassword}
+             >
               {isSendingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
               {codeSent
                 ? (locale === 'bn' ? 'আবার কোড পাঠান' : 'Resend code')

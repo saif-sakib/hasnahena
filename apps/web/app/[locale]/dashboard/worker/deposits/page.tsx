@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { formatCurrency } from '@/lib/utils';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL';
 type TransactionStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED';
@@ -108,13 +109,6 @@ export default function WorkerDepositsPage() {
   ];
 
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatTime = (dateString: string) => {
     return new Date(dateString).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
@@ -213,7 +207,7 @@ export default function WorkerDepositsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'আজকের জমা' : "Today's Deposits"}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(todayDeposits)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(todayDeposits, locale)}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-600" />
             </div>
@@ -224,7 +218,7 @@ export default function WorkerDepositsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'আজকের উত্তোলন' : "Today's Withdrawals"}</p>
-                <p className="text-2xl font-bold text-purple-600">{formatCurrency(todayWithdrawals)}</p>
+                <p className="text-2xl font-bold text-purple-600">{formatCurrency(todayWithdrawals, locale)}</p>
               </div>
               <ArrowUpRight className="h-8 w-8 text-purple-600" />
             </div>
@@ -350,10 +344,10 @@ export default function WorkerDepositsPage() {
                       }`}
                     >
                       {transaction.type === 'DEPOSIT' ? '+' : '-'}
-                      {formatCurrency(transaction.amount)}
+                      {formatCurrency(transaction.amount, locale)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter)}
+                      {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter, locale)}
                     </p>
                   </div>
                 </div>

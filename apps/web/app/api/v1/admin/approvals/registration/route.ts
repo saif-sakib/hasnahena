@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { generateMemberApprovalEmail, sendEmail } from '@/lib/email';
 
@@ -12,14 +13,6 @@ const approveSchema = z.object({
   notes: z.string().optional(),
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
-
-function generateTemporaryPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-  const bytes = crypto.randomBytes(12);
-  let out = '';
-  for (let i = 0; i < 12; i++) out += chars[bytes[i] % chars.length];
-  return out;
-}
 
 export async function POST(req: Request) {
   try {
@@ -92,7 +85,7 @@ export async function POST(req: Request) {
 
       await tx.passwordResetToken.create({
         data: {
-          token: `first-login-${crypto.randomBytes(24).toString('hex')}`,
+          token: `first-login-${randomBytes(24).toString('hex')}`,
           email: user.email,
           phone: user.phone,
           expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),

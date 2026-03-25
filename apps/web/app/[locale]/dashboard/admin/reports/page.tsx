@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { formatCurrency } from '@/lib/utils';
 
 type ReportType = 'financial' | 'members' | 'loans' | 'donations';
 type Period = 'month' | 'quarter' | 'year' | 'all';
@@ -94,13 +95,6 @@ export default function AdminReportsPage() {
     sadaqahFund: 75000,
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const monthlyData = [
     { month: locale === 'bn' ? 'জানু' : 'Jan', deposits: 150000, loans: 120000, recovery: 45000 },
@@ -212,24 +206,24 @@ export default function AdminReportsPage() {
                     <div className="flex justify-between text-sm">
                       <span className="font-medium">{data.month}</span>
                       <span className="text-muted-foreground">
-                        {locale === 'bn' ? 'জমা' : 'Deposits'}: {formatCurrency(data.deposits)}
+                        {locale === 'bn' ? 'জমা' : 'Deposits'}: {formatCurrency(data.deposits, locale)}
                       </span>
                     </div>
                     <div className="flex gap-1 h-6">
                       <div
                         className="bg-green-500 rounded-l"
                         style={{ width: `${(data.deposits / 250000) * 100}%` }}
-                        title={`Deposits: ${formatCurrency(data.deposits)}`}
+                        title={`Deposits: ${formatCurrency(data.deposits, locale)}`}
                       />
                       <div
                         className="bg-blue-500"
                         style={{ width: `${(data.loans / 250000) * 100}%` }}
-                        title={`Loans: ${formatCurrency(data.loans)}`}
+                        title={`Loans: ${formatCurrency(data.loans, locale)}`}
                       />
                       <div
                         className="bg-amber-500 rounded-r"
                         style={{ width: `${(data.recovery / 250000) * 100}%` }}
-                        title={`Recovery: ${formatCurrency(data.recovery)}`}
+                        title={`Recovery: ${formatCurrency(data.recovery, locale)}`}
                       />
                     </div>
                   </div>
@@ -426,25 +420,25 @@ export default function AdminReportsPage() {
             <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট প্রাপ্ত' : 'Total Received'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(donationStats.totalReceived)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(donationStats.totalReceived, locale)}</p>
               </CardContent>
             </Card>
             <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট বিতরণ' : 'Total Disbursed'}</p>
-                <p className="text-2xl font-bold text-purple-600">{formatCurrency(donationStats.totalDisbursed)}</p>
+                <p className="text-2xl font-bold text-purple-600">{formatCurrency(donationStats.totalDisbursed, locale)}</p>
               </CardContent>
             </Card>
             <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'যাকাত তহবিল' : 'Zakat Fund'}</p>
-                <p className="text-2xl font-bold">{formatCurrency(donationStats.zakatFund)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(donationStats.zakatFund, locale)}</p>
               </CardContent>
             </Card>
             <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'সাদাকাহ তহবিল' : 'Sadaqah Fund'}</p>
-                <p className="text-2xl font-bold">{formatCurrency(donationStats.sadaqahFund)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(donationStats.sadaqahFund, locale)}</p>
               </CardContent>
             </Card>
           </div>

@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { apiGet } from '@/lib/api';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
 interface UserProfile {
   memberId: string;
@@ -194,13 +195,6 @@ export default function ProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -528,7 +522,7 @@ export default function ProfilePage() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  {locale === 'bn' ? 'উপলব্ধ:' : 'Available:'} {formatCurrency(accountSummary.currentBalance)}
+                  {locale === 'bn' ? 'উপলব্ধ:' : 'Available:'} {formatCurrency(accountSummary.currentBalance, locale)}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -545,7 +539,7 @@ export default function ProfilePage() {
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{t('currentBalance')}</p>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(accountSummary.currentBalance)}</p>
+                <p className="text-2xl font-bold text-primary">{formatCurrency(accountSummary.currentBalance, locale)}</p>
               </div>
               <Button onClick={() => setShowWithdrawalForm(true)}>
                 {t('requestWithdrawal')}
