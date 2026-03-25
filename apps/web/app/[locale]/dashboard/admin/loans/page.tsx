@@ -37,6 +37,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { apiGet, apiPost } from '@/lib/api';
 
 type LoanStatus =
   | 'PENDING_GUARANTOR'
@@ -88,14 +89,8 @@ export default function AdminLoansPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const token = localStorage.getItem('hn_access_token');
-      const res = await fetch('/api/v1/admin/loans', {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to load loans');
-      setLoans((json?.data ?? []) as Loan[]);
+      const data = await apiGet<Loan[]>('/v1/dashboard/admin/loans');
+      setLoans(data ?? []);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load loans');
       setLoans([]);
@@ -191,18 +186,11 @@ export default function AdminLoansPage() {
     setIsActionLoading(true);
     setActionError(null);
     try {
-      const token = localStorage.getItem('hn_access_token');
-      const res = await fetch(`/api/v1/admin/loans/${loan.id}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify({ action }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to review loan');
+      if (action === 'approve') {
+        await apiPost('/v1/dashboard/admin/approvals/loan', { loanId: loan.id });
+      } else {
+        await apiPost('/v1/dashboard/admin/approvals/loan/reject', { loanId: loan.id, reason: '' });
+      }
       await loadLoans();
       if (selectedLoan?.id === loan.id) {
         setShowDetailModal(false);

@@ -137,6 +137,14 @@ function clearCachedUserInfo() {
   }
 }
 
+function clearAuthState() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('hn_access_token');
+  document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+  clearCachedUserInfo();
+  window.dispatchEvent(new Event('auth-change'));
+}
+
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -166,6 +174,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       if (!token) {
         clearCachedUserInfo();
         setUserInfo(null);
+        router.replace(`/${locale}/login`);
         return;
       }
 
@@ -178,38 +187,36 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         }
       }
 
-      const response = await fetch('/api/v1/me/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        // Use cache for GET requests
-        next: { revalidate: 300 }, // 5 minutes
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.ok && result.data?.profile) {
-          const profile = result.data.profile;
-          const newUserInfo: UserInfo = {
-            id: profile.id || profile.memberId || '',
-            nameEn: profile.nameEn || '',
-            nameBn: profile.nameBn || '',
-            email: profile.email || '',
-            phone: profile.phone || '',
-            role: profile.role || role,
-            status: profile.status || '',
-            avatarUrl: profile.avatarUrl || '',
-            memberId: profile.memberId || '',
-          };
-          setUserInfo(newUserInfo);
-          setCachedUserInfo(newUserInfo);
-        }
-      }
+      const profile = await apiGet<UserInfo>('/v1/dashboard/user');
+      const newUserInfo: UserInfo = {
+        id: profile.id || '',
+        nameEn: profile.nameEn || '',
+        nameBn: profile.nameBn || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+        role: profile.role || role,
+        status: profile.status || '',
+        avatarUrl: profile.avatarUrl || '',
+        memberId: profile.memberId || '',
+      };
+      setUserInfo(newUserInfo);
+      setCachedUserInfo(newUserInfo);
     } catch (error) {
       console.error('Failed to load user info:', error);
+      clearAuthState();
+      router.replace(`/${locale}/login`);
     }
-  }, [role]);
+  }, [role, locale, router]);
+
+  const handleUnauthorizedError = useCallback((error: unknown) => {
+    const message = error instanceof Error ? error.message : '';
+    if (message.toLowerCase().includes('unauthorized')) {
+      clearAuthState();
+      router.replace(`/${locale}/login`);
+      return true;
+    }
+    return false;
+  }, [locale, router]);
 
   useEffect(() => {
     // Only fetch once on mount, use cache for subsequent renders
@@ -229,33 +236,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   useEffect(() => {
     const loadNotifications = async () => {
       try {
-        // Try Next.js API first, fallback to Go backend
-        const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
-        if (!token) {
-          setNotifications([]);
-          return;
-        }
-
-        // Try our Next.js API route first
-        const response = await fetch('/api/v1/notifications', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data) {
-            setNotifications(result.data);
-            return;
-          }
-        }
-
-        // Fallback to Go backend
         const data = await apiGet<NotificationItem[]>('/v1/dashboard/notifications');
         setNotifications(data);
-      } catch {
+      } catch (error) {
+        if (handleUnauthorizedError(error)) return;
         setNotifications([]);
       }
     };
@@ -287,16 +271,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
       if (token) {
-        await fetch('/api/v1/notifications', {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ notificationId: id }),
         });
       }
-    } catch {
+    } catch (error) {
+      handleUnauthorizedError(error);
       // Silently fail, UI already updated
     }
   };
@@ -312,16 +294,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
       if (token) {
-        await fetch('/api/v1/notifications', {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ markAll: true }),
         });
       }
-    } catch {
+    } catch (error) {
+      handleUnauthorizedError(error);
       // Silently fail, UI already updated
     }
   };
@@ -346,6 +326,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('hn_access_token');
+    document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     clearCachedUserInfo(); // Clear user cache on logout
     window.dispatchEvent(new Event('auth-change'));
     toast({

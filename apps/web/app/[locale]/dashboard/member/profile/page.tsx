@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
+import { apiGet } from '@/lib/api';
 
 interface UserProfile {
   memberId: string;
@@ -131,20 +132,17 @@ export default function ProfilePage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [profileRes, summaryRes] = await Promise.all([
-        fetch('/api/v1/me/profile', { headers }),
-        fetch('/api/v1/me/summary', { headers }),
-      ]);
-
-      const profileJson = await profileRes.json().catch(() => ({}));
-      if (!profileRes.ok) throw new Error(profileJson?.error ?? 'Failed to load profile');
-
-      const summaryJson = await summaryRes.json().catch(() => ({}));
-      if (!summaryRes.ok) throw new Error(summaryJson?.error ?? 'Failed to load summary');
-
-      const p = profileJson?.data?.profile;
-      const n = profileJson?.data?.nominee;
+      const profileData = await apiGet<{
+        profile?: UserProfile;
+        nominee?: Nominee;
+        accountSummary?: {
+          currentBalance?: number;
+          hasActiveLoan?: boolean;
+          isGuarantor?: boolean;
+        };
+      }>('/v1/dashboard/member/profile');
+      const p = profileData?.profile;
+      const n = profileData?.nominee;
 
       setProfile({
         memberId: p?.memberId ?? '',
@@ -180,9 +178,9 @@ export default function ProfilePage() {
       });
 
       setAccountSummary({
-        currentBalance: summaryJson?.data?.currentBalance ?? 0,
-        hasActiveLoan: summaryJson?.data?.hasActiveLoan ?? false,
-        isGuarantor: summaryJson?.data?.isGuarantor ?? false,
+        currentBalance: profileData?.accountSummary?.currentBalance ?? 0,
+        hasActiveLoan: profileData?.accountSummary?.hasActiveLoan ?? false,
+        isGuarantor: profileData?.accountSummary?.isGuarantor ?? false,
       });
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load profile');
