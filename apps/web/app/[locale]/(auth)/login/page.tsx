@@ -102,14 +102,14 @@ export default function LoginPage() {
     });
     
     const rolePath =
-      role === 'ADMIN'
+      role === 'ADMIN' || role === 'SUPER_ADMIN'
         ? `/${locale}/dashboard/admin`
         : role === 'WORKER'
           ? `/${locale}/dashboard/worker`
           : `/${locale}/dashboard/member`;
 
-    router.push(rolePath);
-    router.refresh();
+    // Use replace for faster navigation (no need for back button to login page)
+    router.replace(rolePath);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setSubmitError(
