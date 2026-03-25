@@ -23,6 +23,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -82,12 +83,13 @@ export default function LoansPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const res = await fetch('/api/v1/me/loans', { headers });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to load loans');
-
-      const data = json?.data;
+      const data = await apiGet<{
+        currentDeposit?: number;
+        activeLoan?: Loan | null;
+        loanHistory?: Loan[];
+        guarantorRequests?: GuarantorRequest[];
+        availableGuarantors?: AvailableGuarantor[];
+      }>('/v1/dashboard/member/loans');
       setCurrentDeposit(data?.currentDeposit ?? 0);
       setActiveLoan(data?.activeLoan ?? null);
       setLoanHistory(data?.loanHistory ?? []);

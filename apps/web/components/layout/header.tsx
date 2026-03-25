@@ -90,6 +90,7 @@ export function Header({ settings }: HeaderProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('hn_access_token');
+    document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     setIsLoggedIn(false);
     // Dispatch custom event for other components
     window.dispatchEvent(new Event('auth-change'));

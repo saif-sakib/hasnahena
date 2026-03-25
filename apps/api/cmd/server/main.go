@@ -69,6 +69,8 @@ func main() {
 			// Member routes
 			dashboard.Get("/member", dashboardHandler.MemberDashboard)
 			dashboard.Get("/notifications", dashboardHandler.Notifications)
+			dashboard.Patch("/notifications", dashboardHandler.Notifications)
+			dashboard.Put("/password", dashboardHandler.ChangePassword)
 			dashboard.Get("/member/deposits", dashboardHandler.MemberDeposits)
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)

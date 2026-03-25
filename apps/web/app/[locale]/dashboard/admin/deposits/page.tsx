@@ -38,6 +38,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { apiGet, apiPost } from '@/lib/api';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 type DepositType = 'DEPOSIT' | 'WITHDRAWAL';
@@ -61,6 +62,10 @@ interface Deposit {
   };
 }
 
+type DepositsResponse = {
+  deposits: Deposit[];
+};
+
 export default function AdminDepositsPage() {
   const locale = useLocale();
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,14 +82,8 @@ export default function AdminDepositsPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const token = localStorage.getItem('hn_access_token');
-      const res = await fetch('/api/v1/admin/deposits', {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to load transactions');
-      setDeposits((json?.data ?? []) as Deposit[]);
+      const data = await apiGet<Deposit[] | DepositsResponse>('/v1/dashboard/admin/deposits');
+      setDeposits(Array.isArray(data) ? data : (data?.deposits ?? []));
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load transactions');
       setDeposits([]);
@@ -187,18 +186,11 @@ export default function AdminDepositsPage() {
     setIsActionLoading(true);
     setActionError(null);
     try {
-      const token = localStorage.getItem('hn_access_token');
-      const res = await fetch(`/api/v1/admin/deposits/${tx.id}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify({ action }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to process transaction');
+      if (action === 'approve') {
+        await apiPost('/v1/dashboard/admin/approvals/withdrawal', { requestId: tx.id });
+      } else {
+        await apiPost('/v1/dashboard/admin/approvals/withdrawal/reject', { requestId: tx.id, reason: '' });
+      }
       await loadDeposits();
       if (selectedDeposit?.id === tx.id) {
         setShowDetailModal(false);

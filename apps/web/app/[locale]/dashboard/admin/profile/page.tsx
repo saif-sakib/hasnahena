@@ -32,6 +32,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
+import { apiGet, apiPut } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 interface ProfileData {
   id: string;
@@ -50,6 +52,7 @@ interface ProfileData {
 
 export default function AdminProfilePage() {
   const locale = useLocale();
+  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -74,27 +77,12 @@ export default function AdminProfilePage() {
     setError(null);
 
     try {
-      const token = getToken();
-      if (!token) {
-        setError('Not authenticated');
+      if (!getToken()) {
+        router.replace(`/${locale}/login`);
         return;
       }
 
-      const response = await fetch('/api/v1/me/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to fetch profile');
-      }
-
-      const profile = result.data.profile;
+      const profile = await apiGet<any>('/v1/dashboard/admin/profile');
       setProfileData({
         id: profile.id,
         memberId: profile.memberId || '',
@@ -105,8 +93,8 @@ export default function AdminProfilePage() {
         role: profile.role || 'ADMIN',
         status: profile.status || 'ACTIVE',
         address: profile.address || '',
-        memberSince: profile.memberSince || '',
-        lastUpdated: profile.lastUpdated || '',
+        memberSince: profile.memberSince || profile.joinedAt || '',
+        lastUpdated: profile.lastUpdated || profile.joinedAt || '',
         avatarUrl: profile.avatarUrl,
       });
       setEditData({
@@ -137,29 +125,14 @@ export default function AdminProfilePage() {
 
     setIsSaving(true);
     try {
-      const token = getToken();
-      if (!token) throw new Error('Not authenticated');
-
-      const response = await fetch('/api/v1/me/profile', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(editData),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to update profile');
-      }
+      if (!getToken()) throw new Error('Not authenticated');
+      await apiPut('/v1/dashboard/admin/profile', editData as Record<string, unknown>);
 
       // Update local state with new data
       setProfileData(prev => prev ? {
         ...prev,
         ...editData,
-        lastUpdated: result.data?.profile?.lastUpdated || new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
       } : null);
 
       setIsEditing(false);
@@ -209,26 +182,11 @@ export default function AdminProfilePage() {
 
     setIsChangingPassword(true);
     try {
-      const token = getToken();
-      if (!token) throw new Error('Not authenticated');
-
-      const response = await fetch('/api/v1/me/password', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          currentPassword: passwordData.currentPassword,
-          newPassword: passwordData.newPassword,
-        }),
+      if (!getToken()) throw new Error('Not authenticated');
+      await apiPut('/v1/dashboard/password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
       });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to change password');
-      }
 
       setShowPasswordModal(false);
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });

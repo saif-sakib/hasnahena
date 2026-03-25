@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type DepositStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -54,19 +55,19 @@ export default function DepositsPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [depRes, sumRes] = await Promise.all([
-        fetch('/api/v1/me/deposits', { headers }),
-        fetch('/api/v1/me/summary', { headers }),
+      const [depositsData, profileData] = await Promise.all([
+        apiGet<{
+          deposits: Deposit[];
+          currentBalance: number;
+        }>('/v1/dashboard/member/deposits'),
+        apiGet<{
+          accountSummary?: {
+            currentBalance?: number;
+          };
+        }>('/v1/dashboard/member/profile'),
       ]);
-
-      if (!depRes.ok) throw new Error('Failed to load deposits');
-      if (!sumRes.ok) throw new Error('Failed to load balance');
-
-      const depJson = await depRes.json();
-      const sumJson = await sumRes.json();
-      setDeposits(depJson?.data ?? []);
-      setCurrentBalance(sumJson?.data?.currentBalance ?? 0);
+      setDeposits(depositsData?.deposits ?? []);
+      setCurrentBalance(profileData?.accountSummary?.currentBalance ?? depositsData?.currentBalance ?? 0);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load data');
     } finally {

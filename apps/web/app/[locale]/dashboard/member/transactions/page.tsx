@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiGet } from '@/lib/api';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT';
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
@@ -63,11 +64,8 @@ export default function TransactionsPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const res = await fetch('/api/v1/me/transactions', { headers });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? 'Failed to load transactions');
-      setTransactions(json?.data ?? []);
+      const data = await apiGet<Transaction[]>('/v1/dashboard/member/transactions');
+      setTransactions(data ?? []);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load transactions');
     } finally {

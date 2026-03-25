@@ -90,6 +90,7 @@ export default function LoginPage() {
     const token = payload?.data?.accessToken;
     if (token) {
       localStorage.setItem('hn_access_token', token);
+      document.cookie = `hn_access_token=${token}; path=/; SameSite=Lax`;
       // Dispatch custom event for header to update
       window.dispatchEvent(new Event('auth-change'));
     }

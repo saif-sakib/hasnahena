@@ -49,7 +49,36 @@ func (h *DashboardHandler) Notifications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	data, err := h.userRepo.GetNotifications(r.Context(), auth.UserID)
+	if r.Method == http.MethodPatch {
+		var req struct {
+			NotificationID string `json:"notificationId"`
+			MarkAll        bool   `json:"markAll"`
+		}
+		if err := utils.ParseJSON(r, &req); err != nil {
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if req.MarkAll {
+			if err := h.userRepo.MarkAllNotificationsRead(r.Context(), auth.UserID, auth.Role); err != nil {
+				utils.Error(w, http.StatusInternalServerError, "NOTIFICATION_UPDATE_FAILED", "Failed to update notifications")
+				return
+			}
+			utils.Success(w, http.StatusOK, nil)
+			return
+		}
+		if strings.TrimSpace(req.NotificationID) == "" {
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "notificationId is required")
+			return
+		}
+		if err := h.userRepo.MarkNotificationRead(r.Context(), auth.UserID, auth.Role, req.NotificationID); err != nil {
+			utils.Error(w, http.StatusInternalServerError, "NOTIFICATION_UPDATE_FAILED", "Failed to update notification")
+			return
+		}
+		utils.Success(w, http.StatusOK, nil)
+		return
+	}
+
+	data, err := h.userRepo.GetNotifications(r.Context(), auth.UserID, auth.Role)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "NOTIFICATION_FETCH_FAILED", "Failed to load notifications")
 		return
@@ -655,13 +684,12 @@ func (h *DashboardHandler) LoanPerformanceReport(w http.ResponseWriter, r *http.
 // ==================== ADMIN PROFILE HANDLERS ====================
 
 func (h *DashboardHandler) AdminProfile(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetAdminProfile(r.Context(), userID)
+	data, err := h.userRepo.GetAdminProfile(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "PROFILE_FETCH_FAILED", "Failed to load admin profile")
 		return
@@ -671,9 +699,8 @@ func (h *DashboardHandler) AdminProfile(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
 		return
 	}
 
@@ -683,7 +710,7 @@ func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.userRepo.UpdateProfile(r.Context(), userID, req); err != nil {
+	if err := h.userRepo.UpdateProfile(r.Context(), auth.UserID, req); err != nil {
 		utils.Error(w, http.StatusInternalServerError, "UPDATE_PROFILE_FAILED", "Failed to update profile")
 		return
 	}
@@ -691,16 +718,50 @@ func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request)
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Profile updated successfully"})
 }
 
-// ==================== WORKER HANDLERS ====================
-
-func (h *DashboardHandler) WorkerRequests(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetWorkerRequests(r.Context(), userID)
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.CurrentPassword) == "" || strings.TrimSpace(req.NewPassword) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword and newPassword are required")
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "newPassword must be at least 6 characters")
+		return
+	}
+
+	if err := h.userRepo.ChangePassword(r.Context(), auth.UserID, req.CurrentPassword, req.NewPassword); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "PASSWORD_CHANGE_FAILED", "Failed to change password")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
+}
+
+// ==================== WORKER HANDLERS ====================
+
+func (h *DashboardHandler) WorkerRequests(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	data, err := h.userRepo.GetWorkerRequests(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "REQUESTS_FETCH_FAILED", "Failed to load worker requests")
 		return
@@ -710,13 +771,12 @@ func (h *DashboardHandler) WorkerRequests(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) WorkerLoans(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetWorkerLoans(r.Context(), userID)
+	data, err := h.userRepo.GetWorkerLoans(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "LOANS_FETCH_FAILED", "Failed to load worker loans")
 		return
@@ -726,13 +786,12 @@ func (h *DashboardHandler) WorkerLoans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) WorkerTransactions(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetWorkerTransactions(r.Context(), userID)
+	data, err := h.userRepo.GetWorkerTransactions(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "TRANSACTIONS_FETCH_FAILED", "Failed to load worker transactions")
 		return
@@ -742,13 +801,12 @@ func (h *DashboardHandler) WorkerTransactions(w http.ResponseWriter, r *http.Req
 }
 
 func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
 
-	data, err := h.userRepo.GetWorkerProfile(r.Context(), userID)
+	data, err := h.userRepo.GetWorkerProfile(r.Context(), auth.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "PROFILE_FETCH_FAILED", "Failed to load worker profile")
 		return
@@ -758,9 +816,8 @@ func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) ProcessDeposit(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
 
@@ -774,7 +831,7 @@ func (h *DashboardHandler) ProcessDeposit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.userRepo.ProcessDeposit(r.Context(), req.MemberID, userID, req.Amount, req.Receipt); err != nil {
+	if err := h.userRepo.ProcessDeposit(r.Context(), req.MemberID, auth.UserID, req.Amount, req.Receipt); err != nil {
 		utils.Error(w, http.StatusInternalServerError, "PROCESS_DEPOSIT_FAILED", "Failed to process deposit")
 		return
 	}
@@ -783,9 +840,7 @@ func (h *DashboardHandler) ProcessDeposit(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) ProcessWithdrawal(w http.ResponseWriter, r *http.Request) {
-	_, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 

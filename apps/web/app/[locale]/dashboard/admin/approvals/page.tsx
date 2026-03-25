@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, RefreshCw, Users, HandCoins, Wallet, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api';
 
 type TabKey = 'registrations' | 'loans' | 'withdrawals';
 
@@ -55,30 +56,38 @@ export default function AdminApprovalsPage() {
       minimumFractionDigits: 0,
     }).format(amount);
 
-  const tokenHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('hn_access_token') ?? ''}` });
-
   const loadAll = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [regRes, loanRes, depRes] = await Promise.all([
-        fetch('/api/v1/admin/pending-users', { headers: tokenHeader(), cache: 'no-store' }),
-        fetch('/api/v1/admin/loans', { headers: tokenHeader(), cache: 'no-store' }),
-        fetch('/api/v1/admin/deposits', { headers: tokenHeader(), cache: 'no-store' }),
+      const [approvalsData, loanData, depositData] = await Promise.all([
+        apiGet<{
+          registrationRequests: RegistrationRequest[];
+          loanRequests: Array<{
+            id: string;
+            requestedAmount: number;
+            purpose: string;
+            memberName: string;
+            memberId?: string;
+            guarantorName?: string;
+          }>;
+          withdrawalRequests: AdminTransaction[];
+        }>('/v1/dashboard/admin/approvals'),
+        apiGet<AdminLoan[]>('/v1/dashboard/admin/loans'),
+        apiGet<any>('/v1/dashboard/admin/deposits'),
       ]);
 
-      const regJson = await regRes.json().catch(() => ({}));
-      const loanJson = await loanRes.json().catch(() => ({}));
-      const depJson = await depRes.json().catch(() => ({}));
-
-      if (!regRes.ok) throw new Error(regJson?.error?.message ?? 'Failed to fetch registrations');
-      if (!loanRes.ok) throw new Error(loanJson?.error ?? 'Failed to fetch loans');
-      if (!depRes.ok) throw new Error(depJson?.error ?? 'Failed to fetch transactions');
-
-      setRegistrations((regJson?.data ?? []) as RegistrationRequest[]);
-      setLoanApprovals(((loanJson?.data ?? []) as AdminLoan[]).filter((l) => l.status === 'PENDING_APPROVAL'));
+      setRegistrations(approvalsData.registrationRequests ?? []);
+      setLoanApprovals(
+        (loanData ?? []).filter((l) => l.status === 'PENDING_APPROVAL').map((l) => ({
+          ...l,
+          amount: l.amount ?? (l as any).requestedAmount ?? 0,
+        })),
+      );
       setWithdrawalApprovals(
-        ((depJson?.data ?? []) as AdminTransaction[]).filter((t) => t.type === 'WITHDRAWAL' && t.status === 'PENDING'),
+        ((depositData?.deposits ?? depositData ?? []) as AdminTransaction[]).filter(
+          (t) => t.type === 'WITHDRAWAL' && t.status === 'PENDING',
+        ),
       );
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load approvals');
@@ -103,18 +112,27 @@ export default function AdminApprovalsPage() {
     [registrations.length, loanApprovals.length, withdrawalApprovals.length],
   );
 
-  const runAction = async (url: string, body: Record<string, unknown>) => {
+  const runAction = async (kind: 'registration' | 'loan' | 'withdrawal', id: string, action: 'approve' | 'reject') => {
     setIsActionLoading(true);
     setError(null);
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { ...tokenHeader(), 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify(body),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error?.message ?? json?.error ?? 'Action failed');
+      if (kind === 'registration') {
+        if (action === 'approve') {
+          await apiPost('/v1/dashboard/admin/approvals/registration', { userId: id });
+        } else {
+          await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
+        }
+      } else if (kind === 'loan') {
+        if (action === 'approve') {
+          await apiPost('/v1/dashboard/admin/approvals/loan', { loanId: id });
+        } else {
+          await apiPost('/v1/dashboard/admin/approvals/loan/reject', { loanId: id, reason: '' });
+        }
+      } else if (action === 'approve') {
+        await apiPost('/v1/dashboard/admin/approvals/withdrawal', { requestId: id });
+      } else {
+        await apiPost('/v1/dashboard/admin/approvals/withdrawal/reject', { requestId: id, reason: '' });
+      }
       await loadAll();
     } catch (e: any) {
       setError(e?.message ?? 'Action failed');
@@ -166,8 +184,8 @@ export default function AdminApprovalsPage() {
                     <p className="text-sm text-muted-foreground">{r.phone} • {r.nidNumber ?? '-'} • {new Date(r.requestDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/pending-users/${r.id}`, { action: 'reject' })}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
-                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/pending-users/${r.id}`, { action: 'approve' })}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
+                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
+                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
                   </div>
                 </div>
               ))}
@@ -187,8 +205,8 @@ export default function AdminApprovalsPage() {
                     <p className="text-sm text-muted-foreground">{l.loanNumber} • {formatCurrency(l.amount)} • {l.guarantor?.name ?? '-'} • {l.purpose || '-'}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/loans/${l.id}`, { action: 'reject' })}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
-                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/loans/${l.id}`, { action: 'approve' })}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
+                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('loan', l.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
+                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('loan', l.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
                   </div>
                 </div>
               ))}
@@ -208,8 +226,8 @@ export default function AdminApprovalsPage() {
                     <p className="text-sm text-muted-foreground">{formatCurrency(w.amount)} • {new Date(w.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')} • <Clock className="inline h-3 w-3" /> Pending</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/deposits/${w.id}`, { action: 'reject' })}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
-                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction(`/api/v1/admin/deposits/${w.id}`, { action: 'approve' })}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
+                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('withdrawal', w.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
+                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('withdrawal', w.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
                   </div>
                 </div>
               ))}
