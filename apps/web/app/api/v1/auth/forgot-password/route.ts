@@ -45,26 +45,23 @@ export async function POST(req: Request) {
       },
     });
 
-    // Always return success to prevent user enumeration
     if (!user) {
       console.log('[ForgotPassword] User not found:', email || phone);
       return NextResponse.json({
-        ok: true,
-        message: locale === 'bn'
-          ? 'যদি এই ইমেইল/ফোন আমাদের সিস্টেমে থাকে, আপনি শীঘ্রই রিসেট লিঙ্ক পাবেন।'
-          : 'If this email/phone exists in our system, you will receive a reset link shortly.'
-      });
+        ok: false,
+        error: locale === 'bn' ? 'ব্যবহারকারী পাওয়া যায়নি' : 'User not found',
+      }, { status: 404 });
     }
 
     // Check if user has email (required for password reset via email)
     if (!user.email) {
       console.log('[ForgotPassword] User has no email:', user.phone);
       return NextResponse.json({
-        ok: true,
-        message: locale === 'bn'
-          ? 'যদি এই ইমেইল/ফোন আমাদের সিস্টেমে থাকে, আপনি শীঘ্রই রিসেট লিঙ্ক পাবেন।'
-          : 'If this email/phone exists in our system, you will receive a reset link shortly.'
-      });
+        ok: false,
+        error: locale === 'bn'
+          ? 'এই ব্যবহারকারীর জন্য কোনো ইমেইল সেট নেই'
+          : 'No email is set for this user',
+      }, { status: 400 });
     }
 
     // Delete any existing tokens for this user
@@ -106,7 +103,11 @@ export async function POST(req: Request) {
 
     if (!emailResult.success) {
       console.error('[ForgotPassword] Failed to send email:', emailResult.error);
-      // Still return success to prevent enumeration, but log the error
+      return NextResponse.json({
+        ok: false,
+        error: locale === 'bn' ? 'রিসেট ইমেইল পাঠানো যায়নি' : 'Failed to send reset email',
+        details: emailResult.error,
+      }, { status: 500 });
     } else {
       console.log('[ForgotPassword] Email sent to:', user.email);
     }
@@ -114,8 +115,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       message: locale === 'bn'
-        ? 'যদি এই ইমেইল/ফোন আমাদের সিস্টেমে থাকে, আপনি শীঘ্রই রিসেট লিঙ্ক পাবেন।'
-        : 'If this email/phone exists in our system, you will receive a reset link shortly.'
+        ? 'পাসওয়ার্ড রিসেট লিঙ্ক আপনার ইমেইলে পাঠানো হয়েছে।'
+        : 'Password reset link sent to your email.',
     });
   } catch (error) {
     console.error('[ForgotPassword] Error:', error);

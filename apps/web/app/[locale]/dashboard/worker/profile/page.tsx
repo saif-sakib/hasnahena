@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import {
   User,
   Mail,
@@ -53,6 +54,7 @@ interface ProfileData {
 export default function WorkerProfilePage() {
   const locale = useLocale();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -60,6 +62,7 @@ export default function WorkerProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [forcePasswordChange, setForcePasswordChange] = useState(false);
 
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [editData, setEditData] = useState<Partial<ProfileData>>({});
@@ -118,6 +121,15 @@ export default function WorkerProfilePage() {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  useEffect(() => {
+    const forceByQuery = searchParams.get('forcePasswordChange') === '1';
+    const forceByStorage = typeof window !== 'undefined' && localStorage.getItem('hn_force_password_change') === '1';
+    if (forceByQuery || forceByStorage) {
+      setForcePasswordChange(true);
+      setShowPasswordModal(true);
+    }
+  }, [searchParams]);
 
   const handleSave = async () => {
     if (!profileData) return;
@@ -184,6 +196,8 @@ export default function WorkerProfilePage() {
       });
 
       setShowPasswordModal(false);
+      localStorage.removeItem('hn_force_password_change');
+      setForcePasswordChange(false);
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
       toast({
@@ -480,7 +494,13 @@ export default function WorkerProfilePage() {
       </Card>
 
       {/* Change Password Modal */}
-      <Dialog open={showPasswordModal} onOpenChange={setShowPasswordModal}>
+      <Dialog
+        open={showPasswordModal}
+        onOpenChange={(open) => {
+          if (forcePasswordChange && !open) return;
+          setShowPasswordModal(open);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন' : 'Change Password'}</DialogTitle>
@@ -535,16 +555,18 @@ export default function WorkerProfilePage() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowPasswordModal(false);
-                setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-              }}
-              disabled={isChangingPassword}
-            >
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
+            {!forcePasswordChange && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                }}
+                disabled={isChangingPassword}
+              >
+                {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+              </Button>
+            )}
             <Button
               onClick={handlePasswordChange}
               disabled={

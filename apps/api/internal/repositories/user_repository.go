@@ -90,7 +90,15 @@ func (r *UserRepository) FindByIdentifier(ctx context.Context, identifier string
 			"passwordHash",
 			role::text,
 			status::text,
-			"nameEn"
+			"nameEn",
+			EXISTS(
+				SELECT 1
+				FROM password_reset_tokens prt
+				WHERE (prt.email = users.email OR prt.phone = users.phone)
+				  AND prt.token LIKE 'first-login-%'
+				  AND prt."usedAt" IS NULL
+				  AND prt."expiresAt" > NOW()
+			) AS must_change_password
 		FROM users
 		WHERE lower(COALESCE(email, '')) = lower($1) OR phone = $1
 		LIMIT 1
@@ -105,6 +113,7 @@ func (r *UserRepository) FindByIdentifier(ctx context.Context, identifier string
 		&user.Role,
 		&user.Status,
 		&user.NameEn,
+		&user.MustChangePassword,
 	)
 	if err != nil {
 		return nil, err
@@ -2302,6 +2311,17 @@ func (r *UserRepository) ChangePassword(ctx context.Context, userID, currentPass
 	}
 
 	_, err = r.db.Exec(ctx, `UPDATE users SET "passwordHash" = $1, "updatedAt" = NOW() WHERE id = $2`, string(newHash), userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.Exec(ctx, `
+		UPDATE password_reset_tokens
+		SET "usedAt" = NOW()
+		WHERE token LIKE 'first-login-%'
+		  AND "usedAt" IS NULL
+		  AND ("email" = (SELECT email FROM users WHERE id = $1) OR "phone" = (SELECT phone FROM users WHERE id = $1))
+	`, userID)
 	return err
 }
 

@@ -8,6 +8,7 @@ type User struct {
 	Role         string `json:"role"`
 	Status       string `json:"status"`
 	NameEn       string `json:"name"`
+	MustChangePassword bool `json:"mustChangePassword"`
 }
 
 type LoginRequest struct {

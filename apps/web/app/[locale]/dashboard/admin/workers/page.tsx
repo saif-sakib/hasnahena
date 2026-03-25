@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { apiGet } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 
 interface Worker {
   id: string;
@@ -81,19 +82,22 @@ export default function AdminWorkersPage() {
 
   const [workers, setWorkers] = useState<Worker[]>([]);
 
+  const normalizeWorker = (worker: any): Worker => ({
+    ...worker,
+    role: worker.role === 'ADMIN' ? 'ADMIN' : 'WORKER',
+    status: worker.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+    processedDeposits: worker.currentDeposit || worker.processedDeposits || 0,
+    processedLoans: worker.activeLoan || worker.processedLoans || 0,
+    assignedArea: worker.assignedArea || '',
+    joinDate: worker.joinDate || worker.createdAt || new Date().toISOString(),
+    lastActive: worker.lastActive || worker.joinDate || new Date().toISOString(),
+  });
+
   useEffect(() => {
     const loadWorkers = async () => {
       try {
         const data = await apiGet<Array<Worker & { currentDeposit?: number; activeLoan?: number }>>('/v1/dashboard/admin/workers');
-        setWorkers(
-          data.map((worker) => ({
-            ...worker,
-            role: worker.role === 'ADMIN' ? 'ADMIN' : 'WORKER',
-            status: worker.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
-            processedDeposits: worker.currentDeposit || 0,
-            processedLoans: worker.activeLoan || 0,
-          }))
-        );
+        setWorkers(data.map((worker) => normalizeWorker(worker)));
       } catch {
         setWorkers([]);
       }
@@ -137,11 +141,54 @@ export default function AdminWorkersPage() {
     );
   };
 
-  const handleAddWorker = () => {
-    // In a real app, make API call here
-    console.log('Adding worker:', newWorker);
-    setShowAddModal(false);
-    setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedArea: '' });
+  const handleAddWorker = async () => {
+    if (!newWorker.name || !newWorker.email || !newWorker.phone) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: locale === 'bn' ? 'নাম, ইমেইল ও ফোন বাধ্যতামূলক' : 'Name, email and phone are required',
+        variant: 'destructive',
+      });
+      return;
+    }
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const response = await fetch('/api/v1/admin/workers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: newWorker.name,
+          email: newWorker.email,
+          phone: newWorker.phone,
+          role: newWorker.role,
+          assignedArea: newWorker.assignedArea,
+          locale,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        throw new Error(result?.error || 'Failed to add worker');
+      }
+
+      setWorkers((prev) => [normalizeWorker(result.data), ...prev]);
+      setShowAddModal(false);
+      setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedArea: '' });
+      toast({
+        title: locale === 'bn' ? 'সফল' : 'Success',
+        description: locale === 'bn'
+          ? 'স্টাফ অ্যাকাউন্ট তৈরি হয়েছে এবং ইমেইল পাঠানো হয়েছে'
+          : 'Staff account created and email sent',
+        variant: 'success',
+      });
+    } catch (error) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: error instanceof Error ? error.message : (locale === 'bn' ? 'স্টাফ যোগ করা যায়নি' : 'Failed to add staff'),
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDeleteWorker = () => {
