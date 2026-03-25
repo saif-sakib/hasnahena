@@ -525,6 +525,69 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 		}
 	}
 
+	guarantorRequests := make([]map[string]interface{}, 0)
+	guarantorReqQuery := `
+		SELECT
+			l.id::text,
+			COALESCE(b."nameEn", ''),
+			l."principalAmount"::bigint,
+			l."createdAt"
+		FROM loans l
+		JOIN users b ON b.id = l."borrowerId"
+		WHERE l."guarantorId" = $1
+		  AND l.status = 'PENDING_GUARANTOR'
+		ORDER BY l."createdAt" DESC
+	`
+	gRows, gErr := r.db.Query(ctx, guarantorReqQuery, userID)
+	if gErr == nil {
+		defer gRows.Close()
+		for gRows.Next() {
+			var id, borrowerName string
+			var amount int64
+			var requestDate time.Time
+			if scanErr := gRows.Scan(&id, &borrowerName, &amount, &requestDate); scanErr != nil {
+				continue
+			}
+			guarantorRequests = append(guarantorRequests, map[string]interface{}{
+				"id":           id,
+				"borrowerName": borrowerName,
+				"loanAmount":   amount / 100,
+				"requestDate":  requestDate.Format(time.RFC3339),
+			})
+		}
+	}
+
+	availableGuarantors := make([]map[string]interface{}, 0)
+	guarantorsQuery := `
+		SELECT
+			u.id::text,
+			COALESCE(u."nameEn", ''),
+			COALESCE(a."savingsBalance", 0)::bigint
+		FROM users u
+		LEFT JOIN accounts a ON a."userId" = u.id
+		WHERE u.role = 'MEMBER'
+		  AND u.status = 'ACTIVE'
+		  AND u.id <> $1
+		ORDER BY COALESCE(a."savingsBalance", 0) DESC, u."nameEn" ASC
+		LIMIT 50
+	`
+	aRows, aErr := r.db.Query(ctx, guarantorsQuery, userID)
+	if aErr == nil {
+		defer aRows.Close()
+		for aRows.Next() {
+			var id, name string
+			var deposit int64
+			if scanErr := aRows.Scan(&id, &name, &deposit); scanErr != nil {
+				continue
+			}
+			availableGuarantors = append(availableGuarantors, map[string]interface{}{
+				"id":      id,
+				"name":    name,
+				"deposit": deposit / 100,
+			})
+		}
+	}
+
 	return map[string]interface{}{
 		"currentDeposit":      currentDeposit / 100,
 		"minDepositRequired":  int64(8000),
@@ -533,8 +596,8 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 		"isEligible":          (currentDeposit / 100) >= 8000,
 		"activeLoan":          activeLoan,
 		"loanHistory":         loanHistory,
-		"guarantorRequests":   make([]map[string]interface{}, 0),
-		"availableGuarantors": make([]map[string]interface{}, 0),
+		"guarantorRequests":   guarantorRequests,
+		"availableGuarantors": availableGuarantors,
 	}, nil
 }
 

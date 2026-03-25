@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -107,13 +108,6 @@ export default function LoansPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -270,15 +264,15 @@ export default function LoansPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-sm text-muted-foreground">{t('yourDeposit')}</p>
-              <p className="text-xl font-bold text-primary">{formatCurrency(currentDeposit)}</p>
+              <p className="text-xl font-bold text-primary">{formatCurrency(currentDeposit, locale)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-sm text-muted-foreground">{t('minDepositRequired')}</p>
-              <p className="text-xl font-bold">{formatCurrency(minDepositRequired)}</p>
+              <p className="text-xl font-bold">{formatCurrency(minDepositRequired, locale)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-sm text-muted-foreground">{t('maxLoanAmount')}</p>
-              <p className="text-xl font-bold text-green-600">{formatCurrency(maxLoanAmount)}</p>
+              <p className="text-xl font-bold text-green-600">{formatCurrency(maxLoanAmount, locale)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-sm text-muted-foreground">{t('status')}</p>
@@ -298,8 +292,8 @@ export default function LoansPage() {
               <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
               <p className="text-sm">
                 {locale === 'bn'
-                  ? `ঋণের জন্য আবেদন করতে আপনার আমানত কমপক্ষে ${formatCurrency(minDepositRequired)} হতে হবে।`
-                  : `You need at least ${formatCurrency(minDepositRequired)} in deposits to apply for a loan.`}
+                  ? `ঋণের জন্য আবেদন করতে আপনার আমানত কমপক্ষে ${formatCurrency(minDepositRequired, locale)} হতে হবে।`
+                  : `You need at least ${formatCurrency(minDepositRequired, locale)} in deposits to apply for a loan.`}
               </p>
             </div>
           )}
@@ -330,7 +324,7 @@ export default function LoansPage() {
                   <div>
                     <p className="font-semibold">{request.borrowerName}</p>
                     <p className="text-sm text-muted-foreground">
-                      {locale === 'bn' ? 'ঋণের পরিমাণ:' : 'Loan Amount:'} {formatCurrency(request.loanAmount)}
+                      {locale === 'bn' ? 'ঋণের পরিমাণ:' : 'Loan Amount:'} {formatCurrency(request.loanAmount, locale)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {locale === 'bn' ? 'অনুরোধের তারিখ:' : 'Request Date:'} {formatDate(request.requestDate)}
@@ -398,7 +392,7 @@ export default function LoansPage() {
                     className="text-lg"
                   />
                   <p className="text-xs text-muted-foreground">
-                    {locale === 'bn' ? 'সর্বোচ্চ:' : 'Maximum:'} {formatCurrency(maxLoanAmount)}
+                    {locale === 'bn' ? 'সর্বোচ্চ:' : 'Maximum:'} {formatCurrency(maxLoanAmount, locale)}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -441,7 +435,7 @@ export default function LoansPage() {
                   <option value="">{locale === 'bn' ? 'জামিনদার নির্বাচন করুন' : 'Select a guarantor'}</option>
                   {availableGuarantors.map((g) => (
                     <option key={g.id} value={g.id}>
-                      {g.name} ({formatCurrency(g.deposit)})
+                      {g.name} ({formatCurrency(g.deposit, locale)})
                     </option>
                   ))}
                 </select>
@@ -497,11 +491,11 @@ export default function LoansPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <p className="text-sm text-muted-foreground">{t('loanAmount')}</p>
-                <p className="text-xl font-bold">{formatCurrency(activeLoan.principalAmount)}</p>
+                <p className="text-xl font-bold">{formatCurrency(activeLoan.principalAmount, locale)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{t('remainingAmount')}</p>
-                <p className="text-xl font-bold text-amber-600">{formatCurrency(activeLoan.remainingAmount)}</p>
+                <p className="text-xl font-bold text-amber-600">{formatCurrency(activeLoan.remainingAmount, locale)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{t('installments')}</p>
@@ -511,7 +505,7 @@ export default function LoansPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{t('installmentAmount')}</p>
-                <p className="text-xl font-bold">{formatCurrency(activeLoan.installmentAmount)}</p>
+                <p className="text-xl font-bold">{formatCurrency(activeLoan.installmentAmount, locale)}</p>
               </div>
             </div>
 
@@ -621,7 +615,7 @@ export default function LoansPage() {
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          {formatCurrency(loan.principalAmount)} • {loan.totalInstallments} {locale === 'bn' ? 'কিস্তি' : 'installments'}
+                          {formatCurrency(loan.principalAmount, locale)} • {loan.totalInstallments} {locale === 'bn' ? 'কিস্তি' : 'installments'}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {loan.disbursementDate && formatDate(loan.disbursementDate)}

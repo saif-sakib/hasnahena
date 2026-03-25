@@ -1,15 +1,18 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
+import crypto, { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { generatePasswordChangeCodeEmail, sendEmail } from '@/lib/email';
 
 const schema = z.object({
-  currentPassword: z.string().optional(),
+  currentPassword: z.string().min(1),
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
+
+const LOCKOUT_DURATION_MS = 30 * 1000; // 30 seconds
+const MAX_ATTEMPTS = 5;
 
 function createSixDigitCode(): string {
   const value = crypto.randomInt(100000, 1000000);
@@ -22,6 +25,25 @@ export async function POST(req: Request) {
     const parsed = schema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
       return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 });
+    }
+
+    const now = new Date();
+    const lockToken = await prisma.passwordResetToken.findFirst({
+      where: {
+        usedAt: null,
+        token: { startsWith: `pwd-change-lock:${auth.id}:` },
+        expiresAt: { gt: now },
+      },
+      orderBy: { expiresAt: 'desc' },
+      select: { expiresAt: true },
+    });
+    if (lockToken) {
+      const remainingTime = Math.max(1, Math.ceil((lockToken.expiresAt.getTime() - now.getTime()) / 1000));
+      return NextResponse.json({
+        ok: false,
+        error: `Too many failed attempts. Try again in ${remainingTime} seconds.`,
+        lockedFor: remainingTime
+      }, { status: 429 });
     }
 
     const { currentPassword, locale } = parsed.data;
@@ -46,14 +68,56 @@ export async function POST(req: Request) {
       select: { id: true },
     }));
 
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) {
+      const failureWindowStart = new Date(Date.now() - LOCKOUT_DURATION_MS);
+      const recentFailures = await prisma.passwordResetToken.count({
+        where: {
+          token: { startsWith: `pwd-change-fail:${auth.id}:` },
+          createdAt: { gte: failureWindowStart },
+        },
+      });
+      const failedCount = recentFailures + 1;
+      await prisma.passwordResetToken.create({
+        data: {
+          token: `pwd-change-fail:${auth.id}:${randomBytes(6).toString('hex')}`,
+          email: user.email,
+          phone: user.phone,
+          expiresAt: new Date(Date.now() + LOCKOUT_DURATION_MS),
+        },
+      });
+      if (failedCount >= MAX_ATTEMPTS) {
+        await prisma.passwordResetToken.create({
+          data: {
+            token: `pwd-change-lock:${auth.id}:${randomBytes(8).toString('hex')}`,
+            email: user.email,
+            phone: user.phone,
+            expiresAt: new Date(Date.now() + LOCKOUT_DURATION_MS),
+          },
+        });
+        return NextResponse.json({
+          ok: false,
+          error: 'Too many failed attempts. Account locked for 30 seconds.',
+          lockedFor: 30,
+        }, { status: 429 });
+      }
+      return NextResponse.json({
+        ok: false,
+        error: 'Current password is incorrect',
+        attemptsRemaining: MAX_ATTEMPTS - failedCount,
+      }, { status: 401 });
+    }
+    await prisma.passwordResetToken.deleteMany({
+      where: {
+        OR: [
+          { token: { startsWith: `pwd-change-fail:${auth.id}:` } },
+          { token: { startsWith: `pwd-change-lock:${auth.id}:` } },
+        ],
+      },
+    });
+
     if (!hasFirstLoginMarker) {
-      if (!currentPassword) {
-        return NextResponse.json({ ok: false, error: 'Current password is required' }, { status: 400 });
-      }
-      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-      if (!valid) {
-        return NextResponse.json({ ok: false, error: 'Current password is incorrect' }, { status: 401 });
-      }
+      // Current password is mandatory and already validated above for normal flow.
     }
 
     const code = createSixDigitCode();
@@ -69,7 +133,7 @@ export async function POST(req: Request) {
 
     await prisma.passwordResetToken.create({
       data: {
-        token: `pwd-change-code:${code}:${crypto.randomBytes(8).toString('hex')}`,
+        token: `pwd-change-code:${code}:${randomBytes(8).toString('hex')}`,
         email: user.email,
         phone: user.phone,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),

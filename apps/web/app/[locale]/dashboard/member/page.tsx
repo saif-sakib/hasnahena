@@ -20,6 +20,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
 interface DashboardStats {
   currentBalance: number;
@@ -96,21 +97,6 @@ export default function MemberDashboard() {
 
     loadDashboard();
   }, []);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const transactionLabels: Record<string, { bn: string; en: string; color: string }> = {
     DEPOSIT: { bn: 'জমা', en: 'Deposit', color: 'text-green-600' },
@@ -209,7 +195,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-               {formatCurrency(data.stats.currentBalance)}
+               {formatCurrency(data.stats.currentBalance, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings Balance'}
@@ -223,7 +209,7 @@ export default function MemberDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-             <div className="text-2xl font-bold">{formatCurrency(data.stats.totalDeposited)}</div>
+             <div className="text-2xl font-bold">{formatCurrency(data.stats.totalDeposited, locale)}</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <ArrowUpRight className="h-3 w-3 text-green-500" />
               {locale === 'bn' ? 'মোট জমা' : 'Total deposits'}
@@ -238,7 +224,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">
-               {formatCurrency(data.stats.loanBalance)}
+               {formatCurrency(data.stats.loanBalance, locale)}
             </div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <ArrowDownRight className="h-3 w-3 text-amber-500" />
@@ -254,7 +240,7 @@ export default function MemberDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-               {formatCurrency(data.stats.loanEligibility)}
+               {formatCurrency(data.stats.loanEligibility, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সর্বোচ্চ ঋণ পরিমাণ' : 'Max loan amount'}
@@ -284,17 +270,17 @@ export default function MemberDashboard() {
             <div className="grid gap-4 sm:grid-cols-4">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'অবশিষ্ট' : 'Remaining'}</p>
-                <p className="text-xl font-bold text-amber-600">{formatCurrency(data.activeLoan.remainingAmount)}</p>
+                <p className="text-xl font-bold text-amber-600">{formatCurrency(data.activeLoan.remainingAmount, locale)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'পরবর্তী কিস্তি' : 'Next Installment'}</p>
-                <p className="text-xl font-bold">{formatCurrency(data.activeLoan.nextInstallment)}</p>
+                <p className="text-xl font-bold">{formatCurrency(data.activeLoan.nextInstallment, locale)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'নির্ধারিত তারিখ' : 'Due Date'}</p>
                 <p className="text-xl font-bold flex items-center gap-1">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                   {formatDate(data.activeLoan.nextDueDate)}
+                   {formatDate(data.activeLoan.nextDueDate, locale)}
                 </p>
               </div>
               <div>
@@ -385,9 +371,9 @@ export default function MemberDashboard() {
                 <div className="text-right">
                   <p className={`font-medium ${transactionLabels[tx.type]?.color}`}>
                     {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? '+' : '-'}
-                    {formatCurrency(tx.amount)}
+                    {formatCurrency(tx.amount, locale)}
                   </p>
-                  <p className="text-xs text-muted-foreground">{formatDate(tx.date)}</p>
+                  <p className="text-xs text-muted-foreground">{formatDate(tx.date, locale)}</p>
                 </div>
               </div>
             ))}

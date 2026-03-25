@@ -38,7 +38,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 type DepositType = 'DEPOSIT' | 'WITHDRAWAL';
@@ -75,7 +76,6 @@ export default function AdminDepositsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isActionLoading, setIsActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadDeposits = async () => {
@@ -95,14 +95,6 @@ export default function AdminDepositsPage() {
   useEffect(() => {
     void loadDeposits();
   }, []);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const getStatusBadge = (status: DepositStatus) => {
     switch (status) {
@@ -182,27 +174,6 @@ export default function AdminDepositsPage() {
   const pendingCount = deposits.filter((d) => d.status === 'PENDING').length;
   const disputedCount = deposits.filter((d) => d.status === 'DISPUTED').length;
 
-  const handleReview = async (tx: Deposit, action: 'approve' | 'reject') => {
-    setIsActionLoading(true);
-    setActionError(null);
-    try {
-      if (action === 'approve') {
-        await apiPost('/v1/dashboard/admin/approvals/withdrawal', { requestId: tx.id });
-      } else {
-        await apiPost('/v1/dashboard/admin/approvals/withdrawal/reject', { requestId: tx.id, reason: '' });
-      }
-      await loadDeposits();
-      if (selectedDeposit?.id === tx.id) {
-        setShowDetailModal(false);
-        setSelectedDeposit(null);
-      }
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to process transaction');
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -234,7 +205,7 @@ export default function AdminDepositsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-600" />
             </div>
@@ -245,7 +216,7 @@ export default function AdminDepositsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}</p>
-                <p className="text-2xl font-bold text-purple-600">{formatCurrency(totalWithdrawals)}</p>
+                <p className="text-2xl font-bold text-purple-600">{formatCurrency(totalWithdrawals, locale)}</p>
               </div>
               <TrendingDown className="h-8 w-8 text-purple-600" />
             </div>
@@ -367,7 +338,7 @@ export default function AdminDepositsPage() {
                           {locale === 'bn' ? 'পরিমাণ:' : 'Amount:'}{' '}
                           <span className={`font-bold ${deposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>
                             {deposit.type === 'DEPOSIT' ? '+' : '-'}
-                            {formatCurrency(deposit.amount)}
+                            {formatCurrency(deposit.amount, locale)}
                           </span>
                         </p>
                         <p className="flex items-center gap-1">
@@ -383,28 +354,6 @@ export default function AdminDepositsPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {deposit.status === 'PENDING' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 border-red-200 hover:bg-red-50"
-                          disabled={isActionLoading}
-                          onClick={() => void handleReview(deposit, 'reject')}
-                        >
-                          <XCircle className="h-4 w-4 mr-1" />
-                          {locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={isActionLoading}
-                          onClick={() => void handleReview(deposit, 'approve')}
-                        >
-                          <CheckCircle2 className="h-4 w-4 mr-1" />
-                          {locale === 'bn' ? 'অনুমোদন' : 'Approve'}
-                        </Button>
-                      </>
-                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -449,7 +398,7 @@ export default function AdminDepositsPage() {
                 <span className="text-muted-foreground">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</span>
                 <span className={`font-bold ${selectedDeposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>
                   {selectedDeposit.type === 'DEPOSIT' ? '+' : '-'}
-                  {formatCurrency(selectedDeposit.amount)}
+                  {formatCurrency(selectedDeposit.amount, locale)}
                 </span>
               </div>
               <div className="flex items-center justify-between">

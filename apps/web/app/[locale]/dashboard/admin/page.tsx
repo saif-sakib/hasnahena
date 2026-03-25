@@ -6,6 +6,7 @@ import { Users, Wallet, HandCoins, TrendingUp, Building, AlertTriangle, PieChart
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 export default function AdminDashboard() {
   const t = useTranslations('dashboard');
@@ -21,14 +22,6 @@ export default function AdminDashboard() {
     charityFund: 0,
     monthlyGrowth: 0,
   });
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const [recentActivity, setRecentActivity] = useState<
     Array<{ id: number; action: string; user: string; actorName?: string; entityType?: string; time: string }>
@@ -110,7 +103,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(stats.totalDeposits)}
+              {formatCurrency(stats.totalDeposits, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় পুল' : 'Savings pool'}
@@ -127,7 +120,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(stats.totalLoans)}
+              {formatCurrency(stats.totalLoans, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {stats.activeLoanCount} {locale === 'bn' ? 'সক্রিয় ঋণ' : 'active loans'}
@@ -144,7 +137,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(stats.charityFund)}
+              {formatCurrency(stats.charityFund, locale)}
             </div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'অনুদান থেকে' : 'From donations'}

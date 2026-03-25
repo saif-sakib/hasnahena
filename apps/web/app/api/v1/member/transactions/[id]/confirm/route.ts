@@ -1,19 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { serializeTransaction } from '@/lib/api-utils';
 import { TransactionStatus, TransactionType, UserRole } from '@prisma/client';
-
-// Convert BigInt fields to numbers for JSON serialization
-function serializeTransaction(tx: any) {
-  return {
-    ...tx,
-    amount: tx.amount ? Number(tx.amount) : null,
-    balanceAfter: tx.balanceAfter ? Number(tx.balanceAfter) : null,
-    savingsAfter: tx.savingsAfter ? Number(tx.savingsAfter) : null,
-    loanAfter: tx.loanAfter ? Number(tx.loanAfter) : null,
-    disputeCorrectAmount: tx.disputeCorrectAmount ? Number(tx.disputeCorrectAmount) : null,
-  };
-}
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {

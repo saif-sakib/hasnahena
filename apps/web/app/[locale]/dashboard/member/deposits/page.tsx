@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
 type DepositStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -88,13 +89,6 @@ export default function DepositsPage() {
     .filter((d) => d.status === 'PENDING')
     .reduce((sum, d) => sum + d.amount, 0);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -199,7 +193,7 @@ export default function DepositsPage() {
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposited)}</div>
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposited, locale)}</div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'নিশ্চিত আমানত' : 'Confirmed deposits'}
             </p>
@@ -212,7 +206,7 @@ export default function DepositsPage() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{formatCurrency(pendingAmount)}</div>
+            <div className="text-2xl font-bold text-amber-600">{formatCurrency(pendingAmount, locale)}</div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'প্রক্রিয়াধীন' : 'Processing'}
             </p>
@@ -225,7 +219,7 @@ export default function DepositsPage() {
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{formatCurrency(currentBalance)}</div>
+            <div className="text-2xl font-bold text-primary">{formatCurrency(currentBalance, locale)}</div>
             <p className="text-xs text-muted-foreground">
               {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings balance'}
             </p>
@@ -351,7 +345,7 @@ export default function DepositsPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-lg">
-                            {formatCurrency(deposit.amount)}
+                            {formatCurrency(deposit.amount, locale)}
                           </p>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}
@@ -365,7 +359,7 @@ export default function DepositsPage() {
                         </p>
                         {deposit.balanceAfter && (
                           <p className="text-xs text-muted-foreground">
-                            {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(deposit.balanceAfter)}
+                            {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(deposit.balanceAfter, locale)}
                           </p>
                         )}
                       </div>

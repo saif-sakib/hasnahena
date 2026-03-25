@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
 import { verifyHs256Jwt } from './jwt';
 
-export type AuthUser = {
+type AuthUser = {
   id: string;
   role: string;
   email?: string;
@@ -29,8 +28,3 @@ export function requireAuth(req: Request): AuthUser {
     phone: claims.phone,
   };
 }
-
-export function unauthorizedResponse() {
-  return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-}
-

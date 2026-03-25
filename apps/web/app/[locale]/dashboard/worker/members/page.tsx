@@ -42,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { apiGet } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 interface Member {
   id: string;
@@ -83,13 +84,6 @@ export default function WorkerMembersPage() {
     loadMembers();
   }, []);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const getStatusBadge = (status: 'ACTIVE' | 'PENDING') => {
     return status === 'ACTIVE' ? (
@@ -155,7 +149,7 @@ export default function WorkerMembersPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits)}</p>
+                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
               </div>
               <Wallet className="h-8 w-8 text-green-600" />
             </div>
@@ -166,7 +160,7 @@ export default function WorkerMembersPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loans'}</p>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalLoans)}</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalLoans, locale)}</p>
               </div>
               <HandCoins className="h-8 w-8 text-blue-600" />
             </div>
@@ -265,11 +259,11 @@ export default function WorkerMembersPage() {
                     <div className="text-right text-sm">
                       <div>
                         <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
-                        <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit)}</span>
+                        <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit, locale)}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
-                        <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan)}</span>
+                        <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan, locale)}</span>
                       </div>
                     </div>
                   )}
@@ -364,11 +358,11 @@ export default function WorkerMembersPage() {
                 )}
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বর্তমান জমা' : 'Current Deposit'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedMember.currentDeposit)}</p>
+                  <p className="font-medium text-green-600">{formatCurrency(selectedMember.currentDeposit, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedMember.activeLoan)}</p>
+                  <p className="font-medium text-blue-600">{formatCurrency(selectedMember.activeLoan, locale)}</p>
                 </div>
               </div>
 

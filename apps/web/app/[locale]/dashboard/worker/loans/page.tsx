@@ -39,6 +39,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { formatCurrency } from '@/lib/utils';
 
 type LoanStatus = 'ACTIVE' | 'OVERDUE' | 'COMPLETED';
 
@@ -147,13 +148,6 @@ export default function WorkerLoansPage() {
     },
   ];
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const getStatusBadge = (status: LoanStatus) => {
     switch (status) {
@@ -264,7 +258,7 @@ export default function WorkerLoansPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট বাকি' : 'Total Outstanding'}</p>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalOutstanding)}</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalOutstanding, locale)}</p>
               </div>
               <CreditCard className="h-8 w-8 text-blue-600" />
             </div>
@@ -380,7 +374,7 @@ export default function WorkerLoansPage() {
                         {locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly'}
                       </p>
                       <p className="text-lg font-bold text-blue-600">
-                        {formatCurrency(loan.monthlyInstallment)}
+                        {formatCurrency(loan.monthlyInstallment, locale)}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -417,10 +411,10 @@ export default function WorkerLoansPage() {
                   <Progress value={(loan.paidAmount / loan.loanAmount) * 100} className="h-2" />
                   <div className="flex justify-between text-xs text-muted-foreground mt-1">
                     <span>
-                      {locale === 'bn' ? 'পরিশোধিত:' : 'Paid:'} {formatCurrency(loan.paidAmount)}
+                      {locale === 'bn' ? 'পরিশোধিত:' : 'Paid:'} {formatCurrency(loan.paidAmount, locale)}
                     </span>
                     <span>
-                      {locale === 'bn' ? 'বাকি:' : 'Remaining:'} {formatCurrency(loan.loanAmount - loan.paidAmount)}
+                      {locale === 'bn' ? 'বাকি:' : 'Remaining:'} {formatCurrency(loan.loanAmount - loan.paidAmount, locale)}
                     </span>
                   </div>
                 </div>
@@ -452,12 +446,12 @@ export default function WorkerLoansPage() {
               <div className="p-4 bg-slate-50 rounded-lg space-y-2">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly Installment'}</span>
-                  <span className="font-medium">{formatCurrency(selectedLoan.monthlyInstallment)}</span>
+                  <span className="font-medium">{formatCurrency(selectedLoan.monthlyInstallment, locale)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি পরিমাণ' : 'Outstanding'}</span>
                   <span className="font-medium">
-                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount)}
+                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount, locale)}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -535,21 +529,21 @@ export default function WorkerLoansPage() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণের পরিমাণ' : 'Loan Amount'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedLoan.loanAmount)}</p>
+                  <p className="font-medium text-blue-600">{formatCurrency(selectedLoan.loanAmount, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'পরিশোধিত' : 'Paid'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedLoan.paidAmount)}</p>
+                  <p className="font-medium text-green-600">{formatCurrency(selectedLoan.paidAmount, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি' : 'Remaining'}</span>
                   <p className="font-medium text-amber-600">
-                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount)}
+                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount, locale)}
                   </p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly Installment'}</span>
-                  <p className="font-medium">{formatCurrency(selectedLoan.monthlyInstallment)}</p>
+                  <p className="font-medium">{formatCurrency(selectedLoan.monthlyInstallment, locale)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'কিস্তি অবস্থা' : 'Installments'}</span>

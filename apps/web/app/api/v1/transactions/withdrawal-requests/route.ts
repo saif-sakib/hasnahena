@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { makeReceipt, serializeTransaction } from '@/lib/api-utils';
 import { LoanStatus, TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
@@ -9,22 +10,6 @@ const bodySchema = z.object({
   receiptNumber: z.string().optional(),
   notes: z.string().optional(),
 });
-
-function makeReceipt(prefix: string) {
-  const d = new Date();
-  const date = d.toISOString().slice(0, 10).replace(/-/g, '');
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${prefix}-${date}-${suffix}`;
-}
-
-// Convert BigInt fields to numbers for JSON serialization
-function serializeTransaction(tx: any) {
-  return {
-    ...tx,
-    amount: tx.amount ? Number(tx.amount) : null,
-    balanceAfter: tx.balanceAfter ? Number(tx.balanceAfter) : null,
-  };
-}
 
 export async function POST(req: Request) {
   try {

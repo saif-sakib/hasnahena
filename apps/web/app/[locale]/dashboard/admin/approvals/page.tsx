@@ -6,8 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Users, HandCoins, Wallet, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Loader2, RefreshCw, Users, HandCoins, Wallet, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 
 type TabKey = 'registrations' | 'loans' | 'withdrawals';
 
@@ -68,6 +69,95 @@ interface AdminTransaction {
   processedDate: string;
 }
 
+function RegistrationCard({
+  r,
+  locale,
+  isActionLoading,
+  onApprove,
+  onReject,
+}: {
+  r: RegistrationRequest;
+  locale: string;
+  isActionLoading: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const formatAddress = (addr: any) => {
+    if (!addr) return '-';
+    return [addr.houseNo, addr.roadNo, addr.village, addr.union, addr.policeStation, addr.district]
+      .filter(Boolean).join(', ') || '-';
+  };
+
+  return (
+    <div className="rounded-xl bg-slate-50 p-4">
+      {/* Basic Info - Always Visible */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+            {r.name.charAt(0)}
+          </div>
+          <div>
+            <p className="font-semibold">{r.name} {r.nameBn ? `(${r.nameBn})` : ''}</p>
+            <p className="text-sm text-muted-foreground">{r.phone} • {r.email || '-'}</p>
+            <p className="text-xs text-muted-foreground">{new Date(r.requestDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setExpanded(!expanded)}>
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            <span className="ml-1">{expanded ? (locale === 'bn' ? 'সংক্ষিপ্ত' : 'Less') : (locale === 'bn' ? 'বিস্তারিত' : 'Details')}</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Expanded Details */}
+      {expanded && (
+        <div className="mt-4 pt-4 border-t space-y-4">
+          <div className="grid gap-2 text-sm md:grid-cols-3">
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'NID:' : 'NID:'}</span> {r.nidNumber || '-'}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'পিতা:' : 'Father:'}</span> {r.fatherName || '-'}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'মাতা:' : 'Mother:'}</span> {r.motherName || '-'}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'লিঙ্গ:' : 'Gender:'}</span> {r.gender || '-'}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'বৈবাহিক:' : 'Marital:'}</span> {r.maritalStatus || '-'}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'সন্তান:' : 'Children:'}</span> {r.childrenCount ?? 0}</p>
+            <p><span className="text-muted-foreground">{locale === 'bn' ? 'জন্ম:' : 'DOB:'}</span> {r.dateOfBirth ? new Date(r.dateOfBirth).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB') : '-'}</p>
+          </div>
+
+          <div className="grid gap-4 text-sm md:grid-cols-2">
+            <div className="p-3 bg-white rounded-lg">
+              <p className="font-medium text-muted-foreground mb-1">{locale === 'bn' ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}</p>
+              <p>{formatAddress(r.permanentAddress)}</p>
+            </div>
+            <div className="p-3 bg-white rounded-lg">
+              <p className="font-medium text-muted-foreground mb-1">{locale === 'bn' ? 'বর্তমান ঠিকানা' : 'Present Address'}</p>
+              <p>{formatAddress(r.presentAddress)}</p>
+            </div>
+          </div>
+
+          {r.nominee && (
+            <div className="p-3 bg-white rounded-lg text-sm">
+              <p className="font-medium text-muted-foreground mb-1">{locale === 'bn' ? 'নমিনী' : 'Nominee'}</p>
+              <p>{[r.nominee.name, r.nominee.relationship, r.nominee.nidNumber, r.nominee.phone].filter(Boolean).join(' • ') || '-'}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex flex-col sm:flex-row gap-2 mt-4 pt-4 border-t">
+        <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={onReject}>
+          <XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}
+        </Button>
+        <Button size="sm" disabled={isActionLoading} onClick={onApprove}>
+          <CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminApprovalsPage() {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState<TabKey>('registrations');
@@ -77,13 +167,6 @@ export default function AdminApprovalsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
 
   const loadAll = async () => {
     setIsLoading(true);
@@ -209,70 +292,54 @@ export default function AdminApprovalsPage() {
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
         <TabsList className="w-full overflow-x-auto justify-start">
-          <TabsTrigger value="registrations">{locale === 'bn' ? 'নিবন্ধন' : 'Registrations'}</TabsTrigger>
-          <TabsTrigger value="loans">{locale === 'bn' ? 'ঋণ' : 'Loans'}</TabsTrigger>
-          <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</TabsTrigger>
+          <TabsTrigger value="registrations">{locale === 'bn' ? 'নিবন্ধন' : 'Registrations'} ({counts.registrations})</TabsTrigger>
+          <TabsTrigger value="loans">{locale === 'bn' ? 'ঋণ' : 'Loans'} ({counts.loans})</TabsTrigger>
+          <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'} ({counts.withdrawals})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="registrations">
           <Card>
-            <CardHeader><CardTitle>{locale === 'bn' ? 'নিবন্ধন অনুরোধ' : 'Registration Requests'}</CardTitle><CardDescription>{counts.registrations}</CardDescription></CardHeader>
-            <CardContent className="space-y-3">
-              {isLoading ? <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div> : registrations.map((r) => (
-                <div key={r.id} className="rounded-xl bg-slate-50 p-4 flex flex-col gap-4">
-                  <div>
-                    <p className="font-semibold">{r.name} {r.nameBn ? `(${r.nameBn})` : ''}</p>
-                    <p className="text-sm text-muted-foreground break-words">{r.phone} • {r.email || '-'} • {r.nidNumber ?? '-'}</p>
-                    <p className="text-sm text-muted-foreground">{new Date(r.requestDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p>
-                  </div>
-                  <div className="grid gap-2 text-sm md:grid-cols-2">
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'পিতার নাম:' : 'Father:'}</span> {r.fatherName || '-'}</p>
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'মাতার নাম:' : 'Mother:'}</span> {r.motherName || '-'}</p>
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'লিঙ্গ:' : 'Gender:'}</span> {r.gender || '-'}</p>
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'বৈবাহিক অবস্থা:' : 'Marital Status:'}</span> {r.maritalStatus || '-'}</p>
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'সন্তান:' : 'Children:'}</span> {r.childrenCount ?? 0}</p>
-                    <p><span className="text-muted-foreground">{locale === 'bn' ? 'জন্ম তারিখ:' : 'DOB:'}</span> {r.dateOfBirth ? new Date(r.dateOfBirth).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB') : '-'}</p>
-                  </div>
-                  <div className="grid gap-2 text-sm md:grid-cols-2">
-                    <div>
-                      <p className="font-medium">{locale === 'bn' ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}</p>
-                      <p className="text-muted-foreground break-words">
-                        {[r.permanentAddress?.houseNo, r.permanentAddress?.roadNo, r.permanentAddress?.village, r.permanentAddress?.union, r.permanentAddress?.policeStation, r.permanentAddress?.district].filter(Boolean).join(', ') || '-'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{locale === 'bn' ? 'বর্তমান ঠিকানা' : 'Present Address'}</p>
-                      <p className="text-muted-foreground break-words">
-                        {[r.presentAddress?.houseNo, r.presentAddress?.roadNo, r.presentAddress?.village, r.presentAddress?.union, r.presentAddress?.policeStation, r.presentAddress?.district].filter(Boolean).join(', ') || '-'}
-                      </p>
-                    </div>
-                    <div className="md:col-span-2">
-                      <p className="font-medium">{locale === 'bn' ? 'নমিনী' : 'Nominee'}</p>
-                      <p className="text-muted-foreground break-words">
-                        {[r.nominee?.name, r.nominee?.relationship, r.nominee?.nidNumber, r.nominee?.phone].filter(Boolean).join(' • ') || '-'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
-                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('registration', r.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
-                  </div>
-                </div>
+            <CardHeader>
+              <CardTitle>{locale === 'bn' ? 'নিবন্ধন অনুরোধ' : 'Registration Requests'}</CardTitle>
+              <CardDescription>{locale === 'bn' ? `${counts.registrations} টি অপেক্ষমাণ` : `${counts.registrations} pending`}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoading ? (
+                <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
+              ) : registrations.map((r) => (
+                <RegistrationCard
+                  key={r.id}
+                  r={r}
+                  locale={locale}
+                  isActionLoading={isActionLoading}
+                  onApprove={() => void runAction('registration', r.id, 'approve')}
+                  onReject={() => void runAction('registration', r.id, 'reject')}
+                />
               ))}
-              {!isLoading && registrations.length === 0 && <div className="py-10 text-center text-muted-foreground">{locale === 'bn' ? 'কোনো অপেক্ষমাণ নিবন্ধন নেই' : 'No pending registrations'}</div>}
+              {!isLoading && registrations.length === 0 && (
+                <div className="py-10 text-center text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{locale === 'bn' ? 'কোনো অপেক্ষমাণ নিবন্ধন নেই' : 'No pending registrations'}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="loans">
           <Card>
-            <CardHeader><CardTitle>{locale === 'bn' ? 'ঋণ অনুমোদন' : 'Loan Approvals'}</CardTitle><CardDescription>{counts.loans}</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle>{locale === 'bn' ? 'ঋণ অনুমোদন' : 'Loan Approvals'}</CardTitle>
+              <CardDescription>{locale === 'bn' ? `${counts.loans} টি অপেক্ষমাণ` : `${counts.loans} pending`}</CardDescription>
+            </CardHeader>
             <CardContent className="space-y-3">
-              {isLoading ? <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div> : loanApprovals.map((l) => (
+              {isLoading ? (
+                <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
+              ) : loanApprovals.map((l) => (
                 <div key={l.id} className="rounded-xl bg-slate-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{l.member.name} {l.member.memberId ? <Badge variant="outline" className="ml-1">{l.member.memberId}</Badge> : null}</p>
-                    <p className="text-sm text-muted-foreground">{l.loanNumber} • {formatCurrency(l.amount)} • {l.guarantor?.name ?? '-'} • {l.purpose || '-'}</p>
+                    <p className="text-sm text-muted-foreground">{l.loanNumber} • {formatCurrency(l.amount, locale)} • {l.guarantor?.name ?? '-'} • {l.purpose || '-'}</p>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('loan', l.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
@@ -280,20 +347,30 @@ export default function AdminApprovalsPage() {
                   </div>
                 </div>
               ))}
-              {!isLoading && loanApprovals.length === 0 && <div className="py-10 text-center text-muted-foreground">{locale === 'bn' ? 'কোনো অপেক্ষমাণ ঋণ অনুরোধ নেই' : 'No pending loan approvals'}</div>}
+              {!isLoading && loanApprovals.length === 0 && (
+                <div className="py-10 text-center text-muted-foreground">
+                  <HandCoins className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{locale === 'bn' ? 'কোনো অপেক্ষমাণ ঋণ অনুরোধ নেই' : 'No pending loan approvals'}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="withdrawals">
           <Card>
-            <CardHeader><CardTitle>{locale === 'bn' ? 'উত্তোলন অনুমোদন' : 'Withdrawal Approvals'}</CardTitle><CardDescription>{counts.withdrawals}</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle>{locale === 'bn' ? 'উত্তোলন অনুমোদন' : 'Withdrawal Approvals'}</CardTitle>
+              <CardDescription>{locale === 'bn' ? `${counts.withdrawals} টি অপেক্ষমাণ` : `${counts.withdrawals} pending`}</CardDescription>
+            </CardHeader>
             <CardContent className="space-y-3">
-              {isLoading ? <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div> : withdrawalApprovals.map((w) => (
+              {isLoading ? (
+                <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
+              ) : withdrawalApprovals.map((w) => (
                 <div key={w.id} className="rounded-xl bg-slate-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{w.member.name} {w.member.memberId ? <Badge variant="outline" className="ml-1">{w.member.memberId}</Badge> : null}</p>
-                    <p className="text-sm text-muted-foreground">{formatCurrency(w.amount)} • {new Date(w.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')} • <Clock className="inline h-3 w-3" /> Pending</p>
+                    <p className="text-sm text-muted-foreground">{formatCurrency(w.amount, locale)} • {new Date(w.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')} • <Clock className="inline h-3 w-3" /> Pending</p>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('withdrawal', w.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
@@ -301,7 +378,12 @@ export default function AdminApprovalsPage() {
                   </div>
                 </div>
               ))}
-              {!isLoading && withdrawalApprovals.length === 0 && <div className="py-10 text-center text-muted-foreground">{locale === 'bn' ? 'কোনো অপেক্ষমাণ উত্তোলন অনুরোধ নেই' : 'No pending withdrawal requests'}</div>}
+              {!isLoading && withdrawalApprovals.length === 0 && (
+                <div className="py-10 text-center text-muted-foreground">
+                  <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{locale === 'bn' ? 'কোনো অপেক্ষমাণ উত্তোলন অনুরোধ নেই' : 'No pending withdrawal requests'}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

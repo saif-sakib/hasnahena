@@ -19,7 +19,7 @@ export interface ValidationResult {
 /**
  * Validate image file before upload
  */
-export function validateImageFile(
+function validateImageFile(
   file: File,
   options: ImageValidationOptions = {}
 ): ValidationResult {
@@ -51,7 +51,7 @@ export function validateImageFile(
 /**
  * Validate image dimensions
  */
-export async function validateImageDimensions(
+async function validateImageDimensions(
   file: File,
   options: ImageValidationOptions = {}
 ): Promise<ValidationResult> {
@@ -130,18 +130,6 @@ export async function validateImage(
   }
 
   return { valid: true };
-}
-
-/**
- * Convert file to ArrayBuffer for server upload
- */
-export async function fileToArrayBuffer(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = reject;
-    reader.readAsArrayBuffer(file);
-  });
 }
 
 /**

@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { formatCurrency } from '@/lib/utils';
 
 type DonationType = 'OPERATING' | 'LENDING' | 'ZAKAT' | 'SADAQAH';
 
@@ -202,13 +203,6 @@ export default function AdminDonationsPage() {
     },
   ];
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      style: 'currency',
-      currency: 'BDT',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const getFundLabel = (type: DonationType) => {
     const labels = {
@@ -306,7 +300,7 @@ export default function AdminDonationsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট তহবিল' : 'Total Funds'}</p>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(totalBalance)}</p>
+                <p className="text-2xl font-bold text-primary">{formatCurrency(totalBalance, locale)}</p>
               </div>
               <Wallet className="h-8 w-8 text-primary" />
             </div>
@@ -327,7 +321,7 @@ export default function AdminDonationsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">{getFundLabel(fund.type)}</p>
-                    <p className="text-xl font-bold">{formatCurrency(fund.balance)}</p>
+                    <p className="text-xl font-bold">{formatCurrency(fund.balance, locale)}</p>
                   </div>
                   <div className={`h-10 w-10 rounded-full flex items-center justify-center ${getFundColor(fund.type)}`}>
                     <Icon className="h-5 w-5" />
@@ -372,7 +366,7 @@ export default function AdminDonationsPage() {
                         {getFundLabel(fund.type)}
                       </CardTitle>
                       <Badge className={getFundColor(fund.type)}>
-                        {formatCurrency(fund.balance)}
+                        {formatCurrency(fund.balance, locale)}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -380,11 +374,11 @@ export default function AdminDonationsPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-green-50 rounded-lg">
                         <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট প্রাপ্ত' : 'Total Received'}</p>
-                        <p className="text-lg font-semibold text-green-600">{formatCurrency(fund.totalReceived)}</p>
+                        <p className="text-lg font-semibold text-green-600">{formatCurrency(fund.totalReceived, locale)}</p>
                       </div>
                       <div className="p-3 bg-purple-50 rounded-lg">
                         <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট বিতরণ' : 'Total Disbursed'}</p>
-                        <p className="text-lg font-semibold text-purple-600">{formatCurrency(fund.totalDisbursed)}</p>
+                        <p className="text-lg font-semibold text-purple-600">{formatCurrency(fund.totalDisbursed, locale)}</p>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-3">
@@ -460,7 +454,7 @@ export default function AdminDonationsPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-bold text-green-600">+{formatCurrency(donation.amount)}</p>
+                      <p className="text-xl font-bold text-green-600">+{formatCurrency(donation.amount, locale)}</p>
                     </div>
                   </div>
                 ))}
@@ -513,7 +507,7 @@ export default function AdminDonationsPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-bold text-purple-600">-{formatCurrency(disbursement.amount)}</p>
+                      <p className="text-xl font-bold text-purple-600">-{formatCurrency(disbursement.amount, locale)}</p>
                     </div>
                   </div>
                 ))}
