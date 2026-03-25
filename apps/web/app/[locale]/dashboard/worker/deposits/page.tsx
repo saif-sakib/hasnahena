@@ -5,7 +5,7 @@ import { useLocale } from 'next-intl';
 import {
   Wallet,
   Search,
-  Plus,
+  Info,
   Calendar,
   User,
   CheckCircle2,
@@ -20,24 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL';
 type TransactionStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED';
@@ -56,24 +39,10 @@ interface DepositTransaction {
   notes?: string;
 }
 
-interface Member {
-  id: string;
-  name: string;
-  phone: string;
-  currentDeposit: number;
-}
-
 export default function WorkerDepositsPage() {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showNewDepositModal, setShowNewDepositModal] = useState(false);
-  const [showNewWithdrawalModal, setShowNewWithdrawalModal] = useState(false);
-
-  // Form state
-  const [selectedMember, setSelectedMember] = useState<string>('');
-  const [amount, setAmount] = useState('');
-  const [notes, setNotes] = useState('');
 
   // Mock data
   const transactions: DepositTransaction[] = [
@@ -138,13 +107,6 @@ export default function WorkerDepositsPage() {
     },
   ];
 
-  const members: Member[] = [
-    { id: 'm1', name: 'আব্দুল করিম', phone: '01712345678', currentDeposit: 85000 },
-    { id: 'm2', name: 'ফাতেমা বেগম', phone: '01812345678', currentDeposit: 120000 },
-    { id: 'm3', name: 'রহিম উদ্দিন', phone: '01912345678', currentDeposit: 45000 },
-    { id: 'm4', name: 'সাদিয়া আক্তার', phone: '01612345678', currentDeposit: 95000 },
-    { id: 'm5', name: 'জাকির হোসেন', phone: '01512345678', currentDeposit: 75000 },
-  ];
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -224,24 +186,6 @@ export default function WorkerDepositsPage() {
   const pendingCount = transactions.filter((t) => t.status === 'PENDING').length;
   const disputedCount = transactions.filter((t) => t.status === 'DISPUTED').length;
 
-  const handleNewDeposit = () => {
-    console.log('New deposit:', { memberId: selectedMember, amount, notes });
-    setShowNewDepositModal(false);
-    resetForm();
-  };
-
-  const handleNewWithdrawal = () => {
-    console.log('New withdrawal:', { memberId: selectedMember, amount, notes });
-    setShowNewWithdrawalModal(false);
-    resetForm();
-  };
-
-  const resetForm = () => {
-    setSelectedMember('');
-    setAmount('');
-    setNotes('');
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -252,19 +196,13 @@ export default function WorkerDepositsPage() {
           </h1>
           <p className="text-muted-foreground">
             {locale === 'bn'
-              ? 'সদস্যদের জমা ও উত্তোলন প্রসেস করুন'
-              : 'Process member deposits and withdrawals'}
+              ? 'সদস্যদের জমা/উত্তোলনের স্ট্যাটাস দেখুন (সদস্য নিজেরাই অনুরোধ করে)'
+              : 'View member deposit/withdrawal statuses (requests are member-initiated)'}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowNewWithdrawalModal(true)}>
-            <ArrowUpRight className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}
-          </Button>
-          <Button onClick={() => setShowNewDepositModal(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'জমা গ্রহণ' : 'Accept Deposit'}
-          </Button>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-center gap-2">
+          <Info className="h-4 w-4" />
+          <span>{locale === 'bn' ? 'ম্যানুয়াল এন্ট্রি নিষ্ক্রিয়' : 'Manual entry disabled'}</span>
         </div>
       </div>
 
@@ -319,7 +257,7 @@ export default function WorkerDepositsPage() {
       {/* Tabs and Search */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <TabsList>
+          <TabsList className="w-full overflow-x-auto justify-start">
             <TabsTrigger value="all">{locale === 'bn' ? 'সব' : 'All'}</TabsTrigger>
             <TabsTrigger value="deposits">{locale === 'bn' ? 'জমা' : 'Deposits'}</TabsTrigger>
             <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</TabsTrigger>
@@ -432,137 +370,6 @@ export default function WorkerDepositsPage() {
         </Card>
       </Tabs>
 
-      {/* New Deposit Modal */}
-      <Dialog open={showNewDepositModal} onOpenChange={setShowNewDepositModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'নতুন জমা গ্রহণ' : 'Accept New Deposit'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? 'সদস্যের কাছ থেকে জমা গ্রহণ করুন' : 'Accept deposit from member'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>{locale === 'bn' ? 'সদস্য নির্বাচন করুন' : 'Select Member'}</Label>
-              <Select value={selectedMember} onValueChange={setSelectedMember}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder={locale === 'bn' ? 'সদস্য নির্বাচন...' : 'Select member...'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {members.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
-                      {member.name} ({member.phone})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {selectedMember && (
-              <div className="p-3 bg-slate-50 rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'বর্তমান জমা:' : 'Current Deposit:'}{' '}
-                  <span className="font-medium text-green-600">
-                    {formatCurrency(members.find((m) => m.id === selectedMember)?.currentDeposit || 0)}
-                  </span>
-                </p>
-              </div>
-            )}
-            <div>
-              <Label>{locale === 'bn' ? 'জমার পরিমাণ (টাকা)' : 'Deposit Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional notes...'}
-                className="mt-1"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewDepositModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleNewDeposit} disabled={!selectedMember || !amount}>
-              {locale === 'bn' ? 'জমা গ্রহণ করুন' : 'Accept Deposit'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* New Withdrawal Modal */}
-      <Dialog open={showNewWithdrawalModal} onOpenChange={setShowNewWithdrawalModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'উত্তোলন প্রসেস' : 'Process Withdrawal'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? 'সদস্যের উত্তোলন প্রসেস করুন' : 'Process member withdrawal'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>{locale === 'bn' ? 'সদস্য নির্বাচন করুন' : 'Select Member'}</Label>
-              <Select value={selectedMember} onValueChange={setSelectedMember}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder={locale === 'bn' ? 'সদস্য নির্বাচন...' : 'Select member...'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {members.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
-                      {member.name} ({member.phone})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {selectedMember && (
-              <div className="p-3 bg-slate-50 rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'উত্তোলনযোগ্য:' : 'Available:'}{' '}
-                  <span className="font-medium text-green-600">
-                    {formatCurrency(members.find((m) => m.id === selectedMember)?.currentDeposit || 0)}
-                  </span>
-                </p>
-              </div>
-            )}
-            <div>
-              <Label>{locale === 'bn' ? 'উত্তোলনের পরিমাণ (টাকা)' : 'Withdrawal Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={locale === 'bn' ? 'উত্তোলনের কারণ...' : 'Reason for withdrawal...'}
-                className="mt-1"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewWithdrawalModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleNewWithdrawal} disabled={!selectedMember || !amount}>
-              {locale === 'bn' ? 'উত্তোলন প্রসেস' : 'Process Withdrawal'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -236,13 +236,13 @@ export default function WorkerRequestsPage() {
         </h1>
         <p className="text-muted-foreground">
           {locale === 'bn'
-            ? 'সদস্যদের জমা, উত্তোলন এবং ঋণ কিস্তি প্রক্রিয়াকরণ'
-            : 'Process member deposits, withdrawals, and loan payments'}
+            ? 'শুধু সদস্য-উদ্যোগে করা অনুরোধগুলো রিভিউ করুন'
+            : 'Review only member-initiated requests'}
         </p>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {[
           { key: 'ALL', label: locale === 'bn' ? 'সব' : 'All', color: 'bg-slate-100 text-slate-700' },
           { key: 'DEPOSIT', label: locale === 'bn' ? 'জমা' : 'Deposits', color: 'bg-green-100 text-green-700' },
@@ -355,23 +355,23 @@ export default function WorkerRequestsPage() {
                               : 'Initial Deposit'}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => handleProcess(request, 'reject')}
-                    >
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleProcess(request, 'approve')}
-                    >
-                      <CheckCircle2 className="h-4 w-4 mr-1" />
-                      {locale === 'bn' ? 'প্রসেস' : 'Process'}
-                    </Button>
-                  </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => handleProcess(request, 'reject')}
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleProcess(request, 'approve')}
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                        {locale === 'bn' ? 'রিভিউ' : 'Review'}
+                      </Button>
+                    </div>
                 </div>
               </div>
             ))}
