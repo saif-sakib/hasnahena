@@ -1,14 +1,22 @@
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 interface AuditLogInput {
   action: string;
   entityType: string;
   entityId: string;
   userId: string;
-  oldValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
+  oldValue?: Prisma.InputJsonValue | null;
+  newValue?: Prisma.InputJsonValue | null;
   userIp?: string;
   userAgent?: string;
+}
+
+function toNullableJsonInput(
+  value: Prisma.InputJsonValue | null | undefined
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === null) return Prisma.JsonNull;
+  return value;
 }
 
 export async function createAuditLog(input: AuditLogInput) {
@@ -18,8 +26,8 @@ export async function createAuditLog(input: AuditLogInput) {
       entityType: input.entityType,
       entityId: input.entityId,
       userId: input.userId,
-      oldValue: input.oldValue ?? undefined,
-      newValue: input.newValue ?? undefined,
+      oldValue: toNullableJsonInput(input.oldValue),
+      newValue: toNullableJsonInput(input.newValue),
       userIp: input.userIp,
       userAgent: input.userAgent,
     },

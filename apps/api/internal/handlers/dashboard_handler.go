@@ -453,6 +453,8 @@ func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request)
 	filters := map[string]interface{}{
 		"type":   r.URL.Query().Get("type"),
 		"search": r.URL.Query().Get("search"),
+		"page":   r.URL.Query().Get("page"),
+		"limit":  r.URL.Query().Get("limit"),
 	}
 
 	data, err := h.userRepo.GetAllDeposits(r.Context(), filters)
@@ -478,6 +480,8 @@ func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
 	filters := map[string]interface{}{
 		"status": r.URL.Query().Get("status"),
 		"search": r.URL.Query().Get("search"),
+		"page":   r.URL.Query().Get("page"),
+		"limit":  r.URL.Query().Get("limit"),
 	}
 
 	data, err := h.userRepo.GetAllLoans(r.Context(), filters)
