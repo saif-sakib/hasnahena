@@ -107,14 +107,22 @@ export default function AdminSettingsPage() {
     passwordExpiry: 90,
     loginAttempts: 5,
   });
+  const [supportRetentionDays, setSupportRetentionDays] = useState(10);
 
   // Landing Page Settings (Dynamic Content)
   const [landingSettings, setLandingSettings] = useState<Record<string, string>>({
     'hero.tagline': '',
     'navigation.features': '',
+    'navigation.donate': '',
     'features.title': '',
     'auth.welcomeBack': '',
     'contact.title': '',
+    'donation.title': '',
+    'donation.subtitle': '',
+    'donation.bkash': '',
+    'donation.nagad': '',
+    'donation.rocket': '',
+    'donation.referenceNote': '',
     'branding.logo': '',
     'branding.dashboardLogo': '',
     'branding.favicon': '',
@@ -150,6 +158,12 @@ export default function AdminSettingsPage() {
             website: data['org.website'] || '',
             description: data['org.description'] || '',
           });
+        }
+        if (data['support.chatRetentionDays']) {
+          const parsed = Number(data['support.chatRetentionDays']);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            setSupportRetentionDays(parsed);
+          }
         }
       }
     } catch (error) {
@@ -278,6 +292,7 @@ export default function AdminSettingsPage() {
         'org.address': orgSettings.address,
         'org.website': orgSettings.website,
         'org.description': orgSettings.description,
+        'support.chatRetentionDays': String(supportRetentionDays),
       };
 
       const authToken = getAuthToken();
@@ -504,6 +519,16 @@ export default function AdminSettingsPage() {
                   </div>
 
                   <div className="space-y-2">
+                    <Label>Navigation Donate Label</Label>
+                    <Input
+                      value={landingSettings['navigation.donate']}
+                      onChange={(e) => setLandingSettings({ ...landingSettings, 'navigation.donate': e.target.value })}
+                      placeholder="e.g. Donate"
+                    />
+                    <p className="text-xs text-muted-foreground">The menu item text for the Donate section.</p>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label>Features Section Title</Label>
                     <Input
                       value={landingSettings['features.title']}
@@ -518,6 +543,65 @@ export default function AdminSettingsPage() {
                       value={landingSettings['contact.title']}
                       onChange={(e) => setLandingSettings({ ...landingSettings, 'contact.title': e.target.value })}
                       placeholder="e.g. Contact Us"
+                    />
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label>Donate Section Title</Label>
+                    <Input
+                      value={landingSettings['donation.title']}
+                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.title': e.target.value })}
+                      placeholder="e.g. Donate to Support Our Mission"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Donate Section Subtitle</Label>
+                    <Input
+                      value={landingSettings['donation.subtitle']}
+                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.subtitle': e.target.value })}
+                      placeholder="e.g. Send your donation through the following channels"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>bKash Number</Label>
+                      <Input
+                        value={landingSettings['donation.bkash']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.bkash': e.target.value })}
+                        placeholder="+8801XXXXXXXXX"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Nagad Number</Label>
+                      <Input
+                        value={landingSettings['donation.nagad']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.nagad': e.target.value })}
+                        placeholder="+8801XXXXXXXXX"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Rocket Number</Label>
+                      <Input
+                        value={landingSettings['donation.rocket']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.rocket': e.target.value })}
+                        placeholder="+8801XXXXXXXXX"
+                      />
+                    </div>
+                  </div>
+
+                    <div className="space-y-2">
+                      <Label>Donation Reference Note</Label>
+                      <Textarea
+                      value={landingSettings['donation.referenceNote']}
+                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.referenceNote': e.target.value })}
+                      rows={3}
+                      placeholder="e.g. Please mention your name, address and mobile number in reference..."
                     />
                   </div>
 
@@ -597,6 +681,23 @@ export default function AdminSettingsPage() {
                         )}
                       </div>
                     </div>
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label>Support Chat Retention Days</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={supportRetentionDays}
+                      onChange={(e) => setSupportRetentionDays(Number(e.target.value) || 1)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {locale === 'bn'
+                        ? 'এই দিনের বেশি পুরনো সাপোর্ট কথোপকথন স্বয়ংক্রিয়ভাবে মুছে যাবে'
+                        : 'Support conversations older than this many days will be removed automatically'}
+                    </p>
+                  </div>
 
                     <div className="space-y-2">
                       <Label>{locale === 'bn' ? 'হিরো ব্যাকগ্রাউন্ড ইমেজ' : 'Hero Background Image'}</Label>

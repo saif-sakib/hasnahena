@@ -23,8 +23,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { getValidatedClientToken } from '@/lib/client-auth';
 
-type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT';
+type KnownTransactionType =
+  | 'DEPOSIT'
+  | 'WITHDRAWAL'
+  | 'LOAN_DISBURSEMENT'
+  | 'LOAN_REPAYMENT'
+  | 'DONATION'
+  | 'FEE';
+type TransactionType = KnownTransactionType | string;
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
 interface Transaction {
@@ -56,7 +64,7 @@ export default function TransactionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
-    const token = localStorage.getItem('hn_access_token');
+    const token = getValidatedClientToken();
     if (!token) {
       router.push(`/${locale}/login`);
       return;
@@ -98,7 +106,7 @@ export default function TransactionsPage() {
   };
 
   const getTransactionTypeInfo = (type: TransactionType) => {
-    const info: Record<TransactionType, { bn: string; en: string; icon: typeof ArrowUpRight; color: string; bgColor: string }> = {
+    const info: Record<KnownTransactionType, { bn: string; en: string; icon: typeof ArrowUpRight; color: string; bgColor: string }> = {
       DEPOSIT: {
         bn: 'জমা',
         en: 'Deposit',
@@ -127,8 +135,28 @@ export default function TransactionsPage() {
         color: 'text-amber-600',
         bgColor: 'bg-amber-100',
       },
+      DONATION: {
+        bn: 'দান',
+        en: 'Donation',
+        icon: ArrowUpRight,
+        color: 'text-teal-600',
+        bgColor: 'bg-teal-100',
+      },
+      FEE: {
+        bn: 'ফি',
+        en: 'Fee',
+        icon: ArrowDownRight,
+        color: 'text-slate-600',
+        bgColor: 'bg-slate-100',
+      },
     };
-    return info[type];
+    return info[type as KnownTransactionType] ?? {
+      bn: 'অন্যান্য',
+      en: type.replace(/_/g, ' '),
+      icon: ArrowUpRight,
+      color: 'text-slate-600',
+      bgColor: 'bg-slate-100',
+    };
   };
 
   const getStatusLabel = (status: TransactionStatus) => {
@@ -182,7 +210,7 @@ export default function TransactionsPage() {
     e.preventDefault();
     void (async () => {
       setActionError(null);
-      const token = localStorage.getItem('hn_access_token');
+      const token = getValidatedClientToken();
       if (!token) {
         router.push(`/${locale}/login`);
         return;
@@ -395,7 +423,7 @@ export default function TransactionsPage() {
                           onClick={() => {
                             void (async () => {
                               setActionError(null);
-                              const token = localStorage.getItem('hn_access_token');
+                              const token = getValidatedClientToken();
                               if (!token) {
                                 router.push(`/${locale}/login`);
                                 return;

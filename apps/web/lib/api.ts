@@ -1,12 +1,11 @@
+import { getValidatedClientToken } from '@/lib/client-auth';
+
 export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 }
 
 export function getAccessToken(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  return localStorage.getItem('hn_access_token');
+  return getValidatedClientToken();
 }
 
 async function parsePayload(response: Response): Promise<any> {

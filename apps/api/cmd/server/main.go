@@ -44,6 +44,9 @@ func main() {
 	defer dbPool.Close()
 
 	userRepo := repositories.NewUserRepository(dbPool)
+	if err := userRepo.EnsureSupportSchema(context.Background()); err != nil {
+		log.Fatalf("failed to ensure support schema: %v", err)
+	}
 	authService := services.NewAuthService(userRepo, config.JWTSecret, config.JWTExpiry)
 	authHandler := handlers.NewAuthHandler(authService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, userRepo)
@@ -71,6 +74,13 @@ func main() {
 			dashboard.Get("/notifications", dashboardHandler.Notifications)
 			dashboard.Patch("/notifications", dashboardHandler.Notifications)
 			dashboard.Put("/password", dashboardHandler.ChangePassword)
+			dashboard.Get("/support/config", dashboardHandler.SupportConfig)
+			dashboard.Put("/support/config", dashboardHandler.SupportConfig)
+			dashboard.Get("/support/threads", dashboardHandler.SupportThreads)
+			dashboard.Get("/support/messages", dashboardHandler.SupportMessages)
+			dashboard.Post("/support/messages", dashboardHandler.SupportSendMessage)
+			dashboard.Post("/support/threads/processed", dashboardHandler.SupportMarkProcessed)
+			dashboard.Get("/support/stream", dashboardHandler.SupportStream)
 			dashboard.Get("/member/deposits", dashboardHandler.MemberDeposits)
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)

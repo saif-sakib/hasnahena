@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"hasnahena/apps/api/internal/repositories"
 	"hasnahena/apps/api/internal/services"
@@ -201,6 +202,11 @@ func (h *DashboardHandler) AdminWorkers(w http.ResponseWriter, r *http.Request) 
 
 func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader == "" {
+		if tokenQuery := strings.TrimSpace(r.URL.Query().Get("access_token")); tokenQuery != "" {
+			authHeader = "Bearer " + tokenQuery
+		}
+	}
 	if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
 		return nil, errors.New("missing bearer token")
 	}
@@ -229,10 +235,22 @@ func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error
 	if !ok || strings.TrimSpace(role) == "" {
 		return nil, errors.New("invalid role claim")
 	}
+	role = strings.ToUpper(strings.TrimSpace(role))
+
+	dbRole, dbStatus, err := h.userRepo.GetUserRoleStatus(r.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	if dbStatus != "ACTIVE" {
+		return nil, errors.New("user not active")
+	}
+	if dbRole != role {
+		return nil, errors.New("role mismatch")
+	}
 
 	return &authContext{
 		UserID: userID,
-		Role:   strings.ToUpper(strings.TrimSpace(role)),
+		Role:   role,
 	}, nil
 }
 
@@ -751,6 +769,190 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 	}
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
+}
+
+func (h *DashboardHandler) SupportConfig(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		retentionDays, _ := h.userRepo.GetSupportRetentionDays(r.Context())
+		utils.Success(w, http.StatusOK, map[string]interface{}{
+			"retentionDays": retentionDays,
+		})
+		return
+	case http.MethodPut:
+		if auth.Role != "ADMIN" && auth.Role != "SUPER_ADMIN" {
+			utils.Error(w, http.StatusForbidden, "AUTH_FORBIDDEN", "Insufficient permissions")
+			return
+		}
+		var req struct {
+			RetentionDays int `json:"retentionDays"`
+		}
+		if err := utils.ParseJSON(r, &req); err != nil {
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if req.RetentionDays < 1 {
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "retentionDays must be at least 1")
+			return
+		}
+		if err := h.userRepo.SetSupportRetentionDays(r.Context(), req.RetentionDays); err != nil {
+			utils.Error(w, http.StatusInternalServerError, "SUPPORT_CONFIG_UPDATE_FAILED", "Failed to update support config")
+			return
+		}
+		utils.Success(w, http.StatusOK, map[string]interface{}{"retentionDays": req.RetentionDays})
+		return
+	default:
+		utils.Error(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+}
+
+func (h *DashboardHandler) SupportThreads(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+	_ = h.userRepo.PurgeExpiredSupportData(r.Context())
+
+	threads, err := h.userRepo.GetSupportThreads(r.Context(), auth.UserID, auth.Role)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "SUPPORT_THREADS_FETCH_FAILED", "Failed to load support threads")
+		return
+	}
+	utils.Success(w, http.StatusOK, threads)
+}
+
+func (h *DashboardHandler) SupportMessages(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+	threadID := strings.TrimSpace(r.URL.Query().Get("threadId"))
+	if threadID == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "threadId is required")
+		return
+	}
+	messages, err := h.userRepo.GetSupportMessages(r.Context(), auth.UserID, auth.Role, threadID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "SUPPORT_MESSAGES_FETCH_FAILED", "Failed to load support messages")
+		return
+	}
+	utils.Success(w, http.StatusOK, messages)
+}
+
+func (h *DashboardHandler) SupportSendMessage(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		ThreadID string `json:"threadId"`
+		Message  string `json:"message"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	threadID, err := h.userRepo.AddSupportMessage(
+		r.Context(),
+		auth.UserID,
+		auth.Role,
+		strings.TrimSpace(req.ThreadID),
+		strings.TrimSpace(req.Message),
+	)
+	if err != nil {
+		utils.Error(w, http.StatusBadRequest, "SUPPORT_SEND_FAILED", err.Error())
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{
+		"threadId": threadID,
+		"message":  "Support message sent",
+	})
+}
+
+func (h *DashboardHandler) SupportMarkProcessed(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		ThreadID string `json:"threadId"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if err := h.userRepo.MarkSupportThreadProcessed(r.Context(), auth.UserID, auth.Role, strings.TrimSpace(req.ThreadID)); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "forbidden") {
+			utils.Error(w, http.StatusForbidden, "AUTH_FORBIDDEN", "Insufficient permissions")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "SUPPORT_PROCESS_FAILED", "Failed to mark thread processed")
+		return
+	}
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Support thread marked processed"})
+}
+
+func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+
+	threadID := strings.TrimSpace(r.URL.Query().Get("threadId"))
+	if threadID == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "threadId is required")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		utils.Error(w, http.StatusInternalServerError, "STREAM_NOT_SUPPORTED", "Streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	lastCount := -1
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	send := func() bool {
+		messages, err := h.userRepo.GetSupportMessages(r.Context(), auth.UserID, auth.Role, threadID)
+		if err != nil {
+			return false
+		}
+		if len(messages) != lastCount {
+			lastCount = len(messages)
+			_, _ = w.Write([]byte("event: update\n"))
+			_, _ = w.Write([]byte("data: messages\n\n"))
+			flusher.Flush()
+		}
+		return true
+	}
+
+	if !send() {
+		return
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if !send() {
+				return
+			}
+		}
+	}
 }
 
 // ==================== WORKER HANDLERS ====================
