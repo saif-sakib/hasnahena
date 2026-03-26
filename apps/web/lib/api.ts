@@ -4,6 +4,22 @@ export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 }
 
+function normalizePath(path: string): string {
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
+function shouldProxy(path: string): boolean {
+  return path.startsWith('/v1/dashboard/support');
+}
+
+function getRequestUrl(path: string): string {
+  const normalizedPath = normalizePath(path);
+  if (typeof window !== 'undefined' && shouldProxy(normalizedPath)) {
+    return `/api${normalizedPath}`;
+  }
+  return `${getApiBaseUrl()}${normalizedPath}`;
+}
+
 export function getAccessToken(): string | null {
   return getValidatedClientToken();
 }
@@ -18,7 +34,7 @@ async function parsePayload(response: Response): Promise<any> {
 
 async function apiRequest<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH', body?: Record<string, unknown>): Promise<T> {
   const token = getAccessToken();
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetch(getRequestUrl(path), {
     method,
     headers: {
       'Content-Type': 'application/json',

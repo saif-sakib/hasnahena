@@ -157,6 +157,7 @@ export function AvatarUpload({
               src={avatarUrl}
               alt={userName}
               fill
+              sizes={size === 'sm' ? '48px' : size === 'md' ? '64px' : size === 'lg' ? '96px' : '128px'}
               className="object-cover"
               unoptimized={avatarUrl.startsWith('blob:')}
             />

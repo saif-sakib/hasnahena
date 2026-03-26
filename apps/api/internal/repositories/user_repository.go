@@ -84,6 +84,7 @@ type SupportThread struct {
 	MemberName     string `json:"memberName"`
 	Status         string `json:"status"`
 	LatestMessage  string `json:"latestMessage"`
+	LatestSenderRole string `json:"latestSenderRole"`
 	LatestAt       string `json:"latestAt"`
 	UpdatedAt      string `json:"updatedAt"`
 	DeleteAt       string `json:"deleteAt"`
@@ -431,8 +432,12 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE support_threads
-		SET "deleteAt" = "updatedAt" + make_interval(days => $1::int)
+		UPDATE support_threads st
+		SET "deleteAt" = COALESCE((
+			SELECT MAX(sm."createdAt")
+			FROM support_messages sm
+			WHERE sm."threadId" = st.id
+		), st."updatedAt") + make_interval(days => $1::int)
 	`, days); err != nil {
 		return err
 	}
@@ -476,8 +481,38 @@ func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
 }
 
 func (r *UserRepository) PurgeExpiredSupportData(ctx context.Context) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM support_threads WHERE "deleteAt" <= NOW()`)
-	return err
+	retentionDays, _ := r.GetSupportRetentionDays(ctx)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM support_messages
+		WHERE "createdAt" <= NOW() - make_interval(days => $1::int)
+	`, retentionDays); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE support_threads st
+		SET
+			"updatedAt" = COALESCE((
+				SELECT MAX(sm."createdAt")
+				FROM support_messages sm
+				WHERE sm."threadId" = st.id
+			), st."updatedAt"),
+			"deleteAt" = COALESCE((
+				SELECT MAX(sm."createdAt")
+				FROM support_messages sm
+				WHERE sm."threadId" = st.id
+			), st."updatedAt") + make_interval(days => $1::int)
+	`, retentionDays); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) ensureMemberSupportThread(ctx context.Context, memberUserID string) (string, error) {
@@ -521,7 +556,6 @@ func (r *UserRepository) AddSupportMessage(
 	}
 
 	role := strings.ToUpper(strings.TrimSpace(actorRole))
-	var memberUserID string
 
 	if role == "MEMBER" {
 		var err error
@@ -529,12 +563,12 @@ func (r *UserRepository) AddSupportMessage(
 		if err != nil {
 			return "", err
 		}
-		memberUserID = actorUserID
 	} else {
 		if strings.TrimSpace(threadID) == "" {
 			return "", errors.New("threadId is required")
 		}
-		if err := r.db.QueryRow(ctx, `SELECT "memberUserId" FROM support_threads WHERE id = $1`, threadID).Scan(&memberUserID); err != nil {
+		var existingMemberID string
+		if err := r.db.QueryRow(ctx, `SELECT "memberUserId" FROM support_threads WHERE id = $1`, threadID).Scan(&existingMemberID); err != nil {
 			return "", err
 		}
 	}
@@ -572,40 +606,6 @@ func (r *UserRepository) AddSupportMessage(
 		return "", err
 	}
 
-	actorName := actorRole
-	if err := tx.QueryRow(ctx, `SELECT COALESCE("nameEn", "nameBn", '') FROM users WHERE id = $1`, actorUserID).Scan(&actorName); err != nil {
-		actorName = actorRole
-	}
-
-	notificationID, idErr := newID("notif")
-	if idErr == nil {
-		if role == "MEMBER" {
-			_, _ = tx.Exec(ctx, `
-				INSERT INTO notifications (id, type, title, message, "targetRole", "isRead", "createdAt")
-				VALUES ($1, 'SYSTEM_ALERT', 'Support message received', $2, 'ADMIN', FALSE, NOW())
-			`, notificationID, fmt.Sprintf("%s: %s", actorName, message))
-			notificationID2, idErr2 := newID("notif")
-			if idErr2 == nil {
-				_, _ = tx.Exec(ctx, `
-					INSERT INTO notifications (id, type, title, message, "targetRole", "isRead", "createdAt")
-					VALUES ($1, 'SYSTEM_ALERT', 'Support message received', $2, 'SUPER_ADMIN', FALSE, NOW())
-				`, notificationID2, fmt.Sprintf("%s: %s", actorName, message))
-			}
-			notificationID3, idErr3 := newID("notif")
-			if idErr3 == nil {
-				_, _ = tx.Exec(ctx, `
-					INSERT INTO notifications (id, type, title, message, "targetRole", "isRead", "createdAt")
-					VALUES ($1, 'SYSTEM_ALERT', 'Support message received', $2, 'WORKER', FALSE, NOW())
-				`, notificationID3, fmt.Sprintf("%s: %s", actorName, message))
-			}
-		} else {
-			_, _ = tx.Exec(ctx, `
-				INSERT INTO notifications (id, type, title, message, "targetUserId", "isRead", "createdAt")
-				VALUES ($1, 'SYSTEM_ALERT', 'Support reply received', $2, $3, FALSE, NOW())
-			`, notificationID, fmt.Sprintf("%s: %s", actorName, message), memberUserID)
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -639,6 +639,14 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 				ORDER BY sm."createdAt" DESC
 				LIMIT 1
 			), st."updatedAt") as latest_at,
+			COALESCE((
+				SELECT UPPER(u2.role::text)
+				FROM support_messages sm
+				JOIN users u2 ON u2.id = sm."senderUserId"
+				WHERE sm."threadId" = st.id
+				ORDER BY sm."createdAt" DESC
+				LIMIT 1
+			), '') as latest_sender_role,
 			st."updatedAt",
 			st."deleteAt",
 			COALESCE(proc."nameEn", proc."nameBn", ''),
@@ -681,6 +689,7 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 			&item.Status,
 			&item.LatestMessage,
 			&latestAt,
+			&item.LatestSenderRole,
 			&updatedAt,
 			&deleteAt,
 			&item.ProcessedBy,

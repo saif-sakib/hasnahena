@@ -831,6 +831,7 @@ func (h *DashboardHandler) SupportMessages(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	_ = h.userRepo.PurgeExpiredSupportData(r.Context())
 	threadID := strings.TrimSpace(r.URL.Query().Get("threadId"))
 	if threadID == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "threadId is required")
