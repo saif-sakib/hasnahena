@@ -136,9 +136,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       {/* Top Navigation Bar */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 safe-area-top">
         <div className="container-wide flex h-14 items-center justify-between">
           <Link href={`/${locale}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
             <Home className="h-4 w-4" />
@@ -162,7 +162,7 @@ export default function LoginPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex pt-16">
+      <div className="flex-1 flex pt-14">
         {/* Left Panel - Branding */}
         <aside className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between p-16 bg-gradient-to-br from-emerald-800 to-emerald-950">
           <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?q=80&w=2071&auto=format&fit=crop')] bg-cover bg-center opacity-10 mix-blend-overlay"></div>
@@ -195,8 +195,8 @@ export default function LoginPage() {
         </aside>
 
         {/* Right Panel - Login Form */}
-        <main className="flex-1 flex items-center justify-center p-6 sm:p-12 lg:p-24 bg-slate-50 dark:bg-slate-950">
-          <div className="w-full max-w-[400px] animate-in slide-in-from-bottom-5 fade-in duration-700">
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-12 lg:p-24 bg-slate-50 dark:bg-slate-950 overflow-y-auto">
+          <div className="w-full max-w-[400px] animate-in slide-in-from-bottom-5 fade-in duration-700 py-4 sm:py-0">
             {/* Mobile Logo */}
             <div className="lg:hidden mb-10 text-center">
               <Link href={`/${locale}`} className="inline-block">
@@ -337,7 +337,7 @@ export default function LoginPage() {
       </div>
 
       {/* Bottom Footer */}
-      <footer className="bg-white border-t border-slate-100 py-4">
+      <footer className="bg-white border-t border-slate-100 py-4 safe-area-bottom">
         <div className="container-wide flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-muted-foreground">
           <p>© {new Date().getFullYear()} Hasnahena</p>
           <div className="flex gap-4">

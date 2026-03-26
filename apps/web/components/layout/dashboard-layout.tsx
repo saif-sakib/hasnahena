@@ -396,6 +396,15 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     }
   }, [pathname, pendingHref]);
 
+  // Timeout for pending navigation - clear if it takes too long
+  useEffect(() => {
+    if (!pendingHref) return;
+    const timeout = setTimeout(() => {
+      setPendingHref(null);
+    }, 5000); // Clear after 5 seconds max
+    return () => clearTimeout(timeout);
+  }, [pendingHref]);
+
   const markNotificationAsRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((notification) =>
@@ -531,6 +540,26 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     scrollSupportToBottom();
   }, [showSupportPopup, activeSupportThreadId, supportMessages, scrollSupportToBottom]);
 
+  // Handle iOS visual viewport changes (keyboard open/close)
+  useEffect(() => {
+    if (!showSupportPopup) return;
+    
+    const handleViewportResize = () => {
+      // On iOS, when keyboard opens, visualViewport height decreases
+      // Scroll to bottom to keep messages visible
+      if (activeSupportThreadId) {
+        scrollSupportToBottom();
+      }
+    };
+
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+      return () => {
+        window.visualViewport?.removeEventListener('resize', handleViewportResize);
+      };
+    }
+  }, [showSupportPopup, activeSupportThreadId, scrollSupportToBottom]);
+
   const openThread = (thread: SupportThreadItem) => {
     setActiveSupportThreadId(thread.id);
     markSupportSeen(thread.id, thread.latestAt);
@@ -622,7 +651,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-emerald-800 to-emerald-900 text-white transform transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-emerald-800 to-emerald-900 text-white transform lg:transform-none lg:transition-none transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -671,19 +700,22 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   <Link
                     key={item.name}
                     href={href}
+                    prefetch={true}
                     className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-all ${
                       isActive
                         ? 'bg-white text-emerald-800 shadow-lg'
                         : 'text-emerald-100 hover:bg-white/10 hover:text-white'
                     }`}
                     onClick={() => {
-                      setPendingHref(href);
+                      if (pathname !== href) {
+                        setPendingHref(href);
+                      }
                       setSidebarOpen(false);
                     }}
                   >
                     <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
                     {locale === 'bn' ? item.bn : item.en}
-                    {pendingHref === href ? <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+                    {pendingHref === href && pathname !== href ? <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
                   </Link>
                 );
               })}
@@ -881,21 +913,19 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 <>
                   {/* Mobile Backdrop */}
                   <div
-                    className="fixed inset-0 bg-black/20 z-[60] sm:hidden"
+                    className="fixed inset-0 bg-black/30 z-[60] sm:hidden"
                     onClick={closeSupportPopup}
                   />
 
-                  {/* Support Popup */}
+                  {/* Support Popup - Full height on mobile, dropdown on desktop */}
                   <div
-                    className="fixed left-0 right-0 top-0 bottom-0 z-[70] flex flex-col bg-white dark:bg-slate-900 sm:absolute sm:left-auto sm:top-full sm:bottom-auto sm:right-0 sm:mt-2 sm:w-[380px] sm:max-w-[calc(100vw-2rem)] sm:h-auto sm:max-h-[min(520px,calc(100vh-8rem))] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-slate-200 dark:sm:border-slate-700"
-                    style={{
-                      // Ensure it's above everything on mobile
-                      position: 'fixed',
-                    }}
+                    className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-slate-900 sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-[380px] sm:max-w-[calc(100vw-2rem)] sm:h-auto sm:max-h-[min(520px,calc(100vh-8rem))] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-slate-200 dark:sm:border-slate-700"
+                    style={{ height: '100dvh' }}
                   >
                     {/* Header */}
                     <div className="flex items-center justify-between h-14 px-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0 safe-area-top">
-                      {activeSupportThreadId && role !== 'member' ? (
+                      {/* Back button - available for all users when viewing a thread */}
+                      {activeSupportThreadId ? (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -945,12 +975,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         </div>
                       </div>
                     ) : activeSupportThreadId ? (
-                      <div className="flex flex-col flex-1 min-h-0">
+                      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
                         {/* Messages Container */}
                         <div
                           ref={supportMessagesRef}
-                          className="flex-1 overflow-y-auto px-3 py-3 bg-slate-50 dark:bg-slate-950/50"
-                          style={{ minHeight: '200px' }}
+                          className="flex-1 overflow-y-auto px-3 py-3 bg-slate-50 dark:bg-slate-950/50 touch-pan-y scroll-touch overscroll-none"
                         >
                           {supportMessages.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center py-8">
@@ -1028,6 +1057,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   void sendSupportMessage();
                                 }
                               }}
+                              onFocus={() => {
+                                // Scroll to bottom when input is focused (keyboard opens)
+                                setTimeout(() => scrollSupportToBottom(), 300);
+                              }}
                               placeholder={locale === 'bn' ? 'বার্তা লিখুন...' : 'Type a message...'}
                               disabled={!activeSupportThreadId && role !== 'member'}
                               className="flex-1 rounded-full bg-slate-100 dark:bg-slate-800 border-0 px-4 h-11 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
@@ -1045,7 +1078,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       </div>
                     ) : (
                       // Thread List
-                      <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900 min-h-[300px] sm:min-h-[400px]">
+                      <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900 touch-pan-y scroll-touch overscroll-none">
                         {supportThreads.length === 0 ? (
                           <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-6 py-8">
                             <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
