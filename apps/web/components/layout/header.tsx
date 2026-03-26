@@ -8,11 +8,17 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { cn } from '@/lib/utils'; // Assuming this utility exists, otherwise check utils
+import {
+  clearClientAuthState,
+  getClientRoleFromToken,
+  getValidatedClientToken,
+} from '@/lib/client-auth';
 
 const navigation = [
   { name: 'home', href: '/' },
   { name: 'about', href: '/#about' },
   { name: 'features', href: '/#features' }, // Added Features link if section exists
+  { name: 'donate', href: '/#donate' },
   { name: 'gallery', href: '/#gallery' },
   { name: 'howItWorks', href: '/#how-it-works' },
   { name: 'contact', href: '/#contact' },
@@ -43,35 +49,9 @@ export function Header({ settings }: HeaderProps) {
   // Check login status from localStorage
   useEffect(() => {
     const checkAuth = () => {
-      const token = typeof window !== 'undefined' 
-        ? localStorage.getItem('hn_access_token') 
-        : null;
+      const token = getValidatedClientToken();
       setIsLoggedIn(!!token);
-
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          
-          // Check for token expiration
-          const now = Math.floor(Date.now() / 1000);
-          if (payload.exp && payload.exp < now) {
-            localStorage.removeItem('hn_access_token');
-            setIsLoggedIn(false);
-            setUserRole('member');
-            window.dispatchEvent(new Event('auth-change'));
-            return;
-          }
-
-          const role = payload.role?.toLowerCase() || 'member';
-          setUserRole(role);
-        } catch (e) {
-          // Invalid token
-          localStorage.removeItem('hn_access_token');
-          setIsLoggedIn(false);
-          setUserRole('member');
-          window.dispatchEvent(new Event('auth-change'));
-        }
-      }
+      setUserRole(token ? getClientRoleFromToken() : 'member');
     };
     
     checkAuth();
@@ -89,11 +69,8 @@ export function Header({ settings }: HeaderProps) {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('hn_access_token');
-    document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    clearClientAuthState();
     setIsLoggedIn(false);
-    // Dispatch custom event for other components
-    window.dispatchEvent(new Event('auth-change'));
     window.location.href = `/${locale}`;
   };
 
@@ -131,7 +108,9 @@ export function Header({ settings }: HeaderProps) {
                 isScrolled ? 'text-slate-600 dark:text-slate-300 hover:text-primary' : 'text-slate-700 dark:text-slate-200 hover:text-primary'
               }`}
             >
-              {(item.name === 'features' && settings?.['navigation.features']) || t(item.name)}
+              {((item.name === 'features' && settings?.['navigation.features']) ||
+                (item.name === 'donate' && settings?.['navigation.donate']) ||
+                t(item.name))}
             </Link>
           ))}
         </div>
@@ -235,7 +214,11 @@ export function Header({ settings }: HeaderProps) {
                 onClick={() => setMobileMenuOpen(false)}
                 style={{ transitionDelay: `${index * 50}ms` }}
               >
-                <span>{(item.name === 'features' && settings?.['navigation.features']) || t(item.name)}</span>
+                <span>
+                  {((item.name === 'features' && settings?.['navigation.features']) ||
+                    (item.name === 'donate' && settings?.['navigation.donate']) ||
+                    t(item.name))}
+                </span>
                 <ChevronRight className="h-5 w-5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-emerald-200" />
               </Link>
             ))}

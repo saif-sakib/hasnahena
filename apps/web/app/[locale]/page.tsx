@@ -31,6 +31,7 @@ export default async function HomePage({ params: { locale } }: { params: { local
   const tGallery = await getTranslations({locale, namespace: 'gallery'});
   const tHowItWorks = await getTranslations({locale, namespace: 'howItWorks'});
   const tContact = await getTranslations({locale, namespace: 'contact'});
+  const tDonation = await getTranslations({locale, namespace: 'donation'});
   
   // Fetch gallery items from DB
   let dbGalleryItems: DbGalleryItem[] = [];
@@ -457,6 +458,56 @@ export default async function HomePage({ params: { locale } }: { params: { local
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="donate" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="container-wide">
+            <div className="text-center mb-12">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
+                {settings['donation.title'] || tDonation('title')}
+              </h2>
+              <p className="text-muted-foreground max-w-2xl mx-auto">
+                {settings['donation.subtitle'] || tDonation('subtitle')}
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {[
+                {
+                  label: tDonation('bkash'),
+                  value: settings['donation.bkash'] || '+880 1XXXXXXXXX',
+                },
+                {
+                  label: tDonation('nagad'),
+                  value: settings['donation.nagad'] || '+880 1XXXXXXXXX',
+                },
+                {
+                  label: tDonation('rocket'),
+                  value: settings['donation.rocket'] || '+880 1XXXXXXXXX',
+                },
+              ].map((item) => (
+                <Card key={item.label} className="text-center hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-6 pb-6">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                      <Wallet className="h-5 w-5 text-primary" />
+                    </div>
+                    <h3 className="font-semibold mb-2">{item.label}</h3>
+                    <p className="text-sm text-muted-foreground">{item.value}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="max-w-4xl mx-auto mt-8">
+              <Card>
+                <CardContent className="pt-6">
+                  <p className="text-sm text-muted-foreground text-center leading-relaxed">
+                    {settings['donation.referenceNote'] || tDonation('referenceNote')}
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </section>

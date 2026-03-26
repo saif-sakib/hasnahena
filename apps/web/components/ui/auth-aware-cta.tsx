@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowRight, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getClientRoleFromToken, getValidatedClientToken } from '@/lib/client-auth';
 
 interface AuthAwareCTAProps {
   locale: string;
@@ -19,20 +20,9 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
 
   useEffect(() => {
     const checkAuth = () => {
-      const token = typeof window !== 'undefined'
-        ? localStorage.getItem('hn_access_token')
-        : null;
+      const token = getValidatedClientToken();
       setIsLoggedIn(!!token);
-      
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          const role = payload.role?.toLowerCase() || 'member';
-          setUserRole(role);
-        } catch (e) {
-          setUserRole('member');
-        }
-      }
+      setUserRole(token ? getClientRoleFromToken() : 'member');
       setIsLoading(false);
     };
 

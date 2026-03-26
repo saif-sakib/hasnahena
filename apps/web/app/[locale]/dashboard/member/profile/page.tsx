@@ -21,6 +21,7 @@ import {
   AlertCircle,
   Check,
   ChevronRight,
+  Lock,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,8 @@ import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { apiGet } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
+import { getValidatedClientToken } from '@/lib/client-auth';
 
 interface UserProfile {
   memberId: string;
@@ -76,6 +79,7 @@ export default function ProfilePage() {
   const [isEditingNominee, setIsEditingNominee] = useState(false);
   const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const emptyAddress: UserProfile['permanentAddress'] = {
     houseNo: '',
@@ -124,7 +128,7 @@ export default function ProfilePage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
-    const token = localStorage.getItem('hn_access_token');
+    const token = getValidatedClientToken();
     if (!token) {
       router.push(`/${locale}/login`);
       return;
@@ -224,7 +228,7 @@ export default function ProfilePage() {
     e.preventDefault();
     void (async () => {
       setActionError(null);
-      const token = localStorage.getItem('hn_access_token');
+      const token = getValidatedClientToken();
       if (!token) {
         router.push(`/${locale}/login`);
         return;
@@ -292,6 +296,10 @@ export default function ProfilePage() {
               </div>
             </div>
             <div className="text-center sm:text-right text-white">
+              <Button variant="secondary" size="sm" className="mb-3" onClick={() => setShowPasswordModal(true)}>
+                <Lock className="h-4 w-4 mr-2" />
+                {locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন' : 'Change Password'}
+              </Button>
               <p className="text-sm opacity-80">{t('memberSince')}</p>
               <p className="font-semibold">{formatDate(profile.memberSince)}</p>
             </div>
@@ -570,6 +578,12 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      <PasswordChangeDialog
+        locale={locale}
+        open={showPasswordModal}
+        onOpenChange={setShowPasswordModal}
+      />
     </div>
   );
 }

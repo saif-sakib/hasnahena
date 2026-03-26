@@ -27,6 +27,7 @@
     "home": "Home",
     "about": "Our Activities",
     "howItWorks": "How It Works",
+    "donate": "Donate",
     "gallery": "Gallery",
     "contact": "Contact",
     "login": "Login",
@@ -164,6 +165,14 @@
     "address": "Address",
     "officeHours": "Office Hours",
     "officeAddress": "493/Belasheshe, Karigorpara, Vekutia, Sadar, Jessore"
+  },
+  "donation": {
+    "title": "Donate",
+    "subtitle": "Support our mission by sending donations through the following channels",
+    "bkash": "bKash",
+    "nagad": "Nagad",
+    "rocket": "Rocket",
+    "referenceNote": "When sending donation, please mention your name, address and mobile number in the reference section, or send these details via email or SMS to this number."
   },
   "auth": {
     "loginTitle": "Welcome Back",

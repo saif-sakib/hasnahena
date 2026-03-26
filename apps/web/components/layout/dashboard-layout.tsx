@@ -25,6 +25,7 @@ import {
   Shield,
   CheckCircle2,
   Image as ImageIcon,
+  MessageCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { apiGet } from '@/lib/api';
 import { getInitials, getAvatarColor } from '@/lib/image-utils';
+import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 import Image from 'next/image';
 
 interface NotificationItem {
@@ -73,6 +75,7 @@ const memberNav = [
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'My Deposits', bn: 'আমার আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'My Loans', bn: 'আমার ঋণ' },
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
+  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Chat', bn: 'সাপোর্ট চ্যাট' },
 ];
 
 // Worker navigation - based on requirements: process requests, manage members, record transactions
@@ -83,6 +86,7 @@ const workerNav = [
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposits', bn: 'আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
+  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Inbox', bn: 'সাপোর্ট ইনবক্স' },
 ];
 
 // Admin navigation - full access: members, workers, approvals, reports, settings
@@ -96,6 +100,7 @@ const adminNav = [
   { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
   { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
   { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
+  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Inbox', bn: 'সাপোর্ট ইনবক্স' },
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
 
@@ -139,8 +144,7 @@ function clearCachedUserInfo() {
 
 function clearAuthState() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('hn_access_token');
-  document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+  clearClientAuthState({ dispatchEvent: false });
   clearCachedUserInfo();
   window.dispatchEvent(new Event('auth-change'));
 }
@@ -171,7 +175,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const loadUserInfo = useCallback(async (forceRefresh = false) => {
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const token = getValidatedClientToken();
       if (!token) {
         clearCachedUserInfo();
         setUserInfo(null);
@@ -276,7 +280,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     // Persist to backend
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const token = getValidatedClientToken();
       if (token) {
         await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
           method: 'PATCH',
@@ -299,7 +303,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     // Persist to backend
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const token = getValidatedClientToken();
       if (token) {
         await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
           method: 'PATCH',
@@ -332,8 +336,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('hn_access_token');
-    document.cookie = 'hn_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    clearClientAuthState({ dispatchEvent: false });
     clearCachedUserInfo(); // Clear user cache on logout
     window.dispatchEvent(new Event('auth-change'));
     toast({
