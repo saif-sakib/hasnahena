@@ -29,7 +29,6 @@ export default function LoginPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [welcomeMessage, setWelcomeMessage] = useState('');
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
   useEffect(() => {
     fetch('/api/v1/settings')
@@ -61,7 +60,7 @@ export default function LoginPage() {
       const timeoutId = setTimeout(() => controller.abort(), 60000);
       let response: Response;
       try {
-        response = await fetch(`${apiBase}/v1/auth/login`, {
+        response = await fetch('/api/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier: data.identifier, password: data.password }),
@@ -130,8 +129,8 @@ export default function LoginPage() {
       }
       setSubmitError(
         locale === 'bn'
-          ? 'সার্ভারের সাথে সংযোগ করতে ব্যর্থ হয়েছে। Render backend চালু আছে কিনা যাচাই করুন এবং আবার চেষ্টা করুন।'
-          : 'Failed to connect to server. Please verify Render backend is up and try again.'
+          ? 'লগইন আপাতত সম্ভব হচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।'
+          : 'Login is temporarily unavailable. Please try again shortly.'
       );
     }
   };
@@ -249,6 +248,7 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
+                    data-no-native-password-toggle
                     className="h-12 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 pr-11 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg transition-all"
                     placeholder="••••••••"
                     {...register('password')}
@@ -256,7 +256,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                     aria-label="Toggle password visibility"
                   >
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}

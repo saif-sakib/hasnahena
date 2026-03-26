@@ -109,6 +109,7 @@ export function Gallery({ items, locale }: GalleryProps) {
                   src={item.image}
                   alt={item.caption}
                   fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                   className="object-cover group-hover:scale-105 transition-transform duration-500"
                   onError={() => handleImageError(item.id)}
                 />
@@ -194,6 +195,7 @@ export function Gallery({ items, locale }: GalleryProps) {
                 src={items[selectedImage].image}
                 alt={items[selectedImage].caption}
                 fill
+                sizes="100vw"
                 className="object-contain"
               />
             </div>

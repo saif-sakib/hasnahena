@@ -26,15 +26,18 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   MessageCircle,
+  Send,
+  ArrowLeft,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
-import { apiGet } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
 import { getInitials, getAvatarColor } from '@/lib/image-utils';
 import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 import Image from 'next/image';
+import { Input } from '@/components/ui/input';
 
 interface NotificationItem {
   id: string;
@@ -59,6 +62,27 @@ interface UserInfo {
   memberId: string;
 }
 
+interface SupportThreadItem {
+  id: string;
+  memberUserId: string;
+  memberName: string;
+  status: string;
+  latestMessage: string;
+  latestSenderRole: string;
+  latestAt: string;
+  deleteAt: string;
+}
+
+interface SupportMessageItem {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  message: string;
+  createdAt: string;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   role: 'member' | 'worker' | 'admin';
@@ -75,7 +99,6 @@ const memberNav = [
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'My Deposits', bn: 'আমার আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'My Loans', bn: 'আমার ঋণ' },
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
-  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Chat', bn: 'সাপোর্ট চ্যাট' },
 ];
 
 // Worker navigation - based on requirements: process requests, manage members, record transactions
@@ -86,7 +109,6 @@ const workerNav = [
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposits', bn: 'আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
-  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Inbox', bn: 'সাপোর্ট ইনবক্স' },
 ];
 
 // Admin navigation - full access: members, workers, approvals, reports, settings
@@ -100,7 +122,6 @@ const adminNav = [
   { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
   { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
   { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
-  { name: 'support', href: '/support', icon: MessageCircle, en: 'Support Inbox', bn: 'সাপোর্ট ইনবক্স' },
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
 
@@ -157,8 +178,21 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [supportAlertCount, setSupportAlertCount] = useState(0);
+  const [memberHasSupportReply, setMemberHasSupportReply] = useState(false);
+  const [showSupportPopup, setShowSupportPopup] = useState(false);
+  const [supportThreads, setSupportThreads] = useState<SupportThreadItem[]>([]);
+  const [activeSupportThreadId, setActiveSupportThreadId] = useState<string | null>(null);
+  const [supportMessages, setSupportMessages] = useState<SupportMessageItem[]>([]);
+  const [supportInput, setSupportInput] = useState('');
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [isSupportSending, setIsSupportSending] = useState(false);
+  const [seenSupportThreadIds, setSeenSupportThreadIds] = useState<Record<string, string>>({});
   const [userInfo, setUserInfo] = useState<UserInfo | null>(() => getCachedUserInfo());
   const notificationRef = useRef<HTMLDivElement | null>(null);
+  const supportRef = useRef<HTMLDivElement | null>(null);
+  const supportMessagesRef = useRef<HTMLDivElement | null>(null);
+  const supportListInitializedRef = useRef(false);
   const hasFetchedRef = useRef(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
@@ -172,6 +206,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const showSupportBadge = role === 'member' ? memberHasSupportReply : supportAlertCount > 0;
+  const activeSupportThread =
+    supportThreads.find((thread) => thread.id === activeSupportThreadId) ?? null;
+  const supportPopupHeader =
+    role === 'member'
+      ? locale === 'bn'
+        ? 'সাপোর্ট'
+        : 'Support'
+      : locale === 'bn'
+        ? 'সাপোর্ট ইনবক্স'
+        : 'Support Inbox';
+
+  const scrollSupportToBottom = useCallback(() => {
+    const el = supportMessagesRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, []);
 
   const loadUserInfo = useCallback(async (forceRefresh = false) => {
     try {
@@ -242,7 +295,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     const loadNotifications = async () => {
       try {
         const data = await apiGet<NotificationItem[]>('/v1/dashboard/notifications');
-        setNotifications(data);
+        setNotifications(data.filter((item) => !item.title.toLowerCase().includes('support')));
       } catch (error) {
         if (handleUnauthorizedError(error)) return;
         setNotifications([]);
@@ -253,17 +306,59 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
+    const loadSupportSignals = async () => {
+      if (showSupportPopup) return;
+      try {
+        const threads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        setSupportThreads(threads);
+        if (role === 'member') {
+          const hasReply = threads.some((thread) => {
+            const seenAt = seenSupportThreadIds[thread.id];
+            if (!thread.latestMessage || !thread.latestSenderRole || thread.latestSenderRole === 'MEMBER') {
+              return false;
+            }
+            if (!seenAt) {
+              return true;
+            }
+            return new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
+          });
+          setMemberHasSupportReply(hasReply);
+          return;
+        }
+
+        const unprocessed = threads.filter((thread) => thread.status !== 'PROCESSED').length;
+        setSupportAlertCount(unprocessed);
+      } catch (error) {
+        if (handleUnauthorizedError(error)) return;
+        setSupportAlertCount(0);
+        setMemberHasSupportReply(false);
+        setSupportThreads([]);
+      }
+    };
+
+    void loadSupportSignals();
+    const timer = setInterval(() => {
+      void loadSupportSignals();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [role, handleUnauthorizedError, seenSupportThreadIds, showSupportPopup]);
+
+  useEffect(() => {
     const onDown = (event: MouseEvent) => {
-      if (!showNotifications) return;
       const target = event.target as Node | null;
       if (!target) return;
-      if (notificationRef.current && !notificationRef.current.contains(target)) {
+      if (showNotifications && notificationRef.current && !notificationRef.current.contains(target)) {
         setShowNotifications(false);
+      }
+      if (showSupportPopup && supportRef.current && !supportRef.current.contains(target)) {
+        setShowSupportPopup(false);
+        setActiveSupportThreadId(null);
+        setSupportMessages([]);
       }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [showNotifications]);
+  }, [showNotifications, showSupportPopup]);
 
   useEffect(() => {
     if (pendingHref && pathname === pendingHref) {
@@ -320,6 +415,143 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const handleViewAllNotifications = () => {
     setShowNotifications(false);
     router.push(basePath);
+  };
+
+  const loadSupportMessages = useCallback(async (threadId: string) => {
+    try {
+      const messages = await apiGet<SupportMessageItem[]>(
+        `/v1/dashboard/support/messages?threadId=${encodeURIComponent(threadId)}`
+      );
+      setSupportMessages(messages);
+      scrollSupportToBottom();
+    } catch (error) {
+      if (!handleUnauthorizedError(error)) {
+        setSupportMessages([]);
+      }
+    }
+  }, [handleUnauthorizedError, scrollSupportToBottom]);
+
+  useEffect(() => {
+    if (!showSupportPopup) return;
+    setSupportLoading(true);
+    const refreshThreads = async () => {
+      try {
+        const threads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        setSupportThreads(threads);
+        if (role === 'member' && !activeSupportThreadId && threads.length > 0) {
+          const first = threads[0];
+          setActiveSupportThreadId(first.id);
+          setSeenSupportThreadIds((prev) => ({ ...prev, [first.id]: first.latestAt }));
+          await loadSupportMessages(first.id);
+        }
+      } catch (error) {
+        handleUnauthorizedError(error);
+      } finally {
+        setSupportLoading(false);
+      }
+    };
+    void refreshThreads();
+    const timer = setInterval(() => {
+      void refreshThreads();
+      if (activeSupportThreadId) {
+        void loadSupportMessages(activeSupportThreadId);
+      }
+    }, 7000);
+    return () => clearInterval(timer);
+  }, [showSupportPopup, activeSupportThreadId, handleUnauthorizedError, role, loadSupportMessages]);
+
+  const markSupportSeen = useCallback((threadId: string, latestAt: string) => {
+    setSeenSupportThreadIds((prev) => ({
+      ...prev,
+      [threadId]: latestAt,
+    }));
+  }, []);
+
+  const openSupportPopup = () => {
+    setShowSupportPopup(true);
+    const seenNow = supportThreads.reduce<Record<string, string>>((acc, thread) => {
+      acc[thread.id] = thread.latestAt;
+      return acc;
+    }, {});
+    setSeenSupportThreadIds((prev) => ({ ...prev, ...seenNow }));
+    setMemberHasSupportReply(false);
+    if (
+      role === 'member' &&
+      supportThreads.length > 0 &&
+      (!supportListInitializedRef.current || !activeSupportThreadId)
+    ) {
+      supportListInitializedRef.current = true;
+      const firstThread = supportThreads[0];
+      setActiveSupportThreadId(firstThread.id);
+      markSupportSeen(firstThread.id, firstThread.latestAt);
+      void loadSupportMessages(firstThread.id);
+    }
+  };
+
+  const closeSupportPopup = () => {
+    setShowSupportPopup(false);
+    setActiveSupportThreadId(null);
+    setSupportMessages([]);
+    setSupportInput('');
+  };
+
+  useEffect(() => {
+    if (!showSupportPopup || !activeSupportThreadId) return;
+    scrollSupportToBottom();
+  }, [showSupportPopup, activeSupportThreadId, supportMessages, scrollSupportToBottom]);
+
+  const openThread = (thread: SupportThreadItem) => {
+    setActiveSupportThreadId(thread.id);
+    markSupportSeen(thread.id, thread.latestAt);
+    void loadSupportMessages(thread.id);
+  };
+
+  const sendSupportMessage = async () => {
+    const trimmed = supportInput.trim();
+    if (!trimmed) return;
+    setIsSupportSending(true);
+    try {
+      const payload = await apiPost<{ threadId?: string }>('/v1/dashboard/support/messages', {
+        threadId: activeSupportThreadId,
+        message: trimmed,
+      });
+      setSupportInput('');
+      const threadId = payload?.threadId || activeSupportThreadId;
+      if (threadId) {
+        await loadSupportMessages(threadId);
+        const latestThreads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        setSupportThreads(latestThreads);
+        const active = latestThreads.find((thread) => thread.id === threadId);
+        if (active) {
+          markSupportSeen(active.id, active.latestAt);
+          setActiveSupportThreadId(active.id);
+        }
+      }
+    } catch (error) {
+      handleUnauthorizedError(error);
+    } finally {
+      setIsSupportSending(false);
+    }
+  };
+
+  const markSupportThreadProcessed = async () => {
+    if (!activeSupportThreadId) return;
+    try {
+      await apiPost('/v1/dashboard/support/threads/processed', { threadId: activeSupportThreadId });
+      const latestThreads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+      setSupportThreads(latestThreads);
+    } catch (error) {
+      handleUnauthorizedError(error);
+    }
+  };
+
+  const formatSupportTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleTimeString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   const formatNotificationTime = (value: string) => {
@@ -589,6 +821,167 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               )}
             </div>
 
+            <div className="relative" ref={supportRef}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative"
+                aria-label="Support inbox"
+                onClick={() => {
+                  if (showSupportPopup) {
+                    closeSupportPopup();
+                  } else {
+                    openSupportPopup();
+                  }
+                }}
+              >
+                <MessageCircle className="h-5 w-5 text-slate-600" />
+                {showSupportBadge && (
+                  role === 'member' ? (
+                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500" />
+                  ) : (
+                    <span className="absolute -right-0.5 -top-0.5 h-4 min-w-4 px-1 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
+                      {supportAlertCount}
+                    </span>
+                  )
+                )}
+              </Button>
+              {showSupportPopup && (
+                <div className="fixed inset-x-2 top-16 bottom-2 w-auto bg-white rounded-2xl shadow-xl border border-slate-200 z-50 overflow-hidden sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[360px] sm:max-w-[92vw] sm:bottom-auto">
+                  <div className="flex items-center justify-between p-3 border-b border-slate-100 bg-slate-50/80">
+                    {activeSupportThreadId && role !== 'member' ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setActiveSupportThreadId(null);
+                          setSupportMessages([]);
+                        }}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <div className="w-8" />
+                    )}
+                    <p className="text-sm font-semibold text-slate-800">{supportPopupHeader}</p>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeSupportPopup}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {supportLoading ? (
+                    <div className="p-5 text-sm text-muted-foreground">
+                      {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+                    </div>
+                  ) : activeSupportThreadId ? (
+                    <div className="h-[calc(100dvh-5.5rem)] sm:h-[460px] flex flex-col">
+                      <div className="px-4 py-2 border-b border-slate-100 text-xs text-muted-foreground">
+                        {activeSupportThread?.memberName || (locale === 'bn' ? 'কথোপকথন' : 'Conversation')}
+                      </div>
+                      <div ref={supportMessagesRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50/40">
+                        {supportMessages.map((msg) => {
+                          const isMe = userInfo?.id === msg.senderId;
+                          return (
+                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              <div
+                                className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                                  isMe
+                                    ? 'bg-emerald-600 text-white rounded-br-md'
+                                    : 'bg-white border border-slate-200 text-slate-700 rounded-bl-md'
+                                }`}
+                              >
+                                <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                                <p
+                                  className={`mt-1 text-[10px] ${
+                                    isMe ? 'text-emerald-100' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {formatSupportTime(msg.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {supportMessages.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-1">
+                            {locale === 'bn' ? 'কোন বার্তা নেই' : 'No messages yet'}
+                          </p>
+                        )}
+                      </div>
+                      {role !== 'member' && activeSupportThread?.status !== 'PROCESSED' ? (
+                        <div className="px-3 pt-2">
+                          <Button size="sm" variant="outline" onClick={markSupportThreadProcessed}>
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                            {locale === 'bn' ? 'প্রসেসড' : 'Mark processed'}
+                          </Button>
+                        </div>
+                      ) : null}
+                      <div className="p-3 border-t border-slate-100 bg-white flex gap-2">
+                        <Input
+                          value={supportInput}
+                          onChange={(e) => setSupportInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              void sendSupportMessage();
+                            }
+                          }}
+                          placeholder={locale === 'bn' ? 'বার্তা লিখুন...' : 'Write a message...'}
+                          disabled={!activeSupportThreadId && role !== 'member'}
+                        />
+                        <Button
+                          onClick={sendSupportMessage}
+                          disabled={isSupportSending || !supportInput.trim() || (!activeSupportThreadId && role !== 'member')}
+                          className="shrink-0"
+                        >
+                          <Send className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-[calc(100dvh-5.5rem)] sm:h-[460px] overflow-y-auto p-2 bg-slate-50/30">
+                      {supportThreads.map((thread) => {
+                        const seenAt = seenSupportThreadIds[thread.id];
+                        const isUnread = !seenAt || new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
+                        return (
+                          <button
+                            key={thread.id}
+                            type="button"
+                            className="w-full text-left rounded-xl border border-transparent hover:border-slate-200 hover:bg-white px-3 py-2 transition-colors"
+                            onClick={() => openThread(thread)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium text-slate-800 truncate">
+                                {thread.memberName || (locale === 'bn' ? 'সদস্য' : 'Member')}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {role !== 'member' && thread.status !== 'PROCESSED' && (
+                                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                                )}
+                                {role === 'member' && isUnread && thread.latestSenderRole !== 'MEMBER' && (
+                                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                                )}
+                                <span className="text-[11px] text-slate-400">
+                                  {formatSupportTime(thread.latestAt)}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-500 truncate mt-0.5">{thread.latestMessage}</p>
+                          </button>
+                        );
+                      })}
+                      {supportThreads.length === 0 && (
+                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                          {locale === 'bn' ? 'এখনও কোনো কথোপকথন নেই' : 'No conversations yet'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* User Avatar - Clickable to Profile */}
             <Link
               href={`${basePath}/profile`}
@@ -600,6 +993,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                     src={userInfo.avatarUrl}
                     alt={userInfo.nameEn || 'User'}
                     fill
+                    sizes="36px"
                     className="object-cover"
                   />
                 ) : (

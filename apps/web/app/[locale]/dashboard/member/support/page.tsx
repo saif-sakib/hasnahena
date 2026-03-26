@@ -16,6 +16,7 @@ type SupportThread = {
   memberName: string;
   status: string;
   latestMessage: string;
+  latestSenderRole: string;
   latestAt: string;
   updatedAt: string;
   deleteAt: string;
@@ -79,7 +80,8 @@ export default function MemberSupportPage() {
 
     const token = getValidatedClientToken();
     if (!token) return;
-    const url = `${getApiBaseUrl()}/v1/dashboard/support/stream?threadId=${encodeURIComponent(
+    const proxyBase = typeof window !== 'undefined' ? '' : getApiBaseUrl();
+    const url = `${proxyBase}/api/v1/dashboard/support/stream?threadId=${encodeURIComponent(
       activeThreadId
     )}&access_token=${encodeURIComponent(token)}`;
     const es = new EventSource(url);

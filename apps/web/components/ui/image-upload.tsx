@@ -167,6 +167,7 @@ export function ImageUpload({
               src={preview}
               alt="Preview"
               fill
+              sizes="(max-width: 768px) 100vw, 640px"
               className="object-cover"
               unoptimized={preview.startsWith('blob:')}
             />

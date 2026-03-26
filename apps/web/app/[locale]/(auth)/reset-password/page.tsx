@@ -222,6 +222,7 @@ export default function ResetPasswordPage() {
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
+                  data-no-native-password-toggle
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -253,6 +254,7 @@ export default function ResetPasswordPage() {
                 <Input
                   id="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
+                  data-no-native-password-toggle
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
