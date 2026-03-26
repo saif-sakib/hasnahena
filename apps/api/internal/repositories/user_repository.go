@@ -468,6 +468,8 @@ func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_support_threads_status_updated ON support_threads(status, "updatedAt" DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_support_threads_delete_at ON support_threads("deleteAt")`,
 		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created ON support_messages("threadId", "createdAt" ASC)`,
+		// Additional index for faster latest message lookups (covering index)
+		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created_desc ON support_messages("threadId", "createdAt" DESC) INCLUDE (message, "senderUserId")`,
 		`INSERT INTO system_config (id, key, value, "updatedAt")
 		 VALUES ('support_chat_retention_' || substring(md5(random()::text), 1, 12), 'support.chatRetentionDays', '10', NOW())
 		 ON CONFLICT (key) DO NOTHING`,
@@ -619,34 +621,16 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 		Next() bool
 		Scan(dest ...any) error
 	}
+	// Optimized query using lateral join instead of correlated subqueries
 	baseQuery := `
 		SELECT
 			st.id::text,
 			st."memberUserId"::text,
 			COALESCE(u."nameEn", u."nameBn", '') as member_name,
 			st.status,
-			COALESCE((
-				SELECT sm.message
-				FROM support_messages sm
-				WHERE sm."threadId" = st.id
-				ORDER BY sm."createdAt" DESC
-				LIMIT 1
-			), '') as latest_message,
-			COALESCE((
-				SELECT sm."createdAt"
-				FROM support_messages sm
-				WHERE sm."threadId" = st.id
-				ORDER BY sm."createdAt" DESC
-				LIMIT 1
-			), st."updatedAt") as latest_at,
-			COALESCE((
-				SELECT UPPER(u2.role::text)
-				FROM support_messages sm
-				JOIN users u2 ON u2.id = sm."senderUserId"
-				WHERE sm."threadId" = st.id
-				ORDER BY sm."createdAt" DESC
-				LIMIT 1
-			), '') as latest_sender_role,
+			COALESCE(latest.message, '') as latest_message,
+			COALESCE(latest."createdAt", st."updatedAt") as latest_at,
+			COALESCE(UPPER(sender.role::text), '') as latest_sender_role,
 			st."updatedAt",
 			st."deleteAt",
 			COALESCE(proc."nameEn", proc."nameBn", ''),
@@ -654,6 +638,14 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 		FROM support_threads st
 		JOIN users u ON u.id = st."memberUserId"
 		LEFT JOIN users proc ON proc.id = st."processedByUserId"
+		LEFT JOIN LATERAL (
+			SELECT sm.message, sm."createdAt", sm."senderUserId"
+			FROM support_messages sm
+			WHERE sm."threadId" = st.id
+			ORDER BY sm."createdAt" DESC
+			LIMIT 1
+		) latest ON true
+		LEFT JOIN users sender ON sender.id = latest."senderUserId"
 	`
 
 	if role == "MEMBER" {

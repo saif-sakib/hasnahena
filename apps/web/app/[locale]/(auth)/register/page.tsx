@@ -224,9 +224,9 @@ export default function RegisterPage() {
     : ['Personal Info', 'Address', 'Nominee', 'Documents'];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[100dvh] bg-slate-50">
       {/* Header with Navigation */}
-      <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md">
+      <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md safe-area-top">
         <div className="container-wide flex h-14 items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href={`/${locale}`}>
@@ -256,30 +256,30 @@ export default function RegisterPage() {
         </div>
       </header>
 
-      <main className="py-8 px-4">
+      <main className="py-6 sm:py-8 px-4 safe-area-bottom">
         <div className="container-wide max-w-4xl">
           {/* Progress Steps */}
-          <div className="mb-12 relative">
+          <div className="mb-8 sm:mb-12 relative">
             <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-200 dark:bg-slate-800 -translate-y-1/2 rounded-full z-0" />
             <div className="flex items-center justify-between relative z-10">
               {steps.map((step, index) => (
                 <div key={step.id} className="flex flex-col items-center group">
                   <div
-                    className={`h-14 w-14 rounded-2xl flex items-center justify-center border-4 transition-all duration-500 ${
+                    className={`h-10 w-10 sm:h-14 sm:w-14 rounded-xl sm:rounded-2xl flex items-center justify-center border-2 sm:border-4 transition-all duration-500 ${
                       index < currentStep
                         ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-100'
                         : index === currentStep
-                        ? 'bg-white border-emerald-600 text-emerald-600 shadow-xl shadow-emerald-600/20 scale-110'
+                        ? 'bg-white border-emerald-600 text-emerald-600 shadow-xl shadow-emerald-600/20 scale-105 sm:scale-110'
                         : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
                     }`}
                   >
                     {index < currentStep ? (
-                      <Check className="h-6 w-6 animate-in zoom-in duration-300" />
+                      <Check className="h-4 w-4 sm:h-6 sm:w-6 animate-in zoom-in duration-300" />
                     ) : (
-                      <step.icon className={`h-6 w-6 ${index === currentStep ? 'animate-bounce' : ''}`} />
+                      <step.icon className={`h-4 w-4 sm:h-6 sm:w-6 ${index === currentStep ? 'animate-bounce' : ''}`} />
                     )}
                   </div>
-                  <span className={`text-sm mt-3 font-semibold transition-colors duration-300 ${
+                  <span className={`text-[10px] sm:text-sm mt-2 sm:mt-3 font-semibold transition-colors duration-300 text-center ${
                     index <= currentStep ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'
                   }`}>
                     {stepTitles[index]}
