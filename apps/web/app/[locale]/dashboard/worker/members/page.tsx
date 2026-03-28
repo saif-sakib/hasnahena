@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Users,
   Search,
@@ -11,10 +13,11 @@ import {
   Wallet,
   HandCoins,
   Eye,
-  MoreHorizontal,
   CheckCircle2,
   Clock,
   Filter,
+  Hash,
+  ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,25 +30,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
 interface Member {
   id: string;
+  uid: string;
   name: string;
   phone: string;
   email?: string;
@@ -60,25 +50,29 @@ interface Member {
 
 export default function WorkerMembersPage() {
   const locale = useLocale();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadMembers = async () => {
+      setIsLoading(true);
       try {
         const data = await apiGet<Member[]>('/v1/dashboard/worker/members');
         setMembers(
           data.map((member) => ({
             ...member,
+            uid: member.uid || member.id.slice(0, 8).toUpperCase(),
             status: member.status === 'PENDING' ? 'PENDING' : 'ACTIVE',
           }))
         );
       } catch {
         setMembers([]);
+      } finally {
+        setIsLoading(false);
       }
     };
     loadMembers();
@@ -103,7 +97,8 @@ export default function WorkerMembersPage() {
     const matchesSearch =
       member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       member.phone.includes(searchQuery) ||
-      member.nidNumber.includes(searchQuery);
+      member.nidNumber.includes(searchQuery) ||
+      member.uid.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || member.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -186,7 +181,7 @@ export default function WorkerMembersPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={locale === 'bn' ? 'নাম, ফোন বা NID দিয়ে খুঁজুন...' : 'Search by name, phone or NID...'}
+                placeholder={locale === 'bn' ? 'UID, নাম, ফোন বা NID দিয়ে খুঁজুন...' : 'Search by UID, name, phone or NID...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -221,168 +216,82 @@ export default function WorkerMembersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {filteredMembers.map((member) => (
-              <div
-                key={member.id}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    {member.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold">{member.name}</span>
-                      {getStatusBadge(member.status)}
-                    </div>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p className="flex items-center gap-4">
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {member.phone}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {member.address}
-                        </span>
-                      </p>
-                      <p className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {locale === 'bn' ? 'যোগদান:' : 'Joined:'}{' '}
-                        {new Date(member.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  {member.status === 'ACTIVE' && (
-                    <div className="text-right text-sm">
-                      <div>
-                        <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
-                        <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit, locale)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
-                        <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan, locale)}</span>
-                      </div>
-                    </div>
-                  )}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setShowDetailModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        {locale === 'bn' ? 'বিস্তারিত দেখুন' : 'View Details'}
-                      </DropdownMenuItem>
-                      {member.status === 'ACTIVE' && (
-                        <DropdownMenuItem>
-                          <HandCoins className="h-4 w-4 mr-2" />
-                          {locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            ))}
-
-            {filteredMembers.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Member Detail Modal */}
-      <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'সদস্য বিস্তারিত' : 'Member Details'}</DialogTitle>
-          </DialogHeader>
-          {selectedMember && (
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+              <p>{locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}</p>
+            </div>
+          ) : (
             <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-semibold">
-                  {selectedMember.name.charAt(0)}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold">{selectedMember.name}</h3>
-                  {getStatusBadge(selectedMember.status)}
-                </div>
-              </div>
+              {filteredMembers.map((member) => (
+                <Link
+                  key={member.id}
+                  href={`/${locale}/dashboard/worker/members/${member.id}`}
+                  className="block"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer border border-transparent hover:border-slate-200">
+                    <div className="flex items-start gap-4">
+                      <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
+                        {member.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="font-semibold">{member.name}</span>
+                          <Badge variant="outline" className="font-mono text-xs">
+                            <Hash className="h-3 w-3 mr-1" />
+                            {member.uid}
+                          </Badge>
+                          {getStatusBadge(member.status)}
+                        </div>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <p className="flex items-center gap-4 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" /> {member.phone}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" /> {member.address}
+                            </span>
+                          </p>
+                          <p className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {locale === 'bn' ? 'যোগদান:' : 'Joined:'}{' '}
+                            {new Date(member.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ফোন' : 'Phone'}</span>
-                  <p className="font-medium">{selectedMember.phone}</p>
-                </div>
-                {selectedMember.email && (
-                  <div>
-                    <span className="text-muted-foreground">{locale === 'bn' ? 'ইমেইল' : 'Email'}</span>
-                    <p className="font-medium">{selectedMember.email}</p>
+                    <div className="flex items-center gap-4">
+                      {member.status === 'ACTIVE' && (
+                        <div className="text-right text-sm">
+                          <div>
+                            <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
+                            <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit, locale)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
+                            <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan, locale)}</span>
+                          </div>
+                        </div>
+                      )}
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'NID নম্বর' : 'NID Number'}</span>
-                  <p className="font-medium">{selectedMember.nidNumber}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</span>
-                  <p className="font-medium">{selectedMember.address}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'যোগদানের তারিখ' : 'Join Date'}</span>
-                  <p className="font-medium">
-                    {new Date(selectedMember.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                  </p>
-                </div>
-                {selectedMember.lastTransaction && (
-                  <div>
-                    <span className="text-muted-foreground">{locale === 'bn' ? 'সর্বশেষ লেনদেন' : 'Last Transaction'}</span>
-                    <p className="font-medium">
-                      {new Date(selectedMember.lastTransaction).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'বর্তমান জমা' : 'Current Deposit'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedMember.currentDeposit, locale)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedMember.activeLoan, locale)}</p>
-                </div>
-              </div>
+                </Link>
+              ))}
 
-              {selectedMember.status === 'ACTIVE' && (
-                <div className="flex gap-2 pt-4">
-                  <Button variant="outline" className="flex-1">
-                    <HandCoins className="h-4 w-4 mr-2" />
-                    {locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}
-                  </Button>
+              {filteredMembers.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>{locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}</p>
                 </div>
               )}
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailModal(false)}>
-              {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
     </div>
   );
 }

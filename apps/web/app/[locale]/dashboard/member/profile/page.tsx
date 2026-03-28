@@ -19,7 +19,6 @@ import {
   FileText,
   Download,
   AlertCircle,
-  Check,
   ChevronRight,
   Lock,
 } from 'lucide-react';
@@ -29,7 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { apiGet } from '@/lib/api';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
 import { getValidatedClientToken } from '@/lib/client-auth';
 
@@ -77,8 +76,6 @@ export default function ProfilePage() {
   const locale = useLocale();
   const router = useRouter();
   const [isEditingNominee, setIsEditingNominee] = useState(false);
-  const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
-  const [withdrawalAmount, setWithdrawalAmount] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const emptyAddress: UserProfile['permanentAddress'] = {
@@ -223,42 +220,6 @@ export default function ProfilePage() {
     setEditedNominee({ ...nominee });
     setIsEditingNominee(false);
   };
-
-  const handleWithdrawalRequest = (e: React.FormEvent) => {
-    e.preventDefault();
-    void (async () => {
-      setActionError(null);
-      const token = getValidatedClientToken();
-      if (!token) {
-        router.push(`/${locale}/login`);
-        return;
-      }
-
-      const amount = Number(withdrawalAmount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        setActionError('Invalid withdrawal amount');
-        return;
-      }
-
-      const res = await fetch('/api/v1/transactions/withdrawal-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount }),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to submit withdrawal request');
-        return;
-      }
-
-      setShowWithdrawalForm(false);
-      setWithdrawalAmount('');
-      await refresh();
-    })();
-  };
-
-  const canWithdraw = !accountSummary.hasActiveLoan && !accountSummary.isGuarantor;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -482,78 +443,55 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Withdrawal Request */}
+      {/* Account Summary */}
       <Card className="rounded-2xl border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-emerald-600" />
-            {t('requestWithdrawal')}
+            {locale === 'bn' ? 'একাউন্ট সারাংশ' : 'Account Summary'}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!canWithdraw ? (
-            <div className="flex items-start gap-3 rounded-lg bg-amber-50 p-4 text-amber-800">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">{t('withdrawalBlocked')}</p>
-                <p className="text-sm mt-1">
-                  {accountSummary.hasActiveLoan &&
-                    (locale === 'bn'
-                      ? 'আপনার সক্রিয় ঋণ থাকায় উত্তোলন সম্ভব নয়।'
-                      : 'You have an active loan that prevents withdrawal.')}
-                  {accountSummary.isGuarantor &&
-                    (locale === 'bn'
-                      ? 'আপনি অন্য সদস্যের জামিনদার হওয়ায় উত্তোলন সম্ভব নয়।'
-                      : 'You are a guarantor for another member.')}
-                </p>
-              </div>
-            </div>
-          ) : showWithdrawalForm ? (
-            <form onSubmit={handleWithdrawalRequest} className="space-y-4">
-              <div className="p-4 rounded-lg bg-blue-50 text-blue-800 text-sm">
-                <p className="font-medium">{t('withdrawalNotice')}</p>
-              </div>
-              {actionError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {actionError}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="withdrawalAmount">{t('withdrawalAmount')}</Label>
-                <Input
-                  id="withdrawalAmount"
-                  type="number"
-                  placeholder={t('enterAmount')}
-                  value={withdrawalAmount}
-                  onChange={(e) => setWithdrawalAmount(e.target.value)}
-                  max={accountSummary.currentBalance}
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  {locale === 'bn' ? 'উপলব্ধ:' : 'Available:'} {formatCurrency(accountSummary.currentBalance, locale)}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" className="gap-1">
-                  <Check className="h-4 w-4" />
-                  {t('submitRequest')}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setShowWithdrawalForm(false)}>
-                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-                </Button>
-              </div>
-            </form>
-          ) : (
+          <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{t('currentBalance')}</p>
                 <p className="text-2xl font-bold text-primary">{formatCurrency(accountSummary.currentBalance, locale)}</p>
               </div>
-              <Button onClick={() => setShowWithdrawalForm(true)}>
-                {t('requestWithdrawal')}
-              </Button>
             </div>
-          )}
+            
+            {/* Status indicators */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className={`flex items-center gap-2 p-3 rounded-lg ${accountSummary.hasActiveLoan ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-800'}`}>
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">
+                  {accountSummary.hasActiveLoan
+                    ? (locale === 'bn' ? 'সক্রিয় ঋণ আছে' : 'Has Active Loan')
+                    : (locale === 'bn' ? 'কোন সক্রিয় ঋণ নেই' : 'No Active Loan')}
+                </span>
+              </div>
+              <div className={`flex items-center gap-2 p-3 rounded-lg ${accountSummary.isGuarantor ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-800'}`}>
+                <Users className="h-4 w-4" />
+                <span className="text-sm">
+                  {accountSummary.isGuarantor
+                    ? (locale === 'bn' ? 'জামিনদার হিসেবে আছেন' : 'Serving as Guarantor')
+                    : (locale === 'bn' ? 'জামিনদার নন' : 'Not a Guarantor')}
+                </span>
+              </div>
+            </div>
+
+            {/* Info Notice */}
+            <div className="flex items-start gap-3 rounded-lg bg-blue-50 p-4 text-blue-800">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm">
+                  {locale === 'bn'
+                    ? 'আমানত জমা বা উত্তোলন করতে চাইলে অফিসে যোগাযোগ করুন অথবা কাস্টমার সাপোর্টে মেসেজ করুন।'
+                    : 'To make a deposit or withdrawal, please visit the office or contact customer support.'}
+                </p>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

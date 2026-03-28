@@ -10,8 +10,12 @@ import {
   User as UserIcon,
   Search,
   Inbox,
+  Hash,
+  Phone,
+  Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { apiGet, apiPost, getApiBaseUrl } from '@/lib/api';
 import { getValidatedClientToken } from '@/lib/client-auth';
 
@@ -19,6 +23,8 @@ type SupportThread = {
   id: string;
   memberUserId: string;
   memberName: string;
+  memberUid: string;
+  memberPhone: string;
   status: string;
   latestMessage: string;
   latestSenderRole: string;
@@ -34,6 +40,7 @@ type SupportMessage = {
   id: string;
   threadId: string;
   senderId: string;
+  senderUid: string;
   senderName: string;
   senderRole: string;
   message: string;
@@ -119,7 +126,9 @@ export default function WorkerSupportPage() {
     return threads.filter(
       (t) =>
         t.memberName.toLowerCase().includes(q) ||
-        t.latestMessage.toLowerCase().includes(q)
+        t.latestMessage.toLowerCase().includes(q) ||
+        t.memberPhone.includes(q) ||
+        t.memberUid.toLowerCase().includes(q)
     );
   }, [threads, searchQuery]);
 
@@ -331,7 +340,7 @@ export default function WorkerSupportPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={locale === 'bn' ? 'অনুসন্ধান করুন...' : 'Search conversations...'}
+              placeholder={locale === 'bn' ? 'UID, ফোন বা নাম দিয়ে খুঁজুন...' : 'Search by UID, phone or name...'}
               className="w-full pl-9 pr-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 rounded-xl border-0 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
             />
           </div>
@@ -387,6 +396,21 @@ export default function WorkerSupportPage() {
                             {formatRelativeTime(thread.latestAt, locale)}
                           </span>
                         </div>
+                        {/* Member UID & Phone */}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {thread.memberUid && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5 font-mono">
+                              <Hash className="w-2.5 h-2.5" />
+                              {thread.memberUid}
+                            </span>
+                          )}
+                          {thread.memberPhone && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                              <Phone className="w-2.5 h-2.5" />
+                              {thread.memberPhone}
+                            </span>
+                          )}
+                        </div>
                         <p
                           className={`text-xs truncate mt-0.5 ${
                             isUnprocessed
@@ -438,15 +462,33 @@ export default function WorkerSupportPage() {
                 <h3 className="font-semibold text-slate-900 dark:text-white text-sm truncate">
                   {activeThread.memberName}
                 </h3>
-                <p className="text-xs text-slate-500">
-                  {activeThread.status === 'PROCESSED'
-                    ? locale === 'bn'
-                      ? 'সমাধান হয়েছে'
-                      : 'Resolved'
-                    : locale === 'bn'
-                    ? 'অপেক্ষমান'
-                    : 'Open'}
-                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {activeThread.memberUid && (
+                    <span className="text-[10px] text-slate-500 flex items-center gap-0.5 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                      <Hash className="w-2.5 h-2.5" />
+                      {activeThread.memberUid}
+                    </span>
+                  )}
+                  {activeThread.memberPhone && (
+                    <span className="text-[10px] text-slate-500 flex items-center gap-0.5">
+                      <Phone className="w-2.5 h-2.5" />
+                      {activeThread.memberPhone}
+                    </span>
+                  )}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    activeThread.status === 'PROCESSED'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                  }`}>
+                    {activeThread.status === 'PROCESSED'
+                      ? locale === 'bn'
+                        ? 'সমাধান হয়েছে'
+                        : 'Resolved'
+                      : locale === 'bn'
+                      ? 'অপেক্ষমান'
+                      : 'Open'}
+                  </span>
+                </div>
               </div>
 
               {activeThread.status !== 'PROCESSED' && (
@@ -510,6 +552,15 @@ export default function WorkerSupportPage() {
                                 }`
                           } shadow-sm`}
                         >
+                          {/* Staff identifier for staff messages */}
+                          {isSelf && isFirstInGroup && m.senderUid && (
+                            <div className="flex items-center gap-1 mb-1 -mt-0.5">
+                              <Shield className="w-2.5 h-2.5 text-emerald-200" />
+                              <span className="text-[9px] font-mono text-emerald-200">
+                                {m.senderRole === 'ADMIN' ? 'Admin' : 'Staff'} #{m.senderUid}
+                              </span>
+                            </div>
+                          )}
                           <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
                             {m.message}
                           </p>

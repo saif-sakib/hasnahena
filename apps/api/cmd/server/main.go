@@ -89,6 +89,10 @@ func main() {
 			// Worker routes
 			dashboard.Get("/worker", dashboardHandler.WorkerDashboard)
 			dashboard.Get("/worker/members", dashboardHandler.WorkerMembers)
+			dashboard.Get("/worker/members/{memberId}", dashboardHandler.WorkerMemberDetail)
+			dashboard.Post("/worker/members/{memberId}/deposit", dashboardHandler.WorkerAddDeposit)
+			dashboard.Post("/worker/members/{memberId}/withdrawal", dashboardHandler.WorkerAddWithdrawal)
+			dashboard.Post("/worker/members/{memberId}/loan", dashboardHandler.WorkerAddLoan)
 			dashboard.Get("/worker/requests", dashboardHandler.WorkerRequests)
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)

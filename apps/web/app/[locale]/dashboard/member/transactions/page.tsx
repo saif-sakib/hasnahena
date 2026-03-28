@@ -416,35 +416,6 @@ export default function TransactionsPage() {
                           <p className="font-medium">{formatCurrency(tx.balanceAfter, locale)}</p>
                         </div>
                       )}
-                      {tx.status === 'PROCESSED' && tx.type === 'WITHDRAWAL' && (
-                        <Button
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => {
-                            void (async () => {
-                              setActionError(null);
-                              const token = getValidatedClientToken();
-                              if (!token) {
-                                router.push(`/${locale}/login`);
-                                return;
-                              }
-                              const res = await fetch(`/api/v1/member/transactions/${tx.id}/confirm`, {
-                                method: 'POST',
-                                headers: { Authorization: `Bearer ${token}` },
-                              });
-                              const json = await res.json().catch(() => ({}));
-                              if (!res.ok) {
-                                setActionError(json?.error ?? 'Failed to confirm withdrawal');
-                                return;
-                              }
-                              await refresh();
-                            })();
-                          }}
-                        >
-                          <CheckCircle2 className="h-3 w-3" />
-                          {t('confirm')}
-                        </Button>
-                      )}
                     </div>
                   </div>
                 );
