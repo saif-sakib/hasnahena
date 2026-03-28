@@ -82,6 +82,8 @@ type SupportThread struct {
 	ID             string `json:"id"`
 	MemberUserID   string `json:"memberUserId"`
 	MemberName     string `json:"memberName"`
+	MemberUid      string `json:"memberUid"`
+	MemberPhone    string `json:"memberPhone"`
 	Status         string `json:"status"`
 	LatestMessage  string `json:"latestMessage"`
 	LatestSenderRole string `json:"latestSenderRole"`
@@ -97,6 +99,7 @@ type SupportMessage struct {
 	ID         string `json:"id"`
 	ThreadID   string `json:"threadId"`
 	SenderID   string `json:"senderId"`
+	SenderUid  string `json:"senderUid"`
 	SenderName string `json:"senderName"`
 	SenderRole string `json:"senderRole"`
 	Message    string `json:"message"`
@@ -627,6 +630,8 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 			st.id::text,
 			st."memberUserId"::text,
 			COALESCE(u."nameEn", u."nameBn", '') as member_name,
+			COALESCE(UPPER(SUBSTRING(st."memberUserId"::text, 1, 8)), '') as member_uid,
+			COALESCE(u.phone, '') as member_phone,
 			st.status,
 			COALESCE(latest.message, '') as latest_message,
 			COALESCE(latest."createdAt", st."updatedAt") as latest_at,
@@ -678,6 +683,8 @@ func (r *UserRepository) GetSupportThreads(ctx context.Context, actorUserID, act
 			&item.ID,
 			&item.MemberUserID,
 			&item.MemberName,
+			&item.MemberUid,
+			&item.MemberPhone,
 			&item.Status,
 			&item.LatestMessage,
 			&latestAt,
@@ -715,6 +722,7 @@ func (r *UserRepository) GetSupportMessages(ctx context.Context, actorUserID, ac
 			sm.id::text,
 			sm."threadId"::text,
 			sm."senderUserId"::text,
+			COALESCE(UPPER(SUBSTRING(sm."senderUserId"::text, 1, 8)), '') as sender_uid,
 			COALESCE(u."nameEn", u."nameBn", ''),
 			u.role::text,
 			sm.message,
@@ -742,6 +750,7 @@ func (r *UserRepository) GetSupportMessages(ctx context.Context, actorUserID, ac
 			&item.ID,
 			&item.ThreadID,
 			&item.SenderID,
+			&item.SenderUid,
 			&item.SenderName,
 			&item.SenderRole,
 			&item.Message,
@@ -1253,6 +1262,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 	query := `
 		SELECT
 			u.id::text,
+			COALESCE(UPPER(SUBSTRING(u.id::text, 1, 8)), '') AS uid,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u.email, ''),
 			u.phone,
@@ -1277,22 +1287,23 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 
 	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, name, email, phone, nid, status, area, role string
+		var id, uid, name, email, phone, nid, status, area, role string
 		var createdAt time.Time
 		var savingsBalance, activeLoan int64
-		if scanErr := rows.Scan(&id, &name, &email, &phone, &nid, &status, &createdAt, &savingsBalance, &activeLoan, &area, &role); scanErr != nil {
+		if scanErr := rows.Scan(&id, &uid, &name, &email, &phone, &nid, &status, &createdAt, &savingsBalance, &activeLoan, &area, &role); scanErr != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
 			"id":              id,
+			"uid":             uid,
 			"name":            name,
 			"email":           email,
 			"phone":           phone,
 			"nidNumber":       nid,
 			"status":          strings.ToUpper(status),
 			"joinDate":        createdAt.Format(time.RFC3339),
-			"currentDeposit":  savingsBalance / 100,
-			"activeLoan":      activeLoan / 100,
+			"currentDeposit":  savingsBalance,
+			"activeLoan":      activeLoan,
 			"area":            area,
 			"role":            strings.ToUpper(role),
 			"assignedArea":    area,
@@ -3031,4 +3042,363 @@ func (r *UserRepository) ProcessDeposit(ctx context.Context, memberID, workerID 
 	}
 
 	return tx.Commit(ctx)
+}
+
+// GetMemberDetailForWorker returns detailed information about a member for staff view
+func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID string) (map[string]interface{}, error) {
+	// Get member basic info
+	const memberQuery = `
+		SELECT
+			u.id::text,
+			COALESCE(SUBSTRING(u.id::text, 1, 8), '') AS uid,
+			COALESCE(u."nameEn", ''),
+			COALESCE(u.email, ''),
+			u.phone,
+			COALESCE(u."nidNumber", ''),
+			u.status::text,
+			u."createdAt",
+			COALESCE(a."savingsBalance", 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
+			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'DEPOSIT'), 0)::bigint,
+			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL'), 0)::bigint,
+			COALESCE(addr.district, '') || ', ' || COALESCE(addr.upazila, '') || ', ' || COALESCE(addr.village, ''),
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
+		FROM users u
+		LEFT JOIN accounts a ON a."userId" = u.id
+		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
+		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+	`
+	var id, uid, name, email, phone, nid, status, address string
+	var createdAt time.Time
+	var savingsBalance, activeLoan, totalDeposited, totalWithdrawn int64
+	var isGuarantor bool
+
+	err := r.db.QueryRow(ctx, memberQuery, memberID).Scan(
+		&id, &uid, &name, &email, &phone, &nid, &status, &createdAt,
+		&savingsBalance, &activeLoan, &totalDeposited, &totalWithdrawn, &address, &isGuarantor,
+	)
+	if err != nil {
+		return nil, errors.New("member not found")
+	}
+
+	// Calculate loan eligibility
+	minDeposit := int64(8000) // 80,000 paisa = 800 BDT
+	maxLoanMultiplier := int64(5)
+	maxLoanAmount := savingsBalance * maxLoanMultiplier
+	eligible := savingsBalance >= minDeposit && activeLoan == 0
+	eligibilityReason := ""
+	if savingsBalance < minDeposit {
+		eligibilityReason = "Insufficient deposit balance"
+	} else if activeLoan > 0 {
+		eligibilityReason = "Already has an active loan"
+	}
+
+	member := map[string]interface{}{
+		"id":                       id,
+		"uid":                      strings.ToUpper(uid),
+		"name":                     name,
+		"email":                    email,
+		"phone":                    phone,
+		"nidNumber":                nid,
+		"status":                   strings.ToUpper(status),
+		"joinDate":                 createdAt.Format(time.RFC3339),
+		"currentDeposit":           savingsBalance,
+		"activeLoan":               activeLoan,
+		"totalDeposited":           totalDeposited,
+		"totalWithdrawn":           totalWithdrawn,
+		"address":                  strings.TrimSuffix(strings.TrimPrefix(address, ", "), ", "),
+		"isGuarantorForActiveLoan": isGuarantor,
+		"loanEligibility": map[string]interface{}{
+			"eligible":      eligible,
+			"maxLoanAmount": maxLoanAmount,
+			"reason":        eligibilityReason,
+		},
+	}
+
+	// Get recent transactions
+	const txnQuery = `
+		SELECT
+			t.id::text,
+			t.type::text,
+			t.amount::bigint,
+			COALESCE(t."savingsAfter", 0)::bigint,
+			COALESCE(t."receiptNumber", ''),
+			t.status::text,
+			t."createdAt",
+			COALESCE(t.description, '')
+		FROM transactions t
+		WHERE t."userId" = $1
+		ORDER BY t."createdAt" DESC
+		LIMIT 20
+	`
+	txnRows, err := r.db.Query(ctx, txnQuery, memberID)
+	if err != nil {
+		return nil, err
+	}
+	defer txnRows.Close()
+
+	transactions := make([]map[string]interface{}, 0)
+	for txnRows.Next() {
+		var txnID, txnType, receipt, txnStatus, notes string
+		var amount, balanceAfter int64
+		var txnCreatedAt time.Time
+		if err := txnRows.Scan(&txnID, &txnType, &amount, &balanceAfter, &receipt, &txnStatus, &txnCreatedAt, &notes); err != nil {
+			continue
+		}
+		transactions = append(transactions, map[string]interface{}{
+			"id":            txnID,
+			"type":          strings.ToUpper(txnType),
+			"amount":        amount,
+			"balanceAfter":  balanceAfter,
+			"receiptNumber": receipt,
+			"status":        strings.ToUpper(txnStatus),
+			"createdAt":     txnCreatedAt.Format(time.RFC3339),
+			"notes":         notes,
+		})
+	}
+
+	// Get loans
+	const loanQuery = `
+		SELECT
+			l.id::text,
+			COALESCE(l."loanNumber", ''),
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l."totalInstallments"::int,
+			l."paidInstallments"::int,
+			l."installmentAmount"::bigint,
+			l.status::text,
+			l."disbursementDate",
+			COALESCE(l."nextDueDate", l."disbursementDate" + INTERVAL '1 month')
+		FROM loans l
+		WHERE l."borrowerId" = $1
+		ORDER BY l."createdAt" DESC
+		LIMIT 10
+	`
+	loanRows, err := r.db.Query(ctx, loanQuery, memberID)
+	if err != nil {
+		return nil, err
+	}
+	defer loanRows.Close()
+
+	loans := make([]map[string]interface{}, 0)
+	for loanRows.Next() {
+		var loanID, loanNumber, loanStatus string
+		var principal, remaining, installmentAmt int64
+		var totalInst, paidInst int
+		var disbursementDate, nextDueDate *time.Time
+		if err := loanRows.Scan(&loanID, &loanNumber, &principal, &remaining, &totalInst, &paidInst, &installmentAmt, &loanStatus, &disbursementDate, &nextDueDate); err != nil {
+			continue
+		}
+		loan := map[string]interface{}{
+			"id":                loanID,
+			"loanNumber":        loanNumber,
+			"principalAmount":   principal,
+			"remainingAmount":   remaining,
+			"totalInstallments": totalInst,
+			"paidInstallments":  paidInst,
+			"installmentAmount": installmentAmt,
+			"status":            strings.ToUpper(loanStatus),
+		}
+		if disbursementDate != nil {
+			loan["disbursementDate"] = disbursementDate.Format(time.RFC3339)
+		}
+		if nextDueDate != nil {
+			loan["nextDueDate"] = nextDueDate.Format(time.RFC3339)
+		}
+		loans = append(loans, loan)
+	}
+
+	return map[string]interface{}{
+		"member":       member,
+		"transactions": transactions,
+		"loans":        loans,
+	}, nil
+}
+
+// AddMemberDeposit adds a deposit for a member (worker action)
+func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
+	// Verify member exists and is active
+	var status, accountID string
+	var currentBalance int64
+	err := r.db.QueryRow(ctx, `
+		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
+		FROM users u
+		LEFT JOIN accounts a ON a."userId" = u.id
+		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+	`, memberID).Scan(&status, &accountID, &currentBalance)
+	if err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+
+	// Generate receipt number
+	receipt := fmt.Sprintf("RCP%d%s", time.Now().Unix(), memberID[:4])
+
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update account balance
+	newBalance := currentBalance + amount
+	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1 WHERE id = $2`, newBalance, accountID)
+	if err != nil {
+		return "", err
+	}
+
+	// Create transaction record
+	description := "জমা"
+	if notes != "" {
+		description = notes
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy", status)
+		VALUES (gen_random_uuid()::text, 'DEPOSIT', $1, $2, $3, $4, NOW(), $5, $6, $7, 'CONFIRMED')
+	`, amount, receipt, description, newBalance, accountID, memberID, workerID)
+	if err != nil {
+		return "", err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return receipt, nil
+}
+
+// AddMemberWithdrawal processes a withdrawal for a member (worker action)
+func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
+	// Verify member exists and is active
+	var status, accountID string
+	var currentBalance, activeLoan int64
+	var isGuarantor bool
+	err := r.db.QueryRow(ctx, `
+		SELECT 
+			u.status::text, 
+			a.id::text, 
+			COALESCE(a."savingsBalance", 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
+		FROM users u
+		LEFT JOIN accounts a ON a."userId" = u.id
+		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan, &isGuarantor)
+	if err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+	if amount > currentBalance {
+		return "", errors.New("insufficient balance")
+	}
+	if activeLoan > 0 {
+		return "", errors.New("has active loan")
+	}
+	if isGuarantor {
+		return "", errors.New("is guarantor for active loan")
+	}
+
+	// Generate receipt number
+	receipt := fmt.Sprintf("WDR%d%s", time.Now().Unix(), memberID[:4])
+
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update account balance
+	newBalance := currentBalance - amount
+	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1 WHERE id = $2`, newBalance, accountID)
+	if err != nil {
+		return "", err
+	}
+
+	// Create transaction record
+	description := "উত্তোলন"
+	if notes != "" {
+		description = notes
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy", status)
+		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, $2, $3, $4, NOW(), $5, $6, $7, 'CONFIRMED')
+	`, amount, receipt, description, newBalance, accountID, memberID, workerID)
+	if err != nil {
+		return "", err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return receipt, nil
+}
+
+// CreateMemberLoan creates a loan for a member (worker action)
+func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
+	// Verify member exists and is active
+	var status string
+	var currentBalance, activeLoan int64
+	err := r.db.QueryRow(ctx, `
+		SELECT 
+			u.status::text, 
+			COALESCE(a."savingsBalance", 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
+		FROM users u
+		LEFT JOIN accounts a ON a."userId" = u.id
+		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+	`, memberID).Scan(&status, &currentBalance, &activeLoan)
+	if err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+	if activeLoan > 0 {
+		return "", errors.New("has active loan")
+	}
+
+	// Check eligibility
+	minDeposit := int64(8000) // 80,000 paisa
+	if currentBalance < minDeposit {
+		return "", errors.New("not eligible - insufficient deposit")
+	}
+
+	maxLoanAmount := currentBalance * 5
+	if amount > maxLoanAmount {
+		return "", errors.New("exceeds limit")
+	}
+
+	// Generate loan number
+	loanNumber := fmt.Sprintf("LN%d%s", time.Now().Unix(), memberID[:4])
+
+	// Calculate installment amount (simple division for now)
+	installmentAmount := amount / int64(installments)
+
+	// Create loan record (pending approval)
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO loans (
+			id, "loanNumber", "borrowerId", "principalAmount", "remainingAmount",
+			"totalInstallments", "paidInstallments", "installmentAmount",
+			purpose, status, "createdAt", "createdBy"
+		) VALUES (
+			gen_random_uuid()::text, $1, $2, $3, $4,
+			$5, 0, $6,
+			$7, 'PENDING_APPROVAL', NOW(), $8
+		)
+	`, loanNumber, memberID, amount, amount, installments, installmentAmount, purpose, workerID)
+	if err != nil {
+		return "", err
+	}
+
+	return loanNumber, nil
 }

@@ -9,13 +9,13 @@ import {
   TrendingUp,
   ArrowUpRight,
   ArrowDownRight,
-  Users,
   Clock,
-  AlertCircle,
   ChevronRight,
-  Check,
-  X,
   Calendar,
+  Receipt,
+  MessageCircle,
+  Info,
+  Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,21 +27,6 @@ interface DashboardStats {
   totalDeposited: number;
   loanBalance: number;
   loanEligibility: number;
-}
-
-interface PendingConfirmation {
-  id: string;
-  type: string;
-  amount: number;
-  date: string;
-  receipt: string;
-}
-
-interface GuarantorRequest {
-  id: string;
-  borrowerName: string;
-  loanAmount: number;
-  requestDate: string;
 }
 
 interface ActiveLoanData {
@@ -63,8 +48,6 @@ interface RecentTransaction {
 
 interface MemberDashboardResponse {
   stats: DashboardStats;
-  pendingConfirmations: PendingConfirmation[];
-  guarantorRequests: GuarantorRequest[];
   activeLoan: ActiveLoanData | null;
   recentTransactions: RecentTransaction[];
 }
@@ -79,8 +62,6 @@ export default function MemberDashboard() {
       loanBalance: 0,
       loanEligibility: 0,
     },
-    pendingConfirmations: [],
-    guarantorRequests: [],
     activeLoan: null,
     recentTransactions: [],
   });
@@ -119,72 +100,27 @@ export default function MemberDashboard() {
         </p>
       </div>
 
-      {/* Alerts Section */}
-      {(data.pendingConfirmations.length > 0 || data.guarantorRequests.length > 0) && (
-        <div className="space-y-3">
-          {/* Pending Confirmations Alert */}
-          {data.pendingConfirmations.length > 0 && (
-            <Card className="rounded-2xl border-amber-200 bg-amber-50/50 shadow-sm">
-              <CardContent className="py-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <Clock className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-amber-800">
-                        {locale === 'bn' ? 'নিশ্চিতকরণ অপেক্ষমান' : 'Pending Confirmations'}
-                      </h3>
-                      <Link href={`/${locale}/dashboard/member/deposits`}>
-                        <Button size="sm" variant="outline" className="gap-1 border-amber-300 text-amber-700 hover:bg-amber-100">
-                          {locale === 'bn' ? 'দেখুন' : 'View'}
-                          <ChevronRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
-                    </div>
-                    <p className="text-sm text-amber-700">
-                      {locale === 'bn'
-                        ? `${data.pendingConfirmations.length}টি লেনদেন আপনার নিশ্চিতকরণ অপেক্ষা করছে`
-                        : `${data.pendingConfirmations.length} transaction(s) awaiting your confirmation`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Guarantor Requests Alert */}
-          {data.guarantorRequests.length > 0 && (
-            <Card className="rounded-2xl border-blue-200 bg-blue-50/50 shadow-sm">
-              <CardContent className="py-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                    <Users className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-blue-800">
-                        {locale === 'bn' ? 'জামিনদার অনুরোধ' : 'Guarantor Requests'}
-                      </h3>
-                      <Link href={`/${locale}/dashboard/member/loans`}>
-                        <Button size="sm" variant="outline" className="gap-1 border-blue-300 text-blue-700 hover:bg-blue-100">
-                          {locale === 'bn' ? 'দেখুন' : 'View'}
-                          <ChevronRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
-                    </div>
-                    <p className="text-sm text-blue-700">
-                      {locale === 'bn'
-                        ? `${data.guarantorRequests.length} সদস্য আপনাকে জামিনদার হিসেবে অনুরোধ করেছেন`
-                        : `${data.guarantorRequests.length} member(s) requested you as guarantor`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
+      {/* Info Notice */}
+      <Card className="rounded-2xl border-blue-200 bg-blue-50/50 shadow-sm">
+        <CardContent className="py-4">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-blue-800">
+                {locale === 'bn'
+                  ? 'আমানত, উত্তোলন বা ঋণের জন্য অফিসে যোগাযোগ করুন অথবা সাপোর্টে মেসেজ করুন।'
+                  : 'For deposits, withdrawals, or loans, please visit the office or contact support.'}
+              </p>
+              <Link href={`/${locale}/dashboard/member/support`}>
+                <Button variant="link" className="h-auto p-0 mt-1 text-blue-700 hover:text-blue-900 gap-1">
+                  <MessageCircle className="h-4 w-4" />
+                  {locale === 'bn' ? 'সাপোর্টে যোগাযোগ করুন' : 'Contact Support'}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -300,25 +236,58 @@ export default function MemberDashboard() {
         </Card>
       )}
 
-      {/* Quick Actions */}
+      {/* Quick View Links */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Link href={`/${locale}/dashboard/member/deposits`}>
-          <Button className="w-full h-auto py-4 flex flex-col gap-2">
-            <Wallet className="h-6 w-6" />
-            <span>{locale === 'bn' ? 'আমানত করুন' : 'Make Deposit'}</span>
-          </Button>
+          <Card className="rounded-2xl border-slate-200 shadow-sm hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+            <CardContent className="pt-6 flex flex-col items-center text-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                <Wallet className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <p className="font-semibold">{locale === 'bn' ? 'আমানতের ইতিহাস' : 'Deposit History'}</p>
+                <p className="text-xs text-muted-foreground">{locale === 'bn' ? 'আপনার সকল আমানত দেখুন' : 'View all your deposits'}</p>
+              </div>
+              <Button variant="ghost" size="sm" className="gap-1">
+                <Eye className="h-4 w-4" />
+                {locale === 'bn' ? 'দেখুন' : 'View'}
+              </Button>
+            </CardContent>
+          </Card>
         </Link>
         <Link href={`/${locale}/dashboard/member/loans`}>
-          <Button variant="outline" className="w-full h-auto py-4 flex flex-col gap-2">
-            <HandCoins className="h-6 w-6" />
-            <span>{locale === 'bn' ? 'ঋণ আবেদন' : 'Apply for Loan'}</span>
-          </Button>
+          <Card className="rounded-2xl border-slate-200 shadow-sm hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+            <CardContent className="pt-6 flex flex-col items-center text-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center">
+                <HandCoins className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-semibold">{locale === 'bn' ? 'ঋণের স্থিতি' : 'Loan Status'}</p>
+                <p className="text-xs text-muted-foreground">{locale === 'bn' ? 'আপনার ঋণের তথ্য দেখুন' : 'View your loan information'}</p>
+              </div>
+              <Button variant="ghost" size="sm" className="gap-1">
+                <Eye className="h-4 w-4" />
+                {locale === 'bn' ? 'দেখুন' : 'View'}
+              </Button>
+            </CardContent>
+          </Card>
         </Link>
-        <Link href={`/${locale}/dashboard/member/profile`}>
-          <Button variant="outline" className="w-full h-auto py-4 flex flex-col gap-2">
-            <ArrowUpRight className="h-6 w-6" />
-            <span>{locale === 'bn' ? 'উত্তোলন অনুরোধ' : 'Request Withdrawal'}</span>
-          </Button>
+        <Link href={`/${locale}/dashboard/member/transactions`}>
+          <Card className="rounded-2xl border-slate-200 shadow-sm hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+            <CardContent className="pt-6 flex flex-col items-center text-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
+                <Receipt className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-semibold">{locale === 'bn' ? 'লেনদেনের ইতিহাস' : 'Transaction History'}</p>
+                <p className="text-xs text-muted-foreground">{locale === 'bn' ? 'সকল লেনদেন দেখুন' : 'View all transactions'}</p>
+              </div>
+              <Button variant="ghost" size="sm" className="gap-1">
+                <Eye className="h-4 w-4" />
+                {locale === 'bn' ? 'দেখুন' : 'View'}
+              </Button>
+            </CardContent>
+          </Card>
         </Link>
       </div>
 
@@ -340,43 +309,49 @@ export default function MemberDashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {data.recentTransactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                      tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT'
-                        ? 'bg-green-100 text-green-600'
-                        : 'bg-red-100 text-red-600'
-                    }`}
-                  >
-                    {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? (
-                      <ArrowUpRight className="h-5 w-5" />
-                    ) : (
-                      <ArrowDownRight className="h-5 w-5" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-medium">
-                      {locale === 'bn'
-                        ? transactionLabels[tx.type]?.bn
-                        : transactionLabels[tx.type]?.en}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{tx.receipt}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className={`font-medium ${transactionLabels[tx.type]?.color}`}>
-                    {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? '+' : '-'}
-                    {formatCurrency(tx.amount, locale)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{formatDate(tx.date, locale)}</p>
-                </div>
+            {data.recentTransactions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {locale === 'bn' ? 'কোন লেনদেন পাওয়া যায়নি' : 'No transactions found'}
               </div>
-            ))}
+            ) : (
+              data.recentTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                        tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT'
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-red-100 text-red-600'
+                      }`}
+                    >
+                      {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? (
+                        <ArrowUpRight className="h-5 w-5" />
+                      ) : (
+                        <ArrowDownRight className="h-5 w-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium">
+                        {locale === 'bn'
+                          ? transactionLabels[tx.type]?.bn
+                          : transactionLabels[tx.type]?.en}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{tx.receipt}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-medium ${transactionLabels[tx.type]?.color}`}>
+                      {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? '+' : '-'}
+                      {formatCurrency(tx.amount, locale)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{formatDate(tx.date, locale)}</p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

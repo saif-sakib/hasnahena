@@ -1060,3 +1060,204 @@ func (h *DashboardHandler) ProcessWithdrawal(w http.ResponseWriter, r *http.Requ
 	// Would call ProcessWithdrawal repository method when implemented
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Withdrawal processed successfully"})
 }
+
+// WorkerMemberDetail returns detailed information about a specific member
+func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
+		return
+	}
+
+	memberId := r.PathValue("memberId")
+	if memberId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberId)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "MEMBER_DETAIL_FETCH_FAILED", "Failed to load member details")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, data)
+}
+
+// WorkerAddDeposit adds a deposit for a member
+func (h *DashboardHandler) WorkerAddDeposit(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	memberId := r.PathValue("memberId")
+	if memberId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	var req struct {
+		Amount int64  `json:"amount"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+
+	receipt, err := h.userRepo.AddMemberDeposit(r.Context(), memberId, auth.UserID, req.Amount, req.Notes)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+			return
+		}
+		if strings.Contains(err.Error(), "not active") {
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "DEPOSIT_FAILED", "Failed to process deposit")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":       "Deposit added successfully",
+		"receiptNumber": receipt,
+	})
+}
+
+// WorkerAddWithdrawal processes a withdrawal for a member
+func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	memberId := r.PathValue("memberId")
+	if memberId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	var req struct {
+		Amount int64  `json:"amount"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+
+	receipt, err := h.userRepo.AddMemberWithdrawal(r.Context(), memberId, auth.UserID, req.Amount, req.Notes)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+			return
+		}
+		if strings.Contains(err.Error(), "not active") {
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+			return
+		}
+		if strings.Contains(err.Error(), "insufficient") {
+			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance")
+			return
+		}
+		if strings.Contains(err.Error(), "active loan") {
+			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED", "Cannot withdraw while having an active loan")
+			return
+		}
+		if strings.Contains(err.Error(), "guarantor") {
+			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED", "Cannot withdraw while being a guarantor for an active loan")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "WITHDRAWAL_FAILED", "Failed to process withdrawal")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":       "Withdrawal processed successfully",
+		"receiptNumber": receipt,
+	})
+}
+
+// WorkerAddLoan creates a loan application for a member
+func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	memberId := r.PathValue("memberId")
+	if memberId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	var req struct {
+		Amount       int64  `json:"amount"`
+		Purpose      string `json:"purpose"`
+		Installments int    `json:"installments"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+
+	if strings.TrimSpace(req.Purpose) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_PURPOSE", "Purpose is required")
+		return
+	}
+
+	if req.Installments < 1 || req.Installments > 24 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_INSTALLMENTS", "Installments must be between 1 and 24")
+		return
+	}
+
+	loanNumber, err := h.userRepo.CreateMemberLoan(r.Context(), memberId, auth.UserID, req.Amount, req.Purpose, req.Installments)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+			return
+		}
+		if strings.Contains(err.Error(), "not active") {
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+			return
+		}
+		if strings.Contains(err.Error(), "not eligible") {
+			utils.Error(w, http.StatusBadRequest, "NOT_ELIGIBLE", "Member is not eligible for a loan")
+			return
+		}
+		if strings.Contains(err.Error(), "exceeds limit") {
+			utils.Error(w, http.StatusBadRequest, "EXCEEDS_LIMIT", "Loan amount exceeds maximum limit")
+			return
+		}
+		if strings.Contains(err.Error(), "active loan") {
+			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN_EXISTS", "Member already has an active loan")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "LOAN_CREATION_FAILED", "Failed to create loan")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":    "Loan application submitted successfully",
+		"loanNumber": loanNumber,
+	})
+}

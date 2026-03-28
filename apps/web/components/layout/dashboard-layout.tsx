@@ -93,11 +93,11 @@ const USER_INFO_CACHE_KEY = 'hn_user_info_cache';
 const USER_INFO_CACHE_TIMESTAMP_KEY = 'hn_user_info_timestamp';
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes cache
 
-// Member navigation - based on requirements: deposits, loans, transactions
+// Member navigation - view-only access to account information
 const memberNav = [
   { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
-  { name: 'deposits', href: '/deposits', icon: Wallet, en: 'My Deposits', bn: 'আমার আমানত' },
-  { name: 'loans', href: '/loans', icon: HandCoins, en: 'My Loans', bn: 'আমার ঋণ' },
+  { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposit History', bn: 'আমানতের ইতিহাস' },
+  { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loan Status', bn: 'ঋণের স্থিতি' },
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
 ];
 

@@ -5,21 +5,19 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
   Wallet,
-  Plus,
-  Check,
   Clock,
   CheckCircle2,
   XCircle,
   ArrowUpRight,
-  ArrowDownRight,
   Download,
+  Info,
+  MessageCircle,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import Link from 'next/link';
 
 type DepositStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -37,13 +35,10 @@ export default function DepositsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
   const router = useRouter();
-  const [showDepositForm, setShowDepositForm] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed'>('all');
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [currentBalance, setCurrentBalance] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -127,44 +122,6 @@ export default function DepositsPage() {
     return true;
   });
 
-  const handleDepositSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void (async () => {
-      setActionError(null);
-      const token = localStorage.getItem('hn_access_token');
-      if (!token) {
-        router.push(`/${locale}/login`);
-        return;
-      }
-
-      const amount = Number(depositAmount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        setActionError('Invalid deposit amount');
-        return;
-      }
-
-      setIsSubmitting(true);
-      try {
-        const res = await fetch('/api/v1/transactions/deposit-requests', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ amount }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setActionError(json?.error ?? 'Failed to submit deposit request');
-          return;
-        }
-
-        setShowDepositForm(false);
-        setDepositAmount('');
-        await refresh();
-      } finally {
-        setIsSubmitting(false);
-      }
-    })();
-  };
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -175,15 +132,33 @@ export default function DepositsPage() {
           </h1>
           <p className="text-muted-foreground">
             {locale === 'bn'
-              ? 'আপনার আমানত পরিচালনা করুন এবং নতুন আমানত অনুরোধ করুন'
-              : 'Manage your deposits and request new deposits'}
+              ? 'আপনার আমানতের ইতিহাস ও ব্যালেন্স দেখুন'
+              : 'View your deposit history and balance'}
           </p>
         </div>
-        <Button onClick={() => setShowDepositForm(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          {t('requestDeposit')}
-        </Button>
       </div>
+
+      {/* Info Notice */}
+      <Card className="rounded-2xl border-blue-200 bg-blue-50/50 shadow-sm">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-blue-800 font-medium">
+                {locale === 'bn'
+                  ? 'আমানত জমা দিতে চাইলে অফিসে যোগাযোগ করুন অথবা কাস্টমার সাপোর্টে মেসেজ করুন।'
+                  : 'To make a deposit, please visit the office or contact customer support.'}
+              </p>
+              <Link href={`/${locale}/dashboard/member/support`}>
+                <Button variant="link" className="h-auto p-0 mt-2 text-blue-700 hover:text-blue-900 gap-1">
+                  <MessageCircle className="h-4 w-4" />
+                  {locale === 'bn' ? 'সাপোর্টে যোগাযোগ করুন' : 'Contact Support'}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -226,59 +201,6 @@ export default function DepositsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Deposit Form Modal */}
-      {showDepositForm && (
-        <Card className="rounded-2xl border-emerald-200 bg-emerald-50/50 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-emerald-600" />
-              {t('requestDeposit')}
-            </CardTitle>
-            <CardDescription>
-              {locale === 'bn'
-                ? 'নতুন আমানতের জন্য অনুরোধ করুন। কর্মী/প্রশাসন টাকা গ্রহণের পর সরাসরি নিশ্চিত হবে।'
-                : 'Request a new deposit. It will be finalized by worker/admin after receiving cash.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleDepositSubmit} className="space-y-4">
-              {actionError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {actionError}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="amount">{t('depositAmount')}</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  placeholder={t('enterAmount')}
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  min="100"
-                  required
-                  className="text-lg"
-                />
-                <p className="text-xs text-muted-foreground">{t('minDeposit')}</p>
-              </div>
-              <div className="flex gap-2">
-                 <Button type="submit" className="gap-2" disabled={isSubmitting}>
-                   <Check className="h-4 w-4" />
-                   {t('submitRequest')}
-                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowDepositForm(false)}
-                >
-                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b">
