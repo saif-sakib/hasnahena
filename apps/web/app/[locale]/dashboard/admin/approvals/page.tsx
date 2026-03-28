@@ -6,11 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Users, HandCoins, Wallet, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { Loader2, RefreshCw, Users, HandCoins, CheckCircle2, XCircle, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
-type TabKey = 'registrations' | 'loans' | 'withdrawals';
+type TabKey = 'registrations' | 'loans';
 
 interface RegistrationRequest {
   id: string;
@@ -58,15 +58,6 @@ interface AdminLoan {
   purpose: string;
   member: { name: string; memberId?: string | null };
   guarantor?: { name: string } | null;
-}
-
-interface AdminTransaction {
-  id: string;
-  type: 'DEPOSIT' | 'WITHDRAWAL';
-  amount: number;
-  status: string;
-  member: { name: string; memberId?: string | null };
-  processedDate: string;
 }
 
 function RegistrationCard({
@@ -163,7 +154,6 @@ export default function AdminApprovalsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('registrations');
   const [registrations, setRegistrations] = useState<RegistrationRequest[]>([]);
   const [loanApprovals, setLoanApprovals] = useState<AdminLoan[]>([]);
-  const [withdrawalApprovals, setWithdrawalApprovals] = useState<AdminTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,21 +162,11 @@ export default function AdminApprovalsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [approvalsData, loanData, depositData] = await Promise.all([
+      const [approvalsData, loanData] = await Promise.all([
         apiGet<{
           registrationRequests: RegistrationRequest[];
-          loanRequests: Array<{
-            id: string;
-            requestedAmount: number;
-            purpose: string;
-            memberName: string;
-            memberId?: string;
-            guarantorName?: string;
-          }>;
-          withdrawalRequests: AdminTransaction[];
         }>('/v1/dashboard/admin/approvals'),
         apiGet<AdminLoan[]>('/v1/dashboard/admin/loans'),
-        apiGet<any>('/v1/dashboard/admin/deposits'),
       ]);
 
       setRegistrations(approvalsData.registrationRequests ?? []);
@@ -196,16 +176,10 @@ export default function AdminApprovalsPage() {
           amount: l.amount ?? (l as any).requestedAmount ?? 0,
         })),
       );
-      setWithdrawalApprovals(
-        ((depositData?.deposits ?? depositData ?? []) as AdminTransaction[]).filter(
-          (t) => t.type === 'WITHDRAWAL' && t.status === 'PENDING',
-        ),
-      );
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load approvals');
       setRegistrations([]);
       setLoanApprovals([]);
-      setWithdrawalApprovals([]);
     } finally {
       setIsLoading(false);
     }
@@ -219,12 +193,11 @@ export default function AdminApprovalsPage() {
     () => ({
       registrations: registrations.length,
       loans: loanApprovals.length,
-      withdrawals: withdrawalApprovals.length,
     }),
-    [registrations.length, loanApprovals.length, withdrawalApprovals.length],
+    [registrations.length, loanApprovals.length],
   );
 
-  const runAction = async (kind: 'registration' | 'loan' | 'withdrawal', id: string, action: 'approve' | 'reject') => {
+  const runAction = async (kind: 'registration' | 'loan', id: string, action: 'approve' | 'reject') => {
     setIsActionLoading(true);
     setError(null);
     try {
@@ -252,10 +225,6 @@ export default function AdminApprovalsPage() {
         } else {
           await apiPost('/v1/dashboard/admin/approvals/loan/reject', { loanId: id, reason: '' });
         }
-      } else if (action === 'approve') {
-        await apiPost('/v1/dashboard/admin/approvals/withdrawal', { requestId: id });
-      } else {
-        await apiPost('/v1/dashboard/admin/approvals/withdrawal/reject', { requestId: id, reason: '' });
       }
       await loadAll();
     } catch (e: any) {
@@ -272,8 +241,8 @@ export default function AdminApprovalsPage() {
           <h1 className="text-2xl md:text-3xl font-bold">{locale === 'bn' ? 'অনুমোদন' : 'Approvals'}</h1>
           <p className="text-muted-foreground">
             {locale === 'bn'
-              ? 'নিবন্ধন, ঋণ এবং উত্তোলন অনুরোধ অনুমোদন করুন'
-              : 'Approve registration, loan, and withdrawal requests'}
+              ? 'নিবন্ধন এবং ঋণ অনুরোধ অনুমোদন করুন'
+              : 'Approve registration and loan requests'}
           </p>
         </div>
         <Button variant="outline" onClick={() => void loadAll()} disabled={isLoading || isActionLoading}>
@@ -284,17 +253,15 @@ export default function AdminApprovalsPage() {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Card><CardContent className="p-4 flex justify-between"><div><p className="text-sm text-muted-foreground">{locale === 'bn' ? 'নিবন্ধন' : 'Registrations'}</p><p className="text-2xl font-bold">{counts.registrations}</p></div><Users className="h-8 w-8 text-amber-600" /></CardContent></Card>
         <Card><CardContent className="p-4 flex justify-between"><div><p className="text-sm text-muted-foreground">{locale === 'bn' ? 'ঋণ' : 'Loans'}</p><p className="text-2xl font-bold">{counts.loans}</p></div><HandCoins className="h-8 w-8 text-blue-600" /></CardContent></Card>
-        <Card><CardContent className="p-4 flex justify-between"><div><p className="text-sm text-muted-foreground">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</p><p className="text-2xl font-bold">{counts.withdrawals}</p></div><Wallet className="h-8 w-8 text-purple-600" /></CardContent></Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
         <TabsList className="w-full overflow-x-auto justify-start">
           <TabsTrigger value="registrations">{locale === 'bn' ? 'নিবন্ধন' : 'Registrations'} ({counts.registrations})</TabsTrigger>
           <TabsTrigger value="loans">{locale === 'bn' ? 'ঋণ' : 'Loans'} ({counts.loans})</TabsTrigger>
-          <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'} ({counts.withdrawals})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="registrations">
@@ -351,37 +318,6 @@ export default function AdminApprovalsPage() {
                 <div className="py-10 text-center text-muted-foreground">
                   <HandCoins className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>{locale === 'bn' ? 'কোনো অপেক্ষমাণ ঋণ অনুরোধ নেই' : 'No pending loan approvals'}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="withdrawals">
-          <Card>
-            <CardHeader>
-              <CardTitle>{locale === 'bn' ? 'উত্তোলন অনুমোদন' : 'Withdrawal Approvals'}</CardTitle>
-              <CardDescription>{locale === 'bn' ? `${counts.withdrawals} টি অপেক্ষমাণ` : `${counts.withdrawals} pending`}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {isLoading ? (
-                <div className="py-10 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
-              ) : withdrawalApprovals.map((w) => (
-                <div key={w.id} className="rounded-xl bg-slate-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{w.member.name} {w.member.memberId ? <Badge variant="outline" className="ml-1">{w.member.memberId}</Badge> : null}</p>
-                    <p className="text-sm text-muted-foreground">{formatCurrency(w.amount, locale)} • {new Date(w.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')} • <Clock className="inline h-3 w-3" /> Pending</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={isActionLoading} onClick={() => void runAction('withdrawal', w.id, 'reject')}><XCircle className="h-4 w-4 mr-1" />{locale === 'bn' ? 'প্রত্যাখ্যান' : 'Reject'}</Button>
-                    <Button size="sm" disabled={isActionLoading} onClick={() => void runAction('withdrawal', w.id, 'approve')}><CheckCircle2 className="h-4 w-4 mr-1" />{locale === 'bn' ? 'অনুমোদন' : 'Approve'}</Button>
-                  </div>
-                </div>
-              ))}
-              {!isLoading && withdrawalApprovals.length === 0 && (
-                <div className="py-10 text-center text-muted-foreground">
-                  <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{locale === 'bn' ? 'কোনো অপেক্ষমাণ উত্তোলন অনুরোধ নেই' : 'No pending withdrawal requests'}</p>
                 </div>
               )}
             </CardContent>
