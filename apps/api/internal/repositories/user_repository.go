@@ -3066,7 +3066,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
-		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+		WHERE u.id = $1::uuid AND u.role = 'MEMBER'
 	`
 	var id, uid, name, email, phone, nid, status, address string
 	var createdAt time.Time
@@ -3127,7 +3127,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			t."createdAt",
 			COALESCE(t.description, '')
 		FROM transactions t
-		WHERE t."userId" = $1
+		WHERE t."userId" = $1::uuid
 		ORDER BY t."createdAt" DESC
 		LIMIT 20
 	`
@@ -3171,7 +3171,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			l."disbursementDate",
 			COALESCE(l."nextDueDate", l."disbursementDate" + INTERVAL '1 month')
 		FROM loans l
-		WHERE l."borrowerId" = $1
+		WHERE l."borrowerId" = $1::uuid
 		ORDER BY l."createdAt" DESC
 		LIMIT 10
 	`
@@ -3225,7 +3225,7 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+		WHERE u.id = $1::uuid AND u.role = 'MEMBER'
 	`, memberID).Scan(&status, &accountID, &currentBalance)
 	if err != nil {
 		return "", errors.New("member not found")
@@ -3258,7 +3258,7 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy", status)
-		VALUES (gen_random_uuid()::text, 'DEPOSIT', $1, $2, $3, $4, NOW(), $5, $6, $7, 'CONFIRMED')
+		VALUES (gen_random_uuid()::text, 'DEPOSIT', $1, $2, $3, $4, NOW(), $5, $6::uuid, $7::uuid, 'CONFIRMED')
 	`, amount, receipt, description, newBalance, accountID, memberID, workerID)
 	if err != nil {
 		return "", err
@@ -3287,7 +3287,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+		WHERE u.id = $1::uuid AND u.role = 'MEMBER'
 	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan, &isGuarantor)
 	if err != nil {
 		return "", errors.New("member not found")
@@ -3329,7 +3329,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy", status)
-		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, $2, $3, $4, NOW(), $5, $6, $7, 'CONFIRMED')
+		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, $2, $3, $4, NOW(), $5, $6::uuid, $7::uuid, 'CONFIRMED')
 	`, amount, receipt, description, newBalance, accountID, memberID, workerID)
 	if err != nil {
 		return "", err
@@ -3355,7 +3355,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.id::text = $1 AND u.role = 'MEMBER'
+		WHERE u.id = $1::uuid AND u.role = 'MEMBER'
 	`, memberID).Scan(&status, &currentBalance, &activeLoan)
 	if err != nil {
 		return "", errors.New("member not found")
@@ -3391,9 +3391,9 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 			"totalInstallments", "paidInstallments", "installmentAmount",
 			purpose, status, "createdAt", "createdBy"
 		) VALUES (
-			gen_random_uuid()::text, $1, $2, $3, $4,
+			gen_random_uuid()::text, $1, $2::uuid, $3, $4,
 			$5, 0, $6,
-			$7, 'PENDING_APPROVAL', NOW(), $8
+			$7, 'PENDING_APPROVAL', NOW(), $8::uuid
 		)
 	`, loanNumber, memberID, amount, amount, installments, installmentAmount, purpose, workerID)
 	if err != nil {
