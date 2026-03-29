@@ -6,7 +6,6 @@ import {
   Receipt,
   Search,
   Filter,
-  Download,
   Calendar,
   User,
   Wallet,
@@ -297,10 +296,6 @@ export default function WorkerTransactionsPage() {
               : 'All transactions processed by you'}
           </p>
         </div>
-        <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
-        </Button>
       </div>
 
       {/* Stats */}

@@ -6,7 +6,7 @@ import {
   HandCoins,
   Search,
   Filter,
-  Download,
+  RefreshCw,
   Calendar,
   CheckCircle2,
   Clock,
@@ -186,7 +186,7 @@ export default function AdminLoansPage() {
           </p>
         </div>
         <Button variant="outline" onClick={() => void loadLoans()} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
         </Button>
       </div>

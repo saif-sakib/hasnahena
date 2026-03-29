@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfg "hasnahena/apps/api/internal/config"
@@ -38,6 +39,8 @@ func main() {
 	poolConfig.MaxConnIdleTime = config.DBMaxConnIdleTime
 	poolConfig.MaxConnLifetime = config.DBMaxConnLifetime
 	poolConfig.HealthCheckPeriod = config.DBHealthCheckPeriod
+	// Neon pooler (pgBouncer) can raise prepared-statement conflicts; simple protocol avoids server-side prepare reuse.
+	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -114,8 +117,6 @@ func main() {
 			dashboard.Get("/admin/approvals", dashboardHandler.AdminApprovals)
 			dashboard.Post("/admin/approvals/registration", dashboardHandler.ApproveRegistration)
 			dashboard.Post("/admin/approvals/registration/reject", dashboardHandler.RejectRegistration)
-			dashboard.Post("/admin/approvals/loan", dashboardHandler.ApproveLoan)
-			dashboard.Post("/admin/approvals/loan/reject", dashboardHandler.RejectLoan)
 			dashboard.Post("/admin/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
 			dashboard.Post("/admin/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
 

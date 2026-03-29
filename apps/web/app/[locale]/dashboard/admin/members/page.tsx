@@ -14,7 +14,6 @@ import {
   Mail,
   Phone,
   Calendar,
-  Download,
   ChevronDown,
   ChevronUp,
   Hash,
@@ -140,10 +139,6 @@ export default function AdminMembersPage() {
             {locale === 'bn' ? 'সকল সদস্যদের তালিকা দেখুন' : 'View all members'}
           </p>
         </div>
-        <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
-        </Button>
       </div>
 
       {/* Search */}

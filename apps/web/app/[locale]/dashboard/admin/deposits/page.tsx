@@ -6,7 +6,7 @@ import {
   Wallet,
   Search,
   Filter,
-  Download,
+  RefreshCw,
   Calendar,
   User,
   CheckCircle2,
@@ -188,7 +188,7 @@ export default function AdminDepositsPage() {
           </p>
         </div>
         <Button variant="outline" onClick={() => void loadDeposits()} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
         </Button>
       </div>

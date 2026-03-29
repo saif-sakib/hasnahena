@@ -512,35 +512,6 @@ export default function AdminReportsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Quick Actions */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle>{locale === 'bn' ? 'রিপোর্ট ডাউনলোড' : 'Download Reports'}</CardTitle>
-          <CardDescription>
-            {locale === 'bn' ? 'PDF বা Excel ফরম্যাটে রিপোর্ট ডাউনলোড করুন' : 'Download reports in PDF or Excel format'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Button variant="outline" className="h-auto py-4 flex-col gap-2">
-              <FileText className="h-6 w-6" />
-              <span>{locale === 'bn' ? 'মাসিক আর্থিক রিপোর্ট' : 'Monthly Financial Report'}</span>
-            </Button>
-            <Button variant="outline" className="h-auto py-4 flex-col gap-2">
-              <Users className="h-6 w-6" />
-              <span>{locale === 'bn' ? 'সদস্য তালিকা' : 'Member List'}</span>
-            </Button>
-            <Button variant="outline" className="h-auto py-4 flex-col gap-2">
-              <HandCoins className="h-6 w-6" />
-              <span>{locale === 'bn' ? 'ঋণ স্টেটমেন্ট' : 'Loan Statement'}</span>
-            </Button>
-            <Button variant="outline" className="h-auto py-4 flex-col gap-2">
-              <Wallet className="h-6 w-6" />
-              <span>{locale === 'bn' ? 'দান রিপোর্ট' : 'Donation Report'}</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

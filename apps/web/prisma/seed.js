@@ -490,7 +490,7 @@ async function seedLoans() {
       completedAt: daysAgo(65),
       createdAt: daysAgo(370),
     },
-    // Pending guarantor approval
+    // Active manual loan
     {
       id: 'loan-003',
       loanNumber: 'LN-2024-002',
@@ -500,13 +500,18 @@ async function seedLoans() {
       installmentAmount: 250000n,
       paidInstallments: 0,
       purpose: 'কৃষি উন্নয়ন',
-      status: LoanStatus.PENDING_GUARANTOR,
+      status: LoanStatus.ACTIVE,
       accountId: 'acc-seed-member-002',
       borrowerId: 'seed-member-002',
       guarantorId: 'seed-member-001',
+      disbursementDate: daysAgo(3),
+      installmentStartDate: daysAgo(2),
+      expectedEndDate: daysAfter(300),
+      approvedAt: daysAgo(3),
+      approvedBy: 'seed-admin-001',
       createdAt: daysAgo(3),
     },
-    // Pending admin approval
+    // Another active manual loan
     {
       id: 'loan-004',
       loanNumber: 'LN-2024-003',
@@ -516,10 +521,15 @@ async function seedLoans() {
       installmentAmount: 208333n,
       paidInstallments: 0,
       purpose: 'ব্যবসা শুরু',
-      status: LoanStatus.PENDING_APPROVAL,
+      status: LoanStatus.ACTIVE,
       accountId: 'acc-seed-member-003',
       borrowerId: 'seed-member-003',
       guarantorId: 'seed-member-001',
+      disbursementDate: daysAgo(2),
+      installmentStartDate: daysAgo(1),
+      expectedEndDate: daysAfter(320),
+      approvedAt: daysAgo(2),
+      approvedBy: 'seed-admin-001',
       createdAt: daysAgo(2),
     },
     // Another active loan
@@ -582,12 +592,12 @@ async function seedTransactions() {
     { id: 'txn-020', type: TransactionType.DEPOSIT, amount: 200000n, receiptNumber: 'RCP-011', description: 'অতিরিক্ত জমা', savingsAfter: 900000n, accountId: 'acc-seed-member-005', userId: 'seed-member-005', processedBy: 'seed-staff-001', createdAt: daysAgo(12) },
 
     // Donations
-    { id: 'txn-011', type: TransactionType.DONATION, amount: 500000n, receiptNumber: 'DON-001', description: 'দাতব্য তহবিলে দান', savingsAfter: 500000n, accountId: 'acc-donation-001', userId: 'seed-member-001', processedBy: 'seed-staff-001', createdAt: daysAgo(90) },
-    { id: 'txn-012', type: TransactionType.DONATION, amount: 300000n, receiptNumber: 'DON-002', description: 'দাতব্য তহবিলে দান', savingsAfter: 800000n, accountId: 'acc-donation-001', userId: 'seed-staff-001', processedBy: 'seed-staff-001', createdAt: daysAgo(70) },
-    { id: 'txn-013', type: TransactionType.DONATION, amount: 1000000n, receiptNumber: 'DON-003', description: 'দাতব্য তহবিলে দান', savingsAfter: 1800000n, accountId: 'acc-donation-001', userId: 'seed-admin-001', processedBy: 'seed-staff-001', createdAt: daysAgo(50) },
-    { id: 'txn-014', type: TransactionType.DONATION, amount: 200000n, receiptNumber: 'DON-004', description: 'দাতব্য তহবিলে দান', savingsAfter: 2000000n, accountId: 'acc-donation-001', userId: 'seed-member-002', processedBy: 'seed-staff-001', createdAt: daysAgo(30) },
-    { id: 'txn-015', type: TransactionType.DONATION, amount: 400000n, receiptNumber: 'DON-005', description: 'দাতব্য তহবিলে দান', savingsAfter: 2400000n, accountId: 'acc-donation-001', userId: 'seed-member-001', processedBy: 'seed-staff-001', createdAt: daysAgo(15) },
-    { id: 'txn-016', type: TransactionType.DONATION, amount: 250000n, receiptNumber: 'DON-006', description: 'দাতব্য তহবিলে দান', savingsAfter: 2650000n, accountId: 'acc-donation-001', userId: 'seed-staff-001', processedBy: 'seed-staff-001', createdAt: daysAgo(5) },
+    { id: 'txn-011', type: TransactionType.DONATION, amount: 500000n, receiptNumber: 'DON-001', description: 'দাতব্য তহবিলে দান', savingsAfter: 500000n, accountId: 'acc-donation-001', userId: 'seed-member-001', processedBy: null, createdAt: daysAgo(90) },
+    { id: 'txn-012', type: TransactionType.DONATION, amount: 300000n, receiptNumber: 'DON-002', description: 'দাতব্য তহবিলে দান', savingsAfter: 800000n, accountId: 'acc-donation-001', userId: 'seed-staff-001', processedBy: null, createdAt: daysAgo(70) },
+    { id: 'txn-013', type: TransactionType.DONATION, amount: 1000000n, receiptNumber: 'DON-003', description: 'দাতব্য তহবিলে দান', savingsAfter: 1800000n, accountId: 'acc-donation-001', userId: 'seed-admin-001', processedBy: null, createdAt: daysAgo(50) },
+    { id: 'txn-014', type: TransactionType.DONATION, amount: 200000n, receiptNumber: 'DON-004', description: 'দাতব্য তহবিলে দান', savingsAfter: 2000000n, accountId: 'acc-donation-001', userId: 'seed-member-002', processedBy: null, createdAt: daysAgo(30) },
+    { id: 'txn-015', type: TransactionType.DONATION, amount: 400000n, receiptNumber: 'DON-005', description: 'দাতব্য তহবিলে দান', savingsAfter: 2400000n, accountId: 'acc-donation-001', userId: 'seed-member-001', processedBy: null, createdAt: daysAgo(15) },
+    { id: 'txn-016', type: TransactionType.DONATION, amount: 250000n, receiptNumber: 'DON-006', description: 'দাতব্য তহবিলে দান', savingsAfter: 2650000n, accountId: 'acc-donation-001', userId: 'seed-staff-001', processedBy: null, createdAt: daysAgo(5) },
 
     // Withdrawal request (pending)
     { id: 'txn-017', type: TransactionType.WITHDRAWAL, amount: 100000n, receiptNumber: null, description: 'জরুরী প্রয়োজন', savingsAfter: null, accountId: 'acc-seed-member-003', userId: 'seed-member-003', processedBy: null, createdAt: daysAgo(1), status: TransactionStatus.PENDING },

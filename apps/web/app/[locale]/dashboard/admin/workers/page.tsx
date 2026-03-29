@@ -13,7 +13,6 @@ import {
   Mail,
   Phone,
   Calendar,
-  Download,
   UserPlus,
   Shield,
   Edit,
@@ -274,10 +273,6 @@ export default function AdminWorkersPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
-          </Button>
           <Button onClick={() => setShowAddModal(true)}>
             <UserPlus className="h-4 w-4 mr-2" />
             {locale === 'bn' ? 'কর্মী যোগ' : 'Add Worker'}
