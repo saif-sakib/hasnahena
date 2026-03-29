@@ -12,12 +12,14 @@ import {
   Download,
   Info,
   MessageCircle,
+  Printer,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
+import { generateStatementHTML, openPrintWindow, generateReceiptHTML } from '@/lib/documents/receipt-generator';
 
 type DepositStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -31,6 +33,15 @@ interface Deposit {
   balanceAfter?: number;
 }
 
+interface MemberProfile {
+  name?: string;
+  userId?: string;
+  phone?: string;
+  accountSummary?: {
+    currentBalance?: number;
+  };
+}
+
 export default function DepositsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
@@ -38,6 +49,7 @@ export default function DepositsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed'>('all');
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [currentBalance, setCurrentBalance] = useState(0);
+  const [memberProfile, setMemberProfile] = useState<MemberProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -56,13 +68,10 @@ export default function DepositsPage() {
           deposits: Deposit[];
           currentBalance: number;
         }>('/v1/dashboard/member/deposits'),
-        apiGet<{
-          accountSummary?: {
-            currentBalance?: number;
-          };
-        }>('/v1/dashboard/member/profile'),
+        apiGet<MemberProfile>('/v1/dashboard/member/profile'),
       ]);
       setDeposits(depositsData?.deposits ?? []);
+      setMemberProfile(profileData);
       setCurrentBalance(profileData?.accountSummary?.currentBalance ?? depositsData?.currentBalance ?? 0);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load data');
@@ -121,6 +130,56 @@ export default function DepositsPage() {
     if (activeTab === 'confirmed') return d.status === 'CONFIRMED';
     return true;
   });
+
+  // Download deposit statement
+  const handleDownloadStatement = () => {
+    if (!memberProfile || deposits.length === 0) return;
+    
+    const confirmedDeposits = deposits.filter(d => d.status === 'CONFIRMED');
+    const now = new Date();
+    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    
+    const statementHtml = generateStatementHTML({
+      memberName: memberProfile.name || 'N/A',
+      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
+      memberPhone: memberProfile.phone || 'N/A',
+      periodStart: oneYearAgo.toISOString(),
+      periodEnd: now.toISOString(),
+      openingBalance: 0,
+      closingBalance: currentBalance * 100, // Convert to paisa for display formatting
+      totalDeposits: totalDeposited * 100,
+      totalWithdrawals: 0,
+      transactions: confirmedDeposits.map(d => ({
+        date: d.date,
+        type: 'DEPOSIT',
+        amount: d.amount * 100, // Convert to paisa
+        balance: (d.balanceAfter || 0) * 100,
+        description: locale === 'bn' ? 'আমানত' : 'Deposit',
+        receiptNumber: d.receiptNumber,
+      })),
+    }, locale);
+    
+    openPrintWindow(statementHtml, locale === 'bn' ? 'আমানত বিবরণী' : 'Deposit Statement');
+  };
+
+  // Print individual receipt
+  const handlePrintReceipt = (deposit: Deposit) => {
+    if (!memberProfile) return;
+    
+    const receiptHtml = generateReceiptHTML({
+      receiptNumber: deposit.receiptNumber,
+      type: 'DEPOSIT',
+      amount: deposit.amount * 100, // Convert to paisa
+      date: deposit.date,
+      memberName: memberProfile.name || 'N/A',
+      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
+      memberPhone: memberProfile.phone || 'N/A',
+      balanceAfter: (deposit.balanceAfter || 0) * 100,
+      processedBy: deposit.processedBy,
+    }, locale);
+    
+    openPrintWindow(receiptHtml, locale === 'bn' ? 'রসিদ' : 'Receipt');
+  };
 
   return (
     <div className="space-y-6">
@@ -287,7 +346,18 @@ export default function DepositsPage() {
                       </div>
                     </div>
 
-                    {/* No member-side confirmation for deposits */}
+                    {/* Print receipt button for confirmed deposits */}
+                    {deposit.status === 'CONFIRMED' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePrintReceipt(deposit)}
+                        className="gap-1"
+                      >
+                        <Printer className="h-4 w-4" />
+                        {locale === 'bn' ? 'রসিদ' : 'Receipt'}
+                      </Button>
+                    )}
                   </div>
                 );
               })
@@ -298,7 +368,12 @@ export default function DepositsPage() {
 
       {/* Download Statement */}
       <div className="flex justify-end">
-        <Button variant="outline" className="gap-2">
+        <Button 
+          variant="outline" 
+          className="gap-2"
+          onClick={handleDownloadStatement}
+          disabled={deposits.length === 0}
+        >
           <Download className="h-4 w-4" />
           {t('downloadStatement')}
         </Button>

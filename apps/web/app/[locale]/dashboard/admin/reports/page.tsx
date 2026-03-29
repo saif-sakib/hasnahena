@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   FileText,
-  Download,
   Calendar,
   Filter,
   TrendingUp,
@@ -135,10 +134,6 @@ export default function AdminReportsPage() {
           <Button variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
             {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
-          </Button>
-          <Button>
-            <Download className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'এক্সপোর্ট' : 'Export'}
           </Button>
         </div>
       </div>

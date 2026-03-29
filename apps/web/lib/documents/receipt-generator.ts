@@ -1,11 +1,11 @@
 /**
- * Hasnahena Receipt and Document Generator
- * Professional document generation with Hasnahena branding
+ * Hasnahena Official Document Generator
+ * Professional document generation with official Hasnahena branding
  */
 
 export interface ReceiptData {
   receiptNumber: string;
-  type: 'DEPOSIT' | 'WITHDRAWAL';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | string;
   amount: number;
   date: string;
   memberName: string;
@@ -70,7 +70,7 @@ const formatDate = (dateStr: string, locale: string = 'bn'): string => {
 
 const getCommonStyles = (): string => `
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap');
     
     * {
       margin: 0;
@@ -80,174 +80,280 @@ const getCommonStyles = (): string => `
     
     body {
       font-family: 'Noto Sans Bengali', 'Segoe UI', sans-serif;
-      font-size: 12px;
-      line-height: 1.5;
+      font-size: 13px;
+      line-height: 1.6;
       color: #1a1a1a;
-      background: white;
+      background: #f5f5f5;
     }
     
     .document {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px;
+      max-width: 210mm;
+      min-height: 297mm;
+      margin: 20px auto;
+      padding: 25mm 20mm;
       background: white;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      position: relative;
+    }
+    
+    .border-frame {
+      position: absolute;
+      top: 10mm;
+      left: 10mm;
+      right: 10mm;
+      bottom: 10mm;
+      border: 2px solid #0f766e;
+      pointer-events: none;
+    }
+    
+    .border-frame::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      right: 2px;
+      bottom: 2px;
+      border: 1px solid #0f766e;
     }
     
     .header {
       text-align: center;
-      border-bottom: 3px solid #0f766e;
       padding-bottom: 20px;
-      margin-bottom: 30px;
+      margin-bottom: 25px;
+      border-bottom: 3px double #0f766e;
+      position: relative;
     }
     
-    .logo {
-      width: 80px;
-      height: 80px;
+    .logo-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
       margin-bottom: 10px;
     }
     
-    .org-name {
-      font-size: 24px;
+    .logo-svg {
+      width: 70px;
+      height: 70px;
+    }
+    
+    .org-name-en {
+      font-family: 'Playfair Display', serif;
+      font-size: 32px;
       font-weight: 700;
       color: #0f766e;
-      margin-bottom: 4px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
     }
     
     .org-name-bn {
-      font-size: 20px;
-      font-weight: 600;
+      font-size: 22px;
+      font-weight: 700;
       color: #0f766e;
+      margin-top: 5px;
     }
     
     .org-tagline {
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
-      margin-top: 4px;
+      font-style: italic;
+      margin-top: 8px;
     }
     
-    .org-contact {
-      font-size: 10px;
-      color: #888;
-      margin-top: 8px;
+    .org-info {
+      display: flex;
+      justify-content: center;
+      gap: 25px;
+      margin-top: 12px;
+      font-size: 11px;
+      color: #555;
+    }
+    
+    .org-info span {
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
     
     .doc-title {
       text-align: center;
-      margin: 20px 0;
-      padding: 10px;
+      margin: 25px 0;
+      position: relative;
+    }
+    
+    .doc-title h1 {
+      display: inline-block;
+      padding: 12px 40px;
       background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
       color: white;
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 2px;
       border-radius: 4px;
+      box-shadow: 0 3px 10px rgba(15, 118, 110, 0.3);
+    }
+    
+    .doc-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 25px;
+      padding: 15px;
+      background: #f8faf9;
+      border-radius: 8px;
+      border: 1px solid #e0e7e5;
+    }
+    
+    .meta-item {
+      text-align: center;
+    }
+    
+    .meta-label {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .meta-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f766e;
+      margin-top: 3px;
+    }
+    
+    .info-section {
+      margin-bottom: 25px;
+    }
+    
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f766e;
+      margin-bottom: 12px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #e0e7e5;
     }
     
     .info-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 15px;
-      margin-bottom: 25px;
     }
     
-    .info-box {
-      background: #f8fafc;
-      padding: 15px;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #fafafa;
+      border-radius: 6px;
+      border-left: 3px solid #0f766e;
     }
     
-    .info-box.full-width {
+    .info-item.full-width {
       grid-column: 1 / -1;
     }
     
     .info-label {
-      font-size: 10px;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 4px;
+      font-size: 11px;
+      color: #666;
     }
     
     .info-value {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
-      color: #1e293b;
+      color: #1a1a1a;
     }
     
-    .amount-box {
+    .amount-highlight {
       text-align: center;
+      padding: 25px;
+      margin: 25px 0;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .amount-highlight.deposit {
       background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
       border: 2px solid #10b981;
-      padding: 20px;
-      border-radius: 12px;
-      margin: 25px 0;
     }
     
-    .amount-box.withdrawal {
+    .amount-highlight.withdrawal {
       background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
-      border-color: #ef4444;
+      border: 2px solid #ef4444;
     }
     
     .amount-label {
       font-size: 12px;
-      color: #059669;
-      margin-bottom: 5px;
-    }
-    
-    .amount-box.withdrawal .amount-label {
-      color: #dc2626;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
     }
     
     .amount-value {
-      font-size: 32px;
+      font-size: 36px;
       font-weight: 700;
-      color: #047857;
     }
     
-    .amount-box.withdrawal .amount-value {
-      color: #b91c1c;
-    }
+    .amount-highlight.deposit .amount-value { color: #047857; }
+    .amount-highlight.withdrawal .amount-value { color: #b91c1c; }
     
     .amount-words {
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
-      margin-top: 5px;
+      margin-top: 8px;
       font-style: italic;
+    }
+    
+    .balance-after {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 8px 20px;
+      background: rgba(255,255,255,0.8);
+      border-radius: 20px;
+      font-size: 12px;
+    }
+    
+    .balance-after strong {
+      color: #0f766e;
     }
     
     table {
       width: 100%;
       border-collapse: collapse;
       margin: 20px 0;
-    }
-    
-    th, td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    
-    th {
-      background: #f1f5f9;
-      font-weight: 600;
-      font-size: 11px;
-      text-transform: uppercase;
-      color: #475569;
-    }
-    
-    td {
       font-size: 12px;
     }
     
+    th, td {
+      padding: 12px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    th {
+      background: #0f766e;
+      color: white;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
     tr:nth-child(even) {
-      background: #f8fafc;
+      background: #f9fafb;
+    }
+    
+    tr:hover {
+      background: #f0fdfa;
     }
     
     .signature-section {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 40px;
-      margin-top: 50px;
+      gap: 60px;
+      margin-top: 60px;
       padding-top: 30px;
     }
     
@@ -256,77 +362,232 @@ const getCommonStyles = (): string => `
     }
     
     .signature-line {
-      border-top: 1px solid #333;
-      width: 200px;
+      border-top: 2px solid #333;
+      width: 180px;
       margin: 0 auto 10px;
-      padding-top: 5px;
+      padding-top: 8px;
     }
     
     .signature-label {
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
+    }
+    
+    .signature-name {
+      font-size: 11px;
+      color: #999;
+      margin-top: 5px;
     }
     
     .footer {
       margin-top: 40px;
       padding-top: 20px;
-      border-top: 2px solid #e2e8f0;
+      border-top: 1px solid #e5e7eb;
       text-align: center;
       font-size: 10px;
-      color: #94a3b8;
+      color: #888;
+    }
+    
+    .footer p {
+      margin: 4px 0;
+    }
+    
+    .document-id {
+      position: absolute;
+      bottom: 15mm;
+      right: 15mm;
+      font-size: 9px;
+      color: #aaa;
     }
     
     .watermark {
       position: fixed;
       top: 50%;
       left: 50%;
-      transform: translate(-50%, -50%) rotate(-45deg);
-      font-size: 100px;
+      transform: translate(-50%, -50%) rotate(-30deg);
+      font-size: 120px;
       font-weight: 700;
-      color: rgba(15, 118, 110, 0.03);
+      color: rgba(15, 118, 110, 0.04);
       pointer-events: none;
-      z-index: -1;
+      z-index: 0;
+      white-space: nowrap;
+      font-family: 'Playfair Display', serif;
+      letter-spacing: 10px;
     }
     
-    .qr-section {
+    .terms-section {
+      margin: 25px 0;
+      padding: 20px;
+      background: #f8faf9;
+      border-radius: 8px;
+      border-left: 4px solid #0f766e;
+    }
+    
+    .terms-title {
+      font-weight: 600;
+      color: #0f766e;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    
+    .terms-list {
+      list-style: none;
+      padding: 0;
+    }
+    
+    .terms-list li {
+      margin-bottom: 10px;
+      padding-left: 20px;
+      position: relative;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    
+    .terms-list li::before {
+      content: '✓';
+      position: absolute;
+      left: 0;
+      color: #0f766e;
+      font-weight: bold;
+    }
+    
+    .loan-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin: 25px 0;
+    }
+    
+    .summary-card {
       text-align: center;
-      margin-top: 20px;
+      padding: 20px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+      border: 1px solid #99f6e4;
     }
     
-    .document-id {
+    .summary-card .label {
       font-size: 10px;
-      color: #94a3b8;
-      text-align: right;
-      margin-top: 20px;
+      text-transform: uppercase;
+      color: #666;
+      letter-spacing: 1px;
+    }
+    
+    .summary-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f766e;
+      margin-top: 8px;
+    }
+    
+    .statement-summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 20px 0;
+    }
+    
+    .stat-card {
+      text-align: center;
+      padding: 15px 10px;
+      border-radius: 8px;
+    }
+    
+    .stat-card.opening { background: #f1f5f9; border: 1px solid #cbd5e1; }
+    .stat-card.deposits { background: #ecfdf5; border: 1px solid #a7f3d0; }
+    .stat-card.withdrawals { background: #fef2f2; border: 1px solid #fecaca; }
+    .stat-card.closing { background: #f0fdfa; border: 2px solid #0f766e; }
+    
+    .stat-card .label {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.5px;
+    }
+    
+    .stat-card .value {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 5px;
+    }
+    
+    .stat-card.deposits .value { color: #059669; }
+    .stat-card.withdrawals .value { color: #dc2626; }
+    .stat-card.closing .value { color: #0f766e; }
+    
+    .credit { color: #059669 !important; }
+    .debit { color: #dc2626 !important; }
+    
+    .print-btn {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      background: #0f766e;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+      z-index: 1000;
+    }
+    
+    .print-btn:hover {
+      background: #0d6359;
     }
     
     @media print {
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .document { padding: 20px; }
-      .no-print { display: none; }
+      body { background: white; }
+      .document { 
+        box-shadow: none; 
+        margin: 0; 
+        padding: 15mm;
+        min-height: auto;
+      }
+      .print-btn { display: none; }
+      .border-frame { display: none; }
     }
   </style>
 `;
 
+const getLogoSVG = (): string => `
+  <svg class="logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="48" stroke="#0f766e" stroke-width="3" fill="#f0fdfa"/>
+    <path d="M30 65 L50 25 L70 65 Z" fill="#0f766e" opacity="0.8"/>
+    <circle cx="50" cy="55" r="12" fill="#14b8a6"/>
+    <path d="M44 55 L48 59 L56 51" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+
 const getHeader = (): string => `
   <div class="header">
-    <img src="/images/logo.png" alt="Hasnahena Logo" class="logo" onerror="this.style.display='none'"/>
-    <div class="org-name">HASNAHENA</div>
-    <div class="org-name-bn">হাসনাহেনা সমবায় সমিতি</div>
-    <div class="org-tagline">Hasnahena Multipurpose Cooperative Society Ltd.</div>
-    <div class="org-contact">
-      📍 Trishal, Mymensingh, Bangladesh | 📞 +880 1700-000000 | 📧 info@hasnahena.org
+    <div class="logo-container">
+      ${getLogoSVG()}
+      <div>
+        <div class="org-name-en">HASNAHENA</div>
+        <div class="org-name-bn">হাসনাহেনা সমিতি লিমিটেড</div>
+      </div>
+    </div>
+    <div class="org-tagline">Hasnahena Multipurpose Cooperative Society Limited</div>
+    <div class="org-info">
+      <span>📍 ত্রিশাল, ময়মনসিংহ</span>
+      <span>📞 +880 1700-000000</span>
+      <span>✉️ info@hasnahena.org</span>
+      <span>🌐 hasnahena.org</span>
     </div>
   </div>
 `;
 
 const getFooter = (documentId: string, locale: string): string => `
   <div class="footer">
-    <p>${locale === 'bn' ? 'এই ডকুমেন্টটি কম্পিউটার দ্বারা স্বয়ংক্রিয়ভাবে তৈরি এবং স্বাক্ষর ছাড়াই বৈধ।' : 'This is a computer-generated document and is valid without signature.'}</p>
-    <p>© ${new Date().getFullYear()} Hasnahena Cooperative Society Ltd. All rights reserved.</p>
+    <p>${locale === 'bn' ? 'এটি একটি কম্পিউটার জেনারেটেড ডকুমেন্ট। সিল ও স্বাক্ষর ছাড়াও বৈধ।' : 'This is a computer-generated document. Valid without seal and signature.'}</p>
+    <p>© ${new Date().getFullYear()} Hasnahena Cooperative Society Ltd. | Reg. No: XXXX-XXXX</p>
   </div>
   <div class="document-id">
-    ${locale === 'bn' ? 'ডকুমেন্ট আইডি' : 'Document ID'}: ${documentId} | ${locale === 'bn' ? 'তৈরির তারিখ' : 'Generated'}: ${new Date().toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+    Doc ID: ${documentId}<br/>
+    ${new Date().toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
   </div>
 `;
 
@@ -334,7 +595,7 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
   const isDeposit = data.type === 'DEPOSIT';
   const title = locale === 'bn' 
     ? (isDeposit ? 'জমা রশিদ' : 'উত্তোলন রশিদ')
-    : (isDeposit ? 'Deposit Receipt' : 'Withdrawal Receipt');
+    : (isDeposit ? 'DEPOSIT RECEIPT' : 'WITHDRAWAL RECEIPT');
   
   return `
     <!DOCTYPE html>
@@ -347,52 +608,65 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
     </head>
     <body>
       <div class="watermark">HASNAHENA</div>
+      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      
       <div class="document">
+        <div class="border-frame"></div>
         ${getHeader()}
         
-        <div class="doc-title">${title}</div>
+        <div class="doc-title">
+          <h1>${title}</h1>
+        </div>
         
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'রশিদ নম্বর' : 'Receipt No.'}</div>
-            <div class="info-value">${data.receiptNumber}</div>
+        <div class="doc-meta">
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'রশিদ নং' : 'Receipt No'}</div>
+            <div class="meta-value">${data.receiptNumber}</div>
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'তারিখ' : 'Date'}</div>
-            <div class="info-value">${formatDate(data.date, locale)}</div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'তারিখ' : 'Date'}</div>
+            <div class="meta-value">${formatDate(data.date, locale)}</div>
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সদস্যের নাম' : 'Member Name'}</div>
-            <div class="info-value">${data.memberName}</div>
-          </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</div>
-            <div class="info-value">${data.memberId}</div>
-          </div>
-          <div class="info-box full-width">
-            <div class="info-label">${locale === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number'}</div>
-            <div class="info-value">${data.memberPhone}</div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'সময়' : 'Time'}</div>
+            <div class="meta-value">${new Date(data.date).toLocaleTimeString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</div>
           </div>
         </div>
         
-        <div class="amount-box ${isDeposit ? '' : 'withdrawal'}">
+        <div class="info-section">
+          <div class="section-title">${locale === 'bn' ? '📋 সদস্য তথ্য' : '📋 Member Information'}</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
+              <span class="info-value">${data.memberName}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</span>
+              <span class="info-value">${data.memberId}</span>
+            </div>
+            <div class="info-item full-width">
+              <span class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Mobile'}</span>
+              <span class="info-value">${data.memberPhone}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="amount-highlight ${isDeposit ? 'deposit' : 'withdrawal'}">
           <div class="amount-label">${locale === 'bn' ? (isDeposit ? 'জমার পরিমাণ' : 'উত্তোলনের পরিমাণ') : (isDeposit ? 'Deposit Amount' : 'Withdrawal Amount')}</div>
           <div class="amount-value">${formatCurrency(data.amount, locale)}</div>
-          ${data.notes ? `<div class="amount-words">${data.notes}</div>` : ''}
-        </div>
-        
-        <div class="info-grid">
-          <div class="info-box full-width">
-            <div class="info-label">${locale === 'bn' ? 'লেনদেনের পর ব্যালেন্স' : 'Balance After Transaction'}</div>
-            <div class="info-value">${formatCurrency(data.balanceAfter, locale)}</div>
+          ${data.notes ? `<div class="amount-words">"${data.notes}"</div>` : ''}
+          <div class="balance-after">
+            ${locale === 'bn' ? 'লেনদেনের পর ব্যালেন্স' : 'Balance After'}: <strong>${formatCurrency(data.balanceAfter, locale)}</strong>
           </div>
         </div>
         
         ${data.processedBy ? `
-        <div class="info-grid">
-          <div class="info-box full-width">
-            <div class="info-label">${locale === 'bn' ? 'প্রক্রিয়াকারী' : 'Processed By'}</div>
-            <div class="info-value">${data.processedBy}</div>
+        <div class="info-section">
+          <div class="info-grid">
+            <div class="info-item full-width">
+              <span class="info-label">${locale === 'bn' ? 'প্রক্রিয়াকারী' : 'Processed By'}</span>
+              <span class="info-value">${data.processedBy}</span>
+            </div>
           </div>
         </div>
         ` : ''}
@@ -404,7 +678,8 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
           </div>
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-label">${locale === 'bn' ? 'কর্মকর্তার স্বাক্ষর' : 'Authorized Signature'}</div>
+            <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
+            <div class="signature-name">Hasnahena Cooperative</div>
           </div>
         </div>
         
@@ -416,7 +691,7 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
 }
 
 export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string = 'bn'): string {
-  const title = locale === 'bn' ? 'ঋণ চুক্তিপত্র' : 'Loan Agreement';
+  const title = locale === 'bn' ? 'ঋণ চুক্তিপত্র' : 'LOAN AGREEMENT';
   
   return `
     <!DOCTYPE html>
@@ -426,137 +701,108 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${title} - ${data.loanNumber}</title>
       ${getCommonStyles()}
-      <style>
-        .terms-section {
-          background: #f8fafc;
-          padding: 20px;
-          border-radius: 8px;
-          margin: 20px 0;
-          border-left: 4px solid #0f766e;
-        }
-        .terms-title {
-          font-weight: 600;
-          margin-bottom: 10px;
-          color: #0f766e;
-        }
-        .terms-list {
-          list-style: decimal;
-          padding-left: 20px;
-        }
-        .terms-list li {
-          margin-bottom: 8px;
-          line-height: 1.6;
-        }
-        .loan-summary {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 15px;
-          margin: 25px 0;
-        }
-        .summary-item {
-          text-align: center;
-          padding: 15px;
-          background: #f1f5f9;
-          border-radius: 8px;
-        }
-        .summary-label {
-          font-size: 10px;
-          color: #64748b;
-          text-transform: uppercase;
-        }
-        .summary-value {
-          font-size: 18px;
-          font-weight: 700;
-          color: #0f766e;
-          margin-top: 5px;
-        }
-      </style>
     </head>
     <body>
       <div class="watermark">HASNAHENA</div>
+      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      
       <div class="document">
+        <div class="border-frame"></div>
         ${getHeader()}
         
-        <div class="doc-title">${title}</div>
+        <div class="doc-title">
+          <h1>${title}</h1>
+        </div>
         
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'ঋণ নম্বর' : 'Loan Number'}</div>
-            <div class="info-value">${data.loanNumber}</div>
+        <div class="doc-meta">
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'ঋণ নম্বর' : 'Loan No'}</div>
+            <div class="meta-value">${data.loanNumber}</div>
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'বিতরণ তারিখ' : 'Disbursement Date'}</div>
-            <div class="info-value">${data.disbursementDate ? formatDate(data.disbursementDate, locale) : '-'}</div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'তারিখ' : 'Date'}</div>
+            <div class="meta-value">${data.disbursementDate ? formatDate(data.disbursementDate, locale) : formatDate(new Date().toISOString(), locale)}</div>
           </div>
         </div>
         
-        <h3 style="margin: 25px 0 15px; color: #0f766e;">${locale === 'bn' ? 'ঋণগ্রহীতার তথ্য' : 'Borrower Information'}</h3>
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</div>
-            <div class="info-value">${data.memberName}</div>
+        <div class="info-section">
+          <div class="section-title">${locale === 'bn' ? '👤 ঋণগ্রহীতার তথ্য' : '👤 Borrower Information'}</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
+              <span class="info-value">${data.memberName}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</span>
+              <span class="info-value">${data.memberId}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Mobile'}</span>
+              <span class="info-value">${data.memberPhone}</span>
+            </div>
+            ${data.memberAddress ? `
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'ঠিকানা' : 'Address'}</span>
+              <span class="info-value">${data.memberAddress}</span>
+            </div>
+            ` : ''}
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</div>
-            <div class="info-value">${data.memberId}</div>
-          </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Phone'}</div>
-            <div class="info-value">${data.memberPhone}</div>
-          </div>
-          ${data.memberAddress ? `
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'ঠিকানা' : 'Address'}</div>
-            <div class="info-value">${data.memberAddress}</div>
-          </div>
-          ` : ''}
         </div>
         
         ${data.guarantorName ? `
-        <h3 style="margin: 25px 0 15px; color: #0f766e;">${locale === 'bn' ? 'জামিনদারের তথ্য' : 'Guarantor Information'}</h3>
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'জামিনদারের নাম' : 'Guarantor Name'}</div>
-            <div class="info-value">${data.guarantorName}</div>
-          </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Phone'}</div>
-            <div class="info-value">${data.guarantorPhone || '-'}</div>
+        <div class="info-section">
+          <div class="section-title">${locale === 'bn' ? '🤝 জামিনদারের তথ্য' : '🤝 Guarantor Information'}</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
+              <span class="info-value">${data.guarantorName}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Mobile'}</span>
+              <span class="info-value">${data.guarantorPhone || '-'}</span>
+            </div>
           </div>
         </div>
         ` : ''}
         
-        <h3 style="margin: 25px 0 15px; color: #0f766e;">${locale === 'bn' ? 'ঋণের বিবরণ' : 'Loan Details'}</h3>
-        <div class="loan-summary">
-          <div class="summary-item">
-            <div class="summary-label">${locale === 'bn' ? 'মূল ঋণ' : 'Principal'}</div>
-            <div class="summary-value">${formatCurrency(data.principalAmount, locale)}</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-label">${locale === 'bn' ? 'মোট কিস্তি' : 'Total Installments'}</div>
-            <div class="summary-value">${data.totalInstallments}</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-label">${locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly EMI'}</div>
-            <div class="summary-value">${formatCurrency(data.installmentAmount, locale)}</div>
+        <div class="info-section">
+          <div class="section-title">${locale === 'bn' ? '💰 ঋণের বিবরণ' : '💰 Loan Details'}</div>
+          <div class="loan-summary">
+            <div class="summary-card">
+              <div class="label">${locale === 'bn' ? 'মূল ঋণ' : 'Principal'}</div>
+              <div class="value">${formatCurrency(data.principalAmount, locale)}</div>
+            </div>
+            <div class="summary-card">
+              <div class="label">${locale === 'bn' ? 'কিস্তি সংখ্যা' : 'Installments'}</div>
+              <div class="value">${data.totalInstallments}</div>
+            </div>
+            <div class="summary-card">
+              <div class="label">${locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly EMI'}</div>
+              <div class="value">${formatCurrency(data.installmentAmount, locale)}</div>
+            </div>
           </div>
         </div>
         
         ${data.purpose ? `
-        <div class="info-box full-width" style="margin: 20px 0;">
-          <div class="info-label">${locale === 'bn' ? 'ঋণের উদ্দেশ্য' : 'Loan Purpose'}</div>
-          <div class="info-value">${data.purpose}</div>
+        <div class="info-section">
+          <div class="info-grid">
+            <div class="info-item full-width">
+              <span class="info-label">${locale === 'bn' ? 'ঋণের উদ্দেশ্য' : 'Loan Purpose'}</span>
+              <span class="info-value">${data.purpose}</span>
+            </div>
+          </div>
         </div>
         ` : ''}
         
         <div class="terms-section">
-          <div class="terms-title">${locale === 'bn' ? 'শর্তাবলী' : 'Terms & Conditions'}</div>
-          <ol class="terms-list">
-            <li>${locale === 'bn' ? 'ঋণগ্রহীতা প্রতি মাসে নির্ধারিত কিস্তি পরিশোধ করতে বাধ্য থাকবেন।' : 'The borrower shall pay the monthly installment on the due date.'}</li>
-            <li>${locale === 'bn' ? 'কিস্তি পরিশোধে বিলম্ব হলে জরিমানা প্রযোজ্য হবে।' : 'Late payment will attract penalty charges as per society rules.'}</li>
+          <div class="terms-title">${locale === 'bn' ? '📜 শর্তাবলী' : '📜 Terms & Conditions'}</div>
+          <ul class="terms-list">
+            <li>${locale === 'bn' ? 'ঋণগ্রহীতা প্রতি মাসে নির্ধারিত তারিখে কিস্তি পরিশোধ করতে বাধ্য থাকবেন।' : 'The borrower shall pay the monthly installment on the due date.'}</li>
+            <li>${locale === 'bn' ? 'কিস্তি পরিশোধে ১৫ দিনের বেশি বিলম্ব হলে জরিমানা প্রযোজ্য হবে।' : 'Late payment beyond 15 days will attract penalty charges.'}</li>
             <li>${locale === 'bn' ? 'ঋণ খেলাপি হলে জামিনদারের জমা থেকে আদায় করা হবে।' : 'In case of default, the amount will be recovered from guarantor\'s deposit.'}</li>
+            <li>${locale === 'bn' ? 'আংশিক বা সম্পূর্ণ অগ্রিম পরিশোধ করা যাবে।' : 'Partial or full prepayment is allowed.'}</li>
             <li>${locale === 'bn' ? 'সকল বিরোধ সমিতির নিয়ম অনুযায়ী নিষ্পত্তি হবে।' : 'All disputes shall be resolved as per society by-laws.'}</li>
-          </ol>
+          </ul>
         </div>
         
         <div class="signature-section">
@@ -573,11 +819,12 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         <div class="signature-section" style="margin-top: 30px;">
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-label">${locale === 'bn' ? 'সাক্ষী ১' : 'Witness 1'}</div>
+            <div class="signature-label">${locale === 'bn' ? 'সাক্ষী' : 'Witness'}</div>
           </div>
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-label">${locale === 'bn' ? 'কর্মকর্তার স্বাক্ষর ও সীল' : 'Authorized Signature & Seal'}</div>
+            <div class="signature-label">${locale === 'bn' ? 'অনুমোদনকারী কর্মকর্তা' : 'Authorizing Officer'}</div>
+            <div class="signature-name">Hasnahena Cooperative</div>
           </div>
         </div>
         
@@ -589,7 +836,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
 }
 
 export function generateStatementHTML(data: StatementData, locale: string = 'bn'): string {
-  const title = locale === 'bn' ? 'অ্যাকাউন্ট স্টেটমেন্ট' : 'Account Statement';
+  const title = locale === 'bn' ? 'অ্যাকাউন্ট স্টেটমেন্ট' : 'ACCOUNT STATEMENT';
   
   return `
     <!DOCTYPE html>
@@ -599,111 +846,80 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${title} - ${data.memberId}</title>
       ${getCommonStyles()}
-      <style>
-        .statement-summary {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 15px;
-          margin: 25px 0;
-        }
-        .summary-card {
-          text-align: center;
-          padding: 20px 15px;
-          border-radius: 12px;
-        }
-        .summary-card.opening { background: #f1f5f9; border: 1px solid #cbd5e1; }
-        .summary-card.deposits { background: #ecfdf5; border: 1px solid #a7f3d0; }
-        .summary-card.withdrawals { background: #fef2f2; border: 1px solid #fecaca; }
-        .summary-card.closing { background: #f0fdfa; border: 2px solid #0f766e; }
-        .summary-card .label {
-          font-size: 10px;
-          text-transform: uppercase;
-          color: #64748b;
-          margin-bottom: 5px;
-        }
-        .summary-card .value {
-          font-size: 18px;
-          font-weight: 700;
-        }
-        .summary-card.deposits .value { color: #059669; }
-        .summary-card.withdrawals .value { color: #dc2626; }
-        .summary-card.closing .value { color: #0f766e; }
-        .deposit-row { color: #059669; }
-        .withdrawal-row { color: #dc2626; }
-        .transaction-table { font-size: 11px; }
-        .transaction-table th { font-size: 10px; }
-      </style>
     </head>
     <body>
       <div class="watermark">HASNAHENA</div>
+      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      
       <div class="document">
+        <div class="border-frame"></div>
         ${getHeader()}
         
-        <div class="doc-title">${title}</div>
+        <div class="doc-title">
+          <h1>${title}</h1>
+        </div>
         
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সদস্যের নাম' : 'Member Name'}</div>
-            <div class="info-value">${data.memberName}</div>
+        <div class="doc-meta">
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'সদস্য' : 'Member'}</div>
+            <div class="meta-value">${data.memberName}</div>
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</div>
-            <div class="info-value">${data.memberId}</div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'আইডি' : 'ID'}</div>
+            <div class="meta-value">${data.memberId}</div>
           </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'সময়কাল' : 'Period'}</div>
-            <div class="info-value">${formatDate(data.periodStart, locale)} - ${formatDate(data.periodEnd, locale)}</div>
-          </div>
-          <div class="info-box">
-            <div class="info-label">${locale === 'bn' ? 'মোবাইল' : 'Phone'}</div>
-            <div class="info-value">${data.memberPhone}</div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'সময়কাল' : 'Period'}</div>
+            <div class="meta-value">${formatDate(data.periodStart, locale)} - ${formatDate(data.periodEnd, locale)}</div>
           </div>
         </div>
         
         <div class="statement-summary">
-          <div class="summary-card opening">
-            <div class="label">${locale === 'bn' ? 'প্রারম্ভিক ব্যালেন্স' : 'Opening Balance'}</div>
+          <div class="stat-card opening">
+            <div class="label">${locale === 'bn' ? 'প্রারম্ভিক' : 'Opening'}</div>
             <div class="value">${formatCurrency(data.openingBalance, locale)}</div>
           </div>
-          <div class="summary-card deposits">
-            <div class="label">${locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</div>
+          <div class="stat-card deposits">
+            <div class="label">${locale === 'bn' ? 'মোট জমা' : 'Deposits'}</div>
             <div class="value">+${formatCurrency(data.totalDeposits, locale)}</div>
           </div>
-          <div class="summary-card withdrawals">
-            <div class="label">${locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}</div>
+          <div class="stat-card withdrawals">
+            <div class="label">${locale === 'bn' ? 'মোট উত্তোলন' : 'Withdrawals'}</div>
             <div class="value">-${formatCurrency(data.totalWithdrawals, locale)}</div>
           </div>
-          <div class="summary-card closing">
-            <div class="label">${locale === 'bn' ? 'সমাপনী ব্যালেন্স' : 'Closing Balance'}</div>
+          <div class="stat-card closing">
+            <div class="label">${locale === 'bn' ? 'সমাপনী' : 'Closing'}</div>
             <div class="value">${formatCurrency(data.closingBalance, locale)}</div>
           </div>
         </div>
         
-        <h3 style="margin: 25px 0 15px; color: #0f766e;">${locale === 'bn' ? 'লেনদেনের বিবরণ' : 'Transaction Details'}</h3>
-        <table class="transaction-table">
-          <thead>
-            <tr>
-              <th>${locale === 'bn' ? 'তারিখ' : 'Date'}</th>
-              <th>${locale === 'bn' ? 'বিবরণ' : 'Description'}</th>
-              <th>${locale === 'bn' ? 'রশিদ নং' : 'Receipt No.'}</th>
-              <th style="text-align: right;">${locale === 'bn' ? 'জমা' : 'Credit'}</th>
-              <th style="text-align: right;">${locale === 'bn' ? 'উত্তোলন' : 'Debit'}</th>
-              <th style="text-align: right;">${locale === 'bn' ? 'ব্যালেন্স' : 'Balance'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.transactions.map(txn => `
-              <tr class="${txn.type === 'DEPOSIT' ? 'deposit-row' : 'withdrawal-row'}">
-                <td>${formatDate(txn.date, locale)}</td>
-                <td>${txn.description || (txn.type === 'DEPOSIT' ? (locale === 'bn' ? 'জমা' : 'Deposit') : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'))}</td>
-                <td>${txn.receiptNumber || '-'}</td>
-                <td style="text-align: right;">${txn.type === 'DEPOSIT' ? formatCurrency(txn.amount, locale) : '-'}</td>
-                <td style="text-align: right;">${txn.type === 'WITHDRAWAL' ? formatCurrency(txn.amount, locale) : '-'}</td>
-                <td style="text-align: right;">${formatCurrency(txn.balance, locale)}</td>
+        <div class="info-section">
+          <div class="section-title">${locale === 'bn' ? '📊 লেনদেনের বিবরণ' : '📊 Transaction Details'}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>${locale === 'bn' ? 'তারিখ' : 'Date'}</th>
+                <th>${locale === 'bn' ? 'বিবরণ' : 'Description'}</th>
+                <th>${locale === 'bn' ? 'রশিদ নং' : 'Receipt'}</th>
+                <th style="text-align: right;">${locale === 'bn' ? 'জমা' : 'Credit'}</th>
+                <th style="text-align: right;">${locale === 'bn' ? 'উত্তোলন' : 'Debit'}</th>
+                <th style="text-align: right;">${locale === 'bn' ? 'ব্যালেন্স' : 'Balance'}</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.transactions.map(tx => `
+                <tr>
+                  <td>${formatDate(tx.date, locale)}</td>
+                  <td>${tx.description || (tx.type === 'DEPOSIT' ? (locale === 'bn' ? 'জমা' : 'Deposit') : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'))}</td>
+                  <td>${tx.receiptNumber || '-'}</td>
+                  <td style="text-align: right;" class="credit">${tx.type === 'DEPOSIT' ? formatCurrency(tx.amount, locale) : '-'}</td>
+                  <td style="text-align: right;" class="debit">${tx.type === 'WITHDRAWAL' ? formatCurrency(tx.amount, locale) : '-'}</td>
+                  <td style="text-align: right; font-weight: 600;">${formatCurrency(tx.balance, locale)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
         
         <div class="signature-section">
           <div class="signature-box">
@@ -712,7 +928,8 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
           </div>
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-label">${locale === 'bn' ? 'কর্মকর্তার স্বাক্ষর' : 'Authorized Signature'}</div>
+            <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
+            <div class="signature-name">Hasnahena Cooperative</div>
           </div>
         </div>
         
@@ -729,13 +946,6 @@ export function openPrintWindow(html: string, title: string): void {
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.document.title = title;
-    
-    // Wait for content to load then print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
-    };
   }
 }
 
@@ -744,7 +954,7 @@ export function downloadAsHTML(html: string, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = `${filename}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

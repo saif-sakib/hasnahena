@@ -1263,3 +1263,61 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 		"loanNumber": loanNumber,
 	})
 }
+
+// WorkerAddLoanPayment records a loan payment for a member
+func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	memberId := r.PathValue("memberId")
+	if memberId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	var req struct {
+		LoanId string `json:"loanId"`
+		Amount int64  `json:"amount"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.LoanId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Loan ID is required")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+
+	receiptNumber, err := h.userRepo.AddMemberLoanPayment(r.Context(), memberId, auth.UserID, req.LoanId, req.Amount, req.Notes)
+	if err != nil {
+		log.Printf("DEBUG: AddMemberLoanPayment error: %v", err)
+		if strings.Contains(err.Error(), "not found") {
+			utils.Error(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "not active") {
+			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "This loan is not active")
+			return
+		}
+		if strings.Contains(err.Error(), "exceeds remaining") {
+			utils.Error(w, http.StatusBadRequest, "EXCEEDS_REMAINING", "Payment amount exceeds remaining loan balance")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "PAYMENT_FAILED", "Failed to process loan payment")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":       "Loan payment processed successfully",
+		"receiptNumber": receiptNumber,
+	})
+}

@@ -16,14 +16,16 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  Printer,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
+import { generateStatementHTML, generateReceiptHTML, openPrintWindow } from '@/lib/documents/receipt-generator';
 
 type KnownTransactionType =
   | 'DEPOSIT'
@@ -47,6 +49,15 @@ interface Transaction {
   processedBy?: string;
 }
 
+interface MemberProfile {
+  name?: string;
+  userId?: string;
+  phone?: string;
+  accountSummary?: {
+    currentBalance?: number;
+  };
+}
+
 export default function TransactionsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
@@ -60,6 +71,7 @@ export default function TransactionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [memberProfile, setMemberProfile] = useState<MemberProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -73,8 +85,12 @@ export default function TransactionsPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const data = await apiGet<Transaction[]>('/v1/dashboard/member/transactions');
-      setTransactions(data ?? []);
+      const [txData, profileData] = await Promise.all([
+        apiGet<Transaction[]>('/v1/dashboard/member/transactions'),
+        apiGet<MemberProfile>('/v1/dashboard/member/profile'),
+      ]);
+      setTransactions(txData ?? []);
+      setMemberProfile(profileData);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load transactions');
     } finally {
@@ -87,8 +103,65 @@ export default function TransactionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]);
 
+  // Download full statement
+  const handleDownloadStatement = () => {
+    if (!memberProfile || transactions.length === 0) return;
+    
+    const confirmedTxs = transactions.filter(tx => tx.status === 'CONFIRMED');
+    const now = new Date();
+    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    
+    const totalDeposits = confirmedTxs
+      .filter(tx => tx.type === 'DEPOSIT' || tx.type === 'LOAN_DISBURSEMENT')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    const totalWithdrawals = confirmedTxs
+      .filter(tx => tx.type === 'WITHDRAWAL' || tx.type === 'LOAN_REPAYMENT')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    
+    const statementHtml = generateStatementHTML({
+      memberName: memberProfile.name || 'N/A',
+      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
+      memberPhone: memberProfile.phone || 'N/A',
+      periodStart: oneYearAgo.toISOString(),
+      periodEnd: now.toISOString(),
+      openingBalance: 0,
+      closingBalance: (memberProfile.accountSummary?.currentBalance || 0) * 100,
+      totalDeposits: totalDeposits * 100,
+      totalWithdrawals: totalWithdrawals * 100,
+      transactions: confirmedTxs.map(tx => ({
+        date: tx.date,
+        type: tx.type,
+        amount: tx.amount * 100,
+        balance: (tx.balanceAfter || 0) * 100,
+        description: tx.description,
+        receiptNumber: tx.receiptNumber,
+      })),
+    }, locale);
+    
+    openPrintWindow(statementHtml, locale === 'bn' ? 'লেনদেন বিবরণী' : 'Transaction Statement');
+  };
 
-  const formatDate = (dateStr: string) => {
+  // Print individual receipt
+  const handlePrintReceipt = (tx: Transaction) => {
+    if (!memberProfile) return;
+    
+    const receiptHtml = generateReceiptHTML({
+      receiptNumber: tx.receiptNumber,
+      type: tx.type,
+      amount: tx.amount * 100,
+      date: tx.date,
+      memberName: memberProfile.name || 'N/A',
+      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
+      memberPhone: memberProfile.phone || 'N/A',
+      balanceAfter: (tx.balanceAfter || 0) * 100,
+      processedBy: tx.processedBy,
+      notes: tx.description,
+    }, locale);
+    
+    openPrintWindow(receiptHtml, locale === 'bn' ? 'রসিদ' : 'Receipt');
+  };
+
+  const formatDateLocal = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
       year: 'numeric',
@@ -345,7 +418,12 @@ export default function TransactionsPage() {
                 <option value="LOAN_DISBURSEMENT">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loan Disbursement'}</option>
                 <option value="LOAN_REPAYMENT">{locale === 'bn' ? 'কিস্তি পরিশোধ' : 'Loan Repayment'}</option>
               </select>
-              <Button variant="outline" className="gap-2">
+              <Button 
+                variant="outline" 
+                className="gap-2"
+                onClick={handleDownloadStatement}
+                disabled={transactions.length === 0}
+              >
                 <Download className="h-4 w-4" />
                 <span className="hidden sm:inline">{t('downloadStatement')}</span>
               </Button>
@@ -404,7 +482,7 @@ export default function TransactionsPage() {
                           {tx.description && ` • ${tx.description}`}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {(tx.receiptNumber || '-') } • {formatDate(tx.date)} {formatTime(tx.date)}
+                          {(tx.receiptNumber || '-') } • {formatDateLocal(tx.date)} {formatTime(tx.date)}
                         </p>
                       </div>
                     </div>
@@ -415,6 +493,17 @@ export default function TransactionsPage() {
                           <p className="text-xs text-muted-foreground">{t('balance')}</p>
                           <p className="font-medium">{formatCurrency(tx.balanceAfter, locale)}</p>
                         </div>
+                      )}
+                      {/* Print receipt for confirmed transactions */}
+                      {tx.status === 'CONFIRMED' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handlePrintReceipt(tx)}
+                          className="gap-1"
+                        >
+                          <Printer className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
                   </div>
