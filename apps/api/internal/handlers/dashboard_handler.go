@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1075,6 +1076,7 @@ func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Req
 
 	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberId)
 	if err != nil {
+		log.Printf("GetMemberDetailForWorker error for ID %s: %v", memberId, err)
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
