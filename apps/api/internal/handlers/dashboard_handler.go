@@ -592,8 +592,7 @@ func (h *DashboardHandler) MarkLoanDefaulted(w http.ResponseWriter, r *http.Requ
 // ==================== ADMIN DONATIONS HANDLERS ====================
 
 func (h *DashboardHandler) AdminDonations(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN", "WORKER"); !ok {
 		return
 	}
 
@@ -607,8 +606,8 @@ func (h *DashboardHandler) AdminDonations(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN", "WORKER")
+	if !ok {
 		return
 	}
 
@@ -621,13 +620,18 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
 
-	if err := h.userRepo.RecordDonation(r.Context(), req.Amount, req.DonorName, req.Notes); err != nil {
+	receiptNumber, err := h.userRepo.RecordDonation(r.Context(), auth.UserID, req.Amount, strings.TrimSpace(req.DonorName), strings.TrimSpace(req.Notes))
+	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "RECORD_DONATION_FAILED", "Failed to record donation")
 		return
 	}
 
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Donation recorded successfully"})
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Donation recorded successfully", "receiptNumber": receiptNumber})
 }
 
 // ==================== ADMIN REPORTS HANDLERS ====================
@@ -1259,7 +1263,7 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-		"message":    "Loan application submitted successfully",
+		"message":    "Loan created and disbursed successfully",
 		"loanNumber": loanNumber,
 	})
 }

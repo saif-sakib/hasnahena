@@ -607,8 +607,8 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 	sample3AccID := fmt.Sprintf("seed_acc_%s", sample3ID)
 	sample4AccID := fmt.Sprintf("seed_acc_%s", sample4ID)
 
-	// Create pending loan requests
-	pendingLoans := []struct {
+	// Create manually disbursed active loans (no admin approval queue)
+	manualLoans := []struct {
 		id        string
 		loanNo    string
 		principal int64
@@ -622,20 +622,27 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 		{fmt.Sprintf("seed_loan_pending3_%d", now.UnixNano()+10), "LN-005", 4000000, "বাড়ি নির্মাণ", sample4AccID, sample4ID, adminID},
 	}
 
-	for _, loan := range pendingLoans {
+	for _, loan := range manualLoans {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO loans (
 				id, "loanNumber", "principalAmount", "remainingAmount",
 				"totalInstallments", "installmentAmount", "paidInstallments",
-				purpose, status, "createdAt", "updatedAt", "accountId", "borrowerId", "guarantorId"
+				"disbursementDate", "installmentStartDate", "expectedEndDate",
+				purpose, status, "approvedAt", "approvedBy", "createdAt", "updatedAt", "accountId", "borrowerId", "guarantorId"
 			) VALUES (
 				$1, $2, $3, $3,
 				12, $4, 0,
-				$5, 'PENDING', NOW() - INTERVAL '3 days', NOW(), $6, $7, $8
+				NOW() - INTERVAL '3 days', NOW() - INTERVAL '2 days', NOW() + INTERVAL '10 months',
+				$5, 'ACTIVE', NOW() - INTERVAL '3 days', $9, NOW() - INTERVAL '3 days', NOW(), $6, $7, $8
 			)
-		`, loan.id, loan.loanNo, loan.principal, loan.principal/12, loan.purpose, loan.accountID, loan.borrowerID, loan.guarantorID)
+		`, loan.id, loan.loanNo, loan.principal, loan.principal/12, loan.purpose, loan.accountID, loan.borrowerID, loan.guarantorID, adminID)
 		if err != nil {
-			return fmt.Errorf("failed to create pending loan %s: %w", loan.loanNo, err)
+			return fmt.Errorf("failed to create active loan %s: %w", loan.loanNo, err)
+		}
+
+		_, err = tx.Exec(ctx, `UPDATE accounts SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW() WHERE id = $2`, loan.principal, loan.accountID)
+		if err != nil {
+			return fmt.Errorf("failed to update loan balance for %s: %w", loan.loanNo, err)
 		}
 	}
 
@@ -681,16 +688,16 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy")
+		INSERT INTO transactions (id, type, amount, "receiptNumber", description, status, "savingsAfter", "createdAt", "processedAt", "confirmedAt", "accountId", "userId", "processedBy")
 		VALUES
-			($1, 'DONATION', 500000, 'DON-001', 'দাতব্য তহবিলে দান', 500000, NOW() - INTERVAL '90 days', $7, $8, $9),
-			($2, 'DONATION', 300000, 'DON-002', 'দাতব্য তহবিলে দান', 800000, NOW() - INTERVAL '70 days', $7, $10, $9),
-			($3, 'DONATION', 1000000, 'DON-003', 'দাতব্য তহবিলে দান', 1800000, NOW() - INTERVAL '50 days', $7, $11, $9),
-			($4, 'DONATION', 200000, 'DON-004', 'দাতব্য তহবিলে দান', 2000000, NOW() - INTERVAL '30 days', $7, $12, $9),
-			($5, 'DONATION', 400000, 'DON-005', 'দাতব্য তহবিলে দান', 2400000, NOW() - INTERVAL '15 days', $7, $8, $9),
-			($6, 'DONATION', 250000, 'DON-006', 'দাতব্য তহবিলে দান', 2650000, NOW() - INTERVAL '5 days', $7, $10, $9)
+			($1, 'DONATION', 500000, 'DON-001', 'দাতব্য তহবিলে দান', 'CONFIRMED', 500000, NOW() - INTERVAL '90 days', NOW() - INTERVAL '90 days', NOW() - INTERVAL '90 days', $7, $8, NULL),
+			($2, 'DONATION', 300000, 'DON-002', 'দাতব্য তহবিলে দান', 'CONFIRMED', 800000, NOW() - INTERVAL '70 days', NOW() - INTERVAL '70 days', NOW() - INTERVAL '70 days', $7, $9, NULL),
+			($3, 'DONATION', 1000000, 'DON-003', 'দাতব্য তহবিলে দান', 'CONFIRMED', 1800000, NOW() - INTERVAL '50 days', NOW() - INTERVAL '50 days', NOW() - INTERVAL '50 days', $7, $10, NULL),
+			($4, 'DONATION', 200000, 'DON-004', 'দাতব্য তহবিলে দান', 'CONFIRMED', 2000000, NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days', $7, $11, NULL),
+			($5, 'DONATION', 400000, 'DON-005', 'দাতব্য তহবিলে দান', 'CONFIRMED', 2400000, NOW() - INTERVAL '15 days', NOW() - INTERVAL '15 days', NOW() - INTERVAL '15 days', $7, $8, NULL),
+			($6, 'DONATION', 250000, 'DON-006', 'দাতব্য তহবিলে দান', 'CONFIRMED', 2650000, NOW() - INTERVAL '5 days', NOW() - INTERVAL '5 days', NOW() - INTERVAL '5 days', $7, $9, NULL)
 	`, donationTxnIDs[0], donationTxnIDs[1], donationTxnIDs[2], donationTxnIDs[3], donationTxnIDs[4], donationTxnIDs[5],
-		donationAccID, memberID, staffID, adminID, sample2ID, sample3ID)
+		donationAccID, memberID, staffID, adminID, sample2ID)
 	if err != nil {
 		return fmt.Errorf("failed to create donation transactions: %w", err)
 	}
@@ -705,7 +712,7 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 	log.Printf("  - Admin: admin@hasnahena.local / Admin@12345")
 	log.Printf("  - Staff: staff@hasnahena.local / Staff@12345")
 	log.Printf("  - 14 total members: 10 ACTIVE, 3 PENDING, 1 SUSPENDED")
-	log.Printf("  - 6 loans: 1 ACTIVE, 1 COMPLETED, 1 DEFAULTED, 3 PENDING")
+	log.Printf("  - 6 loans: 4 ACTIVE, 1 COMPLETED, 1 DEFAULTED")
 	log.Printf("  - 6 donation transactions (charity fund)")
 	log.Printf("  - Multiple deposit and repayment transactions")
 

@@ -1302,8 +1302,8 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 			"nidNumber":       nid,
 			"status":          strings.ToUpper(status),
 			"joinDate":        createdAt.Format(time.RFC3339),
-			"currentDeposit":  savingsBalance,
-			"activeLoan":      activeLoan,
+			"currentDeposit":  savingsBalance / 100,
+			"activeLoan":      activeLoan / 100,
 			"area":            area,
 			"role":            strings.ToUpper(role),
 			"assignedArea":    area,
@@ -2609,14 +2609,42 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 		if err := rows.Scan(&id, &amount, &receipt, &description, &createdAt, &donorName, &donorNameBn, &donorId); err != nil {
 			continue
 		}
+
+		displayDonor := strings.TrimSpace(donorNameBn)
+		if displayDonor == "" {
+			displayDonor = strings.TrimSpace(donorName)
+		}
+		displayDonorBn := strings.TrimSpace(donorNameBn)
+		displayDescription := strings.TrimSpace(description)
+		if strings.HasPrefix(displayDescription, "DONOR:") {
+			raw := strings.TrimSpace(strings.TrimPrefix(displayDescription, "DONOR:"))
+			parts := strings.SplitN(raw, "|", 2)
+			overrideDonor := strings.TrimSpace(parts[0])
+			if overrideDonor != "" {
+				displayDonor = overrideDonor
+				displayDonorBn = overrideDonor
+			}
+			if len(parts) == 2 {
+				displayDescription = strings.TrimSpace(parts[1])
+			} else {
+				displayDescription = ""
+			}
+		}
+		if displayDonor == "" {
+			displayDonor = "Unknown"
+		}
+		if displayDonorBn == "" {
+			displayDonorBn = displayDonor
+		}
+
 		donations = append(donations, map[string]interface{}{
 			"id":          id,
-			"amount":      amount,
+			"amount":      amount / 100,
 			"receipt":     receipt,
-			"description": description,
+			"description": displayDescription,
 			"date":        createdAt.Format(time.RFC3339),
-			"donorName":   donorName,
-			"donorNameBn": donorNameBn,
+			"donorName":   displayDonor,
+			"donorNameBn": displayDonorBn,
 			"donorId":     donorId,
 		})
 	}
@@ -2624,22 +2652,64 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 	return donations, nil
 }
 
-func (r *UserRepository) RecordDonation(ctx context.Context, amount int64, donorName, notes string) error {
-	// Get or create donation account
-	var donationAccID string
-	err := r.db.QueryRow(ctx, `SELECT id FROM accounts WHERE "accountNumber" = 'HN-ACC-DONATION'`).Scan(&donationAccID)
+func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string, amount int64, donorName, notes string) (string, error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		// Donation account doesn't exist, return error
-		return fmt.Errorf("donation account not found")
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var donationAccID, donationUserID string
+	var donationBalance int64
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, "userId"::text, COALESCE("savingsBalance", 0)::bigint
+		FROM accounts
+		WHERE "accountNumber" = 'HN-ACC-DONATION'
+		FOR UPDATE
+	`).Scan(&donationAccID, &donationUserID, &donationBalance)
+	if err != nil {
+		return "", fmt.Errorf("donation account not found")
 	}
 
-	// Create donation transaction
-	const txnQuery = `
-		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "createdAt", "accountId")
-		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'DON-AUTO', $2, NOW(), $3)
-	`
-	_, err = r.db.Exec(ctx, txnQuery, amount, notes, donationAccID)
-	return err
+	receiptNumber := fmt.Sprintf("DON-%s", time.Now().Format("20060102150405"))
+
+	description := strings.TrimSpace(notes)
+	if dn := strings.TrimSpace(donorName); dn != "" {
+		if description != "" {
+			description = fmt.Sprintf("DONOR:%s | %s", dn, description)
+		} else {
+			description = fmt.Sprintf("DONOR:%s", dn)
+		}
+	}
+
+	newDonationBalance := donationBalance + amount
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		SET "savingsBalance" = $1, "updatedAt" = NOW()
+		WHERE id = $2
+	`, newDonationBalance, donationAccID)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "processedBy", "savingsAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'DONATION', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7, NOW(), NOW(), NOW()
+		)
+	`, amount, receiptNumber, description, donationAccID, donationUserID, recordedByID, newDonationBalance)
+	if err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+
+	return receiptNumber, nil
 }
 
 // ==================== REPORT GENERATION ====================
@@ -3345,18 +3415,29 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 
 // CreateMemberLoan creates a loan for a member (worker action)
 func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
-	// Verify member exists and is active
+	if installments < 1 || installments > 24 {
+		return "", errors.New("invalid installments")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Verify member exists, lock account row for consistent balance/eligibility checks.
 	var status, accountID string
 	var currentBalance, activeLoan int64
-	err := r.db.QueryRow(ctx, `
-		SELECT 
-			u.status::text, 
+	err = tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
 			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
 		FROM users u
-		LEFT JOIN accounts a ON a."userId" = u.id
+		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+		FOR UPDATE OF a
 	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan)
 	if err != nil {
 		return "", fmt.Errorf("member not found: %w", err)
@@ -3368,7 +3449,6 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("has active loan")
 	}
 
-	// Check eligibility
 	minDeposit := int64(8000) // 80,000 paisa
 	if currentBalance < minDeposit {
 		return "", errors.New("not eligible - insufficient deposit")
@@ -3379,26 +3459,58 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("exceeds limit")
 	}
 
-	// Generate loan number
 	loanNumber := fmt.Sprintf("LN%d%s", time.Now().Unix(), memberID[:4])
-
-	// Calculate installment amount (simple division for now)
 	installmentAmount := amount / int64(installments)
 
-	// Create loan record (pending approval)
-	_, err = r.db.Exec(ctx, `
+	var loanID string
+	err = tx.QueryRow(ctx, `
 		INSERT INTO loans (
 			id, "loanNumber", "accountId", "borrowerId", "principalAmount", "remainingAmount",
 			"totalInstallments", "paidInstallments", "installmentAmount",
-			purpose, status, "createdAt", "updatedAt"
+			purpose, status, "disbursementDate", "approvedAt", "approvedBy", "createdAt", "updatedAt"
 		) VALUES (
 			gen_random_uuid()::text, $1, $2, $3, $4, $5,
 			$6, 0, $7,
-			$8, 'PENDING_APPROVAL', NOW(), NOW()
+			$8, 'ACTIVE', NOW(), NOW(), $9, NOW(), NOW()
 		)
-	`, loanNumber, accountID, memberID, amount, amount, installments, installmentAmount, purpose)
+		RETURNING id
+	`, loanNumber, accountID, memberID, amount, amount, installments, installmentAmount, purpose, workerID).Scan(&loanID)
 	if err != nil {
 		return "", fmt.Errorf("failed to create loan: %w", err)
+	}
+
+	var updatedLoanBalance int64
+	err = tx.QueryRow(ctx, `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW()
+		WHERE id = $2
+		RETURNING "loanBalance"::bigint
+	`, amount, accountID).Scan(&updatedLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to update account loan balance: %w", err)
+	}
+
+	description := purpose
+	if strings.TrimSpace(description) == "" {
+		description = "ঋণ বিতরণ"
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "loanId", "processedBy",
+			"loanAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7,
+			$8, NOW(), NOW(), NOW()
+		)
+	`, amount, loanNumber, description, accountID, memberID, loanID, workerID, updatedLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("failed to commit loan creation: %w", err)
 	}
 
 	return loanNumber, nil
@@ -3464,7 +3576,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		UPDATE loans
 		SET "remainingAmount" = $1,
 			"paidInstallments" = "paidInstallments" + 1,
-			status = $2::loan_status,
+			status = $2::"LoanStatus",
 			"completedAt" = CASE WHEN $2 = 'COMPLETED' THEN NOW() ELSE "completedAt" END,
 			"updatedAt" = NOW()
 		WHERE id = $3

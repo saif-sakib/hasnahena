@@ -100,7 +100,6 @@ model User {
   nameBn        String?    // নাম (Bengali)
   fatherName    String     // পিতার নাম
   motherName    String     // মাতার নাম
-  spouseName    String?    // স্বামী/স্ত্রীর নাম
   gender        Gender     @default(MALE)
   dateOfBirth   DateTime?
   maritalStatus MaritalStatus @default(UNMARRIED)
@@ -108,14 +107,6 @@ model User {
   
   // NID Information
   nidNumber     String?    // এন.আই.ডি নং
-  fatherNid     String?    // পিতার এন.আই.ডি নং (for minors)
-  motherNid     String?    // মাতার এন.আই.ডি নং (for minors)
-  
-  // Religious Practice Survey (Optional)
-  prayerPractice String?   // জামাতে / একাকী
-  dailyPrayers   Int?      // ওয়াক্ত
-  readsQuran     Boolean?  // কুরআন পড়া হয়
-  readsHadith    Boolean?  // হাদিস পড়া হয়
   
   // Profile Picture
   avatarUrl     String?

@@ -23,7 +23,25 @@ echo -e "${YELLOW}Working from: $PROJECT_ROOT${NC}"
 
 # Load environment variables
 if [ -f "$PROJECT_ROOT/.env.local" ]; then
-    export $(grep -v '^#' "$PROJECT_ROOT/.env.local" | grep -v '^$' | xargs)
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+
+        if [[ "$line" == export* ]]; then
+            line="${line#export }"
+        fi
+
+        if [[ "$line" == *'='* ]]; then
+            key="${line%%=*}"
+            value="${line#*=}"
+            key="$(echo "$key" | xargs)"
+
+            if [[ -n "$key" ]]; then
+                export "$key=$value"
+            fi
+        fi
+    done < "$PROJECT_ROOT/.env.local"
     echo -e "${GREEN}✓ Loaded environment from .env.local${NC}"
 else
     echo -e "${RED}✗ .env.local not found!${NC}"
