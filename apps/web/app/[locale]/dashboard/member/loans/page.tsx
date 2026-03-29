@@ -16,6 +16,13 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
@@ -48,6 +55,7 @@ export default function LoansPage() {
   const isEligible = currentDeposit >= minDepositRequired;
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
   const [loanHistory, setLoanHistory] = useState<Loan[]>([]);
+  const [selectedHistoryLoan, setSelectedHistoryLoan] = useState<Loan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -105,6 +113,12 @@ export default function LoansPage() {
 
   return (
     <div className="space-y-6">
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {actionError}
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -304,7 +318,11 @@ export default function LoansPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {loanHistory.map((loan) => {
+              {isLoading ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+                </div>
+              ) : loanHistory.map((loan) => {
                 const statusInfo = getStatusLabel(loan.status);
                 return (
                   <div
@@ -332,7 +350,12 @@ export default function LoansPage() {
                         </p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" className="gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setSelectedHistoryLoan(loan)}
+                    >
                       {locale === 'bn' ? 'বিস্তারিত' : 'Details'}
                       <ChevronRight className="h-4 w-4" />
                     </Button>
@@ -343,6 +366,56 @@ export default function LoansPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={Boolean(selectedHistoryLoan)} onOpenChange={(open) => !open && setSelectedHistoryLoan(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{locale === 'bn' ? 'ঋণের বিস্তারিত' : 'Loan Details'}</DialogTitle>
+            <DialogDescription>
+              {selectedHistoryLoan?.loanNumber}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedHistoryLoan && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</p>
+                <p className="font-medium">{locale === 'bn' ? getStatusLabel(selectedHistoryLoan.status).bn : getStatusLabel(selectedHistoryLoan.status).en}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মূল পরিমাণ' : 'Principal'}</p>
+                <p className="font-medium">{formatCurrency(selectedHistoryLoan.principalAmount, locale)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বাকি পরিমাণ' : 'Remaining'}</p>
+                <p className="font-medium">{formatCurrency(selectedHistoryLoan.remainingAmount, locale)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</p>
+                <p className="font-medium">{selectedHistoryLoan.paidInstallments}/{selectedHistoryLoan.totalInstallments}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'প্রতি কিস্তি' : 'Installment Amount'}</p>
+                <p className="font-medium">{formatCurrency(selectedHistoryLoan.installmentAmount, locale)}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'জামিনদার' : 'Guarantor'}</p>
+                <p className="font-medium">{selectedHistoryLoan.guarantor || '-'}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'ঋণের উদ্দেশ্য' : 'Purpose'}</p>
+                <p className="font-medium">{selectedHistoryLoan.purpose || '-'}</p>
+              </div>
+              {selectedHistoryLoan.disbursementDate && (
+                <div className="sm:col-span-2">
+                  <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বিতরণের তারিখ' : 'Disbursement Date'}</p>
+                  <p className="font-medium">{formatDate(selectedHistoryLoan.disbursementDate)}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,9 +5,6 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
   Wallet,
-  Clock,
-  CheckCircle2,
-  XCircle,
   ArrowUpRight,
   Download,
   Info,
@@ -46,7 +43,6 @@ export default function DepositsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed'>('all');
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [currentBalance, setCurrentBalance] = useState(0);
   const [memberProfile, setMemberProfile] = useState<MemberProfile | null>(null);
@@ -85,13 +81,7 @@ export default function DepositsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale]);
 
-  const totalDeposited = deposits
-    .filter((d) => d.status === 'CONFIRMED')
-    .reduce((sum, d) => sum + d.amount, 0);
-
-  const pendingAmount = deposits
-    .filter((d) => d.status === 'PENDING')
-    .reduce((sum, d) => sum + d.amount, 0);
+  const totalDeposited = deposits.reduce((sum, d) => sum + d.amount, 0);
 
 
   const formatDate = (dateStr: string) => {
@@ -102,43 +92,13 @@ export default function DepositsPage() {
     });
   };
 
-  const getStatusIcon = (status: DepositStatus) => {
-    switch (status) {
-      case 'PENDING':
-        return <Clock className="h-4 w-4 text-amber-500" />;
-      case 'CONFIRMED':
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-      case 'DISPUTED':
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'REJECTED':
-        return <XCircle className="h-4 w-4 text-red-500" />;
-    }
-  };
-
-  const getStatusLabel = (status: DepositStatus) => {
-    const labels: Record<DepositStatus, { bn: string; en: string; color: string }> = {
-      PENDING: { bn: 'অপেক্ষমান', en: 'Pending', color: 'bg-amber-100 text-amber-700' },
-      CONFIRMED: { bn: 'নিশ্চিত', en: 'Confirmed', color: 'bg-green-100 text-green-700' },
-      DISPUTED: { bn: 'বিবাদিত', en: 'Disputed', color: 'bg-red-100 text-red-700' },
-      REJECTED: { bn: 'প্রত্যাখ্যাত', en: 'Rejected', color: 'bg-gray-100 text-gray-700' },
-    };
-    return labels[status];
-  };
-
-  const filteredDeposits = deposits.filter((d) => {
-    if (activeTab === 'pending') return d.status === 'PENDING';
-    if (activeTab === 'confirmed') return d.status === 'CONFIRMED';
-    return true;
-  });
-
   // Download deposit statement
   const handleDownloadStatement = () => {
     if (!memberProfile || deposits.length === 0) return;
-    
-    const confirmedDeposits = deposits.filter(d => d.status === 'CONFIRMED');
+
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-    
+
     const statementHtml = generateStatementHTML({
       memberName: memberProfile.name || 'N/A',
       memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
@@ -149,7 +109,7 @@ export default function DepositsPage() {
       closingBalance: currentBalance * 100, // Convert to paisa for display formatting
       totalDeposits: totalDeposited * 100,
       totalWithdrawals: 0,
-      transactions: confirmedDeposits.map(d => ({
+      transactions: deposits.map(d => ({
         date: d.date,
         type: 'DEPOSIT',
         amount: d.amount * 100, // Convert to paisa
@@ -183,6 +143,12 @@ export default function DepositsPage() {
 
   return (
     <div className="space-y-6">
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {actionError}
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -220,7 +186,7 @@ export default function DepositsPage() {
       </Card>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Card className="rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('totalDeposited')}</CardTitle>
@@ -229,25 +195,12 @@ export default function DepositsPage() {
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposited, locale)}</div>
             <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'নিশ্চিত আমানত' : 'Confirmed deposits'}
+              {locale === 'bn' ? 'মোট আমানত' : 'Total deposits'}
             </p>
           </CardContent>
         </Card>
 
         <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('pendingDeposits')}</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{formatCurrency(pendingAmount, locale)}</div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'প্রক্রিয়াধীন' : 'Processing'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm sm:col-span-2 lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('currentBalance')}</CardTitle>
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
@@ -259,40 +212,6 @@ export default function DepositsPage() {
             </p>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b">
-        <button
-          onClick={() => setActiveTab('all')}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'all'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {locale === 'bn' ? 'সব' : 'All'} ({deposits.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('pending')}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'pending'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {t('pendingDeposits')} ({deposits.filter((d) => d.status === 'PENDING').length})
-        </button>
-        <button
-          onClick={() => setActiveTab('confirmed')}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'confirmed'
-              ? 'border-b-2 border-primary text-primary'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {t('confirmedDeposits')} ({deposits.filter((d) => d.status === 'CONFIRMED').length})
-        </button>
       </div>
 
       {/* Deposits List */}
@@ -307,13 +226,16 @@ export default function DepositsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {filteredDeposits.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+              </div>
+            ) : deposits.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 {locale === 'bn' ? 'কোন আমানত পাওয়া যায়নি' : 'No deposits found'}
               </div>
             ) : (
-              filteredDeposits.map((deposit) => {
-                const statusInfo = getStatusLabel(deposit.status);
+              deposits.map((deposit) => {
                 return (
                   <div
                     key={deposit.id}
@@ -324,21 +246,13 @@ export default function DepositsPage() {
                         <ArrowUpRight className="h-5 w-5" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-lg">
-                            {formatCurrency(deposit.amount, locale)}
-                          </p>
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}
-                          >
-                            {getStatusIcon(deposit.status)}
-                            {locale === 'bn' ? statusInfo.bn : statusInfo.en}
-                          </span>
-                        </div>
+                        <p className="font-semibold text-lg">
+                          {formatCurrency(deposit.amount, locale)}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           {deposit.receiptNumber} • {formatDate(deposit.date)}
                         </p>
-                        {deposit.balanceAfter && (
+                        {deposit.balanceAfter !== undefined && (
                           <p className="text-xs text-muted-foreground">
                             {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(deposit.balanceAfter, locale)}
                           </p>
@@ -346,18 +260,15 @@ export default function DepositsPage() {
                       </div>
                     </div>
 
-                    {/* Print receipt button for confirmed deposits */}
-                    {deposit.status === 'CONFIRMED' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handlePrintReceipt(deposit)}
-                        className="gap-1"
-                      >
-                        <Printer className="h-4 w-4" />
-                        {locale === 'bn' ? 'রসিদ' : 'Receipt'}
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handlePrintReceipt(deposit)}
+                      className="gap-1"
+                    >
+                      <Printer className="h-4 w-4" />
+                      {locale === 'bn' ? 'রসিদ' : 'Receipt'}
+                    </Button>
                   </div>
                 );
               })

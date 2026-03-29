@@ -576,6 +576,11 @@ async function seedTransactions() {
     { id: 'txn-009', type: TransactionType.DEPOSIT, amount: 500000n, receiptNumber: 'RCP-007', description: 'দ্বিতীয় জমা', savingsAfter: 1300000n, accountId: 'acc-seed-member-002', userId: 'seed-member-002', processedBy: 'seed-staff-001', createdAt: daysAgo(40) },
     { id: 'txn-010', type: TransactionType.DEPOSIT, amount: 500000n, receiptNumber: 'RCP-008', description: 'তৃতীয় জমা', savingsAfter: 1800000n, accountId: 'acc-seed-member-002', userId: 'seed-member-002', processedBy: 'seed-staff-001', createdAt: daysAgo(15) },
 
+    // Member 005 deposits
+    { id: 'txn-018', type: TransactionType.DEPOSIT, amount: 400000n, receiptNumber: 'RCP-009', description: 'প্রাথমিক জমা', savingsAfter: 400000n, accountId: 'acc-seed-member-005', userId: 'seed-member-005', processedBy: 'seed-staff-002', createdAt: daysAgo(80) },
+    { id: 'txn-019', type: TransactionType.DEPOSIT, amount: 300000n, receiptNumber: 'RCP-010', description: 'মাসিক জমা', savingsAfter: 700000n, accountId: 'acc-seed-member-005', userId: 'seed-member-005', processedBy: 'seed-staff-002', createdAt: daysAgo(45) },
+    { id: 'txn-020', type: TransactionType.DEPOSIT, amount: 200000n, receiptNumber: 'RCP-011', description: 'অতিরিক্ত জমা', savingsAfter: 900000n, accountId: 'acc-seed-member-005', userId: 'seed-member-005', processedBy: 'seed-staff-001', createdAt: daysAgo(12) },
+
     // Donations
     { id: 'txn-011', type: TransactionType.DONATION, amount: 500000n, receiptNumber: 'DON-001', description: 'দাতব্য তহবিলে দান', savingsAfter: 500000n, accountId: 'acc-donation-001', userId: 'seed-member-001', processedBy: 'seed-staff-001', createdAt: daysAgo(90) },
     { id: 'txn-012', type: TransactionType.DONATION, amount: 300000n, receiptNumber: 'DON-002', description: 'দাতব্য তহবিলে দান', savingsAfter: 800000n, accountId: 'acc-donation-001', userId: 'seed-staff-001', processedBy: 'seed-staff-001', createdAt: daysAgo(70) },

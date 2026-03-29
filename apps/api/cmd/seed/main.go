@@ -403,12 +403,13 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 		nameBn   string
 		memberId string
 		status   string
+		balance  int64
 	}{
-		{fmt.Sprintf("seed_member2_%d", now.UnixNano()), "karim@example.com", "01711111111", "Abdul Karim", "আব্দুল করিম", "HN-M-002", "ACTIVE"},
-		{fmt.Sprintf("seed_member3_%d", now.UnixNano()), "rahim@example.com", "01722222222", "Abdul Rahim", "আব্দুল রহিম", "HN-M-003", "ACTIVE"},
-		{fmt.Sprintf("seed_member4_%d", now.UnixNano()), "fatima@example.com", "01733333333", "Fatima Begum", "ফাতিমা বেগম", "HN-M-004", "PENDING"},
-		{fmt.Sprintf("seed_member5_%d", now.UnixNano()), "salma@example.com", "01744444444", "Salma Khatun", "সালমা খাতুন", "HN-M-005", "ACTIVE"},
-		{fmt.Sprintf("seed_member6_%d", now.UnixNano()), "hasan@example.com", "01755555555", "Md. Hasan", "মোঃ হাসান", "HN-M-006", "SUSPENDED"},
+		{fmt.Sprintf("seed_member2_%d", now.UnixNano()+10), "karim@example.com", "01711111111", "Abdul Karim", "আব্দুল করিম", "HN-M-002", "ACTIVE", 1800000},
+		{fmt.Sprintf("seed_member3_%d", now.UnixNano()+11), "rahim@example.com", "01722222222", "Abdul Rahim", "আব্দুল রহিম", "HN-M-003", "ACTIVE", 1400000},
+		{fmt.Sprintf("seed_member4_%d", now.UnixNano()+12), "fatima@example.com", "01733333333", "Fatima Begum", "ফাতিমা বেগম", "HN-M-004", "PENDING", 0},
+		{fmt.Sprintf("seed_member5_%d", now.UnixNano()+13), "salma@example.com", "01744444444", "Salma Khatun", "সালমা খাতুন", "HN-M-005", "ACTIVE", 900000},
+		{fmt.Sprintf("seed_member6_%d", now.UnixNano()+14), "hasan@example.com", "01755555555", "Md. Hasan", "মোঃ হাসান", "HN-M-006", "SUSPENDED", 300000},
 	}
 
 	for _, m := range sampleMembers {
@@ -431,11 +432,15 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 
 		// Create account for each member
 		accID := fmt.Sprintf("seed_acc_%s", m.id)
-		balance := int64(500000 + (now.UnixNano() % 2000000))
+		isLoanEligible := strings.ToUpper(m.status) == "ACTIVE" && m.balance >= 80000
+		maxLoanAmount := int64(0)
+		if isLoanEligible {
+			maxLoanAmount = m.balance * 5
+		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES ($1, $2, $3, 0, true, $4, NOW(), NOW(), $5)
-		`, accID, fmt.Sprintf("HN-ACC-%s", m.memberId), balance, balance*5, m.id)
+			VALUES ($1, $2, $3, 0, $4, $5, NOW(), NOW(), $6)
+		`, accID, fmt.Sprintf("HN-ACC-%s", m.memberId), m.balance, isLoanEligible, maxLoanAmount, m.id)
 		if err != nil {
 			return fmt.Errorf("failed to create account for %s: %w", m.name, err)
 		}
@@ -450,14 +455,16 @@ func seedData(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("failed to create address for %s: %w", m.name, err)
 		}
 
-		// Create a deposit transaction for each member
-		txID := fmt.Sprintf("seed_txn_%s", m.id)
-		_, err = tx.Exec(ctx, `
-			INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy")
-			VALUES ($1, 'DEPOSIT', $2, $3, 'জমা', $2, NOW() - INTERVAL '30 days', $4, $5, $6)
-		`, txID, balance, fmt.Sprintf("RCP-%s", m.memberId), accID, m.id, staffID)
-		if err != nil {
-			return fmt.Errorf("failed to create transaction for %s: %w", m.name, err)
+		if strings.ToUpper(m.status) == "ACTIVE" && m.balance > 0 {
+			// Create a deposit transaction for active members
+			txID := fmt.Sprintf("seed_txn_%s", m.id)
+			_, err = tx.Exec(ctx, `
+				INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy")
+				VALUES ($1, 'DEPOSIT', $2, $3, 'জমা', $2, NOW() - INTERVAL '30 days', $4, $5, $6)
+			`, txID, m.balance, fmt.Sprintf("RCP-%s", m.memberId), accID, m.id, staffID)
+			if err != nil {
+				return fmt.Errorf("failed to create transaction for %s: %w", m.name, err)
+			}
 		}
 	}
 

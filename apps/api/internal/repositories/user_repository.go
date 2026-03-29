@@ -836,7 +836,7 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 		"deposits":       deposits,
 		"totalDeposited": totalDeposited / 100,
 		"pendingAmount":  pendingAmount / 100,
-		"currentBalance": currentBalance,
+		"currentBalance": currentBalance / 100,
 	}, nil
 }
 
@@ -3148,8 +3148,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		transactions = append(transactions, map[string]interface{}{
 			"id":            txnID,
 			"type":          strings.ToUpper(txnType),
-			"amount":        amount,
-			"balanceAfter":  balanceAfter,
+			"amount":        amount / 100,
+			"balanceAfter":  balanceAfter / 100,
 			"receiptNumber": receipt,
 			"status":        strings.ToUpper(txnStatus),
 			"createdAt":     txnCreatedAt.Format(time.RFC3339),
@@ -3193,11 +3193,11 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		loan := map[string]interface{}{
 			"id":                loanID,
 			"loanNumber":        loanNumber,
-			"principalAmount":   principal,
-			"remainingAmount":   remaining,
+			"principalAmount":   principal / 100,
+			"remainingAmount":   remaining / 100,
 			"totalInstallments": totalInst,
 			"paidInstallments":  paidInst,
-			"installmentAmount": installmentAmt,
+			"installmentAmount": installmentAmt / 100,
 			"status":            strings.ToUpper(loanStatus),
 		}
 		if disbursementDate != nil {

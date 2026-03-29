@@ -32,7 +32,7 @@ npx prisma migrate dev
 ```bash
 cd apps/api
 cat > .env << 'EOF'
-PORT=8080
+PORT=8081
 DATABASE_URL=postgresql://postgres:password@localhost:5432/hasnahena_dev
 JWT_SECRET=your-super-secret-jwt-key-min-32-characters-long-change-this
 JWT_EXPIRY=86400
@@ -80,17 +80,17 @@ go run cmd/server/main.go
 
 Expected output:
 ```
-API server running on :8080
+API server running on :8081
 ```
 
 ## Step 6: Test API (In New Terminal)
 
 ```bash
 # Test health check
-curl http://localhost:8080/v1/health
+curl http://localhost:8081/v1/health
 
 # Test login with admin
-curl -X POST http://localhost:8080/v1/auth/login \
+curl -X POST http://localhost:8081/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"identifier":"admin@hasnahena.local","password":"Admin@12345"}'
 
@@ -103,7 +103,7 @@ curl -X POST http://localhost:8080/v1/auth/login \
 cd apps/web
 
 # Make sure you have .env.local with:
-# NEXT_PUBLIC_API_URL=http://localhost:8080
+# NEXT_PUBLIC_API_URL=http://localhost:8081
 
 npm run dev
 # or
@@ -175,9 +175,9 @@ pnpm dev
 **Cause**: Backend not running or CORS issue
 
 **Fix**:
-1. Make sure API is running on port 8080
+1. Make sure API is running on port 8081
 2. Check `apps/api/.env` has correct `CORS_ORIGINS=http://localhost:3000`
-3. Check frontend `.env.local` has `NEXT_PUBLIC_API_URL=http://localhost:8080`
+3. Check frontend `.env.local` has `NEXT_PUBLIC_API_URL=http://localhost:8081`
 
 ### "Connection refused" to Database
 
@@ -304,7 +304,7 @@ useEffect(() => {
 
 ### apps/api/.env
 ```bash
-✅ PORT=8080
+✅ PORT=8081
 ✅ DATABASE_URL=postgresql://... (correct password!)
 ✅ JWT_SECRET=your-secret-key-32-chars
 ✅ JWT_EXPIRY=86400
@@ -313,7 +313,7 @@ useEffect(() => {
 
 ### apps/web/.env.local
 ```bash
-✅ NEXT_PUBLIC_API_URL=http://localhost:8080
+✅ NEXT_PUBLIC_API_URL=http://localhost:8081
 ✅ DATABASE_URL=postgresql://... (for Prisma)
 ```
 
@@ -323,7 +323,7 @@ useEffect(() => {
 
 You'll know everything is working when:
 
-1. ✅ API starts without errors on port 8080
+1. ✅ API starts without errors on port 8081
 2. ✅ You can login with all 3 test accounts
 3. ✅ Member dashboard shows real balance (৳25,000)
 4. ✅ Admin dashboard shows dynamic recovery rate (not 98.5%)

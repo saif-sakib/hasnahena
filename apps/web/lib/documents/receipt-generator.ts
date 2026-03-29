@@ -52,6 +52,15 @@ export interface StatementData {
   }>;
 }
 
+export interface MembershipCertificateData {
+  memberName: string;
+  memberId: string;
+  accountNumber?: string;
+  memberSince: string;
+  phone?: string;
+  address?: string;
+}
+
 const formatCurrency = (amount: number, locale: string = 'bn'): string => {
   const value = amount / 100;
   return locale === 'bn' 
@@ -934,6 +943,105 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
         </div>
         
         ${getFooter(`STM-${data.memberId}-${Date.now()}`, locale)}
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+export function generateMembershipCertificateHTML(data: MembershipCertificateData, locale: string = 'bn'): string {
+  const title = locale === 'bn' ? 'সদস্যপদ সনদ' : 'MEMBERSHIP CERTIFICATE';
+
+  return `
+    <!DOCTYPE html>
+    <html lang="${locale}">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title} - ${data.memberId}</title>
+      ${getCommonStyles()}
+      <style>
+        .certificate-body {
+          margin-top: 24px;
+          border: 1px solid #d1d5db;
+          border-radius: 10px;
+          padding: 24px;
+          background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+        }
+
+        .certificate-lead {
+          text-align: center;
+          font-size: 16px;
+          margin-bottom: 18px;
+          color: #0f766e;
+          font-weight: 600;
+        }
+
+        .certificate-text {
+          text-align: justify;
+          margin-bottom: 16px;
+          line-height: 1.9;
+          font-size: 14px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="watermark">HASNAHENA</div>
+      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+
+      <div class="document">
+        <div class="border-frame"></div>
+        ${getHeader()}
+
+        <div class="doc-title">
+          <h1>${title}</h1>
+        </div>
+
+        <div class="doc-meta">
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'সদস্য আইডি' : 'Member ID'}</div>
+            <div class="meta-value">${data.memberId}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'অ্যাকাউন্ট' : 'Account'}</div>
+            <div class="meta-value">${data.accountNumber || '-'}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">${locale === 'bn' ? 'সদস্যপদ শুরু' : 'Member Since'}</div>
+            <div class="meta-value">${formatDate(data.memberSince, locale)}</div>
+          </div>
+        </div>
+
+        <div class="certificate-body">
+          <div class="certificate-lead">
+            ${locale === 'bn' ? 'এতদ্বারা প্রত্যয়ন করা যাচ্ছে যে' : 'This is to certify that'}
+          </div>
+          <p class="certificate-text">
+            <strong>${data.memberName}</strong>
+            ${locale === 'bn'
+              ? `, সদস্য আইডি <strong>${data.memberId}</strong>, হাসনাহেনা সমিতি লিমিটেড-এর একজন বৈধ সদস্য। সদস্য হিসেবে তিনি সংগঠনের সঞ্চয়, ঋণ ও সদস্যসেবামূলক কার্যক্রমে অংশগ্রহণের অধিকারী।`
+              : `, Member ID <strong>${data.memberId}</strong>, is a valid member of Hasnahena Samiti Limited and is entitled to participate in its savings, loan, and member service activities.`}
+          </p>
+          <p class="certificate-text">
+            ${locale === 'bn'
+              ? `যোগাযোগ: ${data.phone || '-'}${data.address ? ` | ঠিকানা: ${data.address}` : ''}`
+              : `Contact: ${data.phone || '-'}${data.address ? ` | Address: ${data.address}` : ''}`}
+          </p>
+        </div>
+
+        <div class="signature-section" style="margin-top: 34px;">
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-label">${locale === 'bn' ? 'সদস্যের স্বাক্ষর' : 'Member Signature'}</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
+            <div class="signature-name">Hasnahena Cooperative</div>
+          </div>
+        </div>
+
+        ${getFooter(`CERT-${data.memberId}-${Date.now()}`, locale)}
       </div>
     </body>
     </html>

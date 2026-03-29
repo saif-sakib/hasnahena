@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLocale } from 'next-intl';
 import { useRouter, useParams } from 'next/navigation';
-import Link from 'next/link';
 import {
   ArrowLeft,
   User,
@@ -17,16 +16,12 @@ import {
   History,
   Plus,
   Minus,
-  FileText,
   CheckCircle2,
-  Clock,
   AlertCircle,
   Hash,
-  Building,
   Receipt,
   TrendingUp,
   Users,
-  Download,
   Printer,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -147,6 +142,14 @@ export default function MemberDetailPage() {
   const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
   const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
+  const parseAmountToPaisa = (value: string): number | null => {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+    return Math.round(parsed * 100);
+  };
+
   const loadMemberDetails = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -174,7 +177,8 @@ export default function MemberDetailPage() {
   }, [memberId, loadMemberDetails]);
 
   const handleDeposit = async () => {
-    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+    const amountPaisa = parseAmountToPaisa(depositAmount);
+    if (!amountPaisa) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
@@ -183,7 +187,7 @@ export default function MemberDetailPage() {
     setActionError(null);
     try {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/deposit`, {
-        amount: Math.round(parseFloat(depositAmount) * 100), // Convert to paisa
+        amount: amountPaisa,
         notes: depositNotes,
       });
       setActionSuccess(locale === 'bn' ? 'জমা সফল হয়েছে' : 'Deposit successful');
@@ -199,13 +203,13 @@ export default function MemberDetailPage() {
   };
 
   const handleWithdrawal = async () => {
-    if (!withdrawalAmount || parseFloat(withdrawalAmount) <= 0) {
+    const amountPaisa = parseAmountToPaisa(withdrawalAmount);
+    if (!amountPaisa) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
 
-    const amountPaisa = Math.round(parseFloat(withdrawalAmount) * 100);
-    if (member && amountPaisa > member.currentDeposit) {
+    if (member && amountPaisa > member.currentDeposit * 100) {
       setActionError(locale === 'bn' ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient balance');
       return;
     }
@@ -230,7 +234,8 @@ export default function MemberDetailPage() {
   };
 
   const handleLoanApplication = async () => {
-    if (!loanAmount || parseFloat(loanAmount) <= 0) {
+    const amountPaisa = parseAmountToPaisa(loanAmount);
+    if (!amountPaisa) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
@@ -240,7 +245,6 @@ export default function MemberDetailPage() {
       return;
     }
 
-    const amountPaisa = Math.round(parseFloat(loanAmount) * 100);
     if (member && amountPaisa > member.loanEligibility.maxLoanAmount * 100) {
       setActionError(locale === 'bn' ? 'সর্বোচ্চ ঋণ সীমা অতিক্রম করেছে' : 'Exceeds maximum loan limit');
       return;
@@ -252,7 +256,7 @@ export default function MemberDetailPage() {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/loan`, {
         amount: amountPaisa,
         purpose: loanPurpose,
-        installments: parseInt(loanInstallments),
+        installments: Number.parseInt(loanInstallments, 10),
       });
       setActionSuccess(locale === 'bn' ? 'ঋণ আবেদন সফল হয়েছে' : 'Loan application submitted');
       setShowLoanModal(false);
@@ -270,19 +274,19 @@ export default function MemberDetailPage() {
   // Handle loan payment
   const handleLoanPayment = async () => {
     if (!selectedLoanForPayment) return;
-    
-    if (!loanPaymentAmount || parseFloat(loanPaymentAmount) <= 0) {
+
+    const amountPaisa = parseAmountToPaisa(loanPaymentAmount);
+    if (!amountPaisa) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
 
-    const amountPaisa = Math.round(parseFloat(loanPaymentAmount) * 100);
-    const maxPayment = selectedLoanForPayment.remainingAmount;
-    
-    if (amountPaisa > maxPayment) {
-      setActionError(locale === 'bn' 
-        ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(maxPayment / 100, locale)}` 
-        : `Maximum payable: ${formatCurrency(maxPayment / 100, locale)}`);
+    const maxPaymentPaisa = Math.round(selectedLoanForPayment.remainingAmount * 100);
+
+    if (amountPaisa > maxPaymentPaisa) {
+      setActionError(locale === 'bn'
+        ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
+        : `Maximum payable: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`);
       return;
     }
 
@@ -322,12 +326,12 @@ export default function MemberDetailPage() {
     const receiptData: ReceiptData = {
       receiptNumber: tx.receiptNumber,
       type: tx.type,
-      amount: tx.amount,
+      amount: tx.amount * 100,
       date: tx.createdAt,
       memberName: member.name,
       memberId: member.uid,
       memberPhone: member.phone,
-      balanceAfter: tx.balanceAfter,
+      balanceAfter: tx.balanceAfter * 100,
       notes: tx.notes,
     };
     
@@ -344,9 +348,9 @@ export default function MemberDetailPage() {
       memberId: member.uid,
       memberPhone: member.phone,
       memberAddress: member.address,
-      principalAmount: loan.principalAmount,
+      principalAmount: loan.principalAmount * 100,
       totalInstallments: loan.totalInstallments,
-      installmentAmount: loan.installmentAmount,
+      installmentAmount: loan.installmentAmount * 100,
       disbursementDate: loan.disbursementDate,
     };
     
@@ -363,15 +367,15 @@ export default function MemberDetailPage() {
       memberPhone: member.phone,
       periodStart: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString(),
       periodEnd: new Date().toISOString(),
-      openingBalance: member.currentDeposit - member.totalDeposited + member.totalWithdrawn,
-      closingBalance: member.currentDeposit,
-      totalDeposits: member.totalDeposited,
-      totalWithdrawals: member.totalWithdrawn,
+      openingBalance: Math.round((member.currentDeposit - member.totalDeposited + member.totalWithdrawn) * 100),
+      closingBalance: Math.round(member.currentDeposit * 100),
+      totalDeposits: Math.round(member.totalDeposited * 100),
+      totalWithdrawals: Math.round(member.totalWithdrawn * 100),
       transactions: transactions.map(tx => ({
         date: tx.createdAt,
         type: tx.type,
-        amount: tx.amount,
-        balance: tx.balanceAfter,
+        amount: Math.round(tx.amount * 100),
+        balance: Math.round(tx.balanceAfter * 100),
         description: tx.notes,
         receiptNumber: tx.receiptNumber,
       })),
@@ -880,7 +884,7 @@ export default function MemberDetailPage() {
               <Input
                 type="number"
                 min="1"
-                max={member.currentDeposit / 100}
+                max={member.currentDeposit}
                 step="0.01"
                 placeholder="0.00"
                 value={withdrawalAmount}
@@ -1018,7 +1022,7 @@ export default function MemberDetailPage() {
               <Input
                 type="number"
                 min="1"
-                max={selectedLoanForPayment ? selectedLoanForPayment.remainingAmount / 100 : undefined}
+                max={selectedLoanForPayment ? selectedLoanForPayment.remainingAmount : undefined}
                 step="0.01"
                 placeholder="0.00"
                 value={loanPaymentAmount}
@@ -1030,7 +1034,7 @@ export default function MemberDetailPage() {
                     type="button" 
                     variant="outline" 
                     size="sm"
-                    onClick={() => setLoanPaymentAmount((selectedLoanForPayment.installmentAmount / 100).toString())}
+                    onClick={() => setLoanPaymentAmount(selectedLoanForPayment.installmentAmount.toString())}
                   >
                     {locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly'}
                   </Button>
@@ -1038,7 +1042,7 @@ export default function MemberDetailPage() {
                     type="button" 
                     variant="outline" 
                     size="sm"
-                    onClick={() => setLoanPaymentAmount((selectedLoanForPayment.remainingAmount / 100).toString())}
+                    onClick={() => setLoanPaymentAmount(selectedLoanForPayment.remainingAmount.toString())}
                   >
                     {locale === 'bn' ? 'সম্পূর্ণ বাকি' : 'Full Balance'}
                   </Button>
