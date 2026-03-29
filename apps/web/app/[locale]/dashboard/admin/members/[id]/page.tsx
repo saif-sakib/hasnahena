@@ -26,6 +26,8 @@ import {
   Receipt,
   TrendingUp,
   Users,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,6 +58,15 @@ import {
 } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import {
+  generateReceiptHTML,
+  generateLoanDocumentHTML,
+  generateStatementHTML,
+  openPrintWindow,
+  type ReceiptData,
+  type LoanDocumentData,
+  type StatementData,
+} from '@/lib/documents/receipt-generator';
 
 interface MemberDetails {
   id: string;
@@ -250,6 +261,71 @@ export default function MemberDetailPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePrintReceipt = (tx: Transaction) => {
+    if (!member) return;
+    
+    const receiptData: ReceiptData = {
+      receiptNumber: tx.receiptNumber,
+      type: tx.type,
+      amount: tx.amount,
+      date: tx.createdAt,
+      memberName: member.name,
+      memberId: member.uid,
+      memberPhone: member.phone,
+      balanceAfter: tx.balanceAfter,
+      notes: tx.notes,
+    };
+    
+    const html = generateReceiptHTML(receiptData, locale);
+    openPrintWindow(html, `Receipt-${tx.receiptNumber}`);
+  };
+
+  const handlePrintLoanDocument = (loan: Loan) => {
+    if (!member) return;
+    
+    const loanData: LoanDocumentData = {
+      loanNumber: loan.loanNumber,
+      memberName: member.name,
+      memberId: member.uid,
+      memberPhone: member.phone,
+      memberAddress: member.address,
+      principalAmount: loan.principalAmount,
+      totalInstallments: loan.totalInstallments,
+      installmentAmount: loan.installmentAmount,
+      disbursementDate: loan.disbursementDate,
+    };
+    
+    const html = generateLoanDocumentHTML(loanData, locale);
+    openPrintWindow(html, `Loan-${loan.loanNumber}`);
+  };
+
+  const handlePrintStatement = () => {
+    if (!member) return;
+    
+    const statementData: StatementData = {
+      memberName: member.name,
+      memberId: member.uid,
+      memberPhone: member.phone,
+      periodStart: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString(),
+      periodEnd: new Date().toISOString(),
+      openingBalance: member.currentDeposit - member.totalDeposited + member.totalWithdrawn,
+      closingBalance: member.currentDeposit,
+      totalDeposits: member.totalDeposited,
+      totalWithdrawals: member.totalWithdrawn,
+      transactions: transactions.map(tx => ({
+        date: tx.createdAt,
+        type: tx.type,
+        amount: tx.amount,
+        balance: tx.balanceAfter,
+        description: tx.notes,
+        receiptNumber: tx.receiptNumber,
+      })),
+    };
+    
+    const html = generateStatementHTML(statementData, locale);
+    openPrintWindow(html, `Statement-${member.uid}`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -571,35 +647,48 @@ export default function MemberDetailPage() {
                   <p>{locale === 'bn' ? 'কোনো লেনদেন নেই' : 'No transactions found'}</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {transactions.map((tx) => (
-                    <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-50">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${tx.type === 'DEPOSIT' ? 'bg-green-100' : 'bg-orange-100'}`}>
-                          {tx.type === 'DEPOSIT' ? (
-                            <Plus className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <Minus className="h-4 w-4 text-orange-600" />
-                          )}
+                <>
+                  <div className="flex justify-end mb-4">
+                    <Button variant="outline" size="sm" onClick={handlePrintStatement}>
+                      <Printer className="h-4 w-4 mr-2" />
+                      {locale === 'bn' ? 'স্টেটমেন্ট প্রিন্ট' : 'Print Statement'}
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${tx.type === 'DEPOSIT' ? 'bg-green-100' : 'bg-orange-100'}`}>
+                            {tx.type === 'DEPOSIT' ? (
+                              <Plus className="h-4 w-4 text-green-600" />
+                            ) : (
+                              <Minus className="h-4 w-4 text-orange-600" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {tx.type === 'DEPOSIT' 
+                                ? (locale === 'bn' ? 'জমা' : 'Deposit')
+                                : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal')}
+                            </p>
+                            <p className="text-sm text-muted-foreground">{tx.receiptNumber} • {formatDate(tx.createdAt)}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">
-                            {tx.type === 'DEPOSIT' 
-                              ? (locale === 'bn' ? 'জমা' : 'Deposit')
-                              : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal')}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{tx.receiptNumber} • {formatDate(tx.createdAt)}</p>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className={`font-semibold ${tx.type === 'DEPOSIT' ? 'text-green-600' : 'text-orange-600'}`}>
+                              {tx.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(tx.amount, locale)}
+                            </p>
+                            {getStatusBadge(tx.status)}
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={() => handlePrintReceipt(tx)} title={locale === 'bn' ? 'রশিদ প্রিন্ট' : 'Print Receipt'}>
+                            <Printer className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className={`font-semibold ${tx.type === 'DEPOSIT' ? 'text-green-600' : 'text-orange-600'}`}>
-                          {tx.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(tx.amount, locale)}
-                        </p>
-                        {getStatusBadge(tx.status)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -625,7 +714,12 @@ export default function MemberDetailPage() {
                     <div key={loan.id} className="p-4 rounded-xl bg-slate-50">
                       <div className="flex items-center justify-between mb-2">
                         <p className="font-semibold">{loan.loanNumber}</p>
-                        <Badge variant="outline">{loan.status}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{loan.status}</Badge>
+                          <Button variant="ghost" size="icon" onClick={() => handlePrintLoanDocument(loan)} title={locale === 'bn' ? 'ঋণ দলিল প্রিন্ট' : 'Print Loan Document'}>
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                         <div>
