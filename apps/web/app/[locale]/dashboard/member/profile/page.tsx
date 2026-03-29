@@ -8,7 +8,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar,
   CreditCard,
   UserCheck,
   Edit2,
@@ -19,10 +18,9 @@ import {
   FileText,
   Download,
   AlertCircle,
-  ChevronRight,
   Lock,
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +29,11 @@ import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
 import { getValidatedClientToken } from '@/lib/client-auth';
+import {
+  downloadAsHTML,
+  generateMembershipCertificateHTML,
+  generateStatementHTML,
+} from '@/lib/documents/receipt-generator';
 
 interface UserProfile {
   memberId: string;
@@ -69,6 +72,15 @@ interface Nominee {
   relationship: string;
   nidNumber: string;
   phone?: string;
+}
+
+interface MemberTransaction {
+  type: string;
+  amount: number;
+  date: string;
+  balanceAfter: number;
+  description?: string;
+  receiptNumber?: string;
 }
 
 export default function ProfilePage() {
@@ -122,6 +134,7 @@ export default function ProfilePage() {
     isGuarantor: false,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloadingDocument, setIsDownloadingDocument] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -198,7 +211,10 @@ export default function ProfilePage() {
 
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -206,7 +222,10 @@ export default function ProfilePage() {
   };
 
   const formatAddress = (addr: UserProfile['permanentAddress']) => {
-    return `${addr.houseNo}, ${addr.village}, ${addr.union}, ${addr.policeStation}, ${addr.district}`;
+    return [addr.houseNo, addr.village, addr.union, addr.policeStation, addr.district]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(', ');
   };
 
   const handleSaveNominee = () => {
@@ -221,8 +240,96 @@ export default function ProfilePage() {
     setIsEditingNominee(false);
   };
 
+  const handleDownloadStatement = async () => {
+    setIsDownloadingDocument(true);
+    setActionError(null);
+    try {
+      const transactions = await apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions');
+      const statementTransactions = (transactions ?? [])
+        .filter((tx) => tx.type === 'DEPOSIT' || tx.type === 'WITHDRAWAL')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      const first = statementTransactions[0];
+      const openingBalanceBdt = first
+        ? (first.type === 'DEPOSIT' ? first.balanceAfter - first.amount : first.balanceAfter + first.amount)
+        : accountSummary.currentBalance;
+
+      const totalDepositsBdt = statementTransactions
+        .filter((tx) => tx.type === 'DEPOSIT')
+        .reduce((sum, tx) => sum + tx.amount, 0);
+
+      const totalWithdrawalsBdt = statementTransactions
+        .filter((tx) => tx.type === 'WITHDRAWAL')
+        .reduce((sum, tx) => sum + tx.amount, 0);
+
+      const now = new Date().toISOString();
+      const html = generateStatementHTML(
+        {
+          memberName: locale === 'bn' ? (profile.nameBn || profile.nameEn) : (profile.nameEn || profile.nameBn),
+          memberId: profile.memberId || 'N/A',
+          memberPhone: profile.phone || 'N/A',
+          periodStart: statementTransactions[0]?.date || now,
+          periodEnd: statementTransactions[statementTransactions.length - 1]?.date || now,
+          openingBalance: Math.round(openingBalanceBdt * 100),
+          closingBalance: Math.round(accountSummary.currentBalance * 100),
+          totalDeposits: Math.round(totalDepositsBdt * 100),
+          totalWithdrawals: Math.round(totalWithdrawalsBdt * 100),
+          transactions: statementTransactions.map((tx) => ({
+            date: tx.date,
+            type: tx.type,
+            amount: Math.round(tx.amount * 100),
+            balance: Math.round(tx.balanceAfter * 100),
+            description: tx.description,
+            receiptNumber: tx.receiptNumber,
+          })),
+        },
+        locale,
+      );
+
+      downloadAsHTML(html, `statement-${profile.memberId || 'member'}`);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to generate statement');
+    } finally {
+      setIsDownloadingDocument(false);
+    }
+  };
+
+  const handleDownloadCertificate = () => {
+    setActionError(null);
+    try {
+      const html = generateMembershipCertificateHTML(
+        {
+          memberName: locale === 'bn' ? (profile.nameBn || profile.nameEn) : (profile.nameEn || profile.nameBn),
+          memberId: profile.memberId || 'N/A',
+          accountNumber: profile.accountNumber || undefined,
+          memberSince: profile.memberSince || new Date().toISOString(),
+          phone: profile.phone || undefined,
+          address: formatAddress(profile.permanentAddress),
+        },
+        locale,
+      );
+      downloadAsHTML(html, `membership-certificate-${profile.memberId || 'member'}`);
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Failed to generate certificate');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-muted-foreground">{locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {actionError}
+        </div>
+      )}
+
       {/* Profile Header */}
       <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-8">
@@ -505,11 +612,21 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
-            <Button variant="outline" className="gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleDownloadStatement}
+              disabled={isDownloadingDocument}
+            >
               <Download className="h-4 w-4" />
               {t('downloadStatement')}
             </Button>
-            <Button variant="outline" className="gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleDownloadCertificate}
+              disabled={isDownloadingDocument}
+            >
               <Download className="h-4 w-4" />
               {locale === 'bn' ? 'সদস্যপদ সার্টিফিকেট' : 'Membership Certificate'}
             </Button>

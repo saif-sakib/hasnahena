@@ -28,7 +28,7 @@ func Load() Config {
 	loadEnvironment()
 
 	return Config{
-		Port:                getEnv("API_PORT", getEnv("PORT", "8080")),
+		Port:                getEnv("API_PORT", getEnv("PORT", "8081")),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
 		JWTSecret:           getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),

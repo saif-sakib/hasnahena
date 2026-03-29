@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -143,6 +145,9 @@ func main() {
 	addr := ":" + config.Port
 	log.Printf("API server running on %s", addr)
 	if err := http.ListenAndServe(addr, r); err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			log.Fatalf("port %s is already in use; set API_PORT to a free port or stop the process using it", config.Port)
+		}
 		log.Fatal(err)
 	}
 }
