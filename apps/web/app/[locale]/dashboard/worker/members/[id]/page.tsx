@@ -132,6 +132,8 @@ export default function MemberDetailPage() {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
   const [showLoanModal, setShowLoanModal] = useState(false);
+  const [showLoanPaymentModal, setShowLoanPaymentModal] = useState(false);
+  const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<Loan | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
@@ -142,6 +144,8 @@ export default function MemberDetailPage() {
   const [loanAmount, setLoanAmount] = useState('');
   const [loanPurpose, setLoanPurpose] = useState('');
   const [loanInstallments, setLoanInstallments] = useState('12');
+  const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
+  const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
   const loadMemberDetails = useCallback(async () => {
     setIsLoading(true);
@@ -237,7 +241,7 @@ export default function MemberDetailPage() {
     }
 
     const amountPaisa = Math.round(parseFloat(loanAmount) * 100);
-    if (member && amountPaisa > member.loanEligibility.maxLoanAmount) {
+    if (member && amountPaisa > member.loanEligibility.maxLoanAmount * 100) {
       setActionError(locale === 'bn' ? 'সর্বোচ্চ ঋণ সীমা অতিক্রম করেছে' : 'Exceeds maximum loan limit');
       return;
     }
@@ -261,6 +265,55 @@ export default function MemberDetailPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Handle loan payment
+  const handleLoanPayment = async () => {
+    if (!selectedLoanForPayment) return;
+    
+    if (!loanPaymentAmount || parseFloat(loanPaymentAmount) <= 0) {
+      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      return;
+    }
+
+    const amountPaisa = Math.round(parseFloat(loanPaymentAmount) * 100);
+    const maxPayment = selectedLoanForPayment.remainingAmount;
+    
+    if (amountPaisa > maxPayment) {
+      setActionError(locale === 'bn' 
+        ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(maxPayment / 100, locale)}` 
+        : `Maximum payable: ${formatCurrency(maxPayment / 100, locale)}`);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      await apiPost(`/v1/dashboard/worker/members/${memberId}/loan-payment`, {
+        loanId: selectedLoanForPayment.id,
+        amount: amountPaisa,
+        notes: loanPaymentNotes,
+      });
+      setActionSuccess(locale === 'bn' ? 'ঋণ পরিশোধ সফল হয়েছে' : 'Loan payment recorded successfully');
+      setShowLoanPaymentModal(false);
+      setSelectedLoanForPayment(null);
+      setLoanPaymentAmount('');
+      setLoanPaymentNotes('');
+      loadMemberDetails();
+    } catch (e: any) {
+      setActionError(e?.message || 'Failed to process loan payment');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Open loan payment modal
+  const openLoanPaymentModal = (loan: Loan) => {
+    setSelectedLoanForPayment(loan);
+    setLoanPaymentAmount('');
+    setLoanPaymentNotes('');
+    setActionError(null);
+    setShowLoanPaymentModal(true);
   };
 
   const handlePrintReceipt = (tx: Transaction) => {
@@ -716,6 +769,17 @@ export default function MemberDetailPage() {
                         <p className="font-semibold">{loan.loanNumber}</p>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{loan.status}</Badge>
+                          {loan.status === 'ACTIVE' && loan.remainingAmount > 0 && (
+                            <Button 
+                              variant="default" 
+                              size="sm" 
+                              onClick={() => openLoanPaymentModal(loan)}
+                              className="gap-1"
+                            >
+                              <Minus className="h-3 w-3" />
+                              {locale === 'bn' ? 'পরিশোধ' : 'Pay'}
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" onClick={() => handlePrintLoanDocument(loan)} title={locale === 'bn' ? 'ঋণ দলিল প্রিন্ট' : 'Print Loan Document'}>
                             <Printer className="h-4 w-4" />
                           </Button>
@@ -728,7 +792,7 @@ export default function MemberDetailPage() {
                         </div>
                         <div>
                           <p className="text-muted-foreground">{locale === 'bn' ? 'বাকি' : 'Remaining'}</p>
-                          <p className="font-medium">{formatCurrency(loan.remainingAmount, locale)}</p>
+                          <p className="font-medium text-red-600">{formatCurrency(loan.remainingAmount, locale)}</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</p>
@@ -865,7 +929,7 @@ export default function MemberDetailPage() {
               <Input
                 type="number"
                 min="1"
-                max={member.loanEligibility.maxLoanAmount / 100}
+                max={member.loanEligibility.maxLoanAmount}
                 step="0.01"
                 placeholder="0.00"
                 value={loanAmount}
@@ -901,6 +965,101 @@ export default function MemberDetailPage() {
             </Button>
             <Button onClick={handleLoanApplication} disabled={isSubmitting}>
               {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'ঋণ দিন' : 'Submit Loan')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Loan Payment Modal */}
+      <Dialog open={showLoanPaymentModal} onOpenChange={(open) => {
+        setShowLoanPaymentModal(open);
+        if (!open) {
+          setSelectedLoanForPayment(null);
+          setLoanPaymentAmount('');
+          setLoanPaymentNotes('');
+          setActionError(null);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{locale === 'bn' ? 'ঋণ পরিশোধ' : 'Record Loan Payment'}</DialogTitle>
+            <DialogDescription>
+              {selectedLoanForPayment && (
+                locale === 'bn' 
+                  ? `ঋণ নং: ${selectedLoanForPayment.loanNumber} | বাকি: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
+                  : `Loan #: ${selectedLoanForPayment.loanNumber} | Remaining: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {actionError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+                {actionError}
+              </div>
+            )}
+            
+            {selectedLoanForPayment && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground">{locale === 'bn' ? 'মাসিক কিস্তি:' : 'Monthly:'}</span>
+                    <span className="font-medium ml-1">{formatCurrency(selectedLoanForPayment.installmentAmount, locale)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">{locale === 'bn' ? 'পরিশোধিত:' : 'Paid:'}</span>
+                    <span className="font-medium ml-1">{selectedLoanForPayment.paidInstallments}/{selectedLoanForPayment.totalInstallments}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="space-y-2">
+              <Label>{locale === 'bn' ? 'পরিশোধের পরিমাণ (টাকা)' : 'Payment Amount (BDT)'}</Label>
+              <Input
+                type="number"
+                min="1"
+                max={selectedLoanForPayment ? selectedLoanForPayment.remainingAmount / 100 : undefined}
+                step="0.01"
+                placeholder="0.00"
+                value={loanPaymentAmount}
+                onChange={(e) => setLoanPaymentAmount(e.target.value)}
+              />
+              {selectedLoanForPayment && (
+                <div className="flex gap-2 mt-1">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setLoanPaymentAmount((selectedLoanForPayment.installmentAmount / 100).toString())}
+                  >
+                    {locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly'}
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setLoanPaymentAmount((selectedLoanForPayment.remainingAmount / 100).toString())}
+                  >
+                    {locale === 'bn' ? 'সম্পূর্ণ বাকি' : 'Full Balance'}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
+              <Textarea
+                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional notes...'}
+                value={loanPaymentNotes}
+                onChange={(e) => setLoanPaymentNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLoanPaymentModal(false)}>
+              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+            </Button>
+            <Button onClick={handleLoanPayment} disabled={isSubmitting}>
+              {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'পরিশোধ করুন' : 'Record Payment')}
             </Button>
           </DialogFooter>
         </DialogContent>

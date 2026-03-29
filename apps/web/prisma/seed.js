@@ -32,18 +32,18 @@ async function seedSystemConfig() {
     // Currency & Financial
     { key: 'currency', value: 'BDT', description: 'Default currency code' },
     { key: 'loan_multiplier', value: '5', description: 'Maximum loan multiplier based on savings' },
-    { key: 'min_savings_for_loan', value: '5000', description: 'Minimum savings required for loan eligibility (in BDT)' },
+    { key: 'min_savings_for_loan', value: '800', description: 'Minimum savings required for loan eligibility (in BDT)' },
     { key: 'loan_application_fee', value: '100', description: 'Loan application fee (in BDT)' },
     { key: 'max_loan_term_months', value: '24', description: 'Maximum loan term in months' },
 
     // Organization Info
-    { key: 'org.name', value: 'হাসনাহেনা ফাউন্ডেশন', description: 'Organization name (Bengali)' },
-    { key: 'org.nameEn', value: 'Hasnahena Foundation', description: 'Organization name (English)' },
-    { key: 'org.email', value: 'info@hasnahenafoundation.com', description: 'Organization email' },
+    { key: 'org.name', value: 'হাসনাহেনা সমিতি লিমিটেড', description: 'Organization name (Bengali)' },
+    { key: 'org.nameEn', value: 'Hasnahena Samiti Limited', description: 'Organization name (English)' },
+    { key: 'org.email', value: 'info@hasnahenasamiti.com', description: 'Organization email' },
     { key: 'org.phone', value: '+880 1700-000000', description: 'Organization phone' },
-    { key: 'org.address', value: 'ঢাকা, বাংলাদেশ', description: 'Organization address' },
-    { key: 'org.website', value: 'https://hasnahenafoundation.com', description: 'Organization website' },
-    { key: 'org.description', value: 'একটি অলাভজনক সামাজিক কল্যাণ সংগঠন যা আর্থিক সেবা প্রদান করে।', description: 'Organization description' },
+    { key: 'org.address', value: 'যশোর, বাংলাদেশ', description: 'Organization address' },
+    { key: 'org.website', value: 'https://hasnahenasamiti.com', description: 'Organization website' },
+    { key: 'org.description', value: 'একটি অলাভজনক সামাজিক কল্যাণ সংগঠন যা সুদমুক্ত ক্ষুদ্রঋণ ও আর্থিক সেবা প্রদান করে।', description: 'Organization description' },
 
     // Landing Page - Hero Section
     { key: 'hero.titleBn', value: 'স্বপ্ন পূরণে আপনার পাশে', description: 'Hero title (Bengali)' },
@@ -714,7 +714,7 @@ async function seedAuditLogs() {
 
   const auditLogs = [
     { action: 'USER_LOGIN', entityType: 'User', entityId: 'seed-admin-001', userId: 'seed-admin-001', createdAt: daysAgo(1) },
-    { action: 'SETTINGS_UPDATE', entityType: 'SystemConfig', entityId: 'org.name', oldValue: { value: 'Old Name' }, newValue: { value: 'হাসনাহেনা ফাউন্ডেশন' }, userId: 'seed-admin-001', createdAt: daysAgo(5) },
+    { action: 'SETTINGS_UPDATE', entityType: 'SystemConfig', entityId: 'org.name', oldValue: { value: 'Old Name' }, newValue: { value: 'হাসনাহেনা সমিতি লিমিটেড' }, userId: 'seed-admin-001', createdAt: daysAgo(5) },
     { action: 'USER_APPROVED', entityType: 'User', entityId: 'seed-member-001', oldValue: { status: 'PENDING' }, newValue: { status: 'ACTIVE' }, userId: 'seed-admin-001', createdAt: daysAgo(280) },
     { action: 'LOAN_APPROVED', entityType: 'Loan', entityId: 'loan-001', oldValue: { status: 'PENDING_APPROVAL' }, newValue: { status: 'ACTIVE' }, userId: 'seed-admin-001', createdAt: daysAgo(62) },
     { action: 'DEPOSIT_PROCESSED', entityType: 'Transaction', entityId: 'txn-001', newValue: { amount: 1000000, status: 'CONFIRMED' }, userId: 'seed-staff-001', createdAt: daysAgo(30) },
@@ -740,7 +740,7 @@ async function seedAuditLogs() {
 async function main() {
   console.log('');
   console.log('========================================');
-  console.log('  Hasnahena Foundation - Database Seed');
+  console.log('  Hasnahena Samiti Limited - Database Seed');
   console.log('========================================');
   console.log('');
 

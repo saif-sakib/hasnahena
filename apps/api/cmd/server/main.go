@@ -93,6 +93,7 @@ func main() {
 			dashboard.Post("/worker/members/{memberId}/deposit", dashboardHandler.WorkerAddDeposit)
 			dashboard.Post("/worker/members/{memberId}/withdrawal", dashboardHandler.WorkerAddWithdrawal)
 			dashboard.Post("/worker/members/{memberId}/loan", dashboardHandler.WorkerAddLoan)
+			dashboard.Post("/worker/members/{memberId}/loan-payment", dashboardHandler.WorkerAddLoanPayment)
 			dashboard.Get("/worker/requests", dashboardHandler.WorkerRequests)
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)

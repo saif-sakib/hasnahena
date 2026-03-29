@@ -3102,15 +3102,15 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		"nidNumber":                nid,
 		"status":                   strings.ToUpper(status),
 		"joinDate":                 createdAt.Format(time.RFC3339),
-		"currentDeposit":           savingsBalance,
-		"activeLoan":               activeLoan,
-		"totalDeposited":           totalDeposited,
-		"totalWithdrawn":           totalWithdrawn,
+		"currentDeposit":           savingsBalance / 100,
+		"activeLoan":               activeLoan / 100,
+		"totalDeposited":           totalDeposited / 100,
+		"totalWithdrawn":           totalWithdrawn / 100,
 		"address":                  strings.TrimSuffix(strings.TrimPrefix(address, ", "), ", "),
 		"isGuarantorForActiveLoan": isGuarantor,
 		"loanEligibility": map[string]interface{}{
 			"eligible":      eligible,
-			"maxLoanAmount": maxLoanAmount,
+			"maxLoanAmount": maxLoanAmount / 100,
 			"reason":        eligibilityReason,
 		},
 	}
@@ -3346,19 +3346,20 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 // CreateMemberLoan creates a loan for a member (worker action)
 func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
 	// Verify member exists and is active
-	var status string
+	var status, accountID string
 	var currentBalance, activeLoan int64
 	err := r.db.QueryRow(ctx, `
 		SELECT 
 			u.status::text, 
+			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.id = $1 AND u.role = 'MEMBER'
-	`, memberID).Scan(&status, &currentBalance, &activeLoan)
+		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan)
 	if err != nil {
-		return "", errors.New("member not found")
+		return "", fmt.Errorf("member not found: %w", err)
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
 		return "", errors.New("member not active")
@@ -3387,18 +3388,133 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	// Create loan record (pending approval)
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO loans (
-			id, "loanNumber", "borrowerId", "principalAmount", "remainingAmount",
+			id, "loanNumber", "accountId", "borrowerId", "principalAmount", "remainingAmount",
 			"totalInstallments", "paidInstallments", "installmentAmount",
-			purpose, status, "createdAt", "createdBy"
+			purpose, status, "createdAt", "updatedAt"
 		) VALUES (
-			gen_random_uuid()::text, $1, $2, $3, $4,
-			$5, 0, $6,
-			$7, 'PENDING_APPROVAL', NOW(), $8
+			gen_random_uuid()::text, $1, $2, $3, $4, $5,
+			$6, 0, $7,
+			$8, 'PENDING_APPROVAL', NOW(), NOW()
 		)
-	`, loanNumber, memberID, amount, amount, installments, installmentAmount, purpose, workerID)
+	`, loanNumber, accountID, memberID, amount, amount, installments, installmentAmount, purpose)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create loan: %w", err)
 	}
 
 	return loanNumber, nil
+}
+
+// AddMemberLoanPayment records a loan payment for a member
+func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, processedByID, loanID string, amount int64, notes string) (string, error) {
+	// Verify member exists and is active
+	var userId, accountId string
+	var status string
+	err := r.db.QueryRow(ctx, `
+		SELECT u.id, u.status::text, a.id
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+	`, memberID).Scan(&userId, &status, &accountId)
+	if err != nil {
+		return "", fmt.Errorf("member not found")
+	}
+	if status != "ACTIVE" {
+		return "", fmt.Errorf("member account not active")
+	}
+
+	// Verify loan exists, is active, and belongs to this member
+	var loanId string
+	var remainingAmount int64
+	var loanStatus string
+	err = r.db.QueryRow(ctx, `
+		SELECT id, "remainingAmount", status::text
+		FROM loans
+		WHERE id = $1 AND "borrowerId" = $2
+	`, loanID, memberID).Scan(&loanId, &remainingAmount, &loanStatus)
+	if err != nil {
+		return "", fmt.Errorf("loan not found")
+	}
+	if loanStatus != "ACTIVE" {
+		return "", fmt.Errorf("loan is not active")
+	}
+	if amount > remainingAmount {
+		return "", fmt.Errorf("payment amount exceeds remaining balance")
+	}
+
+	// Generate receipt number
+	receiptNumber := fmt.Sprintf("LRP-%s-%s", time.Now().Format("20060102150405"), memberID[:4])
+
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Update loan remaining amount and paid installments
+	newRemaining := remainingAmount - amount
+	var loanUpdateStatus string
+	if newRemaining <= 0 {
+		loanUpdateStatus = "COMPLETED"
+	} else {
+		loanUpdateStatus = "ACTIVE"
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE loans
+		SET "remainingAmount" = $1,
+			"paidInstallments" = "paidInstallments" + 1,
+			status = $2::loan_status,
+			"completedAt" = CASE WHEN $2 = 'COMPLETED' THEN NOW() ELSE "completedAt" END,
+			"updatedAt" = NOW()
+		WHERE id = $3
+	`, newRemaining, loanUpdateStatus, loanID)
+	if err != nil {
+		return "", fmt.Errorf("failed to update loan: %w", err)
+	}
+
+	// Update account loan balance
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" - $1,
+			"updatedAt" = NOW()
+		WHERE id = $2
+	`, amount, accountId)
+	if err != nil {
+		return "", fmt.Errorf("failed to update account balance: %w", err)
+	}
+
+	// Get new loan balance after payment
+	var newLoanBalance int64
+	err = tx.QueryRow(ctx, `SELECT "loanBalance" FROM accounts WHERE id = $1`, accountId).Scan(&newLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch new balance: %w", err)
+	}
+
+	// Create transaction record
+	description := "Loan repayment"
+	if notes != "" {
+		description = notes
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "loanId", "processedBy",
+			"loanAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'LOAN_REPAYMENT', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7,
+			$8, NOW(), NOW(), NOW()
+		)
+	`, amount, receiptNumber, description, accountId, memberID, loanID, processedByID, newLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return receiptNumber, nil
 }
