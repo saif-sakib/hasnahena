@@ -7,11 +7,12 @@ import { requireAuth } from '@/lib/auth';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { generateStaffWelcomeEmail, sendEmail } from '@/lib/email';
+import { createAuditLog } from '@/lib/audit';
 
 const createStaffSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().min(11).max(14),
+  phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
   role: z.enum(['WORKER', 'ADMIN']),
   assignedArea: z.string().optional(),
   locale: z.enum(['en', 'bn']).optional().default('en'),
@@ -20,7 +21,7 @@ const createStaffSchema = z.object({
 const updateStaffSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(2),
-  phone: z.string().min(11).max(14),
+  phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
   role: z.enum(['WORKER', 'ADMIN']),
   assignedArea: z.string().optional(),
 });
@@ -124,6 +125,16 @@ export async function POST(req: Request) {
       },
     });
 
+    // Audit log for worker creation
+    await createAuditLog({
+      action: 'WORKER_CREATED',
+      entityType: 'USER',
+      entityId: created.id,
+      userId: auth.id,
+      newValue: { name: created.nameEn, role: created.role, email: created.email },
+      details: `Created ${role} account for ${created.nameEn}`,
+    });
+
     return NextResponse.json({
       ok: true,
       data: {
@@ -161,6 +172,12 @@ export async function PUT(req: Request) {
     const { id, name, phone, role, assignedArea } = parsed.data;
     const normalizedPhone = phone.trim();
 
+    // Get old values for audit
+    const oldUser = await prisma.user.findUnique({
+      where: { id },
+      select: { nameEn: true, phone: true, role: true, assignedBranch: true },
+    });
+
     const existingPhone = await prisma.user.findFirst({
       where: {
         phone: normalizedPhone,
@@ -191,6 +208,17 @@ export async function PUT(req: Request) {
         createdAt: true,
         assignedBranch: true,
       },
+    });
+
+    // Audit log for worker update
+    await createAuditLog({
+      action: 'WORKER_UPDATED',
+      entityType: 'USER',
+      entityId: updated.id,
+      userId: auth.id,
+      oldValue: oldUser || undefined,
+      newValue: { name: updated.nameEn, role: updated.role, phone: updated.phone },
+      details: `Updated ${role} account for ${updated.nameEn}`,
     });
 
     return NextResponse.json({

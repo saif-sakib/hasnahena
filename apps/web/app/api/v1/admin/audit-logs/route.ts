@@ -48,11 +48,11 @@ export async function GET(req: Request) {
     ]);
 
     // Get user names for display
-    const userIds = [...new Set(logs.map(log => log.userId))];
-    const users = await prisma.user.findMany({
+    const userIds = [...new Set(logs.map(log => log.userId).filter((id): id is string => id !== null))];
+    const users = userIds.length > 0 ? await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, nameEn: true, nameBn: true, role: true },
-    });
+    }) : [];
 
     const userMap = new Map(users.map(u => [u.id, u]));
 
@@ -61,12 +61,12 @@ export async function GET(req: Request) {
       action: log.action,
       entityType: log.entityType,
       entityId: log.entityId,
-      user: userMap.get(log.userId) || { id: log.userId, nameEn: 'Unknown', nameBn: null, role: null },
+      user: log.userId ? userMap.get(log.userId) || { id: log.userId, nameEn: 'Unknown', nameBn: null, role: null } : null,
       oldValue: log.oldValue,
       newValue: log.newValue,
       userIp: log.userIp,
       createdAt: log.createdAt.toISOString(),
-      actorName: userMap.get(log.userId)?.nameBn || userMap.get(log.userId)?.nameEn || log.userId,
+      actorName: log.userId ? (userMap.get(log.userId)?.nameBn || userMap.get(log.userId)?.nameEn || log.userId) : 'System',
     }));
 
     return NextResponse.json({

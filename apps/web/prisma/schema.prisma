@@ -344,8 +344,9 @@ model AuditLog {
   entityId    String
   oldValue    Json?
   newValue    Json?
+  details     String?  // Additional details/notes
 
-  userId      String
+  userId      String?  @map("performedBy") // Who performed the action
   userIp      String?
   userAgent   String?
 
@@ -430,4 +431,32 @@ model PasswordResetToken {
   @@index([email])
   @@index([phone])
   @@map("password_reset_tokens")
+}
+
+// ============================================================
+// SECURITY: TOKEN BLACKLIST & RATE LIMITING
+// ============================================================
+
+model TokenBlacklist {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique // SHA-256 hash of JWT (not the full token)
+  userId      String
+  reason      String   @default("logout") // logout, password_change, admin_revoke
+  expiresAt   DateTime // Same as JWT exp - for cleanup
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("token_blacklist")
+}
+
+model RateLimit {
+  id          String   @id // Format: "action:identifier" e.g., "login:user@example.com"
+  attempts    Int      @default(1)
+  lockedUntil DateTime?
+  expiresAt   DateTime // For cleanup - TTL based
+  updatedAt   DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("rate_limits")
 }
