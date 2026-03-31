@@ -14,8 +14,9 @@ import (
 )
 
 type DashboardHandler struct {
-	authService *services.AuthService
-	userRepo    *repositories.UserRepository
+	authService     *services.AuthService
+	securityService *services.SecurityService
+	userRepo        *repositories.UserRepository
 }
 
 type authContext struct {
@@ -23,10 +24,11 @@ type authContext struct {
 	Role   string
 }
 
-func NewDashboardHandler(authService *services.AuthService, userRepo *repositories.UserRepository) *DashboardHandler {
+func NewDashboardHandler(authService *services.AuthService, securityService *services.SecurityService, userRepo *repositories.UserRepository) *DashboardHandler {
 	return &DashboardHandler{
-		authService: authService,
-		userRepo:    userRepo,
+		authService:     authService,
+		securityService: securityService,
+		userRepo:        userRepo,
 	}
 }
 
@@ -577,6 +579,10 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
 		return
 	}
+	if req.Amount > utils.MaxDonationAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Donation amount exceeds maximum allowed")
+		return
+	}
 
 	receiptNumber, err := h.userRepo.RecordDonation(r.Context(), auth.UserID, req.Amount, strings.TrimSpace(req.DonorName), strings.TrimSpace(req.Notes))
 	if err != nil {
@@ -712,8 +718,25 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword and newPassword are required")
 		return
 	}
-	if len(req.NewPassword) < 6 {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "newPassword must be at least 6 characters")
+	// Enforce strong password policy
+	newPass := req.NewPassword
+	if len(newPass) < 8 {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "Password must be at least 8 characters")
+		return
+	}
+	hasUpper, hasLower, hasDigit := false, false, false
+	for _, c := range newPass {
+		switch {
+		case 'A' <= c && c <= 'Z':
+			hasUpper = true
+		case 'a' <= c && c <= 'z':
+			hasLower = true
+		case '0' <= c && c <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "Password must contain uppercase, lowercase, and numbers")
 		return
 	}
 
@@ -725,6 +748,24 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		utils.Error(w, http.StatusInternalServerError, "PASSWORD_CHANGE_FAILED", "Failed to change password")
 		return
 	}
+
+	// Invalidate all user tokens (force re-login on all devices)
+	h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change")
+
+	// Create audit log
+	userIP := r.Header.Get("X-Forwarded-For")
+	if userIP == "" {
+		userIP = r.RemoteAddr
+	}
+	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+		Action:     "PASSWORD_CHANGE",
+		EntityType: "USER",
+		EntityID:   auth.UserID,
+		UserID:     auth.UserID,
+		UserIP:     userIP,
+		UserAgent:  r.Header.Get("User-Agent"),
+		Details:    "Password changed successfully",
+	})
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
@@ -1071,6 +1112,10 @@ func (h *DashboardHandler) WorkerAddDeposit(w http.ResponseWriter, r *http.Reque
 		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
 		return
 	}
+	if req.Amount > utils.MaxDepositAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
+		return
+	}
 
 	receipt, err := h.userRepo.AddMemberDeposit(r.Context(), memberId, auth.UserID, req.Amount, req.Notes)
 	if err != nil {
@@ -1116,6 +1161,10 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 
 	if req.Amount <= 0 {
 		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxWithdrawalAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
 		return
 	}
 
@@ -1178,9 +1227,17 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
 		return
 	}
+	if req.Amount > utils.MaxLoanAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Loan amount exceeds maximum allowed")
+		return
+	}
 
 	if strings.TrimSpace(req.Purpose) == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_PURPOSE", "Purpose is required")
+		return
+	}
+	if len(req.Purpose) > utils.MaxPurposeLength {
+		utils.Error(w, http.StatusBadRequest, "INVALID_PURPOSE", "Purpose is too long")
 		return
 	}
 
@@ -1251,6 +1308,10 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 
 	if req.Amount <= 0 {
 		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxLoanPaymentAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Payment amount exceeds maximum allowed")
 		return
 	}
 

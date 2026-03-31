@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,10 +27,19 @@ func Load() Config {
 	// Load environment from .env files
 	loadEnvironment()
 
+	// Validate JWT_SECRET - critical security requirement
+	jwtSecret := getEnv("JWT_SECRET", "")
+	if jwtSecret == "" || jwtSecret == "change-this-in-production" {
+		log.Fatal("SECURITY ERROR: JWT_SECRET environment variable must be set to a secure value (minimum 32 characters)")
+	}
+	if len(jwtSecret) < 32 {
+		log.Fatal("SECURITY ERROR: JWT_SECRET must be at least 32 characters long for adequate security")
+	}
+
 	return Config{
 		Port:                getEnv("API_PORT", getEnv("PORT", "8081")),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		JWTSecret:           getEnv("JWT_SECRET", "change-this-in-production"),
+		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),

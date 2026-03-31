@@ -2,10 +2,15 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import { createAuditLog } from '@/lib/audit';
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
 });
 
 // GET - Validate token
@@ -142,6 +147,15 @@ export async function POST(req: Request) {
         data: { usedAt: new Date() },
       }),
     ]);
+
+    // Audit log for password reset
+    await createAuditLog({
+      action: 'PASSWORD_RESET',
+      entityType: 'USER',
+      entityId: user.id,
+      userId: user.id,
+      details: `Password reset via email/phone link`,
+    });
 
     console.log('[ResetPassword] Password reset for user:', user.email || user.phone);
 

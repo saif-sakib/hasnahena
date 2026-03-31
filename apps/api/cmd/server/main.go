@@ -52,9 +52,10 @@ func main() {
 	if err := userRepo.EnsureSupportSchema(context.Background()); err != nil {
 		log.Fatalf("failed to ensure support schema: %v", err)
 	}
-	authService := services.NewAuthService(userRepo, config.JWTSecret, config.JWTExpiry)
-	authHandler := handlers.NewAuthHandler(authService)
-	dashboardHandler := handlers.NewDashboardHandler(authService, userRepo)
+	securityService := services.NewSecurityService(dbPool)
+	authService := services.NewAuthService(userRepo, securityService, config.JWTSecret, config.JWTExpiry)
+	authHandler := handlers.NewAuthHandler(authService, securityService)
+	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -70,6 +71,7 @@ func main() {
 	r.Route("/v1", func(v1 chi.Router) {
 		v1.Route("/auth", func(auth chi.Router) {
 			auth.Post("/login", authHandler.Login)
+			auth.Post("/logout", authHandler.Logout)
 		})
 		v1.Route("/dashboard", func(dashboard chi.Router) {
 			dashboard.Get("/user", dashboardHandler.UserInfo)
