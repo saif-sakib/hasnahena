@@ -2,7 +2,6 @@ package config
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -181,10 +180,4 @@ func parseCSV(value string) []string {
 		}
 	}
 	return origins
-}
-
-// DebugEnvLoading prints debug info for environment loading
-func DebugEnvLoading() string {
-	wd, _ := os.Getwd()
-	return fmt.Sprintf("Working directory: %s, DATABASE_URL set: %v", wd, os.Getenv("DATABASE_URL") != "")
 }

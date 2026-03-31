@@ -1,6 +1,7 @@
 import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
 import { locales, defaultLocale } from './i18n';
+import { isJwtExpired } from './lib/utils';
 
 const intlMiddleware = createMiddleware({
   locales,
@@ -14,26 +15,9 @@ export default function middleware(request: NextRequest) {
   const dashboardPrefix = /^\/(en|bn)\/dashboard(\/|$)/;
   if (dashboardPrefix.test(pathname)) {
     const token = request.cookies.get('hn_access_token')?.value;
-    const tokenParts = token?.split('.') ?? [];
-    let isExpired = false;
-    if (tokenParts.length === 3) {
-      try {
-        const payloadSegment = tokenParts[1];
-        const base64 = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-        const payload = JSON.parse(atob(padded)) as { exp?: number };
-        if (typeof payload.exp === 'number') {
-          const now = Math.floor(Date.now() / 1000);
-          isExpired = payload.exp <= now;
-        }
-      } catch {
-        isExpired = true;
-      }
-    } else if (token) {
-      isExpired = true;
-    }
+    const isExpired = !token || isJwtExpired(token);
 
-    if (!token || isExpired) {
+    if (isExpired) {
       const locale = pathname.split('/')[1] || defaultLocale;
       const response = NextResponse.redirect(new URL(`/${locale}/login`, request.url));
       if (token) {

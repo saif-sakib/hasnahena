@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { uploadSettingsImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { revalidatePath } from 'next/cache';
 import { authorizeServerActionRoles } from '@/lib/server-auth';
+import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadSettingsImageResult {
   success: boolean;
@@ -20,6 +21,13 @@ type SettingImageType =
   | 'hero.partnerLogo1'
   | 'hero.partnerLogo2'
   | 'hero.partnerLogo3';
+
+/** Revalidate all settings-related paths */
+function revalidateSettingsPaths() {
+  revalidatePath('/');
+  revalidatePath('/[locale]');
+  revalidatePath('/[locale]/dashboard/admin/settings');
+}
 
 /**
  * Upload settings image server action
@@ -56,17 +64,16 @@ export async function uploadSettingsImageAction(
       return { success: false, error: 'No file provided' };
     }
 
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'];
-    if (!validTypes.includes(file.type)) {
-      return { success: false, error: 'Invalid file type. Only JPEG, PNG, WebP, and SVG are allowed.' };
-    }
-
-    // Validate file size (different limits for different types)
-    const maxSize = imageType.includes('favicon') ? 2 * 1024 * 1024 : 5 * 1024 * 1024; // 2MB for favicon, 5MB for others
-    if (file.size > maxSize) {
-      const maxSizeMB = maxSize / (1024 * 1024);
-      return { success: false, error: `File too large. Maximum size is ${maxSizeMB}MB.` };
+    // Validate file using shared utilities
+    const maxSizeMB = imageType.includes('favicon') 
+      ? UPLOAD_SIZE_LIMITS.favicon 
+      : UPLOAD_SIZE_LIMITS.default;
+    const validation = validateImageFile(file, {
+      acceptedTypes: UPLOAD_TYPES.settings,
+      maxSizeMB,
+    });
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
     }
 
     // Get existing setting to delete old image
@@ -103,10 +110,7 @@ export async function uploadSettingsImageAction(
       }
     }
 
-    // Revalidate pages that use these settings
-    revalidatePath('/');
-    revalidatePath('/[locale]');
-    revalidatePath('/[locale]/dashboard/admin/settings');
+    revalidateSettingsPaths();
 
     return {
       success: true,
@@ -170,10 +174,7 @@ export async function deleteSettingsImageAction(
       });
     }
 
-    // Revalidate
-    revalidatePath('/');
-    revalidatePath('/[locale]');
-    revalidatePath('/[locale]/dashboard/admin/settings');
+    revalidateSettingsPaths();
 
     return { success: true };
   } catch (error) {

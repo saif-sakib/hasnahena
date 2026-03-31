@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadAvatar, deleteOldAvatar, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { authenticateServerActionToken } from '@/lib/server-auth';
+import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadAvatarResult {
   success: boolean;
@@ -44,16 +45,13 @@ export async function uploadAvatarAction(
       return { success: false, error: 'No file provided' };
     }
 
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      return { success: false, error: 'Invalid file type. Only JPEG, PNG, and WebP are allowed.' };
-    }
-
-    // Validate file size (5MB max for avatars)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-      return { success: false, error: 'File too large. Maximum size is 5MB.' };
+    // Validate file using shared utilities
+    const validation = validateImageFile(file, {
+      acceptedTypes: UPLOAD_TYPES.avatar,
+      maxSizeMB: UPLOAD_SIZE_LIMITS.avatar,
+    });
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
     }
 
     // Get current user to delete old avatar
