@@ -1,3 +1,5 @@
+import { parseJwtPayload } from './utils';
+
 const TOKEN_KEY = 'hn_access_token';
 const FORCE_PASSWORD_CHANGE_KEY = 'hn_force_password_change';
 
@@ -5,23 +7,6 @@ type JwtPayload = {
   exp?: number;
   role?: string;
 };
-
-function decodeBase64Url(value: string): string {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
-  return atob(`${normalized}${padding}`);
-}
-
-function parseTokenPayload(token: string): JwtPayload | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3 || !parts[1]) return null;
-    const payloadRaw = decodeBase64Url(parts[1]);
-    return JSON.parse(payloadRaw) as JwtPayload;
-  } catch {
-    return null;
-  }
-}
 
 export function clearClientAuthState(options?: { dispatchEvent?: boolean }) {
   if (typeof window === 'undefined') return;
@@ -49,7 +34,7 @@ export function getValidatedClientToken(): string | null {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
 
-  const payload = parseTokenPayload(token);
+  const payload = parseJwtPayload<JwtPayload>(token);
   if (!payload || typeof payload.exp !== 'number') {
     clearClientAuthState();
     return null;
@@ -67,7 +52,7 @@ export function getValidatedClientToken(): string | null {
 export function getClientRoleFromToken(): string {
   const token = getValidatedClientToken();
   if (!token) return 'member';
-  const payload = parseTokenPayload(token);
+  const payload = parseJwtPayload<JwtPayload>(token);
   return payload?.role?.toLowerCase() || 'member';
 }
 

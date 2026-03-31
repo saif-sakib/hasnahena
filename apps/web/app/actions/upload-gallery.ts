@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { uploadGalleryImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { revalidatePath } from 'next/cache';
 import { authorizeServerActionRoles } from '@/lib/server-auth';
+import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadGalleryResult {
   success: boolean;
@@ -21,6 +22,13 @@ interface UploadGalleryResult {
 interface DeleteGalleryResult {
   success: boolean;
   error?: string;
+}
+
+/** Revalidate all gallery-related paths */
+function revalidateGalleryPaths() {
+  revalidatePath('/gallery');
+  revalidatePath('/[locale]/gallery');
+  revalidatePath('/[locale]/dashboard/admin/gallery');
 }
 
 /**
@@ -62,16 +70,13 @@ export async function uploadGalleryAction(
     const captionBn = formData.get('captionBn') as string | null;
     const dateStr = formData.get('date') as string | null;
 
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validTypes.includes(file.type)) {
-      return { success: false, error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.' };
-    }
-
-    // Validate file size (10MB max for gallery)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
-      return { success: false, error: 'File too large. Maximum size is 10MB.' };
+    // Validate file using shared utilities
+    const validation = validateImageFile(file, {
+      acceptedTypes: UPLOAD_TYPES.gallery,
+      maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+    });
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
     }
 
     // Convert file to buffer
@@ -91,10 +96,7 @@ export async function uploadGalleryAction(
       },
     });
 
-    // Revalidate gallery pages
-    revalidatePath('/gallery');
-    revalidatePath('/[locale]/gallery');
-    revalidatePath('/[locale]/dashboard/admin/gallery');
+    revalidateGalleryPaths();
 
     return {
       success: true,
@@ -165,10 +167,7 @@ export async function deleteGalleryAction(
       });
     }
 
-    // Revalidate gallery pages
-    revalidatePath('/gallery');
-    revalidatePath('/[locale]/gallery');
-    revalidatePath('/[locale]/dashboard/admin/gallery');
+    revalidateGalleryPaths();
 
     return { success: true };
   } catch (error) {
@@ -229,15 +228,13 @@ export async function updateGalleryImageAction(
     const captionBn = formData.get('captionBn') as string | null;
     const dateStr = formData.get('date') as string | null;
 
-    // Validate file
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validTypes.includes(file.type)) {
-      return { success: false, error: 'Invalid file type.' };
-    }
-
-    const maxSize = 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      return { success: false, error: 'File too large. Maximum size is 10MB.' };
+    // Validate file using shared utilities
+    const validation = validateImageFile(file, {
+      acceptedTypes: UPLOAD_TYPES.gallery,
+      maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+    });
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
     }
 
     // Upload new image
@@ -264,10 +261,7 @@ export async function updateGalleryImageAction(
       });
     }
 
-    // Revalidate
-    revalidatePath('/gallery');
-    revalidatePath('/[locale]/gallery');
-    revalidatePath('/[locale]/dashboard/admin/gallery');
+    revalidateGalleryPaths();
 
     return {
       success: true,

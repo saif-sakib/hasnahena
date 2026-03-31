@@ -4,7 +4,7 @@
 
 export interface ImageValidationOptions {
   maxSizeMB?: number;
-  acceptedTypes?: string[];
+  acceptedTypes?: readonly string[];
   minWidth?: number;
   minHeight?: number;
   maxWidth?: number;
@@ -16,10 +16,25 @@ export interface ValidationResult {
   error?: string;
 }
 
+/** Common accepted types for different upload scenarios */
+export const UPLOAD_TYPES = {
+  avatar: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
+  gallery: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'],
+  settings: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'],
+} as const;
+
+/** Common size limits in MB */
+export const UPLOAD_SIZE_LIMITS = {
+  avatar: 5,
+  gallery: 10,
+  favicon: 2,
+  default: 5,
+} as const;
+
 /**
- * Validate image file before upload
+ * Validate image file before upload (works on both client and server)
  */
-function validateImageFile(
+export function validateImageFile(
   file: File,
   options: ImageValidationOptions = {}
 ): ValidationResult {

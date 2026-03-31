@@ -20,3 +20,35 @@ export function formatDate(date: string | Date, locale: string = 'en') {
     day: 'numeric',
   });
 }
+
+/**
+ * Decodes a base64url-encoded string (browser-compatible using atob)
+ */
+export function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  return atob(`${normalized}${padding}`);
+}
+
+/**
+ * Parses JWT payload without verification (for client-side use only)
+ */
+export function parseJwtPayload<T = Record<string, unknown>>(token: string): T | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) return null;
+    const payloadRaw = decodeBase64Url(parts[1]);
+    return JSON.parse(payloadRaw) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks if a JWT token is expired
+ */
+export function isJwtExpired(token: string): boolean {
+  const payload = parseJwtPayload<{ exp?: number }>(token);
+  if (!payload || typeof payload.exp !== 'number') return true;
+  return Math.floor(Date.now() / 1000) >= payload.exp;
+}

@@ -397,53 +397,6 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration rejected successfully"})
 }
 
-func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
-	if !ok {
-		return
-	}
-	userID := auth.UserID
-
-	var req struct {
-		LoanID string `json:"loanId"`
-	}
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	if err := h.userRepo.ApproveLoan(r.Context(), req.LoanID, userID); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "APPROVE_LOAN_FAILED", "Failed to approve loan")
-		return
-	}
-
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan approved successfully"})
-}
-
-func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
-	if !ok {
-		return
-	}
-	userID := auth.UserID
-
-	var req struct {
-		LoanID string `json:"loanId"`
-		Reason string `json:"reason"`
-	}
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	if err := h.userRepo.RejectLoan(r.Context(), req.LoanID, userID, req.Reason); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "REJECT_LOAN_FAILED", "Failed to reject loan")
-		return
-	}
-
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan rejected successfully"})
-}
-
 func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
 	if !ok {
