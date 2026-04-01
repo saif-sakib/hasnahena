@@ -42,8 +42,8 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     if (variant === 'hero') {
       return (
         <div className="flex flex-col sm:flex-row gap-4 pt-2">
-          <div className="h-12 w-40 bg-primary/20 rounded-lg animate-pulse" />
-          <div className="h-12 w-32 bg-muted rounded-lg animate-pulse" />
+          <div className="h-12 w-40 bg-primary/20 rounded-sm animate-pulse" />
+          <div className="h-12 w-32 bg-muted rounded-sm animate-pulse" />
         </div>
       );
     }
@@ -55,7 +55,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
       return (
         <div className="flex flex-col sm:flex-row gap-4 pt-2">
           <Link href={`/${locale}/dashboard/${userRole}`}>
-            <Button size="xl" className="gap-2 w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
+            <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
               <LayoutDashboard className="h-5 w-5" />
               {locale === 'bn' ? 'ড্যাশবোর্ডে যান' : 'Go to Dashboard'}
             </Button>
@@ -72,7 +72,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     return (
       <div className="flex flex-col sm:flex-row gap-4 pt-2">
         <Link href={`/${locale}/register`}>
-          <Button size="xl" className="gap-2 w-full sm:w-auto shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
+          <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
             {ctaText}
             <ArrowRight className="h-5 w-5" />
           </Button>
@@ -108,7 +108,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
           <Button
             size="xl"
             variant="secondary"
-            className="gap-2 text-primary shadow-lg hover:shadow-xl transition-all"
+            className="gap-2 text-primary shadow-none hover:shadow-xl transition-all"
           >
             {ctaText}
             <ArrowRight className="h-5 w-5" />

@@ -83,7 +83,7 @@ export function Header({ settings }: HeaderProps) {
         mobileMenuOpen
           ? 'bg-emerald-900/98 backdrop-blur-md border-b border-emerald-800'
           : isScrolled
-            ? 'bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-sm border-b border-slate-200/50 dark:border-slate-800/50' 
+            ? 'bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-none border-b border-slate-200/50 dark:border-slate-800/50' 
             : 'bg-transparent border-transparent'
       }`}
     >
@@ -157,7 +157,7 @@ export function Header({ settings }: HeaderProps) {
                   </Button>
                 </Link>
                 <Link href={`/${locale}/register`}>
-                  <Button size="sm" className="shadow-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in zoom-in duration-300">
+                  <Button size="sm" className="shadow-none font-medium bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in zoom-in duration-300">
                     {t('register')}
                   </Button>
                 </Link>
@@ -193,7 +193,7 @@ export function Header({ settings }: HeaderProps) {
           {!isLoggedIn && (
             <div className="grid grid-cols-1 gap-4 mb-6">
               <Link href={`/${locale}/login`} onClick={() => setMobileMenuOpen(false)}>
-                <Button size="lg" className="w-full text-base h-12 shadow-sm font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
+                <Button size="lg" className="w-full text-base h-12 shadow-none font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
                   {t('login')}
                 </Button>
               </Link>

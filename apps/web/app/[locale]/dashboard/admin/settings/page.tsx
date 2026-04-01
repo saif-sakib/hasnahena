@@ -2,42 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
-import {
-  Building2,
-  Wallet,
-  Bell,
-  Shield,
-  Palette,
-  Save,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle2,
-  Mail,
-  Phone,
-  MapPin,
-  Clock,
-  Percent,
-  Calendar,
-  Lock,
-  LayoutTemplate,
-  Globe,
-  Trash2,
-} from 'lucide-react';
+import { Building2, Wallet, Bell, Shield, Save, RefreshCw, AlertCircle, CheckCircle2, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { uploadSettingsImageAction, deleteSettingsImageAction } from '@/app/actions/upload-settings-image';
@@ -331,68 +303,53 @@ export default function AdminSettingsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <RefreshCw className="h-8 w-8 animate-spin text-emerald-600" />
+        <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
       </div>
     );
   }
 
+  const tabs = [
+    { key: 'organization', label: locale === 'bn' ? 'প্রতিষ্ঠান' : 'Organization' },
+    { key: 'landing', label: locale === 'bn' ? 'ল্যান্ডিং' : 'Landing' },
+    { key: 'loans', label: locale === 'bn' ? 'ঋণ নীতি' : 'Loans' },
+    { key: 'notifications', label: locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notify' },
+    { key: 'security', label: locale === 'bn' ? 'নিরাপত্তা' : 'Security' },
+    { key: 'appearance', label: locale === 'bn' ? 'ডিজাইন' : 'Appearance' },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'সেটিংস' : 'Settings'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'সিস্টেম কনফিগারেশন এবং পছন্দ পরিচালনা করুন'
-              : 'Manage system configuration and preferences'}
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'সেটিংস' : 'Settings'}</h1>
+          <p className="text-sm text-gray-500">{locale === 'bn' ? 'সিস্টেম কনফিগারেশন' : 'System configuration'}</p>
         </div>
-        <Button onClick={handleSave} disabled={isSaving}>
-          {isSaving ? (
-            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
-          {locale === 'bn' ? 'সংরক্ষণ করুন' : 'Save Changes'}
+        <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-8">
+          {isSaving ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+          {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
         </Button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 overflow-x-auto">
+        {tabs.map((tab) => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`px-4 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Settings Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3 md:grid-cols-6 w-full h-auto gap-2 bg-transparent p-0 mb-6">
-          <TabsTrigger value="organization" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <Building2 className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'প্রতিষ্ঠান' : 'Organization'}</span>
-          </TabsTrigger>
-          <TabsTrigger value="landing" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <LayoutTemplate className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'ল্যান্ডিং পেজ' : 'Landing Page'}</span>
-          </TabsTrigger>
-          <TabsTrigger value="loans" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <Wallet className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'ঋণ নীতি' : 'Loan Policy'}</span>
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <Bell className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'}</span>
-          </TabsTrigger>
-          <TabsTrigger value="security" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <Shield className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'নিরাপত্তা' : 'Security'}</span>
-          </TabsTrigger>
-          <TabsTrigger value="appearance" className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm border border-transparent data-[state=active]:border-slate-200">
-            <Palette className="h-4 w-4" />
-            <span className="hidden md:inline">{locale === 'bn' ? 'ডিজাইন' : 'Appearance'}</span>
-          </TabsTrigger>
+        <TabsList className="hidden">
+          {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
         </TabsList>
 
-        <div className="mt-6">
+        <div>
           {/* Organization Settings */}
           <TabsContent value="organization">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-5 w-5" />
@@ -404,7 +361,7 @@ export default function AdminSettingsPage() {
                     : 'Update basic organization information'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{locale === 'bn' ? 'প্রতিষ্ঠানের নাম (বাংলা)' : 'Organization Name (Bengali)'}</Label>
@@ -422,7 +379,7 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
 
-                <Separator />
+                <div className="border-t border-gray-200 my-4" />
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -484,7 +441,7 @@ export default function AdminSettingsPage() {
 
           {/* Landing Page Settings */}
           <TabsContent value="landing">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <LayoutTemplate className="h-5 w-5" />
@@ -496,7 +453,7 @@ export default function AdminSettingsPage() {
                     : 'Customize landing page text and configuration'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Hero Tagline</Label>
@@ -546,7 +503,7 @@ export default function AdminSettingsPage() {
                     />
                   </div>
 
-                  <Separator />
+                  <div className="border-t border-gray-200 my-4" />
 
                   <div className="space-y-2">
                     <Label>Donate Section Title</Label>
@@ -605,7 +562,7 @@ export default function AdminSettingsPage() {
                     />
                   </div>
 
-                  <Separator />
+                  <div className="border-t border-gray-200 my-4" />
 
                   <div className="space-y-2">
                     <Label>Welcome Back Message (Login Page)</Label>
@@ -617,7 +574,7 @@ export default function AdminSettingsPage() {
                     <p className="text-xs text-muted-foreground">The greeting message shown on the login screen.</p>
                   </div>
 
-                  <Separator />
+                  <div className="border-t border-gray-200 my-4" />
 
                   <div className="space-y-4">
                     <h4 className="font-medium">
@@ -682,7 +639,7 @@ export default function AdminSettingsPage() {
                       </div>
                     </div>
 
-                  <Separator />
+                  <div className="border-t border-gray-200 my-4" />
 
                   <div className="space-y-2">
                     <Label>Support Chat Retention Days</Label>
@@ -766,7 +723,7 @@ export default function AdminSettingsPage() {
                     </div>
                   </div>
 
-                  <Separator />
+                  <div className="border-t border-gray-200 my-4" />
 
                   <div className="space-y-4">
                     <h4 className="font-medium">
@@ -814,7 +771,7 @@ export default function AdminSettingsPage() {
                         {galleryItems.map((item) => (
                           <div
                             key={item.id}
-                            className="flex items-center gap-3 rounded-lg border border-slate-200 p-2"
+                            className="flex items-center gap-3 rounded-sm border border-gray-200 p-2"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -850,7 +807,7 @@ export default function AdminSettingsPage() {
 
           {/* Loan Policy Settings */}
           <TabsContent value="loans">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Wallet className="h-5 w-5" />
@@ -862,8 +819,8 @@ export default function AdminSettingsPage() {
                     : 'Configure loan policies and limits'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2">
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Percent className="h-4 w-4" />
@@ -968,7 +925,7 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-amber-50 rounded-xl">
+                <div className="p-4 bg-amber-50">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
                     <div>
@@ -989,7 +946,7 @@ export default function AdminSettingsPage() {
 
           {/* Notification Settings */}
           <TabsContent value="notifications">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Bell className="h-5 w-5" />
@@ -1001,7 +958,7 @@ export default function AdminSettingsPage() {
                     : 'Configure notification preferences'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 <div className="space-y-4">
                   <h4 className="font-medium">{locale === 'bn' ? 'বিজ্ঞপ্তি চ্যানেল' : 'Notification Channels'}</h4>
                   <div className="space-y-4">
@@ -1036,7 +993,7 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
 
-                <Separator />
+                <div className="border-t border-gray-200 my-4" />
 
                 <div className="space-y-4">
                   <h4 className="font-medium">{locale === 'bn' ? 'বিজ্ঞপ্তি প্রকার' : 'Notification Types'}</h4>
@@ -1105,7 +1062,7 @@ export default function AdminSettingsPage() {
 
           {/* Security Settings */}
           <TabsContent value="security">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5" />
@@ -1117,7 +1074,7 @@ export default function AdminSettingsPage() {
                     : 'Configure account and system security'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label className="flex items-center gap-2">
@@ -1138,9 +1095,9 @@ export default function AdminSettingsPage() {
                   />
                 </div>
 
-                <Separator />
+                <div className="border-t border-gray-200 my-4" />
 
-                <div className="grid gap-6 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Clock className="h-4 w-4" />
@@ -1192,7 +1149,7 @@ export default function AdminSettingsPage() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-green-50 rounded-xl">
+                <div className="p-4 bg-green-50">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
                     <div>
@@ -1213,72 +1170,44 @@ export default function AdminSettingsPage() {
 
           {/* Appearance Settings */}
           <TabsContent value="appearance">
-            <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Palette className="h-5 w-5" />
-                  {locale === 'bn' ? 'ডিজাইন সেটিংস' : 'Appearance Settings'}
-                </CardTitle>
-                <CardDescription>
-                  {locale === 'bn'
-                    ? 'ইন্টারফেস এবং ডিসপ্লে পছন্দ কাস্টমাইজ করুন'
-                    : 'Customize interface and display preferences'}
-                </CardDescription>
+                <CardTitle className="text-sm font-medium">{locale === 'bn' ? 'ডিজাইন সেটিংস' : 'Appearance Settings'}</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-4">
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'ডিফল্ট ভাষা' : 'Default Language'}</Label>
-                    <Select defaultValue="bn">
-                      <SelectTrigger className="w-full md:w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bn">বাংলা</SelectItem>
-                        <SelectItem value="en">English</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">{locale === 'bn' ? 'ডিফল্ট ভাষা' : 'Default Language'}</Label>
+                    <select defaultValue="bn" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                      <option value="bn">বাংলা</option>
+                      <option value="en">English</option>
+                    </select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'থিম' : 'Theme'}</Label>
-                    <Select defaultValue="light">
-                      <SelectTrigger className="w-full md:w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="light">{locale === 'bn' ? 'লাইট' : 'Light'}</SelectItem>
-                        <SelectItem value="dark">{locale === 'bn' ? 'ডার্ক' : 'Dark'}</SelectItem>
-                        <SelectItem value="system">{locale === 'bn' ? 'সিস্টেম' : 'System'}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">{locale === 'bn' ? 'থিম' : 'Theme'}</Label>
+                    <select defaultValue="light" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                      <option value="light">{locale === 'bn' ? 'লাইট' : 'Light'}</option>
+                      <option value="dark">{locale === 'bn' ? 'ডার্ক' : 'Dark'}</option>
+                      <option value="system">{locale === 'bn' ? 'সিস্টেম' : 'System'}</option>
+                    </select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'তারিখ ফরম্যাট' : 'Date Format'}</Label>
-                    <Select defaultValue="dd/mm/yyyy">
-                      <SelectTrigger className="w-full md:w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="dd/mm/yyyy">DD/MM/YYYY</SelectItem>
-                        <SelectItem value="mm/dd/yyyy">MM/DD/YYYY</SelectItem>
-                        <SelectItem value="yyyy-mm-dd">YYYY-MM-DD</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">{locale === 'bn' ? 'তারিখ ফরম্যাট' : 'Date Format'}</Label>
+                    <select defaultValue="dd/mm/yyyy" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                      <option value="dd/mm/yyyy">DD/MM/YYYY</option>
+                      <option value="mm/dd/yyyy">MM/DD/YYYY</option>
+                      <option value="yyyy-mm-dd">YYYY-MM-DD</option>
+                    </select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'মুদ্রা ফরম্যাট' : 'Currency Format'}</Label>
-                    <Select defaultValue="bn-BD">
-                      <SelectTrigger className="w-full md:w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bn-BD">৳ 1,00,000 (বাংলাদেশি)</SelectItem>
-                        <SelectItem value="en-BD">BDT 100,000 (English)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className="text-sm">{locale === 'bn' ? 'মুদ্রা ফরম্যাট' : 'Currency Format'}</Label>
+                    <select defaultValue="bn-BD" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                      <option value="bn-BD">৳ 1,00,000 (বাংলাদেশি)</option>
+                      <option value="en-BD">BDT 100,000 (English)</option>
+                    </select>
                   </div>
                 </div>
               </CardContent>

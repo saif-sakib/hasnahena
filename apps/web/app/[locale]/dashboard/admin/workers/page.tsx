@@ -2,27 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
-import {
-  Users,
-  Search,
-  MoreHorizontal,
-  Eye,
-  Ban,
-  CheckCircle2,
-  XCircle,
-  Mail,
-  Phone,
-  Calendar,
-  UserPlus,
-  Shield,
-  Edit,
-  Trash2,
-  MapPin,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search, UserPlus, MoreHorizontal, Eye, Edit, Trash2, Ban, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
   DropdownMenu,
@@ -38,13 +20,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { apiGet } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 
@@ -119,33 +94,17 @@ export default function AdminWorkersPage() {
       worker.assignedArea.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getStatusBadge = (status: 'ACTIVE' | 'INACTIVE') => {
-    return status === 'ACTIVE' ? (
-      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-        <CheckCircle2 className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'সক্রিয়' : 'Active'}
-      </Badge>
-    ) : (
-      <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
-        <XCircle className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive'}
-      </Badge>
-    );
-  };
+  const getStatusBadge = (status: 'ACTIVE' | 'INACTIVE') => (
+    <span className={`px-2 py-0.5 text-xs rounded ${status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+      {status === 'ACTIVE' ? (locale === 'bn' ? 'সক্রিয়' : 'Active') : (locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive')}
+    </span>
+  );
 
-  const getRoleBadge = (role: 'WORKER' | 'ADMIN') => {
-    return role === 'ADMIN' ? (
-      <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
-        <Shield className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}
-      </Badge>
-    ) : (
-      <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-        <Users className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'কর্মী' : 'Worker'}
-      </Badge>
-    );
-  };
+  const getRoleBadge = (role: 'WORKER' | 'ADMIN') => (
+    <span className={`px-2 py-0.5 text-xs rounded ${role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+      {role === 'ADMIN' ? (locale === 'bn' ? 'অ্যাডমিন' : 'Admin') : (locale === 'bn' ? 'কর্মী' : 'Worker')}
+    </span>
+  );
 
   const handleAddWorker = async () => {
     if (!newWorker.name || !newWorker.email || !newWorker.phone) {
@@ -259,434 +218,219 @@ export default function AdminWorkersPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
+          <h1 className="text-lg font-semibold text-gray-900">
             {locale === 'bn' ? 'কর্মী ব্যবস্থাপনা' : 'Worker Management'}
           </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'কর্মী এবং অ্যাডমিনদের পরিচালনা করুন'
-              : 'Manage workers and admins'}
-          </p>
+          <p className="text-sm text-gray-500">{workers.length} {locale === 'bn' ? 'জন' : 'total'}</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => setShowAddModal(true)}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'কর্মী যোগ' : 'Add Worker'}
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setShowAddModal(true)} className="h-8">
+          <UserPlus className="h-3.5 w-3.5 mr-1" />
+          {locale === 'bn' ? 'কর্মী যোগ' : 'Add Worker'}
+        </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট কর্মী' : 'Total Workers'}</p>
-                <p className="text-2xl font-bold">{workers.length}</p>
-              </div>
-              <Users className="h-8 w-8 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {workers.filter((w) => w.status === 'ACTIVE').length}
-                </p>
-              </div>
-              <CheckCircle2 className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'অ্যাডমিন' : 'Admins'}</p>
-                <p className="text-2xl font-bold text-purple-600">
-                  {workers.filter((w) => w.role === 'ADMIN').length}
-                </p>
-              </div>
-              <Shield className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive'}</p>
-                <p className="text-2xl font-bold text-gray-600">
-                  {workers.filter((w) => w.status === 'INACTIVE').length}
-                </p>
-              </div>
-              <Ban className="h-8 w-8 text-gray-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div><span className="text-gray-500">{locale === 'bn' ? 'সক্রিয়:' : 'Active:'}</span> <span className="font-medium text-green-600">{workers.filter(w => w.status === 'ACTIVE').length}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'অ্যাডমিন:' : 'Admins:'}</span> <span className="font-medium text-purple-600">{workers.filter(w => w.role === 'ADMIN').length}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'নিষ্ক্রিয়:' : 'Inactive:'}</span> <span className="font-medium text-gray-600">{workers.filter(w => w.status === 'INACTIVE').length}</span></div>
       </div>
 
       {/* Search */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={locale === 'bn' ? 'নাম, ইমেইল, ফোন বা এলাকা দিয়ে খুঁজুন...' : 'Search by name, email, phone or area...'}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="text"
+          placeholder={locale === 'bn' ? 'নাম, ইমেইল, ফোন বা এলাকা দিয়ে খুঁজুন...' : 'Search by name, email, phone or area...'}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+        />
+      </div>
 
-      {/* Workers List */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            {locale === 'bn' ? 'কর্মী তালিকা' : 'Workers List'}
-          </CardTitle>
-          <CardDescription>
-            {locale === 'bn'
-              ? `${filteredWorkers.length} জন কর্মী পাওয়া গেছে`
-              : `${filteredWorkers.length} workers found`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {filteredWorkers.map((worker) => (
-              <div
-                key={worker.id}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                    {worker.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-semibold">{worker.name}</span>
-                      {getRoleBadge(worker.role)}
-                      {getStatusBadge(worker.status)}
-                    </div>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <div className="flex items-center gap-4 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" /> {worker.email}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {worker.phone}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {worker.assignedArea}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {locale === 'bn' ? 'যোগদান:' : 'Joined:'}{' '}
-                          {new Date(worker.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="text-right text-sm">
-                    <div>
-                      <span className="text-muted-foreground">{locale === 'bn' ? 'জমা প্রসেস:' : 'Deposits:'}</span>{' '}
-                      <span className="font-medium">{worker.processedDeposits}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ প্রসেস:' : 'Loans:'}</span>{' '}
-                      <span className="font-medium">{worker.processedLoans}</span>
-                    </div>
-                  </div>
+      {/* Workers Table */}
+      <div className="border border-gray-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'নাম' : 'Name'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'যোগাযোগ' : 'Contact'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'এলাকা' : 'Area'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredWorkers.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো কর্মী পাওয়া যায়নি' : 'No workers found'}</td></tr>
+            ) : filteredWorkers.map((worker) => (
+              <tr key={worker.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900">{worker.name}</div>
+                  <div className="text-xs text-gray-500 sm:hidden">{worker.email}</div>
+                </td>
+                <td className="px-4 py-3 hidden sm:table-cell">
+                  <div className="text-gray-700">{worker.email}</div>
+                  <div className="text-xs text-gray-500">{worker.phone}</div>
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell text-gray-600">{worker.assignedArea || '-'}</td>
+                <td className="px-4 py-3">{getRoleBadge(worker.role)}</td>
+                <td className="px-4 py-3">{getStatusBadge(worker.status)}</td>
+                <td className="px-4 py-3">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedWorker(worker);
-                          setShowDetailModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        {locale === 'bn' ? 'বিস্তারিত দেখুন' : 'View Details'}
+                      <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDetailModal(true); }}>
+                        <Eye className="h-4 w-4 mr-2" />{locale === 'bn' ? 'বিস্তারিত' : 'Details'}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        {locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
+                        <Edit className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleToggleStatus(worker)}>
                         {worker.status === 'ACTIVE' ? (
-                          <>
-                            <Ban className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate'}
-                          </>
+                          <><Ban className="h-4 w-4 mr-2" />{locale === 'bn' ? 'নিষ্ক্রিয়' : 'Deactivate'}</>
                         ) : (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                            {locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}
-                          </>
+                          <><CheckCircle2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সক্রিয়' : 'Activate'}</>
                         )}
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setSelectedWorker(worker);
-                          setShowDeleteModal(true);
-                        }}
-                        className="text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {locale === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
+                      <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDeleteModal(true); }} className="text-red-600">
+                        <Trash2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'মুছুন' : 'Delete'}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </div>
-              </div>
+                </td>
+              </tr>
             ))}
-
-            {filteredWorkers.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{locale === 'bn' ? 'কোনো কর্মী পাওয়া যায়নি' : 'No workers found'}</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </tbody>
+        </table>
+      </div>
 
       {/* Worker Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'কর্মী বিস্তারিত' : 'Worker Details'}</DialogTitle>
           </DialogHeader>
           {selectedWorker && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-semibold">
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+                <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center font-medium">
                   {selectedWorker.name.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold">{selectedWorker.name}</h3>
-                  <div className="flex gap-2">
-                    {getRoleBadge(selectedWorker.role)}
-                    {getStatusBadge(selectedWorker.status)}
-                  </div>
+                  <div className="font-medium">{selectedWorker.name}</div>
+                  <div className="flex gap-1 mt-1">{getRoleBadge(selectedWorker.role)} {getStatusBadge(selectedWorker.status)}</div>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ইমেইল' : 'Email'}</span>
-                  <p className="font-medium">{selectedWorker.email}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ফোন' : 'Phone'}</span>
-                  <p className="font-medium">{selectedWorker.phone}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'এলাকা' : 'Assigned Area'}</span>
-                  <p className="font-medium">{selectedWorker.assignedArea}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'যোগদানের তারিখ' : 'Join Date'}</span>
-                  <p className="font-medium">
-                    {new Date(selectedWorker.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'প্রসেসকৃত জমা' : 'Processed Deposits'}</span>
-                  <p className="font-medium">{selectedWorker.processedDeposits}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'প্রসেসকৃত ঋণ' : 'Processed Loans'}</span>
-                  <p className="font-medium">{selectedWorker.processedLoans}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'সর্বশেষ সক্রিয়' : 'Last Active'}</span>
-                  <p className="font-medium">
-                    {new Date(selectedWorker.lastActive).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                  </p>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><span className="text-gray-500">{locale === 'bn' ? 'ইমেইল' : 'Email'}</span><p>{selectedWorker.email}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'ফোন' : 'Phone'}</span><p>{selectedWorker.phone}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'এলাকা' : 'Area'}</span><p>{selectedWorker.assignedArea || '-'}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'যোগদান' : 'Joined'}</span><p>{new Date(selectedWorker.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'জমা প্রসেস' : 'Deposits'}</span><p>{selectedWorker.processedDeposits}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'ঋণ প্রসেস' : 'Loans'}</span><p>{selectedWorker.processedLoans}</p></div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailModal(false)}>
-              {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowDetailModal(false)}>{locale === 'bn' ? 'বন্ধ' : 'Close'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Add Worker Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'নতুন কর্মী যোগ করুন' : 'Add New Worker'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? 'নতুন কর্মীর তথ্য প্রদান করুন' : 'Provide new worker information'}
-            </DialogDescription>
+            <DialogTitle>{locale === 'bn' ? 'নতুন কর্মী যোগ' : 'Add New Worker'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <Label>{locale === 'bn' ? 'নাম' : 'Name'}</Label>
-              <Input
-                value={newWorker.name}
-                onChange={(e) => setNewWorker({ ...newWorker, name: e.target.value })}
-                placeholder={locale === 'bn' ? 'পুরো নাম লিখুন' : 'Enter full name'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'নাম' : 'Name'}</Label>
+              <Input value={newWorker.name} onChange={(e) => setNewWorker({ ...newWorker, name: e.target.value })} placeholder={locale === 'bn' ? 'পুরো নাম' : 'Full name'} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'ইমেইল' : 'Email'}</Label>
-              <Input
-                type="email"
-                value={newWorker.email}
-                onChange={(e) => setNewWorker({ ...newWorker, email: e.target.value })}
-                placeholder={locale === 'bn' ? 'ইমেইল লিখুন' : 'Enter email'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'ইমেইল' : 'Email'}</Label>
+              <Input type="email" value={newWorker.email} onChange={(e) => setNewWorker({ ...newWorker, email: e.target.value })} placeholder={locale === 'bn' ? 'ইমেইল' : 'Email'} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'ফোন' : 'Phone'}</Label>
-              <Input
-                value={newWorker.phone}
-                onChange={(e) => setNewWorker({ ...newWorker, phone: e.target.value })}
-                placeholder={locale === 'bn' ? 'ফোন নম্বর লিখুন' : 'Enter phone number'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'ফোন' : 'Phone'}</Label>
+              <Input value={newWorker.phone} onChange={(e) => setNewWorker({ ...newWorker, phone: e.target.value })} placeholder={locale === 'bn' ? 'ফোন' : 'Phone'} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <Select
-                value={newWorker.role}
-                onValueChange={(value: 'WORKER' | 'ADMIN') =>
-                  setNewWorker({ ...newWorker, role: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</SelectItem>
-                  <SelectItem value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
+              <select value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+                <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
+                <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
+              </select>
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'নির্ধারিত এলাকা' : 'Assigned Area'}</Label>
-              <Input
-                value={newWorker.assignedArea}
-                onChange={(e) => setNewWorker({ ...newWorker, assignedArea: e.target.value })}
-                placeholder={locale === 'bn' ? 'এলাকা লিখুন' : 'Enter assigned area'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'এলাকা' : 'Area'}</Label>
+              <Input value={newWorker.assignedArea} onChange={(e) => setNewWorker({ ...newWorker, assignedArea: e.target.value })} placeholder={locale === 'bn' ? 'এলাকা' : 'Area'} className="mt-1" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleAddWorker}>
-              {locale === 'bn' ? 'যোগ করুন' : 'Add Worker'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowAddModal(false)}>{locale === 'bn' ? 'বাতিল' : 'Cancel'}</Button>
+            <Button size="sm" onClick={handleAddWorker}>{locale === 'bn' ? 'যোগ করুন' : 'Add'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Edit Worker Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'কর্মী সম্পাদনা' : 'Edit Worker'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? 'কর্মীর তথ্য আপডেট করুন' : 'Update worker information'}
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <Label>{locale === 'bn' ? 'নাম' : 'Name'}</Label>
-              <Input
-                value={editWorker.name}
-                onChange={(e) => setEditWorker((prev) => ({ ...prev, name: e.target.value }))}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'নাম' : 'Name'}</Label>
+              <Input value={editWorker.name} onChange={(e) => setEditWorker((prev) => ({ ...prev, name: e.target.value }))} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'ফোন' : 'Phone'}</Label>
-              <Input
-                value={editWorker.phone}
-                onChange={(e) => setEditWorker((prev) => ({ ...prev, phone: e.target.value }))}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'ফোন' : 'Phone'}</Label>
+              <Input value={editWorker.phone} onChange={(e) => setEditWorker((prev) => ({ ...prev, phone: e.target.value }))} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'নির্ধারিত এলাকা' : 'Assigned Area'}</Label>
-              <Input
-                value={editWorker.assignedArea}
-                onChange={(e) => setEditWorker((prev) => ({ ...prev, assignedArea: e.target.value }))}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'এলাকা' : 'Area'}</Label>
+              <Input value={editWorker.assignedArea} onChange={(e) => setEditWorker((prev) => ({ ...prev, assignedArea: e.target.value }))} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <Select
-                value={editWorker.role}
-                onValueChange={(value: 'WORKER' | 'ADMIN') =>
-                  setEditWorker((prev) => ({ ...prev, role: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</SelectItem>
-                  <SelectItem value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
+              <select value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+                <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
+                <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
+              </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowEditModal(false)}>{locale === 'bn' ? 'বাতিল' : 'Cancel'}</Button>
+            <Button size="sm" onClick={handleSaveEdit}>{locale === 'bn' ? 'সংরক্ষণ' : 'Save'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation Modal */}
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'কর্মী মুছে ফেলুন' : 'Delete Worker'}</DialogTitle>
+            <DialogTitle>{locale === 'bn' ? 'কর্মী মুছুন' : 'Delete Worker'}</DialogTitle>
             <DialogDescription>
-              {locale === 'bn'
-                ? `আপনি কি নিশ্চিত যে আপনি "${selectedWorker?.name}" কে মুছে ফেলতে চান? এই কাজটি পূর্বাবস্থায় ফেরানো যাবে না।`
-                : `Are you sure you want to delete "${selectedWorker?.name}"? This action cannot be undone.`}
+              {locale === 'bn' ? `"${selectedWorker?.name}" মুছে ফেলবেন?` : `Delete "${selectedWorker?.name}"?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteWorker}>
-              {locale === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowDeleteModal(false)}>{locale === 'bn' ? 'বাতিল' : 'Cancel'}</Button>
+            <Button variant="destructive" size="sm" onClick={handleDeleteWorker}>{locale === 'bn' ? 'মুছুন' : 'Delete'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

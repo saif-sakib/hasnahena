@@ -1,44 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useTranslations } from 'next-intl';
-import { Plus, Trash2, Edit2, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { useLocale } from 'next-intl';
+import { Plus, Trash2, Edit2, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import Image from 'next/image';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { uploadGalleryAction, deleteGalleryAction, updateGalleryImageAction } from '@/app/actions/upload-gallery';
 
-
-interface GalleryFormData {
-  captionEn?: string;
-  captionBn?: string;
-  date?: string;
-}
-
-interface GalleryItem {
-  id: string;
-  imageUrl: string;
-  captionEn: string | null;
-  captionBn: string | null;
-  date: string;
-  likes: number;
-}
+interface GalleryFormData { captionEn?: string; captionBn?: string; date?: string; }
+interface GalleryItem { id: string; imageUrl: string; captionEn: string | null; captionBn: string | null; date: string; likes: number; }
 
 export default function GalleryManagementPage() {
+  const locale = useLocale();
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -48,42 +25,21 @@ export default function GalleryManagementPage() {
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const getAuthToken = () =>
-    typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
 
-  useEffect(() => {
-    fetchItems();
-  }, []);
+  const getAuthToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+
+  useEffect(() => { fetchItems(); }, []);
 
   const fetchItems = async () => {
+    setIsLoading(true);
+    setFetchError(null);
     try {
-      setFetchError(null);
       const response = await fetch('/api/v1/gallery');
       const data = await response.json();
-
-      if (!response.ok) {
-        // Server returned an error - show the details
-        const errorMsg = data.details || data.error || `Server error: ${response.status}`;
-        console.error('Gallery fetch error:', data);
-        setFetchError(errorMsg);
-        toast({
-          title: 'Error',
-          description: errorMsg,
-          variant: 'destructive',
-        });
-        return;
-      }
-
+      if (!response.ok) { setFetchError(data.error || 'Server error'); return; }
       setItems(data);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Network error';
-      console.error('Failed to fetch gallery items:', error);
-      setFetchError(errorMsg);
-      toast({
-        title: 'Error',
-        description: `Failed to fetch gallery items: ${errorMsg}`,
-        variant: 'destructive',
-      });
+      setFetchError(error instanceof Error ? error.message : 'Network error');
     } finally {
       setIsLoading(false);
     }
@@ -101,297 +57,144 @@ export default function GalleryManagementPage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile && !editingItem) {
-      toast({
-        title: 'Error',
-        description: 'Please select an image',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (editingItem && !selectedFile) {
-      toast({
-        title: 'Error',
-        description: 'Please select a new image to update this post',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+    if (!selectedFile) { toast({ title: 'Error', description: 'Please select an image', variant: 'destructive' }); return; }
     const authToken = getAuthToken();
-    if (!authToken) {
-      toast({
-        title: 'Error',
-        description: 'Not authenticated',
-        variant: 'destructive',
-      });
-      return;
-    }
+    if (!authToken) { toast({ title: 'Error', description: 'Not authenticated', variant: 'destructive' }); return; }
 
     setIsSubmitting(true);
-    const formDataWithImage = new FormData();
-    if (selectedFile) {
-      formDataWithImage.append('image', selectedFile);
-    }
-    formDataWithImage.append('authToken', authToken);
-
-    // Add captions and date to FormData
-    if (formData.captionEn) formDataWithImage.append('captionEn', formData.captionEn);
-    if (formData.captionBn) formDataWithImage.append('captionBn', formData.captionBn);
-    if (formData.date) formDataWithImage.append('date', formData.date);
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    fd.append('authToken', authToken);
+    if (formData.captionEn) fd.append('captionEn', formData.captionEn);
+    if (formData.captionBn) fd.append('captionBn', formData.captionBn);
+    if (formData.date) fd.append('date', formData.date);
 
     try {
-      if (editingItem) {
-      // Update existing item
-      const result = await updateGalleryImageAction(editingItem.id, formDataWithImage);
-      if (result.success && result.galleryItem) {
-        setUploadedImageUrl(result.galleryItem.imageUrl);
-        toast({
-          title: 'Success',
-          description: 'Gallery item updated successfully',
-        });
+      const result = editingItem ? await updateGalleryImageAction(editingItem.id, fd) : await uploadGalleryAction(fd);
+      if (result.success) {
+        toast({ title: 'Success', description: editingItem ? 'Updated' : 'Created' });
         setIsDialogOpen(false);
         resetForm();
         await fetchItems();
-          return;
-      } else {
-        throw new Error(result.error || 'Update failed');
-      }
-      } else {
-      // Create new item
-      const result = await uploadGalleryAction(formDataWithImage);
-      if (result.success && result.galleryItem) {
-        setUploadedImageUrl(result.galleryItem.imageUrl);
-        toast({
-          title: 'Success',
-          description: 'Gallery item created successfully',
-        });
-        setIsDialogOpen(false);
-        resetForm();
-        await fetchItems();
-          return;
-      } else {
-        throw new Error(result.error || 'Create failed');
-      }
-      }
+      } else { throw new Error(result.error || 'Failed'); }
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to submit gallery post',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error instanceof Error ? error.message : 'Failed', variant: 'destructive' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleUploadError = (error: string) => {
-    toast({
-      title: 'Upload Error',
-      description: error,
-      variant: 'destructive',
-    });
-  };
-
-  const resetForm = () => {
-    setFormData({});
-    setUploadedImageUrl(null);
-    setSelectedFile(null);
-    setEditingItem(null);
-  };
+  const resetForm = () => { setFormData({}); setUploadedImageUrl(null); setSelectedFile(null); setEditingItem(null); };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
-
+    if (!confirm(locale === 'bn' ? 'মুছে ফেলতে চান?' : 'Delete this item?')) return;
     try {
-      const authToken = getAuthToken();
-      const result = await deleteGalleryAction(id, authToken ?? undefined);
-
-      if (!result.success) throw new Error(result.error || 'Failed to delete');
-
-      toast({
-        title: 'Success',
-        description: 'Item deleted',
-      });
-
+      const result = await deleteGalleryAction(id, getAuthToken() ?? undefined);
+      if (!result.success) throw new Error(result.error || 'Failed');
+      toast({ title: 'Success', description: 'Deleted' });
       fetchItems();
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to delete item',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error instanceof Error ? error.message : 'Failed', variant: 'destructive' });
     }
   };
 
   const openEdit = (item: GalleryItem) => {
     setEditingItem(item);
     setUploadedImageUrl(item.imageUrl);
-    setFormData({
-      captionEn: item.captionEn || '',
-      captionBn: item.captionBn || '',
-      date: new Date(item.date).toISOString().split('T')[0],
-    });
+    setFormData({ captionEn: item.captionEn || '', captionBn: item.captionBn || '', date: new Date(item.date).toISOString().split('T')[0] });
     setIsDialogOpen(true);
   };
 
-  const handleDialogChange = (open: boolean) => {
-    setIsDialogOpen(open);
-    if (!open) {
-      resetForm();
-    }
-  };
+  const handleDialogChange = (open: boolean) => { setIsDialogOpen(open); if (!open) resetForm(); };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Gallery Management</h1>
-          <p className="text-muted-foreground">Manage your activity gallery images here.</p>
+          <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'গ্যালারি ব্যবস্থাপনা' : 'Gallery Management'}</h1>
+          <p className="text-sm text-gray-500">{items.length} {locale === 'bn' ? 'টি ছবি' : 'images'}</p>
         </div>
-        
-        <Dialog open={isDialogOpen} onOpenChange={handleDialogChange}>
-          <DialogTrigger asChild>
-            <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
-              <Plus className="h-4 w-4" /> Add New Item
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingItem ? 'Edit Item' : 'Add New Gallery Item'}</DialogTitle>
-              <DialogDescription>
-                Upload an image and add captions to your public gallery.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <ImageUpload
-                label="Gallery Image"
-                currentImage={uploadedImageUrl || undefined}
-                onUpload={handleImageUpload}
-                onUploadComplete={(url) => {
-                  setUploadedImageUrl(url);
-                }}
-                onFileSelected={(file) => {
-                  setSelectedFile(file);
-                }}
-                onUploadError={handleUploadError}
-                maxSizeMB={10}
-                aspectRatio="aspect-video"
-                autoUpload={false}
-              />
-              <div className="space-y-2">
-                <Label htmlFor="captionEn">Caption (English)</Label>
-                <Input
-                  id="captionEn"
-                  placeholder="Description in English"
-                  value={formData.captionEn || ''}
-                  onChange={(e) => setFormData({ ...formData, captionEn: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="captionBn">Caption (Bengali)</Label>
-                <Input
-                  id="captionBn"
-                  placeholder="বাংলায় বিবরণ"
-                  value={formData.captionBn || ''}
-                  onChange={(e) => setFormData({ ...formData, captionBn: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="date">Date</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  value={formData.date || ''}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button type="button" onClick={() => void handleSubmit()} disabled={isSubmitting}>
-                  {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  {editingItem ? 'Update Post' : 'Submit Post'}
-                </Button>
-              </DialogFooter>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => void fetchItems()} disabled={isLoading} className="h-8">
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button size="sm" onClick={() => setIsDialogOpen(true)} className="h-8">
+            <Plus className="h-3.5 w-3.5 mr-1" />{locale === 'bn' ? 'যোগ' : 'Add'}
+          </Button>
+        </div>
       </div>
 
-      <Card className="border-slate-200 dark:border-slate-800">
-        <CardHeader>
-          <CardTitle>Gallery Items</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center p-8">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+      {fetchError && <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">{fetchError}</div>}
+
+      {/* Table */}
+      <div className="border border-gray-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600 w-24">{locale === 'bn' ? 'ছবি' : 'Image'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'ক্যাপশন (EN)' : 'Caption (EN)'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'ক্যাপশন (BN)' : 'Caption (BN)'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'তারিখ' : 'Date'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'অ্যাকশন' : 'Actions'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
+            ) : items.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                <ImageIcon className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                {locale === 'bn' ? 'কোনো ছবি নেই' : 'No images yet'}
+              </td></tr>
+            ) : items.map((item) => (
+              <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-2">
+                  <div className="h-10 w-16 rounded overflow-hidden bg-gray-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.imageUrl} alt="" className="object-cover w-full h-full" />
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-gray-900">{item.captionEn || '-'}</td>
+                <td className="px-4 py-2 hidden sm:table-cell text-gray-600">{item.captionBn || '-'}</td>
+                <td className="px-4 py-2 hidden md:table-cell text-xs text-gray-500">{new Date(item.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2 text-right">
+                  <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-800 mr-3"><Edit2 className="h-4 w-4" /></button>
+                  <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-800"><Trash2 className="h-4 w-4" /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add/Edit Modal */}
+      <Dialog open={isDialogOpen} onOpenChange={handleDialogChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingItem ? (locale === 'bn' ? 'সম্পাদনা' : 'Edit Item') : (locale === 'bn' ? 'নতুন ছবি যোগ' : 'Add New Image')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <ImageUpload label={locale === 'bn' ? 'ছবি' : 'Image'} currentImage={uploadedImageUrl || undefined} onUpload={handleImageUpload} onUploadComplete={setUploadedImageUrl} onFileSelected={setSelectedFile} onUploadError={(e) => toast({ title: 'Error', description: e, variant: 'destructive' })} maxSizeMB={10} aspectRatio="aspect-video" autoUpload={false} />
+            <div>
+              <Label className="text-sm">Caption (English)</Label>
+              <Input value={formData.captionEn || ''} onChange={(e) => setFormData({ ...formData, captionEn: e.target.value })} placeholder="Description" className="mt-1" />
             </div>
-          ) : fetchError ? (
-            <div className="text-center p-12 text-red-500 border-2 border-dashed border-red-200 rounded-lg bg-red-50">
-              <ImageIcon className="h-10 w-10 mx-auto mb-3 opacity-50" />
-              <p className="font-medium mb-2">Failed to load gallery</p>
-              <p className="text-sm text-red-400 mb-4">{fetchError}</p>
-              <Button variant="outline" onClick={() => { setIsLoading(true); fetchItems(); }}>
-                Try Again
-              </Button>
+            <div>
+              <Label className="text-sm">Caption (Bengali)</Label>
+              <Input value={formData.captionBn || ''} onChange={(e) => setFormData({ ...formData, captionBn: e.target.value })} placeholder="বিবরণ" className="mt-1" />
             </div>
-          ) : items.length === 0 ? (
-            <div className="text-center p-12 text-muted-foreground border-2 border-dashed rounded-lg">
-              <ImageIcon className="h-10 w-10 mx-auto mb-3 opacity-20" />
-              <p>No gallery items found.</p>
-              <Button variant="link" onClick={() => setIsDialogOpen(true)}>Add one to get started</Button>
+            <div>
+              <Label className="text-sm">{locale === 'bn' ? 'তারিখ' : 'Date'}</Label>
+              <Input type="date" value={formData.date || ''} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className="mt-1" />
             </div>
-          ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[100px]">Image</TableHead>
-                    <TableHead>Caption (EN)</TableHead>
-                    <TableHead>Caption (BN)</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <div className="relative h-12 w-20 rounded overflow-hidden bg-slate-100">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={item.imageUrl} alt="Thumbnail" className="object-cover w-full h-full" />
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium">{item.captionEn || '-'}</TableCell>
-                      <TableCell className="font-bengali">{item.captionBn || '-'}</TableCell>
-                      <TableCell>{new Date(item.date).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}>
-                            <Edit2 className="h-4 w-4 text-blue-500" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(item.id)}>
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>{locale === 'bn' ? 'বাতিল' : 'Cancel'}</Button>
+            <Button size="sm" onClick={() => void handleSubmit()} disabled={isSubmitting}>{isSubmitting ? '...' : editingItem ? (locale === 'bn' ? 'আপডেট' : 'Update') : (locale === 'bn' ? 'যোগ করুন' : 'Add')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

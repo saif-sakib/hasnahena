@@ -640,58 +640,56 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-slate-50">
+    <div className="min-h-screen bg-gray-50">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Clean simple design */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-gradient-to-b from-emerald-800 to-emerald-900 text-white transform lg:transform-none lg:transition-none transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-56 bg-white border-r border-gray-200 transform lg:transform-none lg:transition-none transition-transform duration-200 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo Section */}
-          <div className="flex items-center justify-between h-20 px-5 border-b border-white/10">
-            <Link href={`/${locale}`} className="flex items-center gap-3 group">
-              <Logo size="md" showTagline={false} className="brightness-0 invert" />
+          {/* Logo Section - Compact */}
+          <div className="flex items-center justify-between h-14 px-4 border-b border-gray-200">
+            <Link href={`/${locale}`} className="flex items-center gap-2">
+              <Logo size="sm" showTagline={false} />
             </Link>
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden text-white hover:bg-white/10"
+              className="lg:hidden h-8 w-8"
               onClick={() => setSidebarOpen(false)}
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </Button>
           </div>
 
-          {/* Role Badge & Home Link */}
-          <div className="px-5 py-4 space-y-3">
-            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 text-emerald-100 border border-white/10">
-              {roleLabels[role]} {locale === 'bn' ? 'ড্যাশবোর্ড' : 'Dashboard'}
-            </span>
-            <Link 
-              href={`/${locale}`}
-              className="flex items-center gap-2 text-sm text-emerald-200 hover:text-white transition-colors"
-            >
-              <Home className="h-4 w-4" />
-              {locale === 'bn' ? 'হোম পেজে যান' : 'Go to Home'}
-              <ChevronRight className="h-3 w-3 ml-auto" />
-            </Link>
+          {/* Role Badge - Simple */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                {roleLabels[role]}
+              </span>
+              <Link 
+                href={`/${locale}`}
+                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <Home className="h-3 w-3" />
+                {locale === 'bn' ? 'হোম' : 'Home'}
+              </Link>
+            </div>
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 px-3 pb-4 overflow-y-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-            <p className="px-4 mb-3 text-xs uppercase tracking-wider text-emerald-300/70 font-medium">
-              {locale === 'bn' ? 'মেনু' : 'Menu'}
-            </p>
-            <div className="space-y-1">
+          {/* Navigation - Clean list */}
+          <nav className="flex-1 py-2 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+            <div className="space-y-0.5 px-2">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const isActive = pathname === href || (item.href === '' && pathname === basePath);
@@ -701,10 +699,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                     key={item.name}
                     href={href}
                     prefetch={true}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-all ${
+                    className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors rounded ${
                       isActive
-                        ? 'bg-white text-emerald-800 shadow-lg'
-                        : 'text-emerald-100 hover:bg-white/10 hover:text-white'
+                        ? 'bg-blue-50 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                     onClick={() => {
                       if (pathname !== href) {
@@ -713,68 +711,58 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       setSidebarOpen(false);
                     }}
                   >
-                    <item.icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : ''}`} />
+                    <item.icon className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
                     {locale === 'bn' ? item.bn : item.en}
-                    {pendingHref === href && pathname !== href ? <span className="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+                    {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
                   </Link>
                 );
               })}
             </div>
           </nav>
 
-          {/* Logout & Version */}
-          <div className="p-4 border-t border-white/10">
+          {/* Logout - Compact */}
+          <div className="p-3 border-t border-gray-200">
             <Button 
-              variant="outline" 
-              className="w-full gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white hover:border-white/30"
+              variant="ghost" 
+              size="sm"
+              className="w-full justify-start gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
               onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />
               {locale === 'bn' ? 'লগআউট' : 'Logout'}
             </Button>
-            <p className="mt-4 text-center text-xs text-emerald-300/50">
-              {locale === 'bn' ? 'হাসনাহেনা' : 'Hasnahena'} v1.0
-            </p>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="lg:pl-72">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-6 bg-white/80 border-b border-slate-200/50 backdrop-blur-md">
-          <div className="flex items-center gap-4">
+      <div className="lg:pl-56">
+        {/* Top Header - Compact */}
+        <header className="sticky top-0 z-30 flex items-center justify-between h-12 px-4 bg-white border-b border-gray-200">
+          <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden"
+              className="lg:hidden h-8 w-8"
               onClick={() => setSidebarOpen(true)}
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-4 w-4" />
             </Button>
-
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-800">
-                {locale === 'bn' ? 'ড্যাশবোর্ড' : 'Dashboard'}
-              </h1>
-              <p className="text-sm text-slate-500 hidden sm:block">
-                {new Date().toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </p>
-            </div>
+            <span className="text-sm text-gray-500">
+              {new Date().toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-1">
             {/* Language Switcher */}
             <Link href={pathname.replace(`/${locale}`, locale === 'en' ? '/bn' : '/en')}>
-              <Button variant="ghost" size="sm" className="gap-2 text-slate-600">
-                <Globe className="h-4 w-4" />
-                <span className="hidden sm:inline text-sm">
-                  {locale === 'en' ? 'বাংলা' : 'EN'}
-                </span>
+              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-gray-600">
+                <Globe className="h-3.5 w-3.5 mr-1" />
+                {locale === 'en' ? 'BN' : 'EN'}
               </Button>
             </Link>
 
@@ -783,10 +771,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="relative"
+                className="relative h-8 w-8"
                 onClick={() => setShowNotifications(!showNotifications)}
               >
-                <Bell className="h-5 w-5 text-slate-600" />
+                <Bell className="h-4 w-4 text-gray-600" />
                 {unreadCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 h-4 w-4 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
                     {unreadCount}
@@ -796,89 +784,42 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                  <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                      <h3 className="font-semibold text-slate-900">
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 shadow-lg z-50">
+                    <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-900">
                         {locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'}
-                      </h3>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {unreadCount} {locale === 'bn' ? 'নতুন' : 'new'}
-                        </span>
-                        {unreadCount > 0 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={markAllNotificationsAsRead}
-                          >
-                            {locale === 'bn' ? 'সব পঠিত' : 'Mark all read'}
-                          </Button>
-                        )}
-                      </div>
+                      </span>
+                      {unreadCount > 0 && (
+                        <button
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                          onClick={markAllNotificationsAsRead}
+                        >
+                          {locale === 'bn' ? 'সব পঠিত' : 'Mark all read'}
+                        </button>
+                      )}
                     </div>
-                    <div className="max-h-80 overflow-y-auto">
+                    <div className="max-h-64 overflow-y-auto">
                       {notifications.length > 0 ? (
                         notifications.map((notification) => (
                           <div 
                             key={notification.id}
-                            className={`p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer ${
-                              !notification.read ? 'bg-emerald-50/50' : ''
+                            className={`px-3 py-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${
+                              !notification.read ? 'bg-blue-50/50' : ''
                             }`}
                             onClick={() => {
                               markNotificationAsRead(notification.id);
                               setShowNotifications(false);
                             }}
                           >
-                            <div className="flex gap-3">
-                              <div className="flex-shrink-0">
-                                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-900">
-                                  {notification.title}
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {notification.message || notification.description}
-                                </p>
-                                <p className="text-xs text-slate-400 mt-1">
-                                  {formatNotificationTime(notification.time)}
-                                </p>
-                              </div>
-                              {!notification.read && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    markNotificationAsRead(notification.id);
-                                  }}
-                                >
-                                  {locale === 'bn' ? 'পঠিত' : 'Mark read'}
-                                </Button>
-                              )}
-                            </div>
+                            <p className="text-sm text-gray-900 truncate">{notification.title}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{formatNotificationTime(notification.time)}</p>
                           </div>
                         ))
                       ) : (
-                        <div className="p-8 text-center text-muted-foreground">
-                          <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">
-                            {locale === 'bn' ? 'কোন বিজ্ঞপ্তি নেই' : 'No notifications'}
-                          </p>
+                        <div className="px-3 py-6 text-center text-sm text-gray-500">
+                          {locale === 'bn' ? 'কোন বিজ্ঞপ্তি নেই' : 'No notifications'}
                         </div>
                       )}
-                    </div>
-                    <div className="p-3 border-t border-slate-100 bg-slate-50">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full text-sm"
-                        onClick={handleViewAllNotifications}
-                      >
-                        {locale === 'bn' ? 'সব দেখুন' : 'View all'}
-                      </Button>
                     </div>
                   </div>
               )}
@@ -888,7 +829,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative"
+                className="relative h-8 w-8"
                 aria-label="Support inbox"
                 onClick={() => {
                   if (showSupportPopup) {
@@ -898,10 +839,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   }
                 }}
               >
-                <MessageCircle className="h-5 w-5 text-slate-600" />
+                <MessageCircle className="h-4 w-4 text-gray-600" />
                 {showSupportBadge && (
                   role === 'member' ? (
-                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500" />
+                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
                   ) : (
                     <span className="absolute -right-0.5 -top-0.5 h-4 min-w-4 px-1 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
                       {supportAlertCount}
@@ -917,59 +858,52 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                     onClick={closeSupportPopup}
                   />
 
-                  {/* Support Popup - Full height on mobile, dropdown on desktop */}
+                  {/* Support Popup */}
                   <div
-                    className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-slate-900 sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-[380px] sm:max-w-[calc(100vw-2rem)] sm:h-auto sm:max-h-[min(520px,calc(100vh-8rem))] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-slate-200 dark:sm:border-slate-700"
+                    className="fixed inset-0 z-[70] flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-1 sm:w-80 sm:h-auto sm:max-h-96 sm:border sm:border-gray-200 sm:shadow-lg"
                     style={{ height: '100dvh' }}
                   >
                     {/* Header */}
-                    <div className="flex items-center justify-between h-14 px-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0 safe-area-top">
-                      {/* Back button - available for all users when viewing a thread */}
+                    <div className="flex items-center justify-between h-12 px-3 border-b border-gray-200 bg-white flex-shrink-0">
+                      {/* Back button */}
                       {activeSupportThreadId ? (
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9"
+                          className="h-8 w-8"
                           onClick={() => {
                             setActiveSupportThreadId(null);
                             setSupportMessages([]);
                           }}
                         >
-                          <ArrowLeft className="h-5 w-5" />
+                          <ArrowLeft className="h-4 w-4" />
                         </Button>
                       ) : (
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-                            <MessageCircle className="w-4.5 h-4.5 text-white" />
-                          </div>
-                          <div>
-                            <span className="text-sm font-semibold text-slate-800 dark:text-white block">{supportPopupHeader}</span>
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                              {locale === 'bn' ? 'অনলাইন' : 'Online'}
-                            </span>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <MessageCircle className="w-4 h-4 text-gray-600" />
+                          <span className="text-sm font-medium text-gray-800">{supportPopupHeader}</span>
                         </div>
                       )}
                       {activeSupportThreadId && (
-                        <span className="text-xs font-medium text-slate-600 dark:text-slate-400 truncate max-w-[120px] flex-1 text-center">
+                        <span className="text-xs text-gray-500 truncate max-w-[100px] flex-1 text-center">
                           {activeSupportThread?.memberName || ''}
                         </span>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-9 w-9"
+                        className="h-8 w-8"
                         onClick={closeSupportPopup}
                       >
-                        <X className="h-5 w-5" />
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
 
                     {supportLoading ? (
-                      <div className="flex-1 flex items-center justify-center min-h-[300px] sm:min-h-[400px]">
-                        <div className="flex flex-col items-center gap-3">
-                          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-                          <span className="text-sm text-muted-foreground">
+                      <div className="flex-1 flex items-center justify-center min-h-[200px]">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs text-gray-500">
                             {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
                           </span>
                         </div>
@@ -979,18 +913,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         {/* Messages Container */}
                         <div
                           ref={supportMessagesRef}
-                          className="flex-1 overflow-y-auto px-3 py-3 bg-slate-50 dark:bg-slate-950/50 touch-pan-y scroll-touch overscroll-none"
+                          className="flex-1 overflow-y-auto px-3 py-2 bg-gray-50"
                         >
                           {supportMessages.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center py-8">
-                              <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
-                                <MessageCircle className="w-7 h-7 text-slate-400" />
-                              </div>
-                              <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                            <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center py-4">
+                              <MessageCircle className="w-6 h-6 text-gray-300 mb-2" />
+                              <p className="text-xs text-gray-500">
                                 {locale === 'bn' ? 'কোনো বার্তা নেই' : 'No messages yet'}
-                              </p>
-                              <p className="text-xs text-slate-400">
-                                {locale === 'bn' ? 'আপনার প্রথম বার্তা পাঠান!' : 'Send your first message!'}
                               </p>
                             </div>
                           ) : (
@@ -998,28 +927,22 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               {supportMessages.map((msg, idx) => {
                                 const isMe = userInfo?.id === msg.senderId;
                                 const prevMsg = supportMessages[idx - 1];
-                                const nextMsg = supportMessages[idx + 1];
                                 const isFirstInGroup = !prevMsg || prevMsg.senderId !== msg.senderId;
-                                const isLastInGroup = !nextMsg || nextMsg.senderId !== msg.senderId;
 
                                 return (
                                   <div
                                     key={msg.id}
-                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-3' : 'mt-0.5'}`}
+                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-2' : 'mt-0.5'}`}
                                   >
                                     <div
-                                      className={`max-w-[82%] px-3.5 py-2 text-[13px] leading-relaxed shadow-sm ${
+                                      className={`max-w-[80%] px-3 py-1.5 text-xs rounded ${
                                         isMe
-                                          ? `bg-emerald-500 text-white ${isLastInGroup ? 'rounded-2xl rounded-br-md' : 'rounded-2xl'}`
-                                          : `bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-700 dark:text-slate-200 ${isLastInGroup ? 'rounded-2xl rounded-bl-md' : 'rounded-2xl'}`
+                                          ? 'bg-blue-500 text-white'
+                                          : 'bg-white border border-gray-200 text-gray-700'
                                       }`}
                                     >
                                       <p className="whitespace-pre-wrap break-words">{msg.message}</p>
-                                      <p
-                                        className={`mt-1 text-[10px] text-right ${
-                                          isMe ? 'text-emerald-100' : 'text-slate-400 dark:text-slate-500'
-                                        }`}
-                                      >
+                                      <p className={`mt-0.5 text-[10px] text-right ${isMe ? 'text-blue-100' : 'text-gray-400'}`}>
                                         {formatSupportTime(msg.createdAt)}
                                       </p>
                                     </div>
@@ -1032,21 +955,21 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
                         {/* Mark Processed Button (for workers/admins) */}
                         {role !== 'member' && activeSupportThread?.status !== 'PROCESSED' && (
-                          <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0">
+                          <div className="px-3 py-2 border-t border-gray-200 bg-white flex-shrink-0">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={markSupportThreadProcessed}
-                              className="w-full h-9 text-xs gap-2"
+                              className="w-full h-8 text-xs gap-1"
                             >
-                              <CheckCircle2 className="h-4 w-4" />
-                              {locale === 'bn' ? 'সমাধান হিসেবে চিহ্নিত করুন' : 'Mark as Resolved'}
+                              <CheckCircle2 className="h-3 w-3" />
+                              {locale === 'bn' ? 'সমাধান' : 'Resolved'}
                             </Button>
                           </div>
                         )}
 
                         {/* Input Area */}
-                        <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0 safe-area-bottom">
+                        <div className="p-2 border-t border-gray-200 bg-white flex-shrink-0">
                           <div className="flex gap-2 items-center">
                             <Input
                               value={supportInput}
@@ -1058,47 +981,38 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                 }
                               }}
                               onFocus={() => {
-                                // Scroll to bottom when input is focused (keyboard opens)
                                 setTimeout(() => scrollSupportToBottom(), 300);
                               }}
-                              placeholder={locale === 'bn' ? 'বার্তা লিখুন...' : 'Type a message...'}
+                              placeholder={locale === 'bn' ? 'বার্তা...' : 'Message...'}
                               disabled={!activeSupportThreadId && role !== 'member'}
-                              className="flex-1 rounded-full bg-slate-100 dark:bg-slate-800 border-0 px-4 h-11 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
+                              className="flex-1 h-8 text-xs"
                             />
                             <Button
                               onClick={sendSupportMessage}
                               disabled={isSupportSending || !supportInput.trim() || (!activeSupportThreadId && role !== 'member')}
                               size="icon"
-                              className="shrink-0 h-11 w-11 rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-sm"
+                              className="shrink-0 h-8 w-8 bg-blue-500 hover:bg-blue-600"
                             >
-                              <Send className={`h-5 w-5 ${isSupportSending ? 'animate-pulse' : ''}`} />
+                              <Send className={`h-3.5 w-3.5 ${isSupportSending ? 'animate-pulse' : ''}`} />
                             </Button>
                           </div>
                         </div>
                       </div>
                     ) : (
                       // Thread List
-                      <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900 touch-pan-y scroll-touch overscroll-none">
+                      <div className="flex-1 overflow-y-auto bg-white">
                         {supportThreads.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center px-6 py-8">
-                            <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
-                              <MessageCircle className="w-8 h-8 text-slate-400" />
-                            </div>
-                            <p className="text-base font-medium text-slate-700 dark:text-slate-300 mb-2">
+                          <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center px-4 py-6">
+                            <MessageCircle className="w-8 h-8 text-gray-300 mb-2" />
+                            <p className="text-sm text-gray-600 mb-1">
                               {role === 'member'
                                 ? (locale === 'bn' ? 'সাপোর্টের প্রয়োজন?' : 'Need Support?')
                                 : (locale === 'bn' ? 'কোনো কথোপকথন নেই' : 'No Conversations')
                               }
                             </p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[240px]">
-                              {role === 'member'
-                                ? (locale === 'bn' ? 'সাপোর্ট পেইজে যান এবং আপনার প্রশ্ন পাঠান' : 'Visit the support page to send your question')
-                                : (locale === 'bn' ? 'সাপোর্ট অনুরোধ এখানে দেখা যাবে' : 'Support requests will appear here')
-                              }
-                            </p>
                           </div>
                         ) : (
-                          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                          <div className="divide-y divide-gray-100">
                             {supportThreads.map((thread) => {
                               const seenAt = seenSupportThreadIds[thread.id];
                               const isUnread = !seenAt || new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
@@ -1110,28 +1024,28 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                 <button
                                   key={thread.id}
                                   type="button"
-                                  className="w-full text-left px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors active:bg-slate-100 dark:active:bg-slate-800"
+                                  className="w-full text-left px-3 py-2.5 hover:bg-gray-50"
                                   onClick={() => openThread(thread)}
                                 >
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-2">
                                     <div className="relative flex-shrink-0">
-                                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center text-white font-semibold text-sm">
+                                      <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white font-medium text-xs">
                                         {thread.memberName ? thread.memberName.charAt(0).toUpperCase() : '?'}
                                       </div>
                                       {showBadge && (
-                                        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 border border-white rounded-full" />
                                       )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <div className="flex items-center justify-between gap-2 mb-0.5">
-                                        <span className="text-sm font-semibold text-slate-800 dark:text-white truncate">
+                                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                                        <span className="text-xs font-medium text-gray-800 truncate">
                                           {thread.memberName || (locale === 'bn' ? 'সদস্য' : 'Member')}
                                         </span>
-                                        <span className="text-[11px] text-slate-400 flex-shrink-0">
+                                        <span className="text-[10px] text-gray-400 flex-shrink-0">
                                           {formatSupportTime(thread.latestAt)}
                                         </span>
                                       </div>
-                                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                      <p className="text-[11px] text-gray-500 truncate">
                                         {thread.latestMessage}
                                       </p>
                                     </div>
@@ -1151,35 +1065,32 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             {/* User Avatar - Clickable to Profile */}
             <Link
               href={`${basePath}/profile`}
-              className="flex items-center gap-2 pl-2 border-l border-slate-200 hover:bg-slate-100 rounded-lg py-1.5 px-2 -mr-2 transition-colors"
+              className="flex items-center gap-2 ml-1 pl-2 border-l border-gray-200 hover:bg-gray-100 py-1 px-2 -mr-2"
             >
-              <div className="relative h-9 w-9 rounded-full overflow-hidden flex-shrink-0">
+              <div className="relative h-7 w-7 rounded-full overflow-hidden flex-shrink-0">
                 {userInfo?.avatarUrl ? (
                   <Image
                     src={userInfo.avatarUrl}
                     alt={userInfo.nameEn || 'User'}
                     fill
-                    sizes="36px"
+                    sizes="28px"
                     className="object-cover"
                   />
                 ) : (
-                  <div className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || 'User') : 'bg-slate-400'} flex items-center justify-center font-semibold text-sm text-white`}>
+                  <div className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || 'User') : 'bg-gray-400'} flex items-center justify-center font-medium text-xs text-white`}>
                     {isHydrated && userInfo ? getInitials(locale === 'bn' ? (userInfo.nameBn || userInfo.nameEn) : (userInfo.nameEn || userInfo.nameBn) || 'U') : ''}
                   </div>
                 )}
               </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium text-slate-700">
-                  {locale === 'bn' ? (userInfo?.nameBn || userInfo?.nameEn) : (userInfo?.nameEn || userInfo?.nameBn) || 'User'}
-                </p>
-                <p className="text-xs text-slate-500">{roleLabels[role]}</p>
-              </div>
+              <span className="hidden sm:inline text-xs font-medium text-gray-700 max-w-[80px] truncate">
+                {locale === 'bn' ? (userInfo?.nameBn || userInfo?.nameEn) : (userInfo?.nameEn || userInfo?.nameBn) || 'User'}
+              </span>
             </Link>
           </div>
         </header>
 
         {/* Page Content */}
-        <main className="p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="p-4">{children}</main>
       </div>
     </div>
   );
