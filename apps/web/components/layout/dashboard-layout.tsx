@@ -571,10 +571,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     if (!trimmed) return;
     setIsSupportSending(true);
     try {
-      const payload = await apiPost<{ threadId?: string }>('/v1/dashboard/support/messages', {
-        threadId: activeSupportThreadId,
-        message: trimmed,
-      });
+      // Build request body - omit threadId if null to let backend create new thread
+      const body: Record<string, unknown> = { message: trimmed };
+      if (activeSupportThreadId) {
+        body.threadId = activeSupportThreadId;
+      }
+      const payload = await apiPost<{ threadId?: string }>('/v1/dashboard/support/messages', body);
       setSupportInput('');
       const threadId = payload?.threadId || activeSupportThreadId;
       if (threadId) {
@@ -860,17 +862,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
                   {/* Support Popup */}
                   <div
-                    className="fixed inset-0 z-[70] flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-1 sm:w-80 sm:h-auto sm:max-h-96 sm:border sm:border-gray-200 sm:shadow-lg"
+                    className="fixed inset-0 z-[70] flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-80 sm:h-auto sm:max-h-[28rem] sm:border sm:border-neutral-200/60 sm:shadow-xl sm:shadow-black/5 sm:rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
                     style={{ height: '100dvh' }}
                   >
                     {/* Header */}
-                    <div className="flex items-center justify-between h-12 px-3 border-b border-gray-200 bg-white flex-shrink-0">
-                      {/* Back button */}
-                      {activeSupportThreadId ? (
+                    <div className="flex items-center justify-between h-14 px-4 border-b border-neutral-100 bg-white/80 backdrop-blur-xl flex-shrink-0 z-10">
+                      {/* Back button / Title */}
+                      {(activeSupportThreadId && role !== 'member') ? (
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-8 w-8 text-neutral-500 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
                           onClick={() => {
                             setActiveSupportThreadId(null);
                             setSupportMessages([]);
@@ -880,50 +882,71 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         </Button>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <MessageCircle className="w-4 h-4 text-gray-600" />
-                          <span className="text-sm font-medium text-gray-800">{supportPopupHeader}</span>
+                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-sm">
+                            <MessageCircle className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold tracking-tight text-neutral-900">{supportPopupHeader}</span>
+                            <span className="text-[10px] font-medium text-emerald-600">Online</span>
+                          </div>
                         </div>
                       )}
-                      {activeSupportThreadId && (
-                        <span className="text-xs text-gray-500 truncate max-w-[100px] flex-1 text-center">
+                      {(activeSupportThreadId && role !== 'member') && (
+                        <span className="text-xs font-medium text-neutral-500 truncate max-w-[120px] flex-1 text-center">
                           {activeSupportThread?.memberName || ''}
                         </span>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={closeSupportPopup}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                      {role !== 'member' || !activeSupportThreadId ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
+                          onClick={closeSupportPopup}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
+                          onClick={closeSupportPopup}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
 
                     {supportLoading ? (
-                      <div className="flex-1 flex items-center justify-center min-h-[200px]">
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                          <span className="text-xs text-gray-500">
+                      <div className="flex-1 flex items-center justify-center min-h-[250px] bg-neutral-50/50">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs font-medium text-neutral-400">
                             {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
                           </span>
                         </div>
                       </div>
-                    ) : activeSupportThreadId ? (
-                      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                    ) : (activeSupportThreadId || role === 'member') ? (
+                      <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-neutral-50/30">
                         {/* Messages Container */}
                         <div
                           ref={supportMessagesRef}
-                          className="flex-1 overflow-y-auto px-3 py-2 bg-gray-50"
+                          className="flex-1 overflow-y-auto px-4 py-4"
                         >
                           {supportMessages.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center py-4">
-                              <MessageCircle className="w-6 h-6 text-gray-300 mb-2" />
-                              <p className="text-xs text-gray-500">
-                                {locale === 'bn' ? 'কোনো বার্তা নেই' : 'No messages yet'}
+                            <div className="flex flex-col items-center justify-center h-full min-h-[180px] text-center p-6 bg-white border border-neutral-100 shadow-sm rounded-2xl mx-2 my-auto">
+                              <div className="h-12 w-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-3">
+                                <MessageCircle className="w-6 h-6" />
+                              </div>
+                              <h4 className="text-sm font-semibold text-neutral-900 mb-1">
+                                {locale === 'bn' ? 'আমরা সাহায্য করতে প্রস্তুত!' : 'We\'re here to help!'}
+                              </h4>
+                              <p className="text-xs text-neutral-500 leading-relaxed">
+                                {locale === 'bn' ? 'আপনার প্রশ্ন বা সমস্যা নিচে লিখে পাঠান।' : 'Send us your question or concern below.'}
                               </p>
                             </div>
                           ) : (
-                            <div className="space-y-1">
+                            <div className="space-y-3">
                               {supportMessages.map((msg, idx) => {
                                 const isMe = userInfo?.id === msg.senderId;
                                 const prevMsg = supportMessages[idx - 1];
@@ -932,17 +955,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                 return (
                                   <div
                                     key={msg.id}
-                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-2' : 'mt-0.5'}`}
+                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-4' : 'mt-1'}`}
                                   >
                                     <div
-                                      className={`max-w-[80%] px-3 py-1.5 text-xs rounded ${
+                                      className={`relative max-w-[85%] px-3.5 py-2 text-[13px] leading-relaxed shadow-sm ${
                                         isMe
-                                          ? 'bg-blue-500 text-white'
-                                          : 'bg-white border border-gray-200 text-gray-700'
+                                          ? 'bg-emerald-500 text-white rounded-2xl rounded-tr-sm'
+                                          : 'bg-white border border-neutral-200/60 text-neutral-800 rounded-2xl rounded-tl-sm'
                                       }`}
                                     >
                                       <p className="whitespace-pre-wrap break-words">{msg.message}</p>
-                                      <p className={`mt-0.5 text-[10px] text-right ${isMe ? 'text-blue-100' : 'text-gray-400'}`}>
+                                      <p className={`mt-1 text-[9px] font-medium text-right ${isMe ? 'text-emerald-100' : 'text-neutral-400'}`}>
                                         {formatSupportTime(msg.createdAt)}
                                       </p>
                                     </div>
@@ -955,25 +978,30 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
                         {/* Mark Processed Button (for workers/admins) */}
                         {role !== 'member' && activeSupportThread?.status !== 'PROCESSED' && (
-                          <div className="px-3 py-2 border-t border-gray-200 bg-white flex-shrink-0">
+                          <div className="px-4 py-2 border-t border-neutral-100 bg-white flex-shrink-0 z-10">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={markSupportThreadProcessed}
-                              className="w-full h-8 text-xs gap-1"
+                              className="w-full h-8 text-xs font-semibold gap-1.5 shadow-sm rounded-full text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             >
-                              <CheckCircle2 className="h-3 w-3" />
-                              {locale === 'bn' ? 'সমাধান' : 'Resolved'}
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {locale === 'bn' ? 'সমাধান' : 'Mark Resolved'}
                             </Button>
                           </div>
                         )}
 
                         {/* Input Area */}
-                        <div className="p-2 border-t border-gray-200 bg-white flex-shrink-0">
-                          <div className="flex gap-2 items-center">
-                            <Input
+                        <div className="p-3 border-t border-neutral-100 bg-white flex-shrink-0 z-10">
+                          <div className="flex gap-2 items-end">
+                            <textarea
+                              rows={1}
                               value={supportInput}
-                              onChange={(e) => setSupportInput(e.target.value)}
+                              onChange={(e) => {
+                                setSupportInput(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                   e.preventDefault();
@@ -983,69 +1011,66 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               onFocus={() => {
                                 setTimeout(() => scrollSupportToBottom(), 300);
                               }}
-                              placeholder={locale === 'bn' ? 'বার্তা...' : 'Message...'}
+                              placeholder={locale === 'bn' ? 'আপনার বার্তা লিখুন...' : 'Type a message...'}
                               disabled={!activeSupportThreadId && role !== 'member'}
-                              className="flex-1 h-8 text-xs"
+                              className="flex-1 resize-none overflow-y-auto max-h-[100px] min-h-[38px] text-sm px-4 py-2.5 bg-neutral-100/70 border-transparent rounded-2xl focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 text-neutral-900 placeholder:text-neutral-400 transition-all"
                             />
                             <Button
                               onClick={sendSupportMessage}
                               disabled={isSupportSending || !supportInput.trim() || (!activeSupportThreadId && role !== 'member')}
                               size="icon"
-                              className="shrink-0 h-8 w-8 bg-blue-500 hover:bg-blue-600"
+                              className="shrink-0 h-[38px] w-[38px] rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-sm transition-colors text-white disabled:opacity-50"
                             >
-                              <Send className={`h-3.5 w-3.5 ${isSupportSending ? 'animate-pulse' : ''}`} />
+                              <Send className={`h-4 w-4 ${isSupportSending ? '-translate-y-0.5 -translate-x-[-0.5px] opacity-70' : 'translate-x-px'} transition-transform`} />
                             </Button>
                           </div>
                         </div>
                       </div>
                     ) : (
                       // Thread List
-                      <div className="flex-1 overflow-y-auto bg-white">
+                      <div className="flex-1 overflow-y-auto bg-neutral-50/50">
                         {supportThreads.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center px-4 py-6">
-                            <MessageCircle className="w-8 h-8 text-gray-300 mb-2" />
-                            <p className="text-sm text-gray-600 mb-1">
-                              {role === 'member'
-                                ? (locale === 'bn' ? 'সাপোর্টের প্রয়োজন?' : 'Need Support?')
-                                : (locale === 'bn' ? 'কোনো কথোপকথন নেই' : 'No Conversations')
-                              }
+                          <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center px-4 py-6">
+                            <div className="w-12 h-12 bg-white border border-neutral-100 rounded-full flex items-center justify-center shadow-sm mb-3">
+                              <MessageCircle className="w-5 h-5 text-neutral-300" />
+                            </div>
+                            <p className="text-sm font-medium text-neutral-600 mb-1">
+                              {locale === 'bn' ? 'কোনো কথোপকথন নেই' : 'No Conversations'}
                             </p>
                           </div>
                         ) : (
-                          <div className="divide-y divide-gray-100">
+                          <div className="divide-y divide-neutral-100/80">
                             {supportThreads.map((thread) => {
                               const seenAt = seenSupportThreadIds[thread.id];
                               const isUnread = !seenAt || new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
-                              const showBadge = role === 'member'
-                                ? (isUnread && thread.latestSenderRole !== 'MEMBER')
-                                : (thread.status !== 'PROCESSED');
+                              const showBadge = thread.status !== 'PROCESSED';
 
                               return (
                                 <button
                                   key={thread.id}
                                   type="button"
-                                  className="w-full text-left px-3 py-2.5 hover:bg-gray-50"
+                                  className="w-full text-left px-4 py-3 bg-white hover:bg-neutral-50 transition-colors group"
                                   onClick={() => openThread(thread)}
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <div className="relative flex-shrink-0">
-                                      <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white font-medium text-xs">
+                                  <div className="flex gap-3">
+                                    <div className="relative flex-shrink-0 mt-0.5">
+                                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm group-hover:shadow-md transition-shadow">
                                         {thread.memberName ? thread.memberName.charAt(0).toUpperCase() : '?'}
                                       </div>
                                       {showBadge && (
-                                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 border border-white rounded-full" />
+                                        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full shadow-sm" />
                                       )}
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center justify-between gap-1 mb-0.5">
-                                        <span className="text-xs font-medium text-gray-800 truncate">
+                                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                      <div className="flex items-center justify-between gap-2 mb-1">
+                                        <span className="text-sm font-semibold text-neutral-900 truncate">
                                           {thread.memberName || (locale === 'bn' ? 'সদস্য' : 'Member')}
                                         </span>
-                                        <span className="text-[10px] text-gray-400 flex-shrink-0">
+                                        <span className="text-[10px] font-medium text-neutral-400 flex-shrink-0">
                                           {formatSupportTime(thread.latestAt)}
                                         </span>
                                       </div>
-                                      <p className="text-[11px] text-gray-500 truncate">
+                                      <p className={`text-[12px] truncate ${isUnread ? 'text-neutral-900 font-medium' : 'text-neutral-500'}`}>
                                         {thread.latestMessage}
                                       </p>
                                     </div>

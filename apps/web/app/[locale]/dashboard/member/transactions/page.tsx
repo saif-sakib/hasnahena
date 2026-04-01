@@ -4,24 +4,18 @@ import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
-  Receipt,
   Search,
-  Filter,
   Download,
   ArrowUpRight,
   ArrowDownRight,
   AlertCircle,
-  CheckCircle2,
   X,
-  Calendar,
   ChevronLeft,
   ChevronRight,
   Printer,
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
@@ -314,318 +308,236 @@ export default function TransactionsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold">{t('transactionHistory')}</h1>
-        <p className="text-muted-foreground">
-          {locale === 'bn'
-            ? 'আপনার সকল লেনদেনের ইতিহাস দেখুন'
-            : 'View your complete transaction history'}
-        </p>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-gray-900">{t('transactionHistory')}</h1>
+        <Button 
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5 text-xs"
+          onClick={handleDownloadStatement}
+          disabled={transactions.length === 0}
+        >
+          <Download className="h-3.5 w-3.5" />
+          {locale === 'bn' ? 'ডাউনলোড' : 'Download'}
+        </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{t('totalDeposited')}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <ArrowUpRight className="h-5 w-5 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}
-                </p>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(totalWithdrawals, locale)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
-                <ArrowDownRight className="h-5 w-5 text-red-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'কিস্তি পরিশোধ' : 'Loan Repayments'}
-                </p>
-                <p className="text-2xl font-bold text-amber-600">{formatCurrency(totalLoanRepayments, locale)}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                <Receipt className="h-5 w-5 text-amber-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {locale === 'bn' ? 'মোট লেনদেন' : 'Total Transactions'}
-                </p>
-                <p className="text-2xl font-bold">{transactions.length}</p>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-slate-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Summary Stats */}
+      <div className="border border-gray-200 bg-white">
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</p>
+            <p className="text-sm font-semibold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'মোট উত্তোলন' : 'Withdrawals'}</p>
+            <p className="text-sm font-semibold text-red-600">{formatCurrency(totalWithdrawals, locale)}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'কিস্তি পরিশোধ' : 'Repayments'}</p>
+            <p className="text-sm font-semibold text-amber-600">{formatCurrency(totalLoanRepayments, locale)}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'মোট লেনদেন' : 'Total Txns'}</p>
+            <p className="text-sm font-semibold text-gray-900">{transactions.length}</p>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder={locale === 'bn' ? 'রশিদ নম্বর বা বিবরণ খুঁজুন...' : 'Search by receipt number or description...'}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as TransactionType | 'ALL')}
-                className="h-10 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option value="ALL">{locale === 'bn' ? 'সব ধরন' : 'All Types'}</option>
-                <option value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</option>
-                <option value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</option>
-                <option value="LOAN_DISBURSEMENT">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loan Disbursement'}</option>
-                <option value="LOAN_REPAYMENT">{locale === 'bn' ? 'কিস্তি পরিশোধ' : 'Loan Repayment'}</option>
-              </select>
-              <Button 
-                variant="outline" 
-                className="gap-2"
-                onClick={handleDownloadStatement}
-                disabled={transactions.length === 0}
-              >
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('downloadStatement')}</span>
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Input
+            type="text"
+            placeholder={locale === 'bn' ? 'রশিদ নম্বর খুঁজুন...' : 'Search receipt...'}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-8 text-sm"
+          />
+        </div>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value as TransactionType | 'ALL')}
+          className="h-8 px-3 border border-gray-200 bg-white text-sm"
+        >
+          <option value="ALL">{locale === 'bn' ? 'সব ধরন' : 'All Types'}</option>
+          <option value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</option>
+          <option value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</option>
+          <option value="LOAN_DISBURSEMENT">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loan'}</option>
+          <option value="LOAN_REPAYMENT">{locale === 'bn' ? 'কিস্তি' : 'Repayment'}</option>
+        </select>
+      </div>
 
-      {/* Transactions List */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle>{t('allTransactions')}</CardTitle>
-          <CardDescription>
-            {locale === 'bn'
-              ? `${filteredTransactions.length}টি লেনদেন পাওয়া গেছে`
-              : `Found ${filteredTransactions.length} transactions`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {paginatedTransactions.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                {locale === 'bn' ? 'কোন লেনদেন পাওয়া যায়নি' : 'No transactions found'}
-              </div>
-            ) : (
-              paginatedTransactions.map((tx) => {
+      {/* Transactions Table */}
+      <div className="border border-gray-200 bg-white">
+        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700">
+            {locale === 'bn' ? 'লেনদেনসমূহ' : 'Transactions'}
+          </span>
+          <span className="text-xs text-gray-500">
+            {filteredTransactions.length} {locale === 'bn' ? 'টি' : 'found'}
+          </span>
+        </div>
+        
+        {isLoading ? (
+          <div className="px-4 py-8 text-center text-sm text-gray-500">
+            {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+          </div>
+        ) : paginatedTransactions.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-gray-500">
+            {locale === 'bn' ? 'কোন লেনদেন পাওয়া যায়নি' : 'No transactions found'}
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs">
+                <th className="px-4 py-2 text-left font-medium text-gray-600">
+                  {locale === 'bn' ? 'তারিখ' : 'Date'}
+                </th>
+                <th className="px-4 py-2 text-left font-medium text-gray-600">
+                  {locale === 'bn' ? 'ধরন' : 'Type'}
+                </th>
+                <th className="px-4 py-2 text-right font-medium text-gray-600">
+                  {locale === 'bn' ? 'পরিমাণ' : 'Amount'}
+                </th>
+                <th className="px-4 py-2 text-center font-medium text-gray-600 hidden sm:table-cell">
+                  {locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}
+                </th>
+                <th className="px-4 py-2 text-right font-medium text-gray-600 hidden md:table-cell">
+                  {locale === 'bn' ? 'ব্যালেন্স' : 'Balance'}
+                </th>
+                <th className="px-4 py-2 w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedTransactions.map((tx) => {
                 const typeInfo = getTransactionTypeInfo(tx.type);
                 const statusInfo = getStatusLabel(tx.status);
-                const IconComponent = typeInfo.icon;
+                const isCredit = tx.type === 'DEPOSIT' || tx.type === 'LOAN_DISBURSEMENT';
 
                 return (
-                  <div
-                    key={tx.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl bg-slate-50 p-4 hover:bg-slate-100 transition-colors"
-                  >
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={`h-10 w-10 rounded-full ${typeInfo.bgColor} ${typeInfo.color} flex items-center justify-center flex-shrink-0`}
-                      >
-                        <IconComponent className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className={`font-semibold ${typeInfo.color}`}>
-                            {tx.type === 'DEPOSIT' || tx.type === 'LOAN_DISBURSEMENT' ? '+' : '-'}
-                            {formatCurrency(tx.amount, locale)}
-                          </p>
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}
-                          >
-                            {locale === 'bn' ? statusInfo.bn : statusInfo.en}
-                          </span>
-                        </div>
-                        <p className="text-sm font-medium">
-                          {locale === 'bn' ? typeInfo.bn : typeInfo.en}
-                          {tx.description && ` • ${tx.description}`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {(tx.receiptNumber || '-') } • {formatDateLocal(tx.date)} {formatTime(tx.date)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 sm:ml-0">
-                      {tx.balanceAfter !== undefined && (
-                        <div className="text-right hidden sm:block">
-                          <p className="text-xs text-muted-foreground">{t('balance')}</p>
-                          <p className="font-medium">{formatCurrency(tx.balanceAfter, locale)}</p>
-                        </div>
-                      )}
-                      {/* Print receipt for confirmed transactions */}
+                  <tr key={tx.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{formatDateLocal(tx.date)}</p>
+                      <p className="text-xs text-gray-400">{formatTime(tx.date)}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{locale === 'bn' ? typeInfo.bn : typeInfo.en}</p>
+                      <p className="text-xs text-gray-400">{tx.receiptNumber}</p>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                        {isCredit ? '+' : '-'}{formatCurrency(tx.amount, locale)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center hidden sm:table-cell">
+                      <span className={`inline-flex px-2 py-0.5 text-xs font-medium ${statusInfo.color}`}>
+                        {locale === 'bn' ? statusInfo.bn : statusInfo.en}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell">
+                      {tx.balanceAfter !== undefined ? formatCurrency(tx.balanceAfter, locale) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
                       {tx.status === 'CONFIRMED' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        <button
                           onClick={() => handlePrintReceipt(tx)}
-                          className="gap-1"
+                          className="text-gray-400 hover:text-gray-600"
                         >
                           <Printer className="h-4 w-4" />
-                        </Button>
+                        </button>
                       )}
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 );
-              })
-            )}
-          </div>
+              })}
+            </tbody>
+          </table>
+        )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6 pt-4 border-t">
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn'
-                  ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredTransactions.length)} এর ${filteredTransactions.length}`
-                  : `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, filteredTransactions.length)} of ${filteredTransactions.length}`}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-xs">
+            <span className="text-gray-500">
+              {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredTransactions.length)} / {filteredTransactions.length}
+            </span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1 border border-gray-200 bg-white disabled:opacity-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1 border border-gray-200 bg-white disabled:opacity-50"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </div>
 
       {/* Dispute Modal */}
       {showDisputeModal && selectedTransaction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <Card className="w-full max-w-md rounded-2xl shadow-xl">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-red-600" />
-                  {t('raiseDispute')}
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setShowDisputeModal(false);
-                    setSelectedTransaction(null);
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <CardDescription>
-                {locale === 'bn'
-                  ? 'এই লেনদেনে সমস্যা থাকলে বিরোধ উত্থাপন করুন'
-                  : 'Raise a dispute if there is an issue with this transaction'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-4 p-3 rounded-lg bg-slate-50">
-                <p className="text-sm text-muted-foreground">{t('receiptNumber')}</p>
-                <p className="font-medium">{selectedTransaction.receiptNumber}</p>
-                <p className="text-sm text-muted-foreground mt-2">{t('amount')}</p>
-                <p className="font-medium">{formatCurrency(selectedTransaction.amount, locale)}</p>
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md border border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                {t('raiseDispute')}
+              </h3>
+              <button onClick={() => { setShowDisputeModal(false); setSelectedTransaction(null); }} className="text-gray-400 hover:text-gray-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="mb-4 p-3 bg-gray-50 text-sm">
+                <p className="text-gray-500">{t('receiptNumber')}: <span className="font-medium text-gray-900">{selectedTransaction.receiptNumber}</span></p>
+                <p className="text-gray-500">{t('amount')}: <span className="font-medium text-gray-900">{formatCurrency(selectedTransaction.amount, locale)}</span></p>
               </div>
               {actionError && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="mb-4 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {actionError}
                 </div>
               )}
-
-              <form onSubmit={handleSubmitDispute} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="correctAmount">{t('correctAmount')}</Label>
+              <form onSubmit={handleSubmitDispute} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('correctAmount')}</label>
                   <Input
-                    id="correctAmount"
                     type="number"
-                    placeholder={locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter correct amount'}
+                    placeholder={locale === 'bn' ? 'সঠিক পরিমাণ' : 'Correct amount'}
                     value={correctAmount}
                     onChange={(e) => setCorrectAmount(e.target.value)}
+                    className="h-8 text-sm"
                     required
                   />
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="reason">{t('disputeReason')}</Label>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">{t('disputeReason')}</label>
                   <textarea
-                    id="reason"
-                    className="w-full min-h-[100px] px-3 py-2 rounded-md border border-input bg-background text-sm"
-                    placeholder={locale === 'bn' ? 'বিরোধের কারণ বিস্তারিত লিখুন' : 'Describe the reason for dispute'}
+                    className="w-full min-h-[80px] px-3 py-2 border border-gray-200 text-sm"
+                    placeholder={locale === 'bn' ? 'কারণ লিখুন' : 'Describe the issue'}
                     value={disputeReason}
                     onChange={(e) => setDisputeReason(e.target.value)}
                     required
                   />
                 </div>
-
                 <div className="flex gap-2">
-                  <Button type="submit" className="flex-1 gap-2">
-                    {t('submitDispute')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowDisputeModal(false);
-                      setSelectedTransaction(null);
-                    }}
-                  >
+                  <Button type="submit" className="flex-1 h-8 text-xs">{t('submitDispute')}</Button>
+                  <Button type="button" variant="outline" className="h-8 text-xs" onClick={() => { setShowDisputeModal(false); setSelectedTransaction(null); }}>
                     {locale === 'bn' ? 'বাতিল' : 'Cancel'}
                   </Button>
                 </div>
               </form>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       )}
     </div>

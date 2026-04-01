@@ -6,23 +6,11 @@ import { useRouter } from 'next/navigation';
 import {
   HandCoins,
   AlertCircle,
-  TrendingUp,
-  Users,
   Calendar,
-  FileText,
-  ChevronRight,
-  Info,
   MessageCircle,
+  X,
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
@@ -112,310 +100,273 @@ export default function LoansPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {actionError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {actionError}
         </div>
       )}
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {t('myLoans')}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'আপনার ঋণের তথ্য ও স্থিতি দেখুন'
-              : 'View your loan information and status'}
-          </p>
-        </div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-gray-900">
+          {t('myLoans')}
+        </h1>
+        <Link href={`/${locale}/dashboard/member/support`}>
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+            <MessageCircle className="h-3.5 w-3.5" />
+            {locale === 'bn' ? 'ঋণের জন্য আবেদন' : 'Apply for Loan'}
+          </Button>
+        </Link>
       </div>
 
-      {/* Info Notice */}
-      <Card className="rounded-2xl border-blue-200 bg-blue-50/50 shadow-sm">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-blue-800 font-medium">
-                {locale === 'bn'
-                  ? 'ঋণের জন্য আবেদন করতে চাইলে অফিসে যোগাযোগ করুন অথবা কাস্টমার সাপোর্টে মেসেজ করুন।'
-                  : 'To apply for a loan, please visit the office or contact customer support.'}
-              </p>
-              <Link href={`/${locale}/dashboard/member/support`}>
-                <Button variant="link" className="h-auto p-0 mt-2 text-blue-700 hover:text-blue-900 gap-1">
-                  <MessageCircle className="h-4 w-4" />
-                  {locale === 'bn' ? 'সাপোর্টে যোগাযোগ করুন' : 'Contact Support'}
-                </Button>
-              </Link>
-            </div>
+      {/* Eligibility Info */}
+      <div className="border border-gray-200 bg-white">
+        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700">
+            {locale === 'bn' ? 'ঋণের যোগ্যতা' : 'Loan Eligibility'}
+          </span>
+          <span className={`text-xs px-2 py-0.5 ${isEligible ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {isEligible
+              ? locale === 'bn' ? 'যোগ্য' : 'Eligible'
+              : locale === 'bn' ? 'অযোগ্য' : 'Not Eligible'}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100">
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'আপনার আমানত' : 'Your Deposit'}</p>
+            <p className="text-sm font-semibold text-gray-900">{formatCurrency(currentDeposit, locale)}</p>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Eligibility Card */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-emerald-600" />
-            {t('loanEligibility')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-muted-foreground">{t('yourDeposit')}</p>
-              <p className="text-xl font-bold text-primary">{formatCurrency(currentDeposit, locale)}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-muted-foreground">{t('minDepositRequired')}</p>
-              <p className="text-xl font-bold">{formatCurrency(minDepositRequired, locale)}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-muted-foreground">{t('maxLoanAmount')}</p>
-              <p className="text-xl font-bold text-green-600">{formatCurrency(maxLoanAmount, locale)}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-sm text-muted-foreground">{t('status')}</p>
-              <p className={`text-xl font-bold ${isEligible ? 'text-green-600' : 'text-red-600'}`}>
-                {isEligible
-                  ? locale === 'bn'
-                    ? 'যোগ্য'
-                    : 'Eligible'
-                  : locale === 'bn'
-                  ? 'অযোগ্য'
-                  : 'Not Eligible'}
-              </p>
-            </div>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'ন্যূনতম প্রয়োজন' : 'Min Required'}</p>
+            <p className="text-sm font-semibold text-gray-900">{formatCurrency(minDepositRequired, locale)}</p>
           </div>
-          {!isEligible && (
-            <div className="mt-4 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-amber-800">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">
-                {locale === 'bn'
-                  ? `ঋণের জন্য আবেদন করতে আপনার আমানত কমপক্ষে ${formatCurrency(minDepositRequired, locale)} হতে হবে।`
-                  : `You need at least ${formatCurrency(minDepositRequired, locale)} in deposits to apply for a loan.`}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'সর্বোচ্চ ঋণ' : 'Max Loan'}</p>
+            <p className="text-sm font-semibold text-green-600">{formatCurrency(maxLoanAmount, locale)}</p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-xs text-gray-500">{locale === 'bn' ? 'গুণক' : 'Multiplier'}</p>
+            <p className="text-sm font-semibold text-gray-900">{maxLoanMultiplier}x</p>
+          </div>
+        </div>
+        {!isEligible && (
+          <div className="px-4 py-2 border-t border-gray-100 bg-amber-50 flex items-center gap-2 text-xs text-amber-800">
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+            {locale === 'bn'
+              ? `ঋণের জন্য আবেদন করতে আপনার আমানত কমপক্ষে ${formatCurrency(minDepositRequired, locale)} হতে হবে।`
+              : `You need at least ${formatCurrency(minDepositRequired, locale)} in deposits to apply for a loan.`}
+          </div>
+        )}
+      </div>
 
-      {/* Active Loan Card */}
+      {/* Active Loan */}
       {activeLoan && (
-        <Card className="rounded-2xl border-emerald-200 shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-white">
-                <p className="text-sm opacity-90">{t('activeLoan')}</p>
-                <p className="text-2xl font-bold">{activeLoan.loanNumber}</p>
-              </div>
-              <div className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusLabel(activeLoan.status).color}`}>
-                {locale === 'bn' ? getStatusLabel(activeLoan.status).bn : getStatusLabel(activeLoan.status).en}
-              </div>
+        <div className="border border-gray-200 bg-white">
+          <div className="px-4 py-2 border-b border-gray-200 bg-emerald-50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <HandCoins className="h-4 w-4 text-emerald-600" />
+              <span className="text-sm font-medium text-emerald-800">
+                {locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}: {activeLoan.loanNumber}
+              </span>
+            </div>
+            <span className={`text-xs px-2 py-0.5 ${getStatusLabel(activeLoan.status).color}`}>
+              {locale === 'bn' ? getStatusLabel(activeLoan.status).bn : getStatusLabel(activeLoan.status).en}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'মূল ঋণ' : 'Principal'}</p>
+              <p className="text-sm font-semibold text-gray-900">{formatCurrency(activeLoan.principalAmount, locale)}</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'বাকি' : 'Remaining'}</p>
+              <p className="text-sm font-semibold text-amber-600">{formatCurrency(activeLoan.remainingAmount, locale)}</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {activeLoan.paidInstallments}/{activeLoan.totalInstallments}
+              </p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'প্রতি কিস্তি' : 'Per Installment'}</p>
+              <p className="text-sm font-semibold text-gray-900">{formatCurrency(activeLoan.installmentAmount, locale)}</p>
             </div>
           </div>
-          <CardContent className="p-6">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <p className="text-sm text-muted-foreground">{t('loanAmount')}</p>
-                <p className="text-xl font-bold">{formatCurrency(activeLoan.principalAmount, locale)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{t('remainingAmount')}</p>
-                <p className="text-xl font-bold text-amber-600">{formatCurrency(activeLoan.remainingAmount, locale)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{t('installments')}</p>
-                <p className="text-xl font-bold">
-                  {activeLoan.paidInstallments}/{activeLoan.totalInstallments}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{t('installmentAmount')}</p>
-                <p className="text-xl font-bold">{formatCurrency(activeLoan.installmentAmount, locale)}</p>
-              </div>
-            </div>
 
-            {/* Progress Bar */}
-            <div className="mt-6">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-muted-foreground">
-                  {locale === 'bn' ? 'পরিশোধ অগ্রগতি' : 'Repayment Progress'}
-                </span>
-                <span className="font-medium">
-                  {Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100)}%
-                </span>
-              </div>
-              <div className="h-3 w-full rounded-full bg-slate-200">
-                <div
-                  className="h-3 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
-                  style={{
-                    width: `${(activeLoan.paidInstallments / activeLoan.totalInstallments) * 100}%`,
-                  }}
-                />
-              </div>
+          {/* Progress Bar */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-500">{locale === 'bn' ? 'পরিশোধ অগ্রগতি' : 'Repayment Progress'}</span>
+              <span className="font-medium">{Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100)}%</span>
             </div>
+            <div className="h-1.5 w-full bg-gray-200">
+              <div
+                className="h-1.5 bg-emerald-500 transition-all"
+                style={{ width: `${(activeLoan.paidInstallments / activeLoan.totalInstallments) * 100}%` }}
+              />
+            </div>
+          </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 border-t pt-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{t('nextInstallment')}</p>
-                  <p className="font-medium">{activeLoan.nextDueDate && formatDate(activeLoan.nextDueDate)}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                  <FileText className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{t('loanPurpose')}</p>
-                  <p className="font-medium">{activeLoan.purpose}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{locale === 'bn' ? 'জামিনদার' : 'Guarantor'}</p>
-                  <p className="font-medium">{activeLoan.guarantor}</p>
-                </div>
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            <div className="px-4 py-3 flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-gray-400" />
+              <div>
+                <p className="text-xs text-gray-500">{locale === 'bn' ? 'পরবর্তী কিস্তি' : 'Next Due'}</p>
+                <p className="text-sm font-medium">{activeLoan.nextDueDate ? formatDate(activeLoan.nextDueDate) : '-'}</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'উদ্দেশ্য' : 'Purpose'}</p>
+              <p className="text-sm font-medium truncate">{activeLoan.purpose}</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-xs text-gray-500">{locale === 'bn' ? 'জামিনদার' : 'Guarantor'}</p>
+              <p className="text-sm font-medium">{activeLoan.guarantor || '-'}</p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* No Active Loan */}
-      {!activeLoan && (
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="py-12 text-center">
-            <HandCoins className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">{t('noActiveLoan')}</h3>
-            <p className="text-muted-foreground">
-              {locale === 'bn'
-                ? 'আপনার কোন সক্রিয় ঋণ নেই।'
-                : 'You have no active loans.'}
-            </p>
-          </CardContent>
-        </Card>
+      {!activeLoan && !isLoading && (
+        <div className="border border-gray-200 bg-white px-4 py-8 text-center">
+          <HandCoins className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500">
+            {locale === 'bn' ? 'কোন সক্রিয় ঋণ নেই' : 'No active loan'}
+          </p>
+        </div>
       )}
 
       {/* Loan History */}
       {loanHistory.length > 0 && (
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>{t('loanHistory')}</CardTitle>
-            <CardDescription>
-              {locale === 'bn' ? 'আপনার পূর্ববর্তী ঋণসমূহ' : 'Your previous loans'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {isLoading ? (
-                <div className="text-center py-6 text-muted-foreground">
-                  {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
-                </div>
-              ) : loanHistory.map((loan) => {
+        <div className="border border-gray-200 bg-white">
+          <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
+            <span className="text-sm font-medium text-gray-700">
+              {locale === 'bn' ? 'ঋণের ইতিহাস' : 'Loan History'}
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs">
+                <th className="px-4 py-2 text-left font-medium text-gray-600">
+                  {locale === 'bn' ? 'ঋণ নম্বর' : 'Loan #'}
+                </th>
+                <th className="px-4 py-2 text-right font-medium text-gray-600">
+                  {locale === 'bn' ? 'পরিমাণ' : 'Amount'}
+                </th>
+                <th className="px-4 py-2 text-center font-medium text-gray-600 hidden sm:table-cell">
+                  {locale === 'bn' ? 'কিস্তি' : 'Installments'}
+                </th>
+                <th className="px-4 py-2 text-center font-medium text-gray-600">
+                  {locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {loanHistory.map((loan) => {
                 const statusInfo = getStatusLabel(loan.status);
                 return (
-                  <div
-                    key={loan.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl bg-slate-50 p-4"
+                  <tr 
+                    key={loan.id} 
+                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => setSelectedHistoryLoan(loan)}
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="h-10 w-10 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0">
-                        <HandCoins className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold">{loan.loanNumber}</p>
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}
-                          >
-                            {locale === 'bn' ? statusInfo.bn : statusInfo.en}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {formatCurrency(loan.principalAmount, locale)} • {loan.totalInstallments} {locale === 'bn' ? 'কিস্তি' : 'installments'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {loan.disbursementDate && formatDate(loan.disbursementDate)}
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => setSelectedHistoryLoan(loan)}
-                    >
-                      {locale === 'bn' ? 'বিস্তারিত' : 'Details'}
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{loan.loanNumber}</p>
+                      <p className="text-xs text-gray-500">
+                        {loan.disbursementDate && formatDate(loan.disbursementDate)}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium">
+                      {formatCurrency(loan.principalAmount, locale)}
+                    </td>
+                    <td className="px-4 py-3 text-center hidden sm:table-cell">
+                      {loan.paidInstallments}/{loan.totalInstallments}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${statusInfo.color}`}>
+                        {locale === 'bn' ? statusInfo.bn : statusInfo.en}
+                      </span>
+                    </td>
+                  </tr>
                 );
               })}
-            </div>
-          </CardContent>
-        </Card>
+            </tbody>
+          </table>
+        </div>
       )}
 
-      <Dialog open={Boolean(selectedHistoryLoan)} onOpenChange={(open) => !open && setSelectedHistoryLoan(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'ঋণের বিস্তারিত' : 'Loan Details'}</DialogTitle>
-            <DialogDescription>
-              {selectedHistoryLoan?.loanNumber}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedHistoryLoan && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</p>
-                <p className="font-medium">{locale === 'bn' ? getStatusLabel(selectedHistoryLoan.status).bn : getStatusLabel(selectedHistoryLoan.status).en}</p>
+      {/* Loan Detail Modal */}
+      {selectedHistoryLoan && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md border border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-900">
+                {locale === 'bn' ? 'ঋণের বিস্তারিত' : 'Loan Details'}
+              </h3>
+              <button onClick={() => setSelectedHistoryLoan(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'ঋণ নম্বর' : 'Loan Number'}</span>
+                <span className="font-medium">{selectedHistoryLoan.loanNumber}</span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মূল পরিমাণ' : 'Principal'}</p>
-                <p className="font-medium">{formatCurrency(selectedHistoryLoan.principalAmount, locale)}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</span>
+                <span className={`px-2 py-0.5 text-xs font-medium ${getStatusLabel(selectedHistoryLoan.status).color}`}>
+                  {locale === 'bn' ? getStatusLabel(selectedHistoryLoan.status).bn : getStatusLabel(selectedHistoryLoan.status).en}
+                </span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বাকি পরিমাণ' : 'Remaining'}</p>
-                <p className="font-medium">{formatCurrency(selectedHistoryLoan.remainingAmount, locale)}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'মূল পরিমাণ' : 'Principal'}</span>
+                <span className="font-medium">{formatCurrency(selectedHistoryLoan.principalAmount, locale)}</span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</p>
-                <p className="font-medium">{selectedHistoryLoan.paidInstallments}/{selectedHistoryLoan.totalInstallments}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'বাকি পরিমাণ' : 'Remaining'}</span>
+                <span className="font-medium">{formatCurrency(selectedHistoryLoan.remainingAmount, locale)}</span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'প্রতি কিস্তি' : 'Installment Amount'}</p>
-                <p className="font-medium">{formatCurrency(selectedHistoryLoan.installmentAmount, locale)}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</span>
+                <span className="font-medium">{selectedHistoryLoan.paidInstallments}/{selectedHistoryLoan.totalInstallments}</span>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'জামিনদার' : 'Guarantor'}</p>
-                <p className="font-medium">{selectedHistoryLoan.guarantor || '-'}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'প্রতি কিস্তি' : 'Per Installment'}</span>
+                <span className="font-medium">{formatCurrency(selectedHistoryLoan.installmentAmount, locale)}</span>
               </div>
-              <div className="sm:col-span-2">
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'ঋণের উদ্দেশ্য' : 'Purpose'}</p>
-                <p className="font-medium">{selectedHistoryLoan.purpose || '-'}</p>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'জামিনদার' : 'Guarantor'}</span>
+                <span className="font-medium">{selectedHistoryLoan.guarantor || '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">{locale === 'bn' ? 'উদ্দেশ্য' : 'Purpose'}</span>
+                <span className="font-medium">{selectedHistoryLoan.purpose || '-'}</span>
               </div>
               {selectedHistoryLoan.disbursementDate && (
-                <div className="sm:col-span-2">
-                  <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বিতরণের তারিখ' : 'Disbursement Date'}</p>
-                  <p className="font-medium">{formatDate(selectedHistoryLoan.disbursementDate)}</p>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">{locale === 'bn' ? 'বিতরণের তারিখ' : 'Disbursed'}</span>
+                  <span className="font-medium">{formatDate(selectedHistoryLoan.disbursementDate)}</span>
                 </div>
               )}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
+              <Button onClick={() => setSelectedHistoryLoan(null)} className="w-full h-8 text-xs">
+                {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="border border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-500">
+          {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+        </div>
+      )}
     </div>
   );
 }
