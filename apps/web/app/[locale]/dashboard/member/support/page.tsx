@@ -175,9 +175,15 @@ export default function MemberSupportPage() {
 
     setIsSending(true);
     try {
+      // Build request body - omit threadId if null to let backend create new thread
+      const body: Record<string, unknown> = { message: trimmed };
+      if (activeThreadId) {
+        body.threadId = activeThreadId;
+      }
+      
       const data = await apiPost<{ threadId: string; message: string }>(
         '/v1/dashboard/support/messages',
-        { threadId: activeThreadId, message: trimmed }
+        body
       );
       setMessage('');
 
@@ -194,6 +200,9 @@ export default function MemberSupportPage() {
       if (createdThreadId || activeThreadId) {
         void loadMessages(createdThreadId || activeThreadId!);
       }
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      // Show error to user (message stays in input for retry)
     } finally {
       setIsSending(false);
     }

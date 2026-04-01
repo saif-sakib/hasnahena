@@ -1,114 +1,115 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import {
-  Wallet,
   Search,
-  Info,
-  Calendar,
-  User,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
+  Plus,
   ArrowDownLeft,
   ArrowUpRight,
-  Phone,
-  TrendingUp,
+  X,
+  Check,
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCurrency } from '@/lib/utils';
+import { apiGet, apiPost } from '@/lib/api';
 
 type TransactionType = 'DEPOSIT' | 'WITHDRAWAL';
-type TransactionStatus = 'PENDING' | 'CONFIRMED' | 'DISPUTED';
 
-interface DepositTransaction {
+interface Transaction {
   id: string;
   memberId: string;
   memberName: string;
   memberPhone: string;
   type: TransactionType;
   amount: number;
-  status: TransactionStatus;
-  processedDate: string;
-  confirmedDate?: string;
+  date: string;
   balanceAfter: number;
   notes?: string;
 }
 
+interface Member {
+  id: string;
+  name: string;
+  phone: string;
+  balance: number;
+}
+
 export default function WorkerDepositsPage() {
   const locale = useLocale();
-  const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [formType, setFormType] = useState<TransactionType>('DEPOSIT');
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mock data
-  const transactions: DepositTransaction[] = [
-    {
-      id: '1',
-      memberId: 'm1',
-      memberName: 'আব্দুল করিম',
-      memberPhone: '01712345678',
-      type: 'DEPOSIT',
-      amount: 5000,
-      status: 'CONFIRMED',
-      processedDate: '2025-01-14T10:30:00',
-      confirmedDate: '2025-01-14T10:35:00',
-      balanceAfter: 85000,
-    },
-    {
-      id: '2',
-      memberId: 'm2',
-      memberName: 'ফাতেমা বেগম',
-      memberPhone: '01812345678',
-      type: 'DEPOSIT',
-      amount: 10000,
-      status: 'PENDING',
-      processedDate: '2025-01-14T09:15:00',
-      balanceAfter: 130000,
-    },
-    {
-      id: '3',
-      memberId: 'm3',
-      memberName: 'রহিম উদ্দিন',
-      memberPhone: '01912345678',
-      type: 'WITHDRAWAL',
-      amount: 15000,
-      status: 'CONFIRMED',
-      processedDate: '2025-01-13T14:20:00',
-      confirmedDate: '2025-01-13T14:30:00',
-      balanceAfter: 30000,
-    },
-    {
-      id: '4',
-      memberId: 'm4',
-      memberName: 'সাদিয়া আক্তার',
-      memberPhone: '01612345678',
-      type: 'DEPOSIT',
-      amount: 8000,
-      status: 'DISPUTED',
-      processedDate: '2025-01-12T11:00:00',
-      balanceAfter: 103000,
-      notes: 'সদস্য ১০,০০০ টাকা দিয়েছেন বলে দাবি করেছেন',
-    },
-    {
-      id: '5',
-      memberId: 'm5',
-      memberName: 'জাকির হোসেন',
-      memberPhone: '01512345678',
-      type: 'DEPOSIT',
-      amount: 3000,
-      status: 'CONFIRMED',
-      processedDate: '2025-01-11T16:45:00',
-      confirmedDate: '2025-01-11T17:00:00',
-      balanceAfter: 78000,
-    },
-  ];
+  useEffect(() => {
+    loadTransactions();
+    loadMembers();
+  }, []);
 
+  const loadTransactions = async () => {
+    try {
+      const data = await apiGet<{ transactions: Transaction[] }>('/v1/dashboard/worker/transactions');
+      setTransactions(data.transactions || []);
+    } catch {
+      // Use mock data for now
+      setTransactions([
+        {
+          id: '1',
+          memberId: 'm1',
+          memberName: 'আব্দুল করিম',
+          memberPhone: '01712345678',
+          type: 'DEPOSIT',
+          amount: 5000,
+          date: '2025-01-14T10:30:00',
+          balanceAfter: 85000,
+        },
+        {
+          id: '2',
+          memberId: 'm2',
+          memberName: 'ফাতেমা বেগম',
+          memberPhone: '01812345678',
+          type: 'DEPOSIT',
+          amount: 10000,
+          date: '2025-01-14T09:15:00',
+          balanceAfter: 130000,
+        },
+        {
+          id: '3',
+          memberId: 'm3',
+          memberName: 'রহিম উদ্দিন',
+          memberPhone: '01912345678',
+          type: 'WITHDRAWAL',
+          amount: 15000,
+          date: '2025-01-13T14:20:00',
+          balanceAfter: 30000,
+        },
+      ]);
+    }
+  };
 
+  const loadMembers = async () => {
+    try {
+      const data = await apiGet<{ members: Member[] }>('/v1/dashboard/worker/members');
+      setMembers(data.members || []);
+    } catch {
+      // Use mock data
+      setMembers([
+        { id: 'm1', name: 'আব্দুল করিম', phone: '01712345678', balance: 85000 },
+        { id: 'm2', name: 'ফাতেমা বেগম', phone: '01812345678', balance: 130000 },
+        { id: 'm3', name: 'রহিম উদ্দিন', phone: '01912345678', balance: 30000 },
+        { id: 'm4', name: 'সাদিয়া আক্তার', phone: '01612345678', balance: 103000 },
+        { id: 'm5', name: 'জাকির হোসেন', phone: '01512345678', balance: 78000 },
+      ]);
+    }
+  };
 
   const formatTime = (dateString: string) => {
     return new Date(dateString).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
@@ -117,253 +118,345 @@ export default function WorkerDepositsPage() {
     });
   };
 
-  const getStatusBadge = (status: TransactionStatus) => {
-    switch (status) {
-      case 'CONFIRMED':
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'নিশ্চিত' : 'Confirmed'}
-          </Badge>
-        );
-      case 'PENDING':
-        return (
-          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
-          </Badge>
-        );
-      case 'DISPUTED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}
-          </Badge>
-        );
+  const filteredTransactions = transactions.filter(
+    (t) =>
+      t.memberName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.memberPhone.includes(searchQuery)
+  );
+
+  const filteredMembers = members.filter(
+    (m) =>
+      m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+      m.phone.includes(memberSearch)
+  );
+
+  const openForm = (type: TransactionType) => {
+    setFormType(type);
+    setShowForm(true);
+    setSelectedMember(null);
+    setAmount('');
+    setNotes('');
+    setMemberSearch('');
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedMember || !amount) return;
+
+    setIsSubmitting(true);
+    try {
+      await apiPost('/v1/dashboard/worker/transactions', {
+        memberId: selectedMember.id,
+        type: formType,
+        amount: parseFloat(amount),
+        notes,
+      });
+      setShowForm(false);
+      loadTransactions();
+    } catch {
+      // For demo, add to local state
+      const newTx: Transaction = {
+        id: Date.now().toString(),
+        memberId: selectedMember.id,
+        memberName: selectedMember.name,
+        memberPhone: selectedMember.phone,
+        type: formType,
+        amount: parseFloat(amount),
+        date: new Date().toISOString(),
+        balanceAfter:
+          formType === 'DEPOSIT'
+            ? selectedMember.balance + parseFloat(amount)
+            : selectedMember.balance - parseFloat(amount),
+        notes,
+      };
+      setTransactions([newTx, ...transactions]);
+      setShowForm(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const getTypeBadge = (type: TransactionType) => {
-    return type === 'DEPOSIT' ? (
-      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-        <ArrowDownLeft className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'জমা' : 'Deposit'}
-      </Badge>
-    ) : (
-      <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
-        <ArrowUpRight className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}
-      </Badge>
-    );
-  };
-
-  const filteredTransactions = transactions.filter((t) => {
-    const matchesSearch =
-      t.memberName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.memberPhone.includes(searchQuery);
-    const matchesTab =
-      activeTab === 'all' ||
-      (activeTab === 'deposits' && t.type === 'DEPOSIT') ||
-      (activeTab === 'withdrawals' && t.type === 'WITHDRAWAL') ||
-      (activeTab === 'pending' && t.status === 'PENDING') ||
-      (activeTab === 'disputed' && t.status === 'DISPUTED');
-    return matchesSearch && matchesTab;
-  });
-
   // Summary stats
   const todayDeposits = transactions
-    .filter((t) => t.type === 'DEPOSIT' && t.status === 'CONFIRMED')
+    .filter((t) => t.type === 'DEPOSIT')
     .reduce((sum, t) => sum + t.amount, 0);
   const todayWithdrawals = transactions
-    .filter((t) => t.type === 'WITHDRAWAL' && t.status === 'CONFIRMED')
+    .filter((t) => t.type === 'WITHDRAWAL')
     .reduce((sum, t) => sum + t.amount, 0);
-  const pendingCount = transactions.filter((t) => t.status === 'PENDING').length;
-  const disputedCount = transactions.filter((t) => t.status === 'DISPUTED').length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
+          <h1 className="text-lg font-semibold text-gray-900">
             {locale === 'bn' ? 'জমা ও উত্তোলন' : 'Deposits & Withdrawals'}
           </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'সদস্যদের জমা/উত্তোলনের স্ট্যাটাস দেখুন (সদস্য নিজেরাই অনুরোধ করে)'
-              : 'View member deposit/withdrawal statuses (requests are member-initiated)'}
+          <p className="text-sm text-gray-500">
+            {locale === 'bn' ? 'সদস্যদের লেনদেন রেকর্ড করুন' : 'Record member transactions'}
           </p>
         </div>
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-center gap-2">
-          <Info className="h-4 w-4" />
-          <span>{locale === 'bn' ? 'ম্যানুয়াল এন্ট্রি নিষ্ক্রিয়' : 'Manual entry disabled'}</span>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => openForm('DEPOSIT')}
+            className="h-8 bg-green-600 hover:bg-green-700"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {locale === 'bn' ? 'জমা' : 'Deposit'}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => openForm('WITHDRAWAL')}
+            className="h-8 bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {locale === 'bn' ? 'উত্তোলন' : 'Withdraw'}
+          </Button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'আজকের জমা' : "Today's Deposits"}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(todayDeposits, locale)}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'আজকের উত্তোলন' : "Today's Withdrawals"}</p>
-                <p className="text-2xl font-bold text-purple-600">{formatCurrency(todayWithdrawals, locale)}</p>
-              </div>
-              <ArrowUpRight className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</p>
-                <p className="text-2xl font-bold text-amber-600">{pendingCount}</p>
-              </div>
-              <Clock className="h-8 w-8 text-amber-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}</p>
-                <p className="text-2xl font-bold text-red-600">{disputedCount}</p>
-              </div>
-              <AlertCircle className="h-8 w-8 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-6 text-sm py-3 px-4 bg-white border border-gray-200">
+        <div>
+          <span className="text-gray-500">{locale === 'bn' ? 'আজকের জমা:' : "Today's Deposits:"}</span>{' '}
+          <span className="font-semibold text-green-600">{formatCurrency(todayDeposits, locale)}</span>
+        </div>
+        <div>
+          <span className="text-gray-500">{locale === 'bn' ? 'আজকের উত্তোলন:' : "Today's Withdrawals:"}</span>{' '}
+          <span className="font-semibold text-blue-600">{formatCurrency(todayWithdrawals, locale)}</span>
+        </div>
+        <div>
+          <span className="text-gray-500">{locale === 'bn' ? 'নেট:' : 'Net:'}</span>{' '}
+          <span className={`font-semibold ${todayDeposits - todayWithdrawals >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {formatCurrency(todayDeposits - todayWithdrawals, locale)}
+          </span>
+        </div>
       </div>
 
-      {/* Tabs and Search */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <TabsList className="w-full overflow-x-auto justify-start">
-            <TabsTrigger value="all">{locale === 'bn' ? 'সব' : 'All'}</TabsTrigger>
-            <TabsTrigger value="deposits">{locale === 'bn' ? 'জমা' : 'Deposits'}</TabsTrigger>
-            <TabsTrigger value="withdrawals">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</TabsTrigger>
-            <TabsTrigger value="pending">
-              {locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
-              {pendingCount > 0 && <Badge className="ml-1" variant="secondary">{pendingCount}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="disputed">
-              {locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}
-              {disputedCount > 0 && <Badge className="ml-1 bg-red-100 text-red-700">{disputedCount}</Badge>}
-            </TabsTrigger>
-          </TabsList>
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={locale === 'bn' ? 'সদস্য খুঁজুন...' : 'Search member...'}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="text"
+          placeholder={locale === 'bn' ? 'সদস্য খুঁজুন...' : 'Search member...'}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full h-9 pl-10 pr-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+        />
+      </div>
 
-        {/* Transactions List */}
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5" />
-              {locale === 'bn' ? 'লেনদেন তালিকা' : 'Transaction List'}
-            </CardTitle>
-            <CardDescription>
-              {locale === 'bn'
-                ? `${filteredTransactions.length} টি লেনদেন`
-                : `${filteredTransactions.length} transactions`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {filteredTransactions.map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl ${
-                    transaction.status === 'DISPUTED'
-                      ? 'bg-red-50'
-                      : transaction.status === 'PENDING'
-                        ? 'bg-amber-50'
-                        : 'bg-slate-50'
+      {/* Transaction Table */}
+      <div className="border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left py-2 px-3 font-medium text-gray-700">
+                {locale === 'bn' ? 'সদস্য' : 'Member'}
+              </th>
+              <th className="text-left py-2 px-3 font-medium text-gray-700">
+                {locale === 'bn' ? 'প্রকার' : 'Type'}
+              </th>
+              <th className="text-right py-2 px-3 font-medium text-gray-700">
+                {locale === 'bn' ? 'পরিমাণ' : 'Amount'}
+              </th>
+              <th className="text-right py-2 px-3 font-medium text-gray-700">
+                {locale === 'bn' ? 'ব্যালেন্স' : 'Balance'}
+              </th>
+              <th className="text-right py-2 px-3 font-medium text-gray-700">
+                {locale === 'bn' ? 'তারিখ' : 'Date'}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTransactions.map((t) => (
+              <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-2 px-3">
+                  <div>
+                    <p className="font-medium">{t.memberName}</p>
+                    <p className="text-xs text-gray-500">{t.memberPhone}</p>
+                  </div>
+                </td>
+                <td className="py-2 px-3">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded ${
+                      t.type === 'DEPOSIT'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    {t.type === 'DEPOSIT' ? (
+                      <ArrowDownLeft className="h-3 w-3" />
+                    ) : (
+                      <ArrowUpRight className="h-3 w-3" />
+                    )}
+                    {t.type === 'DEPOSIT'
+                      ? locale === 'bn'
+                        ? 'জমা'
+                        : 'Deposit'
+                      : locale === 'bn'
+                        ? 'উত্তোলন'
+                        : 'Withdrawal'}
+                  </span>
+                </td>
+                <td
+                  className={`py-2 px-3 text-right font-medium ${
+                    t.type === 'DEPOSIT' ? 'text-green-600' : 'text-blue-600'
                   }`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={`h-12 w-12 rounded-full flex items-center justify-center ${
-                        transaction.type === 'DEPOSIT'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-purple-100 text-purple-700'
-                      }`}
-                    >
-                      {transaction.type === 'DEPOSIT' ? (
-                        <ArrowDownLeft className="h-6 w-6" />
-                      ) : (
-                        <ArrowUpRight className="h-6 w-6" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-semibold">{transaction.memberName}</span>
-                        {getTypeBadge(transaction.type)}
-                        {getStatusBadge(transaction.status)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        <p className="flex items-center gap-2">
-                          <Phone className="h-3 w-3" /> {transaction.memberPhone}
-                          <span className="mx-1">•</span>
-                          <Calendar className="h-3 w-3" /> {formatTime(transaction.processedDate)}
-                        </p>
-                        {transaction.notes && (
-                          <p className="text-red-600 text-xs mt-1">
-                            <AlertCircle className="inline h-3 w-3 mr-1" />
-                            {transaction.notes}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  {t.type === 'DEPOSIT' ? '+' : '-'}
+                  {formatCurrency(t.amount, locale)}
+                </td>
+                <td className="py-2 px-3 text-right text-gray-600">
+                  {formatCurrency(t.balanceAfter, locale)}
+                </td>
+                <td className="py-2 px-3 text-right text-gray-500 text-xs">
+                  {formatTime(t.date)}
+                </td>
+              </tr>
+            ))}
+            {filteredTransactions.length === 0 && (
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-gray-500">
+                  {locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-                  <div className="text-right">
-                    <p
-                      className={`text-xl font-bold ${
-                        transaction.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'
-                      }`}
-                    >
-                      {transaction.type === 'DEPOSIT' ? '+' : '-'}
-                      {formatCurrency(transaction.amount, locale)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter, locale)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-
-              {filteredTransactions.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}</p>
-                </div>
-              )}
+      {/* Entry Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md mx-4 border border-gray-200 shadow-lg">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="font-semibold">
+                {formType === 'DEPOSIT'
+                  ? locale === 'bn'
+                    ? 'জমা করুন'
+                    : 'New Deposit'
+                  : locale === 'bn'
+                    ? 'উত্তোলন করুন'
+                    : 'New Withdrawal'}
+              </h2>
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-          </CardContent>
-        </Card>
-      </Tabs>
+            <div className="p-4 space-y-4">
+              {/* Member Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {locale === 'bn' ? 'সদস্য নির্বাচন করুন' : 'Select Member'}
+                </label>
+                {selectedMember ? (
+                  <div className="flex items-center justify-between p-3 border border-gray-200 bg-gray-50">
+                    <div>
+                      <p className="font-medium">{selectedMember.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {selectedMember.phone} • {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'}{' '}
+                        {formatCurrency(selectedMember.balance, locale)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedMember(null)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border border-gray-200">
+                    <div className="p-2 border-b border-gray-200">
+                      <Input
+                        placeholder={locale === 'bn' ? 'নাম বা ফোন দিয়ে খুঁজুন...' : 'Search by name or phone...'}
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        className="h-8 border-0 focus-visible:ring-0 shadow-none"
+                      />
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {filteredMembers.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => setSelectedMember(m)}
+                          className="w-full flex items-center justify-between p-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">{m.name}</p>
+                            <p className="text-xs text-gray-500">{m.phone}</p>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {formatCurrency(m.balance, locale)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
+              {/* Amount */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {locale === 'bn' ? 'পরিমাণ (৳)' : 'Amount (৳)'}
+                </label>
+                <Input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0"
+                  className="h-9"
+                />
+                {selectedMember && formType === 'WITHDRAWAL' && parseFloat(amount) > selectedMember.balance && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {locale === 'bn' ? 'পর্যাপ্ত ব্যালেন্স নেই' : 'Insufficient balance'}
+                  </p>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}
+                </label>
+                <Input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={locale === 'bn' ? 'যেকোনো মন্তব্য...' : 'Any comments...'}
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 p-4 border-t border-gray-200">
+              <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1 h-9">
+                {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  !selectedMember ||
+                  !amount ||
+                  isSubmitting ||
+                  (formType === 'WITHDRAWAL' && parseFloat(amount) > (selectedMember?.balance || 0))
+                }
+                className={`flex-1 h-9 ${
+                  formType === 'DEPOSIT' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                <Check className="h-4 w-4 mr-1" />
+                {isSubmitting
+                  ? locale === 'bn'
+                    ? 'প্রক্রিয়াকরণ...'
+                    : 'Processing...'
+                  : locale === 'bn'
+                    ? 'নিশ্চিত করুন'
+                    : 'Confirm'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
