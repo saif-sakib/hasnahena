@@ -85,7 +85,7 @@ export default function MemberDashboard() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+          <h1 className="text-3xl font-bold tracking-tight text-neutral-900">
             {t('welcome')}, {locale === 'bn' ? 'সদস্য' : 'Member'}
           </h1>
           <p className="text-sm text-neutral-500">
@@ -95,21 +95,21 @@ export default function MemberDashboard() {
         <Link href={`/${locale}/dashboard/member/support`}>
           <Button size="sm" variant="outline" className="h-9 gap-2 shadow-sm rounded-full px-4 border-neutral-200/60 hover:bg-neutral-50">
             <MessageCircle className="h-4 w-4 text-neutral-500" />
-            <span className="text-sm font-medium">{locale === 'bn' ? 'সাপোর্ট' : 'Support'}</span>
+            <span className="text-[14px] font-medium tracking-wide">{locale === 'bn' ? 'সাপোর্ট' : 'Support'}</span>
           </Button>
         </Link>
       </div>
 
       {/* Account Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
-          <div className="flex items-center gap-2 text-sm font-medium text-neutral-500 mb-3">
+        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
             <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
               <Wallet className="h-4 w-4" />
             </div>
             {t('currentBalance')}
           </div>
-          <p className="text-2xl font-semibold text-neutral-900 tracking-tight">
+          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
             {formatCurrency(data.stats.currentBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -117,14 +117,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
-          <div className="flex items-center gap-2 text-sm font-medium text-neutral-500 mb-3">
+        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
             <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
               <ArrowUpRight className="h-4 w-4" />
             </div>
             {t('totalDeposited')}
           </div>
-          <p className="text-2xl font-semibold text-neutral-900 tracking-tight">
+          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
             {formatCurrency(data.stats.totalDeposited, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -132,14 +132,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
-          <div className="flex items-center gap-2 text-sm font-medium text-neutral-500 mb-3">
+        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
             <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
               <HandCoins className="h-4 w-4" />
             </div>
             {t('loanBalance')}
           </div>
-          <p className="text-2xl font-semibold text-neutral-900 tracking-tight">
+          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
             {formatCurrency(data.stats.loanBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -147,14 +147,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
-          <div className="flex items-center gap-2 text-sm font-medium text-neutral-500 mb-3">
+        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
             <div className="p-2 bg-neutral-100 rounded-lg text-neutral-600">
               <HandCoins className="h-4 w-4" />
             </div>
             {t('loanEligibility')}
           </div>
-          <p className="text-2xl font-semibold text-neutral-900 tracking-tight">
+          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
             {formatCurrency(data.stats.loanEligibility, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -194,7 +194,7 @@ export default function MemberDashboard() {
             </div>
             <div className="flex flex-col gap-1">
               <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'নির্ধারিত তারিখ' : 'Due Date'}</p>
-              <p className="text-sm font-medium text-neutral-900 flex items-center gap-1.5 mt-1">
+              <p className="text-[14px] font-medium tracking-wide text-neutral-900 flex items-center gap-1.5 mt-1">
                 <Calendar className="h-3.5 w-3.5 text-neutral-400" />
                 {formatDate(data.activeLoan.nextDueDate, locale)}
               </p>
@@ -217,7 +217,7 @@ export default function MemberDashboard() {
 
       {/* Quick Links - Clean Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link href={`/${locale}/dashboard/member/deposits`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
+        <Link href={`/${locale}/dashboard/member/deposits`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <Wallet className="h-4.5 w-4.5 text-emerald-600" />
           </div>
@@ -226,7 +226,7 @@ export default function MemberDashboard() {
             <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'ইতিহাস দেখুন' : 'View history'}</p>
           </div>
         </Link>
-        <Link href={`/${locale}/dashboard/member/loans`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
+        <Link href={`/${locale}/dashboard/member/loans`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-amber-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <HandCoins className="h-4.5 w-4.5 text-amber-600" />
           </div>
@@ -235,7 +235,7 @@ export default function MemberDashboard() {
             <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'স্থিতি দেখুন' : 'View status'}</p>
           </div>
         </Link>
-        <Link href={`/${locale}/dashboard/member/transactions`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
+        <Link href={`/${locale}/dashboard/member/transactions`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-blue-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <ArrowUpRight className="h-4.5 w-4.5 text-blue-600" />
           </div>
@@ -279,7 +279,7 @@ export default function MemberDashboard() {
                     )}
                   </div>
                   <div className="flex flex-col">
-                    <p className="text-sm font-medium text-neutral-900">
+                    <p className="text-[14px] font-medium tracking-wide text-neutral-900">
                       {locale === 'bn'
                         ? transactionLabels[tx.type]?.bn
                         : transactionLabels[tx.type]?.en}

@@ -642,7 +642,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#FAFAFA]">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -653,13 +653,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
       {/* Sidebar - Clean simple design */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-56 bg-white border-r border-gray-200 transform lg:transform-none lg:transition-none transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#F8F9FA] border-r border-[#E5E7EB] transform lg:transform-none lg:transition-none transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex flex-col h-full">
           {/* Logo Section - Compact */}
-          <div className="flex items-center justify-between h-14 px-4 border-b border-gray-200">
+          <div className="flex items-center justify-between h-14 px-5 border-b border-[#E5E7EB]/60">
             <Link href={`/${locale}`} className="flex items-center gap-2">
               <Logo size="sm" showTagline={false} />
             </Link>
@@ -674,24 +674,27 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           </div>
 
           {/* Role Badge - Simple */}
-          <div className="px-4 py-3 border-b border-gray-100">
+          <div className="px-5 py-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                {roleLabels[role]}
-              </span>
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#E5E7EB] rounded-md shadow-sm">
+                <div className={`w-1.5 h-1.5 rounded-full ${role === 'admin' ? 'bg-indigo-500' : role === 'worker' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">
+                  {roleLabels[role]}
+                </span>
+              </div>
               <Link 
                 href={`/${locale}`}
-                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center p-1.5 rounded-md hover:bg-zinc-200/50 tooltip-trigger"
+                title={locale === 'bn' ? 'হোম' : 'Home'}
               >
-                <Home className="h-3 w-3" />
-                {locale === 'bn' ? 'হোম' : 'Home'}
+                <Home className="h-3.5 w-3.5" />
               </Link>
             </div>
           </div>
 
           {/* Navigation - Clean list */}
-          <nav className="flex-1 py-2 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-            <div className="space-y-0.5 px-2">
+          <nav className="flex-1 py-1 overflow-y-auto px-3" style={{ scrollbarWidth: 'thin' }}>
+            <div className="space-y-1">
               {navItems.map((item) => {
                 const href = `${basePath}${item.href}`;
                 const isActive = pathname === href || (item.href === '' && pathname === basePath);
@@ -701,10 +704,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                     key={item.name}
                     href={href}
                     prefetch={true}
-                    className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors rounded ${
+                    className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
                       isActive
-                        ? 'bg-blue-50 text-blue-700 font-medium'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                        ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
+                        : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
                     }`}
                     onClick={() => {
                       if (pathname !== href) {
@@ -713,7 +716,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       setSidebarOpen(false);
                     }}
                   >
-                    <item.icon className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
                     {locale === 'bn' ? item.bn : item.en}
                     {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
                   </Link>
@@ -723,35 +726,36 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           </nav>
 
           {/* Logout - Compact */}
-          <div className="p-3 border-t border-gray-200">
+          <div className="p-4 mt-auto">
             <Button 
-              variant="ghost" 
+              variant="outline" 
               size="sm"
-              className="w-full justify-start gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+              className="w-full justify-start gap-2.5 text-zinc-600 border-[#E5E7EB] hover:text-zinc-900 bg-white hover:bg-zinc-50 shadow-sm"
               onClick={handleLogout}
             >
-              <LogOut className="h-4 w-4" />
-              {locale === 'bn' ? 'লগআউট' : 'Logout'}
+              <LogOut className="h-[18px] w-[18px]" strokeWidth={2} />
+              <span className="font-medium">{locale === 'bn' ? 'লগআউট' : 'Logout'}</span>
             </Button>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className="lg:pl-56">
+      <div className="lg:pl-64 flex flex-col min-h-screen">
         {/* Top Header - Compact */}
-        <header className="sticky top-0 z-30 flex items-center justify-between h-12 px-4 bg-white border-b border-gray-200">
+        <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-6 md:px-8 bg-white/70 backdrop-blur-xl border-b border-black/5" style={{ WebkitBackdropFilter: 'blur(20px)' }}>
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden h-8 w-8"
+              className="lg:hidden h-8 w-8 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-md"
               onClick={() => setSidebarOpen(true)}
             >
-              <Menu className="h-4 w-4" />
+              <Menu className="h-[18px] w-[18px]" strokeWidth={2} />
             </Button>
-            <span className="text-sm text-gray-500">
+            <span className="hidden md:inline-block text-[13px] font-medium text-zinc-500 tracking-wide uppercase">
               {new Date().toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
+                weekday: 'long',
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
@@ -759,11 +763,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             {/* Language Switcher */}
             <Link href={pathname.replace(`/${locale}`, locale === 'en' ? '/bn' : '/en')}>
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-gray-600">
-                <Globe className="h-3.5 w-3.5 mr-1" />
+              <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900 rounded-md">
+                <Globe className="h-[14px] w-[14px] mr-1.5 opacity-70" strokeWidth={2} />
                 {locale === 'en' ? 'BN' : 'EN'}
               </Button>
             </Link>
@@ -776,7 +780,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 className="relative h-8 w-8"
                 onClick={() => setShowNotifications(!showNotifications)}
               >
-                <Bell className="h-4 w-4 text-gray-600" />
+                <Bell className="h-4 w-4 text-zinc-600" />
                 {unreadCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 h-4 w-4 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
                     {unreadCount}
@@ -786,14 +790,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 shadow-lg z-50">
-                    <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-900">
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-zinc-200 shadow-lg z-50">
+                    <div className="px-3 py-2 border-b border-zinc-100 flex items-center justify-between">
+                      <span className="text-sm font-medium text-zinc-900">
                         {locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'}
                       </span>
                       {unreadCount > 0 && (
                         <button
-                          className="text-xs text-blue-600 hover:text-blue-800"
+                          className="text-xs text-zinc-800 hover:text-blue-800"
                           onClick={markAllNotificationsAsRead}
                         >
                           {locale === 'bn' ? 'সব পঠিত' : 'Mark all read'}
@@ -805,20 +809,20 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         notifications.map((notification) => (
                           <div 
                             key={notification.id}
-                            className={`px-3 py-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${
-                              !notification.read ? 'bg-blue-50/50' : ''
+                            className={`px-3 py-2 border-b border-zinc-50 hover:bg-[#FAFAFA] cursor-pointer ${
+                              !notification.read ? 'bg-zinc-100/50' : ''
                             }`}
                             onClick={() => {
                               markNotificationAsRead(notification.id);
                               setShowNotifications(false);
                             }}
                           >
-                            <p className="text-sm text-gray-900 truncate">{notification.title}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{formatNotificationTime(notification.time)}</p>
+                            <p className="text-sm text-zinc-900 truncate">{notification.title}</p>
+                            <p className="text-xs text-zinc-500 mt-0.5">{formatNotificationTime(notification.time)}</p>
                           </div>
                         ))
                       ) : (
-                        <div className="px-3 py-6 text-center text-sm text-gray-500">
+                        <div className="px-3 py-6 text-center text-sm text-zinc-500">
                           {locale === 'bn' ? 'কোন বিজ্ঞপ্তি নেই' : 'No notifications'}
                         </div>
                       )}
@@ -841,7 +845,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   }
                 }}
               >
-                <MessageCircle className="h-4 w-4 text-gray-600" />
+                <MessageCircle className="h-4 w-4 text-zinc-600" />
                 {showSupportBadge && (
                   role === 'member' ? (
                     <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
@@ -1088,26 +1092,27 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </div>
 
             {/* User Avatar - Clickable to Profile */}
+            <div className="h-6 w-[1px] bg-black/10 mx-1"></div>
             <Link
               href={`${basePath}/profile`}
-              className="flex items-center gap-2 ml-1 pl-2 border-l border-gray-200 hover:bg-gray-100 py-1 px-2 -mr-2"
+              className="flex items-center gap-2.5 ml-1 pl-2 hover:bg-black/5 py-1.5 px-2.5 rounded-lg transition-colors"
             >
-              <div className="relative h-7 w-7 rounded-full overflow-hidden flex-shrink-0">
+              <div className="relative h-8 w-8 rounded-full overflow-hidden flex-shrink-0ring-1 ring-black/5 shadow-sm">
                 {userInfo?.avatarUrl ? (
                   <Image
                     src={userInfo.avatarUrl}
                     alt={userInfo.nameEn || 'User'}
                     fill
-                    sizes="28px"
+                    sizes="32px"
                     className="object-cover"
                   />
                 ) : (
-                  <div className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || 'User') : 'bg-gray-400'} flex items-center justify-center font-medium text-xs text-white`}>
+                  <div className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || 'User') : 'bg-zinc-300'} flex items-center justify-center font-bold text-xs text-white`}>
                     {isHydrated && userInfo ? getInitials(locale === 'bn' ? (userInfo.nameBn || userInfo.nameEn) : (userInfo.nameEn || userInfo.nameBn) || 'U') : ''}
                   </div>
                 )}
               </div>
-              <span className="hidden sm:inline text-xs font-medium text-gray-700 max-w-[80px] truncate">
+              <span className="hidden sm:inline text-[13px] font-semibold text-zinc-800 max-w-[100px] truncate">
                 {locale === 'bn' ? (userInfo?.nameBn || userInfo?.nameEn) : (userInfo?.nameEn || userInfo?.nameBn) || 'User'}
               </span>
             </Link>
@@ -1115,7 +1120,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="p-4">{children}</main>
+        <main className="flex-1 p-6 md:p-8 lg:p-10 w-full max-w-7xl mx-auto">{children}</main>
       </div>
     </div>
   );
