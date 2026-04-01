@@ -3,33 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import Link from 'next/link';
-import {
-  Users,
-  Search,
-  Eye,
-  Ban,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Mail,
-  Phone,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  Hash,
-  ExternalLink,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
@@ -51,7 +26,7 @@ interface Member {
   area: string;
 }
 
-const INITIAL_DISPLAY_COUNT = 10;
+const INITIAL_DISPLAY_COUNT = 15;
 
 export default function AdminMembersPage() {
   const locale = useLocale();
@@ -91,20 +66,24 @@ export default function AdminMembersPage() {
     loadMembers();
   }, []);
 
-  const getStatusBadge = (status: MemberStatus) => {
-    const config = {
-      ACTIVE: { color: 'bg-green-100 text-green-700', icon: CheckCircle2, label: locale === 'bn' ? 'সক্রিয়' : 'Active' },
-      PENDING: { color: 'bg-amber-100 text-amber-700', icon: Clock, label: locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending' },
-      SUSPENDED: { color: 'bg-red-100 text-red-700', icon: Ban, label: locale === 'bn' ? 'স্থগিত' : 'Suspended' },
-      REJECTED: { color: 'bg-gray-100 text-gray-700', icon: XCircle, label: locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected' },
+  const getStatusStyle = (status: MemberStatus) => {
+    const styles = {
+      ACTIVE: 'text-green-700 bg-green-50',
+      PENDING: 'text-amber-700 bg-amber-50',
+      SUSPENDED: 'text-red-700 bg-red-50',
+      REJECTED: 'text-gray-700 bg-gray-100',
     };
-    const { color, icon: Icon, label } = config[status];
-    return (
-      <Badge className={`${color} hover:${color}`}>
-        <Icon className="h-3 w-3 mr-1" />
-        {label}
-      </Badge>
-    );
+    return styles[status];
+  };
+
+  const getStatusLabel = (status: MemberStatus) => {
+    const labels = {
+      ACTIVE: locale === 'bn' ? 'সক্রিয়' : 'Active',
+      PENDING: locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending',
+      SUSPENDED: locale === 'bn' ? 'স্থগিত' : 'Suspended',
+      REJECTED: locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected',
+    };
+    return labels[status];
   };
 
   const filteredMembers = members.filter((member) => {
@@ -129,153 +108,119 @@ export default function AdminMembersPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'সদস্য ব্যবস্থাপনা' : 'Member Management'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn' ? 'সকল সদস্যদের তালিকা দেখুন' : 'View all members'}
-          </p>
-        </div>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-gray-900">
+          {locale === 'bn' ? 'সদস্য ব্যবস্থাপনা' : 'Member Management'}
+        </h1>
+        <span className="text-sm text-gray-500">
+          {filteredMembers.length} {locale === 'bn' ? 'জন' : 'members'}
+        </span>
       </div>
 
-      {/* Search */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={locale === 'bn' ? 'UID, নাম, ইমেইল, ফোন বা NID দিয়ে খুঁজুন...' : 'Search by UID, name, email, phone or NID...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setDisplayCount(INITIAL_DISPLAY_COUNT); }}>
-              <SelectTrigger className="w-full md:w-52">
-                <SelectValue placeholder={locale === 'bn' ? 'স্ট্যাটাস' : 'Status'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'} ({statusCounts.all})</SelectItem>
-                <SelectItem value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'} ({statusCounts.ACTIVE})</SelectItem>
-                <SelectItem value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'} ({statusCounts.PENDING})</SelectItem>
-                <SelectItem value="SUSPENDED">{locale === 'bn' ? 'স্থগিত' : 'Suspended'} ({statusCounts.SUSPENDED})</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Search & Filter */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder={locale === 'bn' ? 'UID, নাম, ইমেইল, ফোন...' : 'Search UID, name, email, phone...'}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 text-sm"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setDisplayCount(INITIAL_DISPLAY_COUNT); }}
+          className="h-9 px-3 text-sm border border-gray-200 rounded bg-white"
+        >
+          <option value="all">{locale === 'bn' ? 'সব' : 'All'} ({statusCounts.all})</option>
+          <option value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'} ({statusCounts.ACTIVE})</option>
+          <option value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'} ({statusCounts.PENDING})</option>
+          <option value="SUSPENDED">{locale === 'bn' ? 'স্থগিত' : 'Suspended'} ({statusCounts.SUSPENDED})</option>
+        </select>
+      </div>
+
+      {/* Members Table */}
+      <div className="border border-gray-200 bg-white overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'সদস্য' : 'Member'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'যোগাযোগ' : 'Contact'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'জমা' : 'Deposit'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'ঋণ' : 'Loan'}</th>
+              <th className="px-4 py-2 text-center font-medium text-gray-600">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+                </td>
+              </tr>
+            ) : displayedMembers.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  {locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}
+                </td>
+              </tr>
+            ) : (
+              displayedMembers.map((member) => (
+                <tr key={member.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link href={`/${locale}/dashboard/admin/members/${member.id}`} className="block hover:text-blue-600">
+                      <div className="font-medium text-gray-900">{member.name}</div>
+                      <div className="text-xs text-gray-500">#{member.uid} {member.memberId && `• ${member.memberId}`}</div>
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 hidden sm:table-cell">
+                    <div className="text-gray-900">{member.phone}</div>
+                    <div className="text-xs text-gray-500 truncate max-w-[180px]">{member.email || '-'}</div>
+                  </td>
+                  <td className="px-4 py-3 text-right hidden md:table-cell">
+                    <span className="text-green-600 font-medium">{formatCurrency(member.currentDeposit, locale)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right hidden md:table-cell">
+                    <span className="text-blue-600 font-medium">{formatCurrency(member.activeLoan, locale)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`inline-block px-2 py-0.5 text-xs rounded ${getStatusStyle(member.status)}`}>
+                      {getStatusLabel(member.status)}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        {/* Load More / Less */}
+        {(hasMore || displayCount > INITIAL_DISPLAY_COUNT) && (
+          <div className="px-4 py-3 border-t border-gray-100 flex justify-center gap-4">
+            {hasMore && (
+              <button
+                onClick={() => setDisplayCount((prev) => prev + 15)}
+                className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <ChevronDown className="h-4 w-4" />
+                {locale === 'bn' ? `আরও ${filteredMembers.length - displayCount} জন` : `Show ${filteredMembers.length - displayCount} more`}
+              </button>
+            )}
+            {displayCount > INITIAL_DISPLAY_COUNT && (
+              <button
+                onClick={() => setDisplayCount(INITIAL_DISPLAY_COUNT)}
+                className="text-sm text-gray-600 hover:text-gray-800 flex items-center gap-1"
+              >
+                <ChevronUp className="h-4 w-4" />
+                {locale === 'bn' ? 'কম দেখুন' : 'Show less'}
+              </button>
+            )}
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Members List */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            {locale === 'bn' ? 'সদস্য তালিকা' : 'Members List'}
-          </CardTitle>
-          <CardDescription>
-            {locale === 'bn'
-              ? `${filteredMembers.length} জন সদস্য পাওয়া গেছে`
-              : `${filteredMembers.length} members found`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="py-12 text-center text-muted-foreground">
-              {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {displayedMembers.map((member) => (
-                <Link
-                  key={member.id}
-                  href={`/${locale}/dashboard/admin/members/${member.id}`}
-                  className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                      {member.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-semibold">{member.name}</span>
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          <Hash className="h-3 w-3 mr-1" />
-                          {member.uid}
-                        </Badge>
-                        {member.memberId && <Badge variant="outline">{member.memberId}</Badge>}
-                        {getStatusBadge(member.status)}
-                      </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
-                        <div className="flex items-center gap-4 flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Mail className="h-3 w-3" /> {member.email || '-'}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Phone className="h-3 w-3" /> {member.phone}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {locale === 'bn' ? 'যোগদান:' : 'Joined:'} {new Date(member.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    {member.status === 'ACTIVE' && (
-                      <div className="text-right text-sm">
-                        <div>
-                          <span className="text-muted-foreground">{locale === 'bn' ? 'জমা:' : 'Deposit:'}</span>{' '}
-                          <span className="font-medium text-green-600">{formatCurrency(member.currentDeposit, locale)}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ:' : 'Loan:'}</span>{' '}
-                          <span className="font-medium text-blue-600">{formatCurrency(member.activeLoan, locale)}</span>
-                        </div>
-                      </div>
-                    )}
-                    <Button variant="ghost" size="sm" asChild>
-                      <span>
-                        <ExternalLink className="h-4 w-4" />
-                      </span>
-                    </Button>
-                  </div>
-                </Link>
-              ))}
-
-              {filteredMembers.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{locale === 'bn' ? 'কোনো সদস্য পাওয়া যায়নি' : 'No members found'}</p>
-                </div>
-              )}
-
-              {hasMore && (
-                <div className="text-center pt-4">
-                  <Button variant="outline" onClick={() => setDisplayCount((prev) => prev + 10)}>
-                    <ChevronDown className="h-4 w-4 mr-2" />
-                    {locale === 'bn' ? `আরও ${filteredMembers.length - displayCount} জন দেখুন` : `Show ${filteredMembers.length - displayCount} more`}
-                  </Button>
-                </div>
-              )}
-
-              {displayCount > INITIAL_DISPLAY_COUNT && (
-                <div className="text-center">
-                  <Button variant="ghost" size="sm" onClick={() => setDisplayCount(INITIAL_DISPLAY_COUNT)}>
-                    <ChevronUp className="h-4 w-4 mr-2" />
-                    {locale === 'bn' ? 'কম দেখুন' : 'Show less'}
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   );
 }

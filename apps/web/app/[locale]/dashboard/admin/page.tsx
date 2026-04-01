@@ -2,9 +2,7 @@
 
 import { useTranslations, useLocale } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { Users, Wallet, HandCoins, TrendingUp, Building, AlertTriangle, PieChart, BarChart3 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Users, Wallet, HandCoins, TrendingUp, AlertTriangle, PieChart } from 'lucide-react';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
@@ -51,204 +49,122 @@ export default function AdminDashboard() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'অ্যাডমিন ড্যাশবোর্ড' : 'Admin Dashboard'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'হাসনাহেনা প্রতিষ্ঠানের সম্পূর্ণ পরিচালনা'
-              : 'Complete management of Hasnahena organization'}
-          </p>
+    <div className="space-y-4">
+      {/* Page Title */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-gray-900">
+          {locale === 'bn' ? 'অ্যাডমিন ড্যাশবোর্ড' : 'Admin Dashboard'}
+        </h1>
+      </div>
+
+      {/* Stats Grid - Simple table-like layout */}
+      <div className="border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">
+                {locale === 'bn' ? 'বিবরণ' : 'Metric'}
+              </th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600">
+                {locale === 'bn' ? 'মান' : 'Value'}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <Users className="h-4 w-4 text-gray-400" />
+                {locale === 'bn' ? 'মোট সদস্য' : 'Total Members'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium">
+                {stats.totalMembers}
+                <span className="ml-2 text-xs text-green-600">+{stats.monthlyGrowth}%</span>
+              </td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <Users className="h-4 w-4 text-gray-400" />
+                {locale === 'bn' ? 'কর্মী সংখ্যা' : 'Workers'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium">{stats.totalWorkers}</td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-green-500" />
+                {locale === 'bn' ? 'মোট আমানত' : 'Total Deposits'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium text-green-600">
+                {formatCurrency(stats.totalDeposits, locale)}
+              </td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <HandCoins className="h-4 w-4 text-blue-500" />
+                {locale === 'bn' ? 'বিতরণকৃত ঋণ' : 'Loans Disbursed'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium text-blue-600">
+                {formatCurrency(stats.totalLoans, locale)}
+                <span className="ml-2 text-xs text-gray-500">({stats.activeLoanCount} {locale === 'bn' ? 'সক্রিয়' : 'active'})</span>
+              </td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+                {locale === 'bn' ? 'ঝুঁকিপূর্ণ ঋণ' : 'At Risk Loans'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium text-red-600">{stats.defaultedLoans}</td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-4 py-3 flex items-center gap-2">
+                <PieChart className="h-4 w-4 text-amber-500" />
+                {locale === 'bn' ? 'দান তহবিল' : 'Charity Fund'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium text-amber-600">
+                {formatCurrency(stats.charityFund, locale)}
+              </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-green-500" />
+                {locale === 'bn' ? 'পুনরুদ্ধার হার' : 'Recovery Rate'}
+              </td>
+              <td className="px-4 py-3 text-right font-medium text-green-600">98.5%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Recent Activity - Simple list */}
+      <div className="border border-gray-200 bg-white">
+        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <h2 className="text-sm font-medium text-gray-700">
+            {locale === 'bn' ? 'সাম্প্রতিক কার্যক্রম' : 'Recent Activity'}
+          </h2>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <BarChart3 className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'রিপোর্ট' : 'Reports'}
-          </Button>
-          <Button>
-            <Users className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'কর্মী যোগ করুন' : 'Add Worker'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Stats */}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'মোট সদস্য' : 'Total Members'}
-            </CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalMembers}</div>
-            <p className="text-xs text-green-600 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              +{stats.monthlyGrowth}% {locale === 'bn' ? 'এই মাসে' : 'this month'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'মোট আমানত' : 'Total Deposits'}
-            </CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(stats.totalDeposits, locale)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'সঞ্চয় পুল' : 'Savings pool'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'বিতরণকৃত ঋণ' : 'Loans Disbursed'}
-            </CardTitle>
-            <HandCoins className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatCurrency(stats.totalLoans, locale)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {stats.activeLoanCount} {locale === 'bn' ? 'সক্রিয় ঋণ' : 'active loans'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'দান তহবিল' : 'Charity Fund'}
-            </CardTitle>
-            <PieChart className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">
-              {formatCurrency(stats.charityFund, locale)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'অনুদান থেকে' : 'From donations'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Secondary Stats */}
-      <div className="grid gap-5 sm:grid-cols-3">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'কর্মী সংখ্যা' : 'Workers'}
-            </CardTitle>
-            <Building className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalWorkers}</div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'সক্রিয় কর্মী' : 'Active workers'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-red-200 bg-red-50/70 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'ঝুঁকিপূর্ণ ঋণ' : 'At Risk Loans'}
-            </CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.defaultedLoans}</div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'বকেয়া/খেলাপি' : 'Overdue/defaulted'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              {locale === 'bn' ? 'পুনরুদ্ধার হার' : 'Recovery Rate'}
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">98.5%</div>
-            <p className="text-xs text-muted-foreground">
-              {locale === 'bn' ? 'ঋণ পরিশোধ হার' : 'Loan repayment rate'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* Recent Activity */}
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>
-              {locale === 'bn' ? 'সাম্প্রতিক কার্যক্রম' : 'Recent Activity'}
-            </CardTitle>
-            <CardDescription>
-              {locale === 'bn'
-                ? 'প্রতিষ্ঠানের সাম্প্রতিক কার্যক্রম'
-                : 'Recent organization activity'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
-                >
-                  <div>
-                    <p className="font-medium">{activity.action}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {activity.user}
-                      {activity.actorName ? ` • ${locale === 'bn' ? 'কর্মী' : 'Staff'}: ${activity.actorName}` : ''}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{new Date(activity.time).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}</span>
+        <div className="divide-y divide-gray-100">
+          {recentActivity.length > 0 ? (
+            recentActivity.slice(0, 8).map((activity) => (
+              <div key={activity.id} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <span className="text-sm text-gray-900">{activity.action}</span>
+                  <span className="text-sm text-gray-500 ml-2">— {activity.user}</span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Stats Chart Placeholder */}
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>
-              {locale === 'bn' ? 'মাসিক সারসংক্ষেপ' : 'Monthly Summary'}
-            </CardTitle>
-            <CardDescription>
-              {locale === 'bn'
-                ? 'জমা বনাম ঋণ বিতরণ'
-                : 'Deposits vs Loan Disbursements'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-48 flex items-center justify-center rounded-xl bg-slate-50">
-              <div className="text-center text-muted-foreground">
-                <BarChart3 className="h-12 w-12 mx-auto mb-2" />
-                <p>{locale === 'bn' ? 'চার্ট শীঘ্রই আসছে' : 'Chart coming soon'}</p>
+                <span className="text-xs text-gray-400">
+                  {new Date(activity.time).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
               </div>
+            ))
+          ) : (
+            <div className="px-4 py-8 text-center text-sm text-gray-500">
+              {locale === 'bn' ? 'কোনো কার্যক্রম নেই' : 'No recent activity'}
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       </div>
     </div>
   );

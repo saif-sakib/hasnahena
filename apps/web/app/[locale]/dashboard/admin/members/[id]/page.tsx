@@ -456,10 +456,10 @@ export default function MemberDetailPage() {
                      member.activeLoan === 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Success/Error Messages */}
       {actionSuccess && (
-        <div className="rounded-lg bg-green-50 border border-green-200 p-4 flex items-center gap-3">
+        <div className="rounded-sm bg-green-50 border border-green-200 p-4 flex items-center gap-3">
           <CheckCircle2 className="h-5 w-5 text-green-600" />
           <p className="text-green-800">{actionSuccess}</p>
           <Button variant="ghost" size="sm" onClick={() => setActionSuccess(null)} className="ml-auto">×</Button>
@@ -521,7 +521,7 @@ export default function MemberDetailPage() {
 
       {/* Account Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-green-200 bg-green-50/50">
+        <Card className="rounded-sm border-green-200 bg-green-50/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -533,7 +533,7 @@ export default function MemberDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-blue-200 bg-blue-50/50">
+        <Card className="rounded-sm border-blue-200 bg-blue-50/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -545,7 +545,7 @@ export default function MemberDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-emerald-200 bg-emerald-50/50">
+        <Card className="rounded-sm border-emerald-200 bg-emerald-50/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -557,7 +557,7 @@ export default function MemberDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-orange-200 bg-orange-50/50">
+        <Card className="rounded-sm border-orange-200 bg-orange-50/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -574,7 +574,7 @@ export default function MemberDetailPage() {
       {member.status === 'ACTIVE' && (
         <div className="space-y-2">
           {!canWithdraw && member.currentDeposit > 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
+            <div className="rounded-sm bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
                 {member.activeLoan > 0
@@ -586,7 +586,7 @@ export default function MemberDetailPage() {
             </div>
           )}
           {!canGetLoan && member.loanEligibility.reason && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
+            <div className="rounded-sm bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
                 {locale === 'bn' ? 'ঋণ যোগ্যতা:' : 'Loan eligibility:'} {member.loanEligibility.reason}
@@ -614,12 +614,12 @@ export default function MemberDetailPage() {
         </TabsList>
 
         <TabsContent value="info" className="mt-6">
-          <Card className="rounded-2xl">
+          <Card className="rounded-sm">
             <CardHeader>
               <CardTitle>{locale === 'bn' ? 'সদস্য তথ্য' : 'Member Information'}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-6 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
                     <User className="h-5 w-5 text-muted-foreground mt-0.5" />
@@ -690,7 +690,7 @@ export default function MemberDetailPage() {
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-6">
-          <Card className="rounded-2xl">
+          <Card className="rounded-sm">
             <CardHeader>
               <CardTitle>{locale === 'bn' ? 'লেনদেন ইতিহাস' : 'Transaction History'}</CardTitle>
               <CardDescription>
@@ -713,7 +713,7 @@ export default function MemberDetailPage() {
                   </div>
                   <div className="space-y-3">
                     {transactions.map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-50">
+                      <div key={tx.id} className="flex items-center justify-between p-4 rounded-sm bg-slate-50">
                         <div className="flex items-center gap-3">
                           <div className={`p-2 rounded-full ${tx.type === 'DEPOSIT' ? 'bg-green-100' : 'bg-orange-100'}`}>
                             {tx.type === 'DEPOSIT' ? (
@@ -752,7 +752,7 @@ export default function MemberDetailPage() {
         </TabsContent>
 
         <TabsContent value="loans" className="mt-6">
-          <Card className="rounded-2xl">
+          <Card className="rounded-sm">
             <CardHeader>
               <CardTitle>{locale === 'bn' ? 'ঋণ ইতিহাস' : 'Loan History'}</CardTitle>
               <CardDescription>
@@ -768,7 +768,7 @@ export default function MemberDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {loans.map((loan) => (
-                    <div key={loan.id} className="p-4 rounded-xl bg-slate-50">
+                    <div key={loan.id} className="p-4 rounded-sm bg-slate-50">
                       <div className="flex items-center justify-between mb-2">
                         <p className="font-semibold">{loan.loanNumber}</p>
                         <div className="flex items-center gap-2">
@@ -827,7 +827,7 @@ export default function MemberDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             {actionError && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
                 {actionError}
               </div>
             )}
@@ -875,7 +875,7 @@ export default function MemberDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             {actionError && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
                 {actionError}
               </div>
             )}
@@ -924,7 +924,7 @@ export default function MemberDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             {actionError && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
                 {actionError}
               </div>
             )}
@@ -997,13 +997,13 @@ export default function MemberDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             {actionError && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
                 {actionError}
               </div>
             )}
             
             {selectedLoanForPayment && (
-              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm">
+              <div className="rounded-sm bg-blue-50 border border-blue-200 p-3 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <span className="text-muted-foreground">{locale === 'bn' ? 'মাসিক কিস্তি:' : 'Monthly:'}</span>

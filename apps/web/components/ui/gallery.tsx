@@ -91,7 +91,7 @@ export function Gallery({ items, locale }: GalleryProps) {
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map((item, index) => (
           <Card
             key={item.id}
@@ -146,7 +146,7 @@ export function Gallery({ items, locale }: GalleryProps) {
       {/* Lightbox Modal */}
       {selectedImage !== null && (
         <div
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 md:p-8"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 md:p-4"
           onClick={closeLightbox}
         >
           <Button
@@ -187,7 +187,7 @@ export function Gallery({ items, locale }: GalleryProps) {
           )}
 
           <div
-            className="w-full max-w-5xl relative rounded-2xl overflow-hidden bg-slate-950/80 border border-white/10 shadow-2xl"
+            className="w-full max-w-5xl relative rounded-sm overflow-hidden bg-slate-950/80 border border-white/10 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative w-full h-[55vh] md:h-[72vh] bg-black">

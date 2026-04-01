@@ -161,7 +161,7 @@ export function ImageUpload({
 
       {/* Preview */}
       {showPreview && preview && (
-        <div className="relative rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800">
+        <div className="relative rounded-sm overflow-hidden bg-slate-100 dark:bg-slate-800">
           <div className={`relative ${aspectRatio || 'aspect-video'} w-full`}>
             <Image
               src={preview}
@@ -177,7 +177,7 @@ export function ImageUpload({
               type="button"
               variant="destructive"
               size="icon"
-              className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-lg"
+              className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-none"
               onClick={handleRemove}
             >
               <X className="h-4 w-4" />
@@ -197,7 +197,7 @@ export function ImageUpload({
       {/* Upload Area */}
       {!preview && (
         <div
-          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          className={`border-2 border-dashed rounded-sm p-4 text-center transition-colors ${
             isDragging
               ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
               : 'border-slate-300 dark:border-slate-700 hover:border-emerald-400'

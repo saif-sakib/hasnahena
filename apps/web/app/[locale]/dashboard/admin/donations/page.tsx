@@ -2,28 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import {
-  Heart,
-  Search,
-  Download,
-  Calendar,
-  Plus,
-  RefreshCw,
-  Wallet,
-  ArrowDownLeft,
-  TrendingUp,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search, Download, Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCurrency } from '@/lib/utils';
@@ -41,30 +23,14 @@ type Donation = {
 };
 
 function exportDonationsCsv(rows: Donation[], locale: string) {
-  const headers = [
-    locale === 'bn' ? 'তারিখ' : 'Date',
-    locale === 'bn' ? 'রসিদ' : 'Receipt',
-    locale === 'bn' ? 'দাতার নাম' : 'Donor Name',
-    locale === 'bn' ? 'পরিমাণ (BDT)' : 'Amount (BDT)',
-    locale === 'bn' ? 'বিবরণ' : 'Description',
-  ];
-
+  const headers = [locale === 'bn' ? 'তারিখ' : 'Date', locale === 'bn' ? 'রসিদ' : 'Receipt', locale === 'bn' ? 'দাতার নাম' : 'Donor Name', locale === 'bn' ? 'পরিমাণ (BDT)' : 'Amount (BDT)', locale === 'bn' ? 'বিবরণ' : 'Description'];
   const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
   const lines = [headers.join(',')];
-
   rows.forEach((row) => {
     const donor = (locale === 'bn' ? row.donorNameBn : row.donorName) || row.donorName || row.donorNameBn || '-';
     const date = new Date(row.date).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB');
-    const values = [
-      date,
-      row.receipt || '-',
-      donor,
-      row.amount.toFixed(2),
-      row.description || '-',
-    ];
-    lines.push(values.map((v) => escapeCsv(v)).join(','));
+    lines.push([date, row.receipt || '-', donor, row.amount.toFixed(2), row.description || '-'].map((v) => escapeCsv(v)).join(','));
   });
-
   const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -84,12 +50,7 @@ export default function AdminDonationsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [showAddDonationModal, setShowAddDonationModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [newDonation, setNewDonation] = useState({
-    donorName: '',
-    amount: '',
-    notes: '',
-  });
+  const [newDonation, setNewDonation] = useState({ donorName: '', amount: '', notes: '' });
 
   const loadDonations = async () => {
     setIsLoading(true);
@@ -105,52 +66,27 @@ export default function AdminDonationsPage() {
     }
   };
 
-  useEffect(() => {
-    void loadDonations();
-  }, []);
+  useEffect(() => { void loadDonations(); }, []);
 
   const filteredDonations = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return donations;
-    return donations.filter((donation) => {
-      const donor = `${donation.donorName || ''} ${donation.donorNameBn || ''}`.toLowerCase();
-      return donor.includes(q) ||
-        (donation.receipt || '').toLowerCase().includes(q) ||
-        (donation.description || '').toLowerCase().includes(q);
-    });
+    return donations.filter((d) => `${d.donorName || ''} ${d.donorNameBn || ''}`.toLowerCase().includes(q) || (d.receipt || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
   }, [donations, searchQuery]);
 
-  const totalReceived = useMemo(
-    () => donations.reduce((sum, donation) => sum + donation.amount, 0),
-    [donations],
-  );
-
+  const totalReceived = useMemo(() => donations.reduce((s, d) => s + d.amount, 0), [donations]);
   const monthReceived = useMemo(() => {
     const now = new Date();
-    return donations
-      .filter((d) => {
-        const date = new Date(d.date);
-        return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
-      })
-      .reduce((sum, d) => sum + d.amount, 0);
+    return donations.filter((d) => { const date = new Date(d.date); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); }).reduce((s, d) => s + d.amount, 0);
   }, [donations]);
 
   const handleAddDonation = async () => {
     const amountBdt = Number.parseFloat(newDonation.amount);
-    if (!Number.isFinite(amountBdt) || amountBdt <= 0) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
-      return;
-    }
-
+    if (!Number.isFinite(amountBdt) || amountBdt <= 0) { setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount'); return; }
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost('/v1/dashboard/admin/donations', {
-        amount: Math.round(amountBdt * 100),
-        donorName: newDonation.donorName.trim(),
-        notes: newDonation.notes.trim(),
-      });
-
+      await apiPost('/v1/dashboard/admin/donations', { amount: Math.round(amountBdt * 100), donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
       setShowAddDonationModal(false);
       setNewDonation({ donorName: '', amount: '', notes: '' });
       await loadDonations();
@@ -162,184 +98,95 @@ export default function AdminDonationsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'দান ব্যবস্থাপনা' : 'Donation Management'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn' ? 'ডাটাবেইস থেকে দানের তথ্য দেখুন ও নতুন দান যুক্ত করুন' : 'Track donations from the database and record new donations'}
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'দান ব্যবস্থাপনা' : 'Donation Management'}</h1>
+          <p className="text-sm text-gray-500">{filteredDonations.length} {locale === 'bn' ? 'টি দান' : 'donations'}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => exportDonationsCsv(filteredDonations, locale)} disabled={filteredDonations.length === 0}>
-            <Download className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'রিপোর্ট (CSV)' : 'Report (CSV)'}
+          <Button variant="outline" size="sm" onClick={() => exportDonationsCsv(filteredDonations, locale)} disabled={filteredDonations.length === 0} className="h-8">
+            <Download className="h-3.5 w-3.5 mr-1" />CSV
           </Button>
-          <Button variant="outline" onClick={() => void loadDonations()} disabled={isLoading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
+          <Button variant="outline" size="sm" onClick={() => void loadDonations()} disabled={isLoading} className="h-8">
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button onClick={() => setShowAddDonationModal(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {locale === 'bn' ? 'দান যোগ' : 'Add Donation'}
+          <Button size="sm" onClick={() => setShowAddDonationModal(true)} className="h-8">
+            <Plus className="h-3.5 w-3.5 mr-1" />{locale === 'bn' ? 'যোগ' : 'Add'}
           </Button>
         </div>
       </div>
 
-      {actionError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {actionError}
-        </div>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট দান' : 'Total Donations'}</p>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(totalReceived, locale)}</p>
-              </div>
-              <Wallet className="h-8 w-8 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'এই মাসে দান' : 'This Month'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(monthReceived, locale)}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট এন্ট্রি' : 'Total Entries'}</p>
-                <p className="text-2xl font-bold">{donations.length}</p>
-              </div>
-              <Heart className="h-8 w-8 text-rose-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div><span className="text-gray-500">{locale === 'bn' ? 'মোট:' : 'Total:'}</span> <span className="font-medium text-green-600">{formatCurrency(totalReceived, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'এই মাস:' : 'This Month:'}</span> <span className="font-medium text-green-600">{formatCurrency(monthReceived, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'এন্ট্রি:' : 'Entries:'}</span> <span className="font-medium">{donations.length}</span></div>
       </div>
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Heart className="h-5 w-5" />
-            {locale === 'bn' ? 'দান তালিকা' : 'Donations List'}
-          </CardTitle>
-          <CardDescription>
-            {locale === 'bn' ? `${filteredDonations.length} টি দান দেখানো হচ্ছে` : `${filteredDonations.length} donations shown`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={locale === 'bn' ? 'দাতা/রশিদ/বিবরণ দিয়ে খুঁজুন...' : 'Search by donor/receipt/description...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+      {actionError && <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">{actionError}</div>}
 
-          {isLoading ? (
-            <div className="py-10 text-center text-muted-foreground">
-              {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
-            </div>
-          ) : filteredDonations.length === 0 ? (
-            <div className="py-10 text-center text-muted-foreground">
-              {locale === 'bn' ? 'কোনো দান পাওয়া যায়নি' : 'No donations found'}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredDonations.map((donation) => {
-                const donorName = (locale === 'bn' ? donation.donorNameBn : donation.donorName) || donation.donorName || donation.donorNameBn || '-';
-                return (
-                  <div key={donation.id} className="flex flex-col gap-4 p-4 rounded-xl bg-slate-50 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-4">
-                      <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center text-green-700">
-                        <ArrowDownLeft className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <div className="text-sm text-muted-foreground">
-                          <p className="font-semibold text-foreground">{donorName}</p>
-                          <p className="flex items-center gap-1 mt-1">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(donation.date).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                            {donation.receipt ? ` • ${donation.receipt}` : ''}
-                          </p>
-                          {donation.description && <p className="text-xs mt-1">{donation.description}</p>}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold text-green-600">+{formatCurrency(donation.amount, locale)}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input type="text" placeholder={locale === 'bn' ? 'দাতা/রশিদ/বিবরণ দিয়ে খুঁজুন...' : 'Search donor/receipt/description...'} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500" />
+      </div>
 
+      {/* Table */}
+      <div className="border border-gray-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'দাতা' : 'Donor'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'রসিদ' : 'Receipt'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'তারিখ' : 'Date'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={4} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
+            ) : filteredDonations.length === 0 ? (
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো দান পাওয়া যায়নি' : 'No donations found'}</td></tr>
+            ) : filteredDonations.map((d) => (
+              <tr key={d.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900">{(locale === 'bn' ? d.donorNameBn : d.donorName) || d.donorName || d.donorNameBn || '-'}</div>
+                  {d.description && <div className="text-xs text-gray-500 truncate max-w-[200px]">{d.description}</div>}
+                </td>
+                <td className="px-4 py-3 text-right font-medium text-green-600">+{formatCurrency(d.amount, locale)}</td>
+                <td className="px-4 py-3 hidden sm:table-cell text-gray-600">{d.receipt || '-'}</td>
+                <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">{new Date(d.date).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add Modal */}
       <Dialog open={showAddDonationModal} onOpenChange={setShowAddDonationModal}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'নতুন দান যোগ করুন' : 'Add New Donation'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? 'দানের তথ্য ডাটাবেইসে সংরক্ষণ করা হবে' : 'Donation will be saved directly in the database'}
-            </DialogDescription>
+            <DialogTitle>{locale === 'bn' ? 'নতুন দান যোগ' : 'Add New Donation'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <Label>{locale === 'bn' ? 'দাতার নাম' : 'Donor Name'}</Label>
-              <Input
-                value={newDonation.donorName}
-                onChange={(e) => setNewDonation((prev) => ({ ...prev, donorName: e.target.value }))}
-                placeholder={locale === 'bn' ? 'দাতার নাম লিখুন' : 'Enter donor name'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'দাতার নাম' : 'Donor Name'}</Label>
+              <Input value={newDonation.donorName} onChange={(e) => setNewDonation((p) => ({ ...p, donorName: e.target.value }))} placeholder={locale === 'bn' ? 'দাতার নাম' : 'Donor name'} className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={newDonation.amount}
-                onChange={(e) => setNewDonation((prev) => ({ ...prev, amount: e.target.value }))}
-                placeholder="0"
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
+              <Input type="number" min="0" step="0.01" value={newDonation.amount} onChange={(e) => setNewDonation((p) => ({ ...p, amount: e.target.value }))} placeholder="0" className="mt-1" />
             </div>
             <div>
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                value={newDonation.notes}
-                onChange={(e) => setNewDonation((prev) => ({ ...prev, notes: e.target.value }))}
-                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional information...'}
-              />
+              <Label className="text-sm">{locale === 'bn' ? 'নোট' : 'Notes'}</Label>
+              <Textarea value={newDonation.notes} onChange={(e) => setNewDonation((p) => ({ ...p, notes: e.target.value }))} placeholder={locale === 'bn' ? 'ঐচ্ছিক' : 'Optional'} className="mt-1" rows={2} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDonationModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={() => void handleAddDonation()} disabled={isSubmitting}>
-              {isSubmitting ? (locale === 'bn' ? 'সংরক্ষণ হচ্ছে...' : 'Saving...') : (locale === 'bn' ? 'দান যোগ করুন' : 'Add Donation')}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowAddDonationModal(false)}>{locale === 'bn' ? 'বাতিল' : 'Cancel'}</Button>
+            <Button size="sm" onClick={() => void handleAddDonation()} disabled={isSubmitting}>{isSubmitting ? '...' : (locale === 'bn' ? 'যোগ করুন' : 'Add')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

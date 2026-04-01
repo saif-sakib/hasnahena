@@ -2,53 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import {
-  HandCoins,
-  Search,
-  Filter,
-  RefreshCw,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Eye,
-  TrendingUp,
-  CreditCard,
-  AlertTriangle,
-  Users,
-  Loader2,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search, RefreshCw, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
-type LoanStatus =
-  | 'PENDING_GUARANTOR'
-  | 'PENDING_APPROVAL'
-  | 'APPROVED'
-  | 'ACTIVE'
-  | 'COMPLETED'
-  | 'SETTLED'
-  | 'DEFAULTED'
-  | 'REJECTED';
+type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'SETTLED' | 'DEFAULTED' | 'REJECTED';
 
 interface Loan {
   id: string;
@@ -65,11 +25,7 @@ interface Loan {
   disbursedDate?: string | null;
   dueDate?: string | null;
   approvedBy?: string | null;
-  member: {
-    id: string;
-    memberId?: string | null;
-    name: string;
-  };
+  member: { id: string; memberId?: string | null; name: string };
   guarantor?: { id: string; name: string } | null;
   memberDeposit: number;
   missedPayments: number;
@@ -99,369 +55,159 @@ export default function AdminLoansPage() {
     }
   };
 
-  useEffect(() => {
-    void loadLoans();
-  }, []);
+  useEffect(() => { void loadLoans(); }, []);
 
-  const getStatusBadge = (status: LoanStatus) => {
-    switch (status) {
-      case 'PENDING_GUARANTOR':
-        return (
-          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'জামিনদার অপেক্ষমাণ' : 'Awaiting Guarantor'}
-          </Badge>
-        );
-      case 'PENDING_APPROVAL':
-        return (
-          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'অনুমোদন অপেক্ষমাণ' : 'Pending Approval'}
-          </Badge>
-        );
-      case 'APPROVED':
-      case 'ACTIVE':
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'সক্রিয়' : 'Active'}
-          </Badge>
-        );
-      case 'COMPLETED':
-      case 'SETTLED':
-        return (
-          <Badge className="bg-gray-100 text-gray-700 hover:bg-gray-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'সম্পন্ন' : 'Completed'}
-          </Badge>
-        );
-      case 'DEFAULTED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'খেলাপি' : 'Defaulted'}
-          </Badge>
-        );
-      case 'REJECTED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <XCircle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}
-          </Badge>
-        );
-    }
+  const statusStyles: Record<LoanStatus, string> = {
+    PENDING_GUARANTOR: 'bg-amber-100 text-amber-700',
+    PENDING_APPROVAL: 'bg-blue-100 text-blue-700',
+    APPROVED: 'bg-green-100 text-green-700',
+    ACTIVE: 'bg-green-100 text-green-700',
+    COMPLETED: 'bg-gray-100 text-gray-700',
+    SETTLED: 'bg-gray-100 text-gray-700',
+    DEFAULTED: 'bg-red-100 text-red-700',
+    REJECTED: 'bg-red-100 text-red-700',
+  };
+  const statusLabels: Record<LoanStatus, { en: string; bn: string }> = {
+    PENDING_GUARANTOR: { en: 'Awaiting Guarantor', bn: 'জামিনদার অপেক্ষমাণ' },
+    PENDING_APPROVAL: { en: 'Pending', bn: 'অপেক্ষমাণ' },
+    APPROVED: { en: 'Approved', bn: 'অনুমোদিত' },
+    ACTIVE: { en: 'Active', bn: 'সক্রিয়' },
+    COMPLETED: { en: 'Completed', bn: 'সম্পন্ন' },
+    SETTLED: { en: 'Settled', bn: 'নিষ্পত্তি' },
+    DEFAULTED: { en: 'Defaulted', bn: 'খেলাপি' },
+    REJECTED: { en: 'Rejected', bn: 'প্রত্যাখ্যাত' },
   };
 
-  const filteredLoans = useMemo(
-    () =>
-      loans.filter((loan) => {
-        const q = searchQuery.toLowerCase();
-        const matchesSearch =
-          loan.member.name.toLowerCase().includes(q) ||
-          (loan.member.memberId ?? '').toLowerCase().includes(q) ||
-          (loan.guarantor?.name ?? '').toLowerCase().includes(q);
-        const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
-        return matchesSearch && matchesStatus;
-      }),
-    [loans, searchQuery, statusFilter],
-  );
+  const filteredLoans = useMemo(() => loans.filter((l) => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = l.member.name.toLowerCase().includes(q) || (l.member.memberId ?? '').toLowerCase().includes(q) || (l.guarantor?.name ?? '').toLowerCase().includes(q);
+    const matchesStatus = statusFilter === 'all' || l.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  }), [loans, searchQuery, statusFilter]);
 
-  const totalDisbursed = loans
-    .filter((l) => ['ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED'].includes(l.status))
-    .reduce((sum, l) => sum + l.amount, 0);
-  const totalRecovered = loans.reduce((sum, l) => sum + l.paidAmount, 0);
+  const totalDisbursed = loans.filter((l) => ['ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED'].includes(l.status)).reduce((s, l) => s + l.amount, 0);
+  const totalRecovered = loans.reduce((s, l) => s + l.paidAmount, 0);
   const activeLoans = loans.filter((l) => l.status === 'ACTIVE').length;
   const defaultedLoans = loans.filter((l) => l.status === 'DEFAULTED').length;
   const recoveryRate = totalDisbursed > 0 ? ((totalRecovered / totalDisbursed) * 100).toFixed(1) : '0';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'ঋণ ব্যবস্থাপনা' : 'Loan Management'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn' ? 'সকল ঋণ পর্যবেক্ষণ এবং পরিচালনা করুন' : 'Monitor and manage all loans'}
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'ঋণ ব্যবস্থাপনা' : 'Loan Management'}</h1>
+          <p className="text-sm text-gray-500">{filteredLoans.length} {locale === 'bn' ? 'টি ঋণ' : 'loans'}</p>
         </div>
-        <Button variant="outline" onClick={() => void loadLoans()} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+        <Button variant="outline" size="sm" onClick={() => void loadLoans()} disabled={isLoading} className="h-8">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
           {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
         </Button>
       </div>
 
-      {actionError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {actionError}
-        </div>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট বিতরণ' : 'Total Disbursed'}</p>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalDisbursed, locale)}</p>
-              </div>
-              <CreditCard className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট পুনরুদ্ধার' : 'Total Recovered'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalRecovered, locale)}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loans'}</p>
-                <p className="text-2xl font-bold">{activeLoans}</p>
-              </div>
-              <HandCoins className="h-8 w-8 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'খেলাপি' : 'Defaulted'}</p>
-                <p className="text-2xl font-bold text-red-600">{defaultedLoans}</p>
-              </div>
-              <AlertTriangle className="h-8 w-8 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'পুনরুদ্ধার হার' : 'Recovery Rate'}</p>
-                <p className="text-2xl font-bold text-green-600">{recoveryRate}%</p>
-              </div>
-              <CheckCircle2 className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div><span className="text-gray-500">{locale === 'bn' ? 'বিতরণ:' : 'Disbursed:'}</span> <span className="font-medium text-blue-600">{formatCurrency(totalDisbursed, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'পুনরুদ্ধার:' : 'Recovered:'}</span> <span className="font-medium text-green-600">{formatCurrency(totalRecovered, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'সক্রিয়:' : 'Active:'}</span> <span className="font-medium">{activeLoans}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'খেলাপি:' : 'Defaulted:'}</span> <span className="font-medium text-red-600">{defaultedLoans}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'হার:' : 'Rate:'}</span> <span className="font-medium text-green-600">{recoveryRate}%</span></div>
       </div>
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={locale === 'bn' ? 'সদস্য বা গ্যারান্টর দিয়ে খুঁজুন...' : 'Search by member or guarantor...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-56">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder={locale === 'bn' ? 'স্ট্যাটাস' : 'Status'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'}</SelectItem>
-                <SelectItem value="PENDING_GUARANTOR">{locale === 'bn' ? 'জামিনদার অপেক্ষমাণ' : 'Awaiting Guarantor'}</SelectItem>
-                <SelectItem value="PENDING_APPROVAL">{locale === 'bn' ? 'অনুমোদন অপেক্ষমাণ' : 'Pending Approval'}</SelectItem>
-                <SelectItem value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</SelectItem>
-                <SelectItem value="COMPLETED">{locale === 'bn' ? 'সম্পন্ন' : 'Completed'}</SelectItem>
-                <SelectItem value="DEFAULTED">{locale === 'bn' ? 'খেলাপি' : 'Defaulted'}</SelectItem>
-                <SelectItem value="REJECTED">{locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      {actionError && <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">{actionError}</div>}
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HandCoins className="h-5 w-5" />
-            {locale === 'bn' ? 'ঋণ তালিকা' : 'Loans List'}
-          </CardTitle>
-          <CardDescription>
-            {locale === 'bn' ? `${filteredLoans.length} টি ঋণ পাওয়া গেছে` : `${filteredLoans.length} loans found`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredLoans.map((loan) => (
-                <div
-                  key={loan.id}
-                  className={`flex flex-col gap-4 p-4 rounded-xl ${
-                    loan.status === 'DEFAULTED'
-                      ? 'bg-red-50'
-                      : loan.status === 'PENDING_APPROVAL'
-                        ? 'bg-amber-50'
-                        : 'bg-slate-50'
-                  }`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold">
-                        {loan.member.name.charAt(0)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-semibold">{loan.member.name}</span>
-                          {loan.member.memberId && <Badge variant="outline">{loan.member.memberId}</Badge>}
-                          {getStatusBadge(loan.status)}
-                        </div>
-                        <div className="text-sm text-muted-foreground space-y-1">
-                          <p>
-                            {locale === 'bn' ? 'ঋণ:' : 'Loan:'}{' '}
-                            <span className="font-bold text-blue-600">{formatCurrency(loan.amount, locale)}</span>
-                            {' • '}
-                            {locale === 'bn' ? 'মাসিক কিস্তি:' : 'Monthly:'}{' '}
-                            <span className="font-medium">{formatCurrency(loan.monthlyInstallment, locale)}</span>
-                          </p>
-                          <p>
-                            <Users className="inline h-3 w-3 mr-1" />
-                            {locale === 'bn' ? 'গ্যারান্টর:' : 'Guarantor:'} {loan.guarantor?.name ?? '-'}
-                            {' • '}
-                            {locale === 'bn' ? 'উদ্দেশ্য:' : 'Purpose:'} {loan.purpose || '-'}
-                          </p>
-                          {loan.disbursedDate && (
-                            <p className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {locale === 'bn' ? 'বিতরণ:' : 'Disbursed:'}{' '}
-                              {new Date(loan.disbursedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
-                            </p>
-                          )}
-                          {(loan.approvedBy || loan.approvedDate) && (
-                            <p>
-                              {locale === 'bn' ? 'অনুমোদন:' : 'Approved:'}{' '}
-                              <span className="font-medium">{loan.approvedBy ?? '-'}</span>
-                              {loan.approvedDate
-                                ? ` • ${new Date(loan.approvedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}`
-                                : ''}
-                            </p>
-                          )}
-                        </div>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder={locale === 'bn' ? 'সদস্য বা গ্যারান্টর দিয়ে খুঁজুন...' : 'Search member/guarantor...'}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+          <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
+          <option value="PENDING_GUARANTOR">{locale === 'bn' ? 'জামিনদার অপেক্ষমাণ' : 'Awaiting Guarantor'}</option>
+          <option value="PENDING_APPROVAL">{locale === 'bn' ? 'অনুমোদন অপেক্ষমাণ' : 'Pending Approval'}</option>
+          <option value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</option>
+          <option value="COMPLETED">{locale === 'bn' ? 'সম্পন্ন' : 'Completed'}</option>
+          <option value="DEFAULTED">{locale === 'bn' ? 'খেলাপি' : 'Defaulted'}</option>
+          <option value="REJECTED">{locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}</option>
+        </select>
+      </div>
 
-                        {(loan.status === 'ACTIVE' || loan.status === 'DEFAULTED') && (
-                          <div className="mt-3">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="text-muted-foreground">
-                                {locale === 'bn' ? 'পরিশোধ অগ্রগতি' : 'Repayment Progress'}
-                              </span>
-                              <span className="font-medium">
-                                {loan.installmentsPaid}/{loan.totalInstallments}
-                              </span>
-                            </div>
-                            <Progress value={loan.amount > 0 ? (loan.paidAmount / loan.amount) * 100 : 0} className="h-2" />
-                          </div>
-                        )}
-                      </div>
-                    </div>
+      {/* Table */}
+      <div className="border border-gray-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'সদস্য' : 'Member'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'পরিশোধিত' : 'Paid'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'গ্যারান্টর' : 'Guarantor'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
+            ) : filteredLoans.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো ঋণ পাওয়া যায়নি' : 'No loans found'}</td></tr>
+            ) : filteredLoans.map((l) => (
+              <tr key={l.id} className={`border-b border-gray-100 hover:bg-gray-50 ${l.status === 'DEFAULTED' ? 'bg-red-50' : ''}`}>
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900">{l.member.name}</div>
+                  {l.member.memberId && <div className="text-xs text-gray-500">{l.member.memberId}</div>}
+                </td>
+                <td className="px-4 py-3 text-right font-medium text-blue-600">{formatCurrency(l.amount, locale)}</td>
+                <td className="px-4 py-3 text-right hidden sm:table-cell">
+                  <span className="text-green-600">{formatCurrency(l.paidAmount, locale)}</span>
+                  <div className="text-xs text-gray-500">{l.installmentsPaid}/{l.totalInstallments}</div>
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell text-gray-600">{l.guarantor?.name ?? '-'}</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 text-xs rounded ${statusStyles[l.status]}`}>
+                    {locale === 'bn' ? statusLabels[l.status].bn : statusLabels[l.status].en}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <button onClick={() => { setSelectedLoan(l); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
+                    <Eye className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedLoan(loan);
-                          setShowDetailModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        {locale === 'bn' ? 'দেখুন' : 'View'}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {filteredLoans.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <HandCoins className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{locale === 'bn' ? 'কোনো ঋণ পাওয়া যায়নি' : 'No loans found'}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'ঋণ বিস্তারিত' : 'Loan Details'}</DialogTitle>
           </DialogHeader>
           {selectedLoan && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-2xl font-semibold">
-                  {selectedLoan.member.name.charAt(0)}
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold">{selectedLoan.member.name}</h3>
-                  {getStatusBadge(selectedLoan.status)}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণের নম্বর' : 'Loan Number'}</span>
-                  <p className="font-medium">{selectedLoan.loanNumber}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণের পরিমাণ' : 'Loan Amount'}</span>
-                  <p className="font-medium text-blue-600">{formatCurrency(selectedLoan.amount, locale)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'পরিশোধিত' : 'Paid'}</span>
-                  <p className="font-medium text-green-600">{formatCurrency(selectedLoan.paidAmount, locale)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি' : 'Remaining'}</span>
-                  <p className="font-medium text-amber-600">{formatCurrency(selectedLoan.remainingAmount, locale)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'গ্যারান্টর' : 'Guarantor'}</span>
-                  <p className="font-medium">{selectedLoan.guarantor?.name ?? '-'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'সদস্যের জমা' : 'Member Deposit'}</span>
-                  <p className="font-medium">{formatCurrency(selectedLoan.memberDeposit, locale)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'অনুমোদনকারী' : 'Approved By'}</span>
-                  <p className="font-medium">{selectedLoan.approvedBy ?? '-'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'অনুমোদনের সময়' : 'Approved At'}</span>
-                  <p className="font-medium">
-                    {selectedLoan.approvedDate
-                      ? new Date(selectedLoan.approvedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')
-                      : '-'}
-                  </p>
-                </div>
-              </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'সদস্য' : 'Member'}</span><span>{selectedLoan.member.name}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'নম্বর' : 'Number'}</span><span>{selectedLoan.loanNumber}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</span><span className="font-medium text-blue-600">{formatCurrency(selectedLoan.amount, locale)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'পরিশোধিত' : 'Paid'}</span><span className="text-green-600">{formatCurrency(selectedLoan.paidAmount, locale)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'বাকি' : 'Remaining'}</span><span className="text-amber-600">{formatCurrency(selectedLoan.remainingAmount, locale)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'কিস্তি' : 'Installments'}</span><span>{selectedLoan.installmentsPaid}/{selectedLoan.totalInstallments}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'মাসিক' : 'Monthly'}</span><span>{formatCurrency(selectedLoan.monthlyInstallment, locale)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'গ্যারান্টর' : 'Guarantor'}</span><span>{selectedLoan.guarantor?.name ?? '-'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'উদ্দেশ্য' : 'Purpose'}</span><span>{selectedLoan.purpose || '-'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</span><span className={`px-2 py-0.5 text-xs rounded ${statusStyles[selectedLoan.status]}`}>{locale === 'bn' ? statusLabels[selectedLoan.status].bn : statusLabels[selectedLoan.status].en}</span></div>
+              {selectedLoan.approvedBy && <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'অনুমোদনকারী' : 'Approved By'}</span><span>{selectedLoan.approvedBy}</span></div>}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailModal(false)}>
-              {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowDetailModal(false)}>{locale === 'bn' ? 'বন্ধ' : 'Close'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

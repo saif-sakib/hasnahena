@@ -2,42 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import {
-  Wallet,
-  Search,
-  Filter,
-  RefreshCw,
-  Calendar,
-  User,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  Eye,
-  TrendingUp,
-  TrendingDown,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Loader2,
-  XCircle,
-} from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search, RefreshCw, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
@@ -56,16 +23,10 @@ interface Deposit {
   processedDate: string;
   confirmedDate?: string | null;
   balanceAfter?: number | null;
-  member: {
-    id: string;
-    memberId?: string | null;
-    name: string;
-  };
+  member: { id: string; memberId?: string | null; name: string };
 }
 
-type DepositsResponse = {
-  deposits: Deposit[];
-};
+type DepositsResponse = { deposits: Deposit[] };
 
 export default function AdminDepositsPage() {
   const locale = useLocale();
@@ -92,344 +53,156 @@ export default function AdminDepositsPage() {
     }
   };
 
-  useEffect(() => {
-    void loadDeposits();
-  }, []);
+  useEffect(() => { void loadDeposits(); }, []);
 
-  const getStatusBadge = (status: DepositStatus) => {
-    switch (status) {
-      case 'CONFIRMED':
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'নিশ্চিত' : 'Confirmed'}
-          </Badge>
-        );
-      case 'PENDING':
-        return (
-          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
-          </Badge>
-        );
-      case 'PROCESSED':
-        return (
-          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-            <Clock className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}
-          </Badge>
-        );
-      case 'DISPUTED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}
-          </Badge>
-        );
-      case 'REJECTED':
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <XCircle className="h-3 w-3 mr-1" />
-            {locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}
-          </Badge>
-        );
-    }
+  const statusStyles: Record<DepositStatus, string> = {
+    CONFIRMED: 'bg-green-100 text-green-700',
+    PENDING: 'bg-amber-100 text-amber-700',
+    PROCESSED: 'bg-blue-100 text-blue-700',
+    DISPUTED: 'bg-red-100 text-red-700',
+    REJECTED: 'bg-red-100 text-red-700',
+  };
+  const statusLabels: Record<DepositStatus, { en: string; bn: string }> = {
+    CONFIRMED: { en: 'Confirmed', bn: 'নিশ্চিত' },
+    PENDING: { en: 'Pending', bn: 'অপেক্ষমাণ' },
+    PROCESSED: { en: 'Processed', bn: 'প্রক্রিয়াকৃত' },
+    DISPUTED: { en: 'Disputed', bn: 'বিতর্কিত' },
+    REJECTED: { en: 'Rejected', bn: 'প্রত্যাখ্যাত' },
   };
 
-  const getTypeBadge = (type: DepositType) => {
-    return type === 'DEPOSIT' ? (
-      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-        <ArrowDownLeft className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'জমা' : 'Deposit'}
-      </Badge>
-    ) : (
-      <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
-        <ArrowUpRight className="h-3 w-3 mr-1" />
-        {locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}
-      </Badge>
-    );
-  };
+  const filteredDeposits = useMemo(() => deposits.filter((d) => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = d.member.name.toLowerCase().includes(q) || (d.member.memberId ?? '').toLowerCase().includes(q) || (d.processedBy ?? '').toLowerCase().includes(q);
+    const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
+    const matchesType = typeFilter === 'all' || d.type === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
+  }), [deposits, searchQuery, statusFilter, typeFilter]);
 
-  const filteredDeposits = useMemo(
-    () =>
-      deposits.filter((deposit) => {
-        const q = searchQuery.toLowerCase();
-        const matchesSearch =
-          deposit.member.name.toLowerCase().includes(q) ||
-          (deposit.member.memberId ?? '').toLowerCase().includes(q) ||
-          (deposit.processedBy ?? '').toLowerCase().includes(q);
-        const matchesStatus = statusFilter === 'all' || deposit.status === statusFilter;
-        const matchesType = typeFilter === 'all' || deposit.type === typeFilter;
-        return matchesSearch && matchesStatus && matchesType;
-      }),
-    [deposits, searchQuery, statusFilter, typeFilter],
-  );
-
-  const totalDeposits = deposits
-    .filter((d) => d.type === 'DEPOSIT' && d.status === 'CONFIRMED')
-    .reduce((sum, d) => sum + d.amount, 0);
-  const totalWithdrawals = deposits
-    .filter((d) => d.type === 'WITHDRAWAL' && d.status === 'CONFIRMED')
-    .reduce((sum, d) => sum + d.amount, 0);
+  const totalDeposits = deposits.filter((d) => d.type === 'DEPOSIT' && d.status === 'CONFIRMED').reduce((s, d) => s + d.amount, 0);
+  const totalWithdrawals = deposits.filter((d) => d.type === 'WITHDRAWAL' && d.status === 'CONFIRMED').reduce((s, d) => s + d.amount, 0);
   const pendingCount = deposits.filter((d) => d.status === 'PENDING').length;
-  const disputedCount = deposits.filter((d) => d.status === 'DISPUTED').length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            {locale === 'bn' ? 'জমা ও উত্তোলন' : 'Deposits & Withdrawals'}
-          </h1>
-          <p className="text-muted-foreground">
-            {locale === 'bn'
-              ? 'সকল সদস্যদের জমা ও উত্তোলন ইতিহাস'
-              : 'All member deposits and withdrawals'}
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'জমা ও উত্তোলন' : 'Deposits & Withdrawals'}</h1>
+          <p className="text-sm text-gray-500">{filteredDeposits.length} {locale === 'bn' ? 'টি লেনদেন' : 'transactions'}</p>
         </div>
-        <Button variant="outline" onClick={() => void loadDeposits()} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+        <Button variant="outline" size="sm" onClick={() => void loadDeposits()} disabled={isLoading} className="h-8">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
           {locale === 'bn' ? 'রিফ্রেশ' : 'Refresh'}
         </Button>
       </div>
 
-      {actionError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {actionError}
-        </div>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalDeposits, locale)}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}</p>
-                <p className="text-2xl font-bold text-purple-600">{formatCurrency(totalWithdrawals, locale)}</p>
-              </div>
-              <TrendingDown className="h-8 w-8 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</p>
-                <p className="text-2xl font-bold text-amber-600">{pendingCount}</p>
-              </div>
-              <Clock className="h-8 w-8 text-amber-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}</p>
-                <p className="text-2xl font-bold text-red-600">{disputedCount}</p>
-              </div>
-              <AlertCircle className="h-8 w-8 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <div><span className="text-gray-500">{locale === 'bn' ? 'মোট জমা:' : 'Deposits:'}</span> <span className="font-medium text-green-600">{formatCurrency(totalDeposits, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'মোট উত্তোলন:' : 'Withdrawals:'}</span> <span className="font-medium text-purple-600">{formatCurrency(totalWithdrawals, locale)}</span></div>
+        <div><span className="text-gray-500">{locale === 'bn' ? 'অপেক্ষমাণ:' : 'Pending:'}</span> <span className="font-medium text-amber-600">{pendingCount}</span></div>
       </div>
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={locale === 'bn' ? 'সদস্য/কর্মী দিয়ে খুঁজুন...' : 'Search by member/processor...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full md:w-44">
-                <SelectValue placeholder={locale === 'bn' ? 'ধরন' : 'Type'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'}</SelectItem>
-                <SelectItem value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</SelectItem>
-                <SelectItem value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-44">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder={locale === 'bn' ? 'স্ট্যাটাস' : 'Status'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'}</SelectItem>
-                <SelectItem value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</SelectItem>
-                <SelectItem value="PROCESSED">{locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}</SelectItem>
-                <SelectItem value="CONFIRMED">{locale === 'bn' ? 'নিশ্চিত' : 'Confirmed'}</SelectItem>
-                <SelectItem value="DISPUTED">{locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}</SelectItem>
-                <SelectItem value="REJECTED">{locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      {actionError && <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">{actionError}</div>}
 
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
-            {locale === 'bn' ? 'লেনদেন তালিকা' : 'Transaction List'}
-          </CardTitle>
-          <CardDescription>
-            {locale === 'bn'
-              ? `${filteredDeposits.length} টি লেনদেন পাওয়া গেছে`
-              : `${filteredDeposits.length} transactions found`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredDeposits.map((deposit) => (
-                <div
-                  key={deposit.id}
-                  className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl ${
-                    deposit.status === 'DISPUTED'
-                      ? 'bg-red-50'
-                      : deposit.status === 'PENDING'
-                        ? 'bg-amber-50'
-                        : 'bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={`h-12 w-12 rounded-full flex items-center justify-center font-semibold ${
-                        deposit.type === 'DEPOSIT'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-purple-100 text-purple-700'
-                      }`}
-                    >
-                      {deposit.type === 'DEPOSIT' ? <ArrowDownLeft className="h-6 w-6" /> : <ArrowUpRight className="h-6 w-6" />}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-semibold">{deposit.member.name}</span>
-                        {deposit.member.memberId && <Badge variant="outline">{deposit.member.memberId}</Badge>}
-                        {getTypeBadge(deposit.type)}
-                        {getStatusBadge(deposit.status)}
-                      </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
-                        <p>
-                          {locale === 'bn' ? 'পরিমাণ:' : 'Amount:'}{' '}
-                          <span className={`font-bold ${deposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>
-                            {deposit.type === 'DEPOSIT' ? '+' : '-'}
-                            {formatCurrency(deposit.amount, locale)}
-                          </span>
-                        </p>
-                        <p className="flex items-center gap-1">
-                          <User className="h-3 w-3" />
-                          {locale === 'bn' ? 'প্রসেসকারী:' : 'Processed by:'} {deposit.processedBy ?? '-'}
-                        </p>
-                        <p className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(deposit.processedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder={locale === 'bn' ? 'সদস্য/কর্মী দিয়ে খুঁজুন...' : 'Search member/processor...'}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+          <option value="all">{locale === 'bn' ? 'সব ধরন' : 'All Types'}</option>
+          <option value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</option>
+          <option value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</option>
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+          <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
+          <option value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</option>
+          <option value="PROCESSED">{locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}</option>
+          <option value="CONFIRMED">{locale === 'bn' ? 'নিশ্চিত' : 'Confirmed'}</option>
+          <option value="DISPUTED">{locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}</option>
+          <option value="REJECTED">{locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}</option>
+        </select>
+      </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedDeposit(deposit);
-                        setShowDetailModal(true);
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+      {/* Table */}
+      <div className="border border-gray-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'সদস্য' : 'Member'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'ধরন' : 'Type'}</th>
+              <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'তারিখ' : 'Date'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
+            ) : filteredDeposits.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}</td></tr>
+            ) : filteredDeposits.map((d) => (
+              <tr key={d.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  <div className="font-medium text-gray-900">{d.member.name}</div>
+                  {d.member.memberId && <div className="text-xs text-gray-500">{d.member.memberId}</div>}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 text-xs rounded ${d.type === 'DEPOSIT' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
+                    {d.type === 'DEPOSIT' ? (locale === 'bn' ? 'জমা' : 'Deposit') : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal')}
+                  </span>
+                </td>
+                <td className={`px-4 py-3 text-right font-medium ${d.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>
+                  {d.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(d.amount, locale)}
+                </td>
+                <td className="px-4 py-3 hidden sm:table-cell">
+                  <span className={`px-2 py-0.5 text-xs rounded ${statusStyles[d.status]}`}>
+                    {locale === 'bn' ? statusLabels[d.status].bn : statusLabels[d.status].en}
+                  </span>
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">
+                  {new Date(d.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
+                </td>
+                <td className="px-4 py-3">
+                  <button onClick={() => { setSelectedDeposit(d); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
+                    <Eye className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-              {filteredDeposits.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Wallet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'লেনদেন বিস্তারিত' : 'Transaction Details'}</DialogTitle>
           </DialogHeader>
           {selectedDeposit && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'সদস্য' : 'Member'}</span>
-                <span className="font-medium">{selectedDeposit.member.name}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'ধরন' : 'Type'}</span>
-                {getTypeBadge(selectedDeposit.type)}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</span>
-                <span className={`font-bold ${selectedDeposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>
-                  {selectedDeposit.type === 'DEPOSIT' ? '+' : '-'}
-                  {formatCurrency(selectedDeposit.amount, locale)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</span>
-                {getStatusBadge(selectedDeposit.status)}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'রসিদ' : 'Receipt'}</span>
-                <span className="font-medium">{selectedDeposit.receiptNumber}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'প্রসেসকারী' : 'Processed By'}</span>
-                <span className="font-medium">{selectedDeposit.processedBy ?? '-'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{locale === 'bn' ? 'প্রসেসের তারিখ' : 'Processed Date'}</span>
-                <span className="font-medium">
-                  {new Date(selectedDeposit.processedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}
-                </span>
-              </div>
-              {selectedDeposit.notes && (
-                <div className="p-3 bg-slate-100 rounded-lg text-sm">
-                  <span className="text-muted-foreground">{locale === 'bn' ? 'নোট:' : 'Note:'}</span> {selectedDeposit.notes}
-                </div>
-              )}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'সদস্য' : 'Member'}</span><span>{selectedDeposit.member.name}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'ধরন' : 'Type'}</span><span className={selectedDeposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}>{selectedDeposit.type === 'DEPOSIT' ? (locale === 'bn' ? 'জমা' : 'Deposit') : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal')}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</span><span className={`font-medium ${selectedDeposit.type === 'DEPOSIT' ? 'text-green-600' : 'text-purple-600'}`}>{selectedDeposit.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(selectedDeposit.amount, locale)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</span><span className={`px-2 py-0.5 text-xs rounded ${statusStyles[selectedDeposit.status]}`}>{locale === 'bn' ? statusLabels[selectedDeposit.status].bn : statusLabels[selectedDeposit.status].en}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'রসিদ' : 'Receipt'}</span><span>{selectedDeposit.receiptNumber}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'প্রসেসকারী' : 'Processor'}</span><span>{selectedDeposit.processedBy ?? '-'}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{locale === 'bn' ? 'তারিখ' : 'Date'}</span><span>{new Date(selectedDeposit.processedDate).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD')}</span></div>
+              {selectedDeposit.notes && <div className="p-2 bg-gray-50 text-xs"><span className="text-gray-500">{locale === 'bn' ? 'নোট:' : 'Note:'}</span> {selectedDeposit.notes}</div>}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailModal(false)}>
-              {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowDetailModal(false)}>{locale === 'bn' ? 'বন্ধ' : 'Close'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
