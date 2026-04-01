@@ -46,18 +46,18 @@ export default function AdminDashboard() {
   }, []);
 
   const StatCard = ({ title, value, subValue, icon: Icon, trend, alert = false }: any) => (
-    <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-xl hover:border-neutral-300/80 transition-colors shadow-sm shadow-neutral-100/50">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-medium text-neutral-500">{title}</span>
-        <div className={`p-2 rounded-lg ${alert ? 'bg-red-50 text-red-600' : 'bg-neutral-50 text-neutral-600'}`}>
-          <Icon className="h-4 w-4" />
+    <div className="flex flex-col p-6 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+      <div className="flex items-center justify-between mb-5">
+        <span className="text-[14px] font-medium text-neutral-500 tracking-wide">{title}</span>
+        <div className={`p-2.5 rounded-xl ${alert ? 'bg-red-500/10 text-red-600' : 'bg-neutral-100 text-neutral-700'}`}>
+          <Icon className="h-[18px] w-[18px]" strokeWidth={2.5} />
         </div>
       </div>
       <div>
-        <h3 className="text-2xl font-semibold text-neutral-900 tracking-tight">{value}</h3>
+        <h3 className="text-3xl font-bold text-neutral-900 tracking-tight">{value}</h3>
         {subValue && (
-          <div className="flex items-center gap-2 mt-2">
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${trend === 'up' ? 'bg-emerald-50 text-emerald-600' : trend === 'down' ? 'bg-red-50 text-red-600' : 'bg-neutral-100 text-neutral-600'}`}>
+          <div className="flex items-center gap-2 mt-2.5">
+            <span className={`text-[13px] font-semibold px-2.5 py-1 rounded-md ${trend === 'up' ? 'bg-emerald-500/10 text-emerald-700' : trend === 'down' ? 'bg-red-500/10 text-red-700' : 'bg-neutral-100 text-neutral-700'}`}>
               {subValue}
             </span>
           </div>
@@ -117,25 +117,25 @@ export default function AdminDashboard() {
       </div>
 
       {/* Recent Activity */}
-      <div className="bg-white border border-neutral-200/60 rounded-xl shadow-sm shadow-neutral-100/50 overflow-hidden">
-        <div className="px-6 py-5 border-b border-neutral-100">
-          <h2 className="text-base font-medium text-neutral-900">
+      <div className="bg-white border border-neutral-200/50 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-7 py-5 border-b border-neutral-100/80">
+          <h2 className="text-[15px] font-semibold text-neutral-900 tracking-wide">
             {locale === 'bn' ? 'সাম্প্রতিক কার্যক্রম' : 'Recent Activity'}
           </h2>
         </div>
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100/60">
           {isLoading ? (
-            <div className="px-6 py-8 text-center text-sm text-neutral-400">
+            <div className="px-7 py-10 text-center text-[14px] font-medium text-neutral-400">
               {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
             </div>
           ) : recentActivity.length > 0 ? (
             recentActivity.slice(0, 8).map((activity) => (
-              <div key={activity.id} className="px-6 py-4 flex items-center justify-between hover:bg-neutral-50/50 transition-colors">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-neutral-900">{activity.action}</span>
-                  <span className="text-xs text-neutral-500">{activity.user}</span>
+              <div key={activity.id} className="px-7 py-4 flex items-center justify-between hover:bg-neutral-50/50 transition-colors group">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[14px] font-medium text-neutral-900 leading-none">{activity.action}</span>
+                  <span className="text-[13px] text-neutral-500 leading-none">{activity.user}</span>
                 </div>
-                <span className="text-xs font-medium text-neutral-400 bg-neutral-100 px-2.5 py-1 rounded-full">
+                <span className="text-[12px] font-semibold text-neutral-500 bg-neutral-100/80 px-3 py-1.5 rounded-md group-hover:bg-neutral-200/50 transition-colors">
                   {new Date(activity.time).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
                     month: 'short',
                     day: 'numeric',
@@ -146,7 +146,7 @@ export default function AdminDashboard() {
               </div>
             ))
           ) : (
-            <div className="px-6 py-12 text-center text-sm text-neutral-400">
+            <div className="px-7 py-12 text-center text-[14px] font-medium text-neutral-400">
               {locale === 'bn' ? 'কোনো কার্যক্রম নেই' : 'No recent activity'}
             </div>
           )}

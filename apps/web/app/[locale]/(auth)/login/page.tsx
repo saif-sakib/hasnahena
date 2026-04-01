@@ -136,110 +136,85 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col">
-      {/* Top Navigation Bar */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 safe-area-top">
-        <div className="container-wide flex h-14 items-center justify-between">
-          <Link href={`/${locale}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-            <Home className="h-4 w-4" />
-            <span className="text-sm font-medium">{locale === 'bn' ? 'হোম' : 'Home'}</span>
+    <div className="min-h-[100dvh] flex flex-col relative w-full items-center justify-center bg-zinc-50 overflow-hidden">
+      {/* Immersive Nature Background */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1542273917363-3b1817f69a5d?q=80&w=2074&auto=format&fit=crop')] bg-cover bg-center" />
+        <div className="absolute inset-0 bg-emerald-950/60 backdrop-blur-[2px]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-950/40 to-emerald-950/90" />
+      </div>
+
+      {/* Top Navigation Bar - Floating & Glassy */}
+      <header className="absolute top-0 left-0 right-0 z-50 p-4 sm:p-6 w-full flex justify-between items-center">
+        <Link href={`/${locale}`} className="flex items-center gap-2 text-white/90 hover:text-white transition-colors group px-3 py-2 rounded-full hover:bg-white/10 backdrop-blur-md">
+          <Home className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+          <span className="text-[13px] font-semibold tracking-wide">{locale === 'bn' ? 'হোম' : 'Home'}</span>
+        </Link>
+        <div className="flex items-center gap-2">
+          <Link href={`/${otherLocale}/login`}>
+            <Button variant="ghost" size="sm" className="gap-2 text-white/90 hover:text-white hover:bg-white/10 rounded-full px-4 backdrop-blur-md h-9">
+              <Globe className="h-[14px] w-[14px] opacity-80" strokeWidth={2.5} />
+              <span className="text-[13px] font-semibold">{locale === 'en' ? 'বাংলা' : 'English'}</span>
+            </Button>
           </Link>
-          
-          <div className="flex items-center gap-3">
-            <Link href={`/${otherLocale}/login`}>
-              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-                <Globe className="h-4 w-4" />
-                <span className="text-sm">{locale === 'en' ? 'বাংলা' : 'English'}</span>
-              </Button>
-            </Link>
-            <Link href={`/${locale}/#contact`}>
-              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
-                <HelpCircle className="h-4 w-4" />
-                <span className="text-sm hidden sm:inline">{locale === 'bn' ? 'সাহায্য' : 'Help'}</span>
-              </Button>
-            </Link>
-          </div>
+          <Link href={`/${locale}/#contact`} className="hidden sm:block">
+            <Button variant="ghost" size="sm" className="gap-2 text-white/90 hover:text-white hover:bg-white/10 rounded-full px-4 h-9">
+              <HelpCircle className="h-[14px] w-[14px]" />
+              <span className="text-[13px] font-semibold">{locale === 'bn' ? 'সাহায্য' : 'Help'}</span>
+            </Button>
+          </Link>
         </div>
       </header>
 
-      <div className="flex-1 flex pt-14">
-        {/* Left Panel - Branding */}
-        <aside className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between p-16 bg-gradient-to-br from-emerald-800 to-emerald-950">
-          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?q=80&w=2071&auto=format&fit=crop')] bg-cover bg-center opacity-10 mix-blend-overlay"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-emerald-900/90 via-emerald-800/80 to-transparent" />
+      {/* Main Login Card - Glassmorphism Mobile-First */}
+      <main className="relative z-10 w-full max-w-[420px] px-4 sm:px-0 py-10 flex-1 flex flex-col justify-center animate-in slide-in-from-bottom-8 fade-in-50 duration-700">
+        
+        {/* Card Container */}
+        <div className="bg-white/95 sm:bg-white/90 backdrop-blur-2xl border border-white/20 shadow-2xl shadow-emerald-900/30 rounded-[28px] overflow-hidden">
           
-          <div className="relative z-10 animate-in slide-in-from-left-10 fade-in duration-700">
-            <Link href={`/${locale}`} className="inline-block mb-12">
-              <Logo size="lg" variant="light" showTagline={false} />
-            </Link>
-            
-            <h1 className="text-5xl font-bold text-white leading-tight mb-6">
-              {locale === 'bn' 
-                ? 'আর্থিক স্বাধীনতার পথে আপনাকে স্বাগতম' 
-                : 'Your Gateway to Financial Freedom'}
-            </h1>
-            <p className="text-lg text-emerald-100/80 max-w-lg leading-relaxed">
-              {locale === 'bn'
-                ? 'হাসনাহেনা কো-অপারেটিভ সোসাইটি - যেখানে বিশ্বাস এবং স্বচ্ছতাই আমাদের মূলধন।'
-                : 'Join a community built on trust, transparency, and shared prosperity. Experience interest-free banking like never before.'}
-            </p>
-          </div>
-
-          <div className="relative z-10">
-            <div className="flex gap-8 text-sm text-emerald-200/60 font-medium uppercase tracking-widest">
-              <span>Secure</span>
-              <span>Transparent</span>
-              <span>Halal</span>
-            </div>
-          </div>
-        </aside>
-
-        {/* Right Panel - Login Form */}
-        <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-12 lg:p-24 bg-slate-50 dark:bg-slate-950 overflow-y-auto">
-          <div className="w-full max-w-[400px] animate-in slide-in-from-bottom-5 fade-in duration-700 py-4 sm:py-0">
-            {/* Mobile Logo */}
-            <div className="lg:hidden mb-10 text-center">
-              <Link href={`/${locale}`} className="inline-block">
-                <Logo size="md" showTagline={false} />
-              </Link>
-            </div>
-
+          {/* Decorative Top Accent */}
+          <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-400" />
+          
+          <div className="p-6 sm:p-10">
             {/* Form Header */}
-            <div className="mb-10 text-center lg:text-left">
-              <h2 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
+            <div className="text-center mb-8 flex flex-col items-center">
+              <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-6">
+                <Logo size="md" className="drop-shadow-sm" />
+              </Link>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
                 {welcomeMessage || t('welcomeBack')}
               </h2>
-              <p className="text-slate-500 dark:text-slate-400">
+              <p className="text-[14px] text-slate-500 font-medium">
                 {t('loginSubtitle')}
               </p>
             </div>
 
             {/* Login Form */}
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="identifier" className="text-sm font-medium">
+                <Label htmlFor="identifier" className="text-[13px] font-semibold text-slate-700 ml-1">
                   {t('email')}
                 </Label>
                 <Input
                   id="identifier"
                   type="text"
-                  className="h-12 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg transition-all"
+                  className="h-12 bg-white/60 border-slate-200/60 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
                   placeholder={locale === 'bn' ? 'ইমেইল বা ফোন নম্বর' : 'name@example.com'}
                   {...register('identifier')}
                 />
                 {errors.identifier && (
-                  <p className="text-sm text-red-500">{errors.identifier.message}</p>
+                  <p className="text-[12px] font-medium text-red-500 ml-1">{errors.identifier.message}</p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-sm font-medium">
+                <div className="flex items-center justify-between ml-1">
+                  <Label htmlFor="password" className="text-[13px] font-semibold text-slate-700">
                     {t('password')}
                   </Label>
                   <Link
                     href={`/${locale}/forgot-password`}
-                    className="text-sm text-primary hover:text-primary/80 transition-colors"
+                    className="text-[12px] font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
                   >
                     {t('forgotPassword')}
                   </Link>
@@ -249,107 +224,68 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     data-no-native-password-toggle
-                    className="h-12 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 pr-11 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-lg transition-all"
+                    className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
                     placeholder="••••••••"
                     {...register('password')}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
                     aria-label="Toggle password visibility"
                   >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="text-sm text-red-500">{errors.password.message}</p>
+                  <p className="text-[12px] font-medium text-red-500 ml-1">{errors.password.message}</p>
                 )}
               </div>
 
               {submitError && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                  <p className="text-sm text-red-600">{submitError}</p>
+                <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-sm shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                  <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
                 </div>
               )}
 
               <Button 
                 type="submit" 
-                className="w-full h-12 text-base font-semibold shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 transition-all rounded-lg" 
+                className="w-full h-12 mt-4 text-[15px] font-bold shadow-lg shadow-emerald-600/20 bg-emerald-600 hover:bg-emerald-500 hover:-translate-y-0.5 active:translate-y-0 text-white transition-all rounded-xl" 
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
-                  <span className="flex items-center gap-2">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    {locale === 'bn' ? 'অপেক্ষা করুন...' : 'Please wait...'}
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    {locale === 'bn' ? 'অপেক্ষা করুন...' : 'Authenticating...'}
                   </span>
                 ) : (
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center justify-center gap-2 w-full">
                     {t('signIn')}
-                    <ArrowRight className="h-4 w-4" />
+                    <ArrowRight className="h-[18px] w-[18px] opacity-80" />
                   </span>
                 )}
               </Button>
             </form>
 
-            {/* Divider */}
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-slate-50 px-3 text-muted-foreground">
-                  {locale === 'bn' ? 'অথবা' : 'or continue with'}
-                </span>
-              </div>
+            <div className="mt-8 text-center">
+              <p className="text-[13px] text-slate-500 font-medium">
+                {t('noAccount')}{' '}
+                <Link
+                  href={`/${locale}/register`}
+                  className="font-bold text-emerald-600 hover:text-emerald-700 transition-colors underline decoration-emerald-600/30 underline-offset-4 hover:decoration-emerald-600"
+                >
+                  {t('signUp')}
+                </Link>
+              </p>
             </div>
-
-            {/* Social Login (Disabled for now) */}
-            <div className="space-y-3">
-              <Button 
-                variant="outline" 
-                className="w-full h-11 bg-white hover:bg-slate-50" 
-                type="button" 
-                disabled
-              >
-                <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
-                Google
-              </Button>
-            </div>
-
-            {/* Sign Up Link */}
-            <p className="text-center text-sm text-muted-foreground mt-8">
-              {t('noAccount')}{' '}
-              <Link
-                href={`/${locale}/register`}
-                className="font-medium text-primary hover:text-primary/80 transition-colors"
-              >
-                {t('signUp')}
-              </Link>
-            </p>
-          </div>
-        </main>
-      </div>
-
-      {/* Bottom Footer */}
-      <footer className="bg-white border-t border-slate-100 py-4 safe-area-bottom">
-        <div className="container-wide flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} Hasnahena</p>
-          <div className="flex gap-4">
-            <Link href={`/${locale}/privacy`} className="hover:text-foreground transition-colors">
-              {locale === 'bn' ? 'গোপনীয়তা নীতি' : 'Privacy'}
-            </Link>
-            <Link href={`/${locale}/terms`} className="hover:text-foreground transition-colors">
-              {locale === 'bn' ? 'শর্তাবলী' : 'Terms'}
-            </Link>
           </div>
         </div>
-      </footer>
+        
+        {/* Footer Credit Layer */}
+        <div className="mt-8 text-center text-white/50 text-[12px] font-medium">
+          &copy; {new Date().getFullYear()} Hasnahena. {locale === 'bn' ? 'সর্বসত্ব সংরক্ষিত' : 'All rights reserved.'}
+        </div>
+      </main>
     </div>
   );
 }
