@@ -138,27 +138,27 @@ export default function LoginPage() {
   return (
     <div className="min-h-[100dvh] flex flex-col relative w-full items-center justify-center bg-zinc-50 overflow-hidden">
       {/* Immersive Nature Background */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1542273917363-3b1817f69a5d?q=80&w=2074&auto=format&fit=crop')] bg-cover bg-center" />
-        <div className="absolute inset-0 bg-emerald-950/60 backdrop-blur-[2px]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-950/40 to-emerald-950/90" />
+      <div className="absolute inset-0 z-0 bg-slate-50">
+        <div className="absolute top-0 right-0 -mr-20 -mt-20 h-[500px] w-[500px] rounded-full bg-emerald-200/40 blur-3xl" />
+        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 h-[500px] w-[500px] rounded-full bg-teal-200/40 blur-3xl" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" />
       </div>
 
       {/* Top Navigation Bar - Floating & Glassy */}
       <header className="absolute top-0 left-0 right-0 z-50 p-4 sm:p-6 w-full flex justify-between items-center">
-        <Link href={`/${locale}`} className="flex items-center gap-2 text-white/90 hover:text-white transition-colors group px-3 py-2 rounded-full hover:bg-white/10 backdrop-blur-md">
+        <Link href={`/${locale}`} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors group px-3 py-2 rounded-full hover:bg-slate-200/50 ">
           <Home className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
           <span className="text-[13px] font-semibold tracking-wide">{locale === 'bn' ? 'হোম' : 'Home'}</span>
         </Link>
         <div className="flex items-center gap-2">
           <Link href={`/${otherLocale}/login`}>
-            <Button variant="ghost" size="sm" className="gap-2 text-white/90 hover:text-white hover:bg-white/10 rounded-full px-4 backdrop-blur-md h-9">
+            <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4  h-9">
               <Globe className="h-[14px] w-[14px] opacity-80" strokeWidth={2.5} />
               <span className="text-[13px] font-semibold">{locale === 'en' ? 'বাংলা' : 'English'}</span>
             </Button>
           </Link>
           <Link href={`/${locale}/#contact`} className="hidden sm:block">
-            <Button variant="ghost" size="sm" className="gap-2 text-white/90 hover:text-white hover:bg-white/10 rounded-full px-4 h-9">
+            <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4 h-9">
               <HelpCircle className="h-[14px] w-[14px]" />
               <span className="text-[13px] font-semibold">{locale === 'bn' ? 'সাহায্য' : 'Help'}</span>
             </Button>
@@ -167,19 +167,19 @@ export default function LoginPage() {
       </header>
 
       {/* Main Login Card - Glassmorphism Mobile-First */}
-      <main className="relative z-10 w-full max-w-[420px] px-4 sm:px-0 py-10 flex-1 flex flex-col justify-center animate-in slide-in-from-bottom-8 fade-in-50 duration-700">
+      <main className="relative z-10 w-full max-w-[440px] px-4 sm:px-6 py-10 flex-1 flex flex-col justify-center animate-in slide-in-from-bottom-8 fade-in-50 duration-700">
         
         {/* Card Container */}
-        <div className="bg-white/95 sm:bg-white/90 backdrop-blur-2xl border border-white/20 shadow-2xl shadow-emerald-900/30 rounded-[28px] overflow-hidden">
+        <div className="bg-white/70 backdrop-blur-xl sm:bg-white border border-white/20 shadow-2xl shadow-emerald-900/30 rounded-[28px] overflow-hidden">
           
           {/* Decorative Top Accent */}
           <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-400" />
           
           <div className="p-6 sm:p-10">
             {/* Form Header */}
-            <div className="text-center mb-8 flex flex-col items-center">
-              <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-6">
-                <Logo size="md" className="drop-shadow-sm" />
+            <div className="text-center mb-4 flex flex-col items-center">
+              <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
+                <Logo size="lg" className="drop-shadow-sm" />
               </Link>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
                 {welcomeMessage || t('welcomeBack')}
@@ -282,7 +282,7 @@ export default function LoginPage() {
         </div>
         
         {/* Footer Credit Layer */}
-        <div className="mt-8 text-center text-white/50 text-[12px] font-medium">
+        <div className="mt-8 text-center text-slate-500/80 text-[12px] font-medium">
           &copy; {new Date().getFullYear()} Hasnahena. {locale === 'bn' ? 'সর্বসত্ব সংরক্ষিত' : 'All rights reserved.'}
         </div>
       </main>
