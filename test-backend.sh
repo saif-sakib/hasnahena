@@ -14,6 +14,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 API_URL="${API_URL:-http://localhost:${API_PORT:-8081}}"
+all_pass=true
 
 # Test 1: Health Check
 echo -n "1. Testing health endpoint... "
@@ -38,9 +39,19 @@ login_response=$(curl -s -X POST "$API_URL/v1/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"identifier":"admin@hasnahena.local","password":"Admin@12345"}' 2>/dev/null)
 
-if echo "$login_response" | grep -q "token"; then
+if echo "$login_response" | grep -q "accessToken\|\"token\""; then
     echo -e "${GREEN}✓ PASS${NC}"
-    TOKEN=$(echo "$login_response" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+    TOKEN=$(echo "$login_response" | grep -o '"accessToken":"[^"]*' | cut -d'"' -f4)
+    if [ -z "$TOKEN" ]; then
+        TOKEN=$(echo "$login_response" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+    fi
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}✗ FAIL${NC}"
+        echo "Response: $login_response"
+        echo ""
+        echo -e "${YELLOW}⚠️  Login succeeded but token extraction failed.${NC}"
+        exit 1
+    fi
 else
     echo -e "${RED}✗ FAIL${NC}"
     echo "Response: $login_response"
@@ -67,6 +78,7 @@ if echo "$dashboard_response" | grep -q "recoveryRate"; then
 else
     echo -e "${RED}✗ FAIL${NC}"
     echo "Response: $dashboard_response"
+    all_pass=false
 fi
 
 # Test 4: Get Pending Approvals
@@ -83,6 +95,7 @@ if echo "$approvals_response" | grep -q "registrationRequests"; then
     echo -e "   ${GREEN}→${NC} Found pending registrations and loans"
 else
     echo -e "${RED}✗ FAIL${NC}"
+    all_pass=false
 fi
 
 # Test 5: Get All Loans
@@ -95,6 +108,7 @@ if echo "$loans_response" | grep -q "loanNumber"; then
     echo -e "   ${GREEN}→${NC} Loans endpoint working"
 else
     echo -e "${RED}✗ FAIL${NC}"
+    all_pass=false
 fi
 
 # Test 6: Get Donations
@@ -107,17 +121,25 @@ if echo "$donations_response" | grep -q "DON-"; then
     echo -e "   ${GREEN}→${NC} Found donation transactions"
 else
     echo -e "${RED}✗ FAIL${NC}"
+    all_pass=false
 fi
 
 echo ""
 echo "=================================="
-echo -e "${GREEN}🎉 All tests passed!${NC}"
-echo ""
-echo "Your backend is ready! You can:"
-echo "  1. Start the frontend: cd apps/web && npm run dev"
-echo "  2. Login at http://localhost:3000 with:"
-echo "     - Admin: admin@hasnahena.local / Admin@12345"
-echo "     - Member: member@hasnahena.local / Member@12345"
-echo "     - Staff: staff@hasnahena.local / Staff@12345"
-echo ""
-echo "API Documentation: See QUICKSTART.md for all endpoints"
+if [ "$all_pass" = true ]; then
+    echo -e "${GREEN}🎉 All tests passed!${NC}"
+    echo ""
+    echo "Your backend is ready! You can:"
+    echo "  1. Start the frontend: cd apps/web && npm run dev"
+    echo "  2. Login at http://localhost:3000 with:"
+    echo "     - Admin: admin@hasnahena.local / Admin@12345"
+    echo "     - Member: member@hasnahena.local / Member@12345"
+    echo "     - Staff: staff@hasnahena.local / Staff@12345"
+    echo ""
+    echo "API Documentation: See QUICKSTART.md for all endpoints"
+else
+    echo -e "${RED}❌ Some checks failed.${NC}"
+    echo ""
+    echo "Review the failed checks above and verify API/auth/data state before relying on this script."
+    exit 1
+fi
