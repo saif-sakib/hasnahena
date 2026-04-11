@@ -13,7 +13,7 @@
     "start": "pnpm --filter @hasnahena/web start",
     "lint": "pnpm --filter @hasnahena/web lint",
     "db:reset": "./scripts/db-reset-seed.sh",
-    "db:push": "pnpm --filter @hasnahena/web prisma db push",
+    "db:push": "pnpm --filter @hasnahena/web exec prisma db push",
     "db:seed": "cd apps/api && go run cmd/seed/main.go",
     "db:seed:api": "cd apps/api && go run cmd/seed/main.go",
     "db:seed:reset": "cd apps/api && go run cmd/seed/main.go --reset",

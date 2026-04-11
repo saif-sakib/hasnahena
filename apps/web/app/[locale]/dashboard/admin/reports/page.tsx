@@ -1,39 +1,330 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
 type ReportType = 'financial' | 'members' | 'loans' | 'donations';
 type Period = 'month' | 'quarter' | 'year' | 'all';
 
+type DepositType = 'DEPOSIT' | 'WITHDRAWAL';
+type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
+type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'SETTLED' | 'DEFAULTED' | 'REJECTED';
+
+type DashboardStats = {
+  totalMembers: number;
+  totalWorkers: number;
+  totalDeposits: number;
+  totalLoans: number;
+  activeLoanCount: number;
+  defaultedLoans: number;
+  charityFund: number;
+  monthlyGrowth: number;
+};
+
+type Member = {
+  id: string;
+  name: string;
+  status: string;
+  joinDate: string;
+};
+
+type Loan = {
+  id: string;
+  status: LoanStatus;
+  amount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  disbursedDate?: string | null;
+  approvedDate?: string | null;
+  member: { name: string };
+};
+
+type Donation = {
+  id: string;
+  amount: number;
+  donorName?: string;
+  donorNameBn?: string;
+  date: string;
+  receipt?: string;
+};
+
+type Deposit = {
+  id: string;
+  type: DepositType;
+  amount: number;
+  status: DepositStatus;
+  processedDate: string;
+};
+
+type YearlyReport = {
+  year: number;
+  summary: {
+    totalDeposits: number;
+    totalWithdrawals: number;
+    loansDisbursed: number;
+    loansRecovered: number;
+    netSavings: number;
+  };
+  monthlyBreakdown: Array<{
+    year: number;
+    month: number;
+    totalDeposits: number;
+    totalWithdrawals: number;
+    loansDisbursed: number;
+    loansRecovered: number;
+    netSavings: number;
+  }>;
+};
+
+type LoanPerformanceReport = {
+  totalLoans: number;
+  avgLoanAmount: number;
+  defaultedCount: number;
+  completedCount: number;
+  activeCount: number;
+  defaultRate: number;
+  recoveryRate: number;
+  totalDisbursed: number;
+  totalRecovered: number;
+};
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+function parseDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isWithinPeriod(date: Date | null, period: Period): boolean {
+  if (!date) return false;
+  if (period === 'all') return true;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  if (period === 'month') {
+    return date.getFullYear() === year && date.getMonth() === month;
+  }
+
+  if (period === 'quarter') {
+    const quarterStart = month - 2;
+    const quarterStartDate = new Date(year, quarterStart, 1);
+    const quarterEndDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    return date >= quarterStartDate && date <= quarterEndDate;
+  }
+
+  return date.getFullYear() === year;
+}
+
+function monthLabel(monthNumber: number, locale: string): string {
+  return new Date(CURRENT_YEAR, Math.max(0, monthNumber - 1), 1).toLocaleDateString(
+    locale === 'bn' ? 'bn-BD' : 'en-BD',
+    { month: 'short' }
+  );
+}
+
 export default function AdminReportsPage() {
   const locale = useLocale();
   const [activeReport, setActiveReport] = useState<ReportType>('financial');
   const [period, setPeriod] = useState<Period>('month');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data
-  const financialSummary = [
-    { title: locale === 'bn' ? 'মোট আমানত' : 'Total Deposits', value: '৳ 25,00,000', change: 12.5 },
-    { title: locale === 'bn' ? 'মোট ঋণ বিতরণ' : 'Total Loans', value: '৳ 18,00,000', change: 8.3 },
-    { title: locale === 'bn' ? 'পুনরুদ্ধার' : 'Recovery', value: '৳ 5,50,000', change: 15.2 },
-    { title: locale === 'bn' ? 'দান তহবিল' : 'Donations', value: '৳ 12,75,000', change: 5.8 },
-  ];
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [donations, setDonations] = useState<Donation[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [yearlyReport, setYearlyReport] = useState<YearlyReport | null>(null);
+  const [loanPerformanceReport, setLoanPerformanceReport] = useState<LoanPerformanceReport | null>(null);
 
-  const memberStats = { total: 125, newThisMonth: 8, active: 118, pending: 3 };
-  const loanStats = { active: 45, completed: 5, applications: 12, defaulted: 2, recovery: 98.5 };
-  const donationStats = { received: 500000, disbursed: 350000, zakat: 150000, sadaqah: 75000 };
+  const loadReportsData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [
+        dashboardData,
+        membersData,
+        loansData,
+        donationsData,
+        depositsData,
+        yearlyData,
+        loanPerformanceData,
+      ] = await Promise.all([
+        apiGet<{ stats: DashboardStats }>('/v1/dashboard/admin'),
+        apiGet<Member[]>('/v1/dashboard/admin/members'),
+        apiGet<Loan[]>('/v1/dashboard/admin/loans'),
+        apiGet<Donation[]>('/v1/dashboard/admin/donations'),
+        apiGet<{ deposits: Deposit[] } | Deposit[]>('/v1/dashboard/admin/deposits'),
+        apiGet<YearlyReport>(`/v1/dashboard/admin/reports/yearly?year=${CURRENT_YEAR}`),
+        apiGet<LoanPerformanceReport>('/v1/dashboard/admin/reports/loans'),
+      ]);
 
-  const monthlyData = [
-    { month: locale === 'bn' ? 'জানু' : 'Jan', deposits: 150000, loans: 120000, recovery: 45000 },
-    { month: locale === 'bn' ? 'ফেব্রু' : 'Feb', deposits: 180000, loans: 150000, recovery: 52000 },
-    { month: locale === 'bn' ? 'মার্চ' : 'Mar', deposits: 200000, loans: 180000, recovery: 58000 },
-    { month: locale === 'bn' ? 'এপ্রি' : 'Apr', deposits: 175000, loans: 140000, recovery: 48000 },
-    { month: locale === 'bn' ? 'মে' : 'May', deposits: 220000, loans: 200000, recovery: 65000 },
-    { month: locale === 'bn' ? 'জুন' : 'Jun', deposits: 250000, loans: 180000, recovery: 55000 },
-  ];
+      setDashboardStats(dashboardData?.stats || null);
+      setMembers(membersData || []);
+      setLoans(loansData || []);
+      setDonations(donationsData || []);
+      setDeposits(Array.isArray(depositsData) ? depositsData : (depositsData?.deposits || []));
+      setYearlyReport(yearlyData || null);
+      setLoanPerformanceReport(loanPerformanceData || null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load reports');
+      setMembers([]);
+      setLoans([]);
+      setDonations([]);
+      setDeposits([]);
+      setYearlyReport(null);
+      setLoanPerformanceReport(null);
+      setDashboardStats(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadReportsData();
+  }, []);
+
+  const filteredMembers = useMemo(
+    () => members.filter((m) => isWithinPeriod(parseDate(m.joinDate), period)),
+    [members, period]
+  );
+
+  const filteredDeposits = useMemo(
+    () => deposits.filter((d) => isWithinPeriod(parseDate(d.processedDate), period)),
+    [deposits, period]
+  );
+
+  const filteredLoans = useMemo(
+    () =>
+      loans.filter((l) => {
+        const loanDate = parseDate(l.disbursedDate || l.approvedDate || null);
+        return isWithinPeriod(loanDate, period);
+      }),
+    [loans, period]
+  );
+
+  const filteredDonations = useMemo(
+    () => donations.filter((d) => isWithinPeriod(parseDate(d.date), period)),
+    [donations, period]
+  );
+
+  const financialSummary = useMemo(() => {
+    const totalDeposits = filteredDeposits
+      .filter((d) => d.type === 'DEPOSIT' && d.status === 'CONFIRMED')
+      .reduce((sum, d) => sum + d.amount, 0);
+    const totalWithdrawals = filteredDeposits
+      .filter((d) => d.type === 'WITHDRAWAL' && d.status === 'CONFIRMED')
+      .reduce((sum, d) => sum + d.amount, 0);
+    const loansDisbursed = filteredLoans.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const loansRecovered = filteredLoans.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
+
+    return {
+      totalDeposits,
+      totalWithdrawals,
+      loansDisbursed,
+      loansRecovered,
+      netSavings: totalDeposits - totalWithdrawals,
+    };
+  }, [filteredDeposits, filteredLoans]);
+
+  const membersSummary = useMemo(() => {
+    const total = members.length;
+    const newThisPeriod = filteredMembers.length;
+    const active = members.filter((m) => (m.status || '').toUpperCase() === 'ACTIVE').length;
+    const pending = members.filter((m) => (m.status || '').toUpperCase() === 'PENDING').length;
+    return { total, newThisPeriod, active, pending };
+  }, [members, filteredMembers]);
+
+  const loansSummary = useMemo(() => {
+    const source = period === 'all' && loanPerformanceReport ? null : filteredLoans;
+
+    if (!source && loanPerformanceReport) {
+      return {
+        total: loanPerformanceReport.totalLoans,
+        active: loanPerformanceReport.activeCount,
+        completed: loanPerformanceReport.completedCount,
+        defaulted: loanPerformanceReport.defaultedCount,
+        defaultRate: loanPerformanceReport.defaultRate,
+        recoveryRate: loanPerformanceReport.recoveryRate,
+        avgLoanAmount: (loanPerformanceReport.avgLoanAmount || 0) / 100,
+      };
+    }
+
+    const list = source || [];
+    const total = list.length;
+    const active = list.filter((l) => l.status === 'ACTIVE').length;
+    const completed = list.filter((l) => l.status === 'COMPLETED' || l.status === 'SETTLED').length;
+    const defaulted = list.filter((l) => l.status === 'DEFAULTED').length;
+    const disbursed = list.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const recovered = list.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
+
+    return {
+      total,
+      active,
+      completed,
+      defaulted,
+      defaultRate: total > 0 ? Number(((defaulted / total) * 100).toFixed(1)) : 0,
+      recoveryRate: disbursed > 0 ? Number(((recovered / disbursed) * 100).toFixed(1)) : 0,
+      avgLoanAmount: total > 0 ? disbursed / total : 0,
+    };
+  }, [filteredLoans, loanPerformanceReport, period]);
+
+  const donationsSummary = useMemo(() => {
+    const received = filteredDonations.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const currentFund = dashboardStats?.charityFund || 0;
+
+    const donorMap = new Map<string, number>();
+    filteredDonations.forEach((d) => {
+      const name = (locale === 'bn' ? d.donorNameBn : d.donorName) || d.donorName || d.donorNameBn || 'Unknown';
+      donorMap.set(name, (donorMap.get(name) || 0) + (d.amount || 0));
+    });
+
+    const topDonors = [...donorMap.entries()]
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+
+    return {
+      received,
+      currentFund,
+      entries: filteredDonations.length,
+      topDonors,
+    };
+  }, [dashboardStats?.charityFund, filteredDonations, locale]);
+
+  const trendRows = useMemo(() => {
+    const rows = (yearlyReport?.monthlyBreakdown || []).map((row) => ({
+      month: row.month,
+      deposits: (row.totalDeposits || 0) / 100,
+      withdrawals: (row.totalWithdrawals || 0) / 100,
+      loansDisbursed: (row.loansDisbursed || 0) / 100,
+      loansRecovered: (row.loansRecovered || 0) / 100,
+    }));
+
+    if (period === 'month') {
+      const currentMonth = new Date().getMonth() + 1;
+      return rows.filter((r) => r.month === currentMonth);
+    }
+
+    if (period === 'quarter') {
+      const currentMonth = new Date().getMonth() + 1;
+      return rows.filter((r) => r.month >= Math.max(1, currentMonth - 2) && r.month <= currentMonth);
+    }
+
+    if (period === 'year') {
+      const currentMonth = new Date().getMonth() + 1;
+      return rows.filter((r) => r.month <= currentMonth);
+    }
+
+    return rows;
+  }, [period, yearlyReport?.monthlyBreakdown]);
 
   const tabs: { key: ReportType; label: string }[] = [
     { key: 'financial', label: locale === 'bn' ? 'আর্থিক' : 'Financial' },
@@ -44,193 +335,168 @@ export default function AdminReportsPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">{locale === 'bn' ? 'রিপোর্ট ও বিশ্লেষণ' : 'Reports & Analytics'}</h1>
-          <p className="text-sm text-gray-500">{locale === 'bn' ? 'আর্থিক বিশ্লেষণ' : 'Financial analysis'}</p>
+          <p className="text-sm text-gray-500">
+            {locale === 'bn' ? 'ডাটাবেস ভিত্তিক রিয়েল টাইম সারাংশ' : 'Database-backed live operational summary'}
+          </p>
         </div>
         <div className="flex gap-2">
           <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="h-8 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
             <option value="month">{locale === 'bn' ? 'এই মাস' : 'This Month'}</option>
-            <option value="quarter">{locale === 'bn' ? 'এই কোয়ার্টার' : 'This Quarter'}</option>
+            <option value="quarter">{locale === 'bn' ? 'শেষ ৩ মাস' : 'Last 3 Months'}</option>
             <option value="year">{locale === 'bn' ? 'এই বছর' : 'This Year'}</option>
             <option value="all">{locale === 'bn' ? 'সর্বকালীন' : 'All Time'}</option>
           </select>
-          <Button variant="outline" size="sm" className="h-8"><RefreshCw className="h-3.5 w-3.5" /></Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => void loadReportsData()} disabled={isLoading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </div>
 
-      {/* Tabs */}
+      {error && <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">{error}</div>}
+
       <div className="flex border-b border-gray-200">
         {tabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveReport(tab.key)} className={`px-4 py-2 text-sm border-b-2 -mb-px ${activeReport === tab.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <button
+            key={tab.key}
+            onClick={() => setActiveReport(tab.key)}
+            className={`px-4 py-2 text-sm border-b-2 -mb-px ${activeReport === tab.key ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
             {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Financial Report */}
-      {activeReport === 'financial' && (
-        <div className="space-y-4">
-          {/* Stats Row */}
-          <div className="flex flex-wrap gap-6 text-sm">
-            {financialSummary.map((item, i) => (
-              <div key={i}>
-                <span className="text-gray-500">{item.title}:</span>{' '}
-                <span className="font-semibold">{item.value}</span>{' '}
-                <span className={`text-xs ${item.change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {item.change > 0 ? <TrendingUp className="inline h-3 w-3" /> : <TrendingDown className="inline h-3 w-3" />}
-                  {item.change > 0 ? '+' : ''}{item.change}%
-                </span>
+      {isLoading ? (
+        <div className="py-10 flex justify-center">
+          <Loader2 className="h-7 w-7 animate-spin text-gray-400" />
+        </div>
+      ) : (
+        <>
+          {activeReport === 'financial' && (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'মোট জমা' : 'Total Deposits'}</span><span className="font-semibold text-green-600">{formatCurrency(financialSummary.totalDeposits, locale)}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'মোট উত্তোলন' : 'Total Withdrawals'}</span><span className="font-semibold text-purple-600">{formatCurrency(financialSummary.totalWithdrawals, locale)}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loans Disbursed'}</span><span className="font-semibold text-blue-600">{formatCurrency(financialSummary.loansDisbursed, locale)}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'নেট সেভিংস' : 'Net Savings'}</span><span className={`font-semibold ${financialSummary.netSavings >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(financialSummary.netSavings, locale)}</span></div>
               </div>
-            ))}
-          </div>
 
-          {/* Monthly Trend Table */}
-          <div className="border border-gray-200 bg-white">
-            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm text-gray-700">{locale === 'bn' ? 'মাসিক প্রবণতা' : 'Monthly Trend'}</div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'মাস' : 'Month'}</th>
-                  <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'জমা' : 'Deposits'}</th>
-                  <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'ঋণ' : 'Loans'}</th>
-                  <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পুনরুদ্ধার' : 'Recovery'}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monthlyData.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-2 font-medium">{row.month}</td>
-                    <td className="px-4 py-2 text-right text-green-600">{formatCurrency(row.deposits, locale)}</td>
-                    <td className="px-4 py-2 text-right text-blue-600">{formatCurrency(row.loans, locale)}</td>
-                    <td className="px-4 py-2 text-right text-amber-600">{formatCurrency(row.recovery, locale)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Members Report */}
-      {activeReport === 'members' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-6 text-sm">
-            <div><span className="text-gray-500">{locale === 'bn' ? 'মোট সদস্য:' : 'Total:'}</span> <span className="font-semibold">{memberStats.total}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'নতুন:' : 'New:'}</span> <span className="font-semibold text-green-600">+{memberStats.newThisMonth}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'সক্রিয়:' : 'Active:'}</span> <span className="font-semibold">{memberStats.active}</span> <span className="text-xs text-gray-500">({((memberStats.active / memberStats.total) * 100).toFixed(0)}%)</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'অপেক্ষমাণ:' : 'Pending:'}</span> <span className="font-semibold text-amber-600">{memberStats.pending}</span></div>
-          </div>
-          <div className="border border-gray-200 bg-white p-6 text-center text-gray-400">
-            <p className="text-sm">{locale === 'bn' ? 'সদস্য বৃদ্ধির চার্ট শীঘ্রই আসছে' : 'Member growth chart coming soon'}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Loans Report */}
-      {activeReport === 'loans' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-6 text-sm">
-            <div><span className="text-gray-500">{locale === 'bn' ? 'সক্রিয়:' : 'Active:'}</span> <span className="font-semibold">{loanStats.active}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'সম্পন্ন:' : 'Completed:'}</span> <span className="font-semibold text-green-600">{loanStats.completed}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'আবেদন:' : 'Applications:'}</span> <span className="font-semibold text-blue-600">{loanStats.applications}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'খেলাপি:' : 'Defaulted:'}</span> <span className="font-semibold text-red-600">{loanStats.defaulted}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'পুনরুদ্ধার হার:' : 'Recovery:'}</span> <span className="font-semibold text-green-600">{loanStats.recovery}%</span></div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="border border-gray-200 bg-white">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm">{locale === 'bn' ? 'উদ্দেশ্য অনুযায়ী' : 'By Purpose'}</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    { label: locale === 'bn' ? 'ব্যবসা' : 'Business', pct: 45 },
-                    { label: locale === 'bn' ? 'শিক্ষা' : 'Education', pct: 20 },
-                    { label: locale === 'bn' ? 'চিকিৎসা' : 'Medical', pct: 15 },
-                    { label: locale === 'bn' ? 'গৃহ নির্মাণ' : 'Housing', pct: 12 },
-                    { label: locale === 'bn' ? 'অন্যান্য' : 'Others', pct: 8 },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-gray-100">
-                      <td className="px-4 py-2">{r.label}</td>
-                      <td className="px-4 py-2 text-right font-medium">{r.pct}%</td>
+              <div className="border border-gray-200 bg-white">
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm text-gray-700">{locale === 'bn' ? 'মাসিক প্রবণতা' : 'Monthly Trend'}</div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'মাস' : 'Month'}</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'জমা' : 'Deposits'}</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawals'}</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loans'}</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'ঋণ পুনরুদ্ধার' : 'Recovery'}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {trendRows.length === 0 ? (
+                      <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-500">{locale === 'bn' ? 'কোনো ডাটা নেই' : 'No data available'}</td></tr>
+                    ) : (
+                      trendRows.map((row) => (
+                        <tr key={row.month} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-4 py-2 font-medium">{monthLabel(row.month, locale)}</td>
+                          <td className="px-4 py-2 text-right text-green-600">{formatCurrency(row.deposits, locale)}</td>
+                          <td className="px-4 py-2 text-right text-purple-600">{formatCurrency(row.withdrawals, locale)}</td>
+                          <td className="px-4 py-2 text-right text-blue-600">{formatCurrency(row.loansDisbursed, locale)}</td>
+                          <td className="px-4 py-2 text-right text-amber-600">{formatCurrency(row.loansRecovered, locale)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="border border-gray-200 bg-white">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm">{locale === 'bn' ? 'পরিমাণ অনুযায়ী' : 'By Amount'}</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    { label: '৳8,000 - ৳25,000', pct: 30 },
-                    { label: '৳25,000 - ৳50,000', pct: 35 },
-                    { label: '৳50,000 - ৳1,00,000', pct: 25 },
-                    { label: '৳1,00,000+', pct: 10 },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-gray-100">
-                      <td className="px-4 py-2">{r.label}</td>
-                      <td className="px-4 py-2 text-right font-medium">{r.pct}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Donations Report */}
-      {activeReport === 'donations' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-6 text-sm">
-            <div><span className="text-gray-500">{locale === 'bn' ? 'মোট প্রাপ্ত:' : 'Received:'}</span> <span className="font-semibold text-green-600">{formatCurrency(donationStats.received, locale)}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'বিতরণ:' : 'Disbursed:'}</span> <span className="font-semibold text-purple-600">{formatCurrency(donationStats.disbursed, locale)}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'যাকাত:' : 'Zakat:'}</span> <span className="font-semibold">{formatCurrency(donationStats.zakat, locale)}</span></div>
-            <div><span className="text-gray-500">{locale === 'bn' ? 'সাদাকাহ:' : 'Sadaqah:'}</span> <span className="font-semibold">{formatCurrency(donationStats.sadaqah, locale)}</span></div>
-          </div>
+          {activeReport === 'members' && (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'মোট সদস্য' : 'Total Members'}</span><span className="font-semibold">{membersSummary.total}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'এই সময়ে নতুন' : 'New This Period'}</span><span className="font-semibold text-green-600">+{membersSummary.newThisPeriod}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</span><span className="font-semibold text-emerald-600">{membersSummary.active}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</span><span className="font-semibold text-amber-600">{membersSummary.pending}</span></div>
+              </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="border border-gray-200 bg-white">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm">{locale === 'bn' ? 'তহবিল বণ্টন' : 'Fund Distribution'}</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    { label: locale === 'bn' ? 'পরিচালনা' : 'Operating', pct: 40, color: 'bg-blue-500' },
-                    { label: locale === 'bn' ? 'ঋণ' : 'Lending', pct: 30, color: 'bg-green-500' },
-                    { label: locale === 'bn' ? 'যাকাত' : 'Zakat', pct: 20, color: 'bg-purple-500' },
-                    { label: locale === 'bn' ? 'সাদাকাহ' : 'Sadaqah', pct: 10, color: 'bg-amber-500' },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-gray-100">
-                      <td className="px-4 py-2 flex items-center gap-2"><span className={`w-2 h-2 rounded ${r.color}`} />{r.label}</td>
-                      <td className="px-4 py-2 text-right font-medium">{r.pct}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="border border-gray-200 bg-white p-4 text-sm text-gray-600">
+                {locale === 'bn'
+                  ? `এই সময়ে সদস্য বৃদ্ধির হার: ${membersSummary.total > 0 ? ((membersSummary.newThisPeriod / membersSummary.total) * 100).toFixed(1) : '0.0'}%`
+                  : `Member growth in selected period: ${membersSummary.total > 0 ? ((membersSummary.newThisPeriod / membersSummary.total) * 100).toFixed(1) : '0.0'}%`}
+              </div>
             </div>
-            <div className="border border-gray-200 bg-white">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm">{locale === 'bn' ? 'বিতরণ উদ্দেশ্য' : 'Disbursement'}</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    { label: locale === 'bn' ? 'ঋণ নিষ্পত্তি' : 'Loan Settlement', pct: 35 },
-                    { label: locale === 'bn' ? 'অফিস পরিচালনা' : 'Operations', pct: 25 },
-                    { label: locale === 'bn' ? 'জরুরি সহায়তা' : 'Emergency', pct: 20 },
-                    { label: locale === 'bn' ? 'অন্যান্য' : 'Others', pct: 20 },
-                  ].map((r, i) => (
-                    <tr key={i} className="border-b border-gray-100">
-                      <td className="px-4 py-2">{r.label}</td>
-                      <td className="px-4 py-2 text-right font-medium">{r.pct}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          )}
+
+          {activeReport === 'loans' && (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'মোট ঋণ' : 'Total Loans'}</span><span className="font-semibold">{loansSummary.total}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</span><span className="font-semibold text-green-600">{loansSummary.active}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'সম্পন্ন' : 'Completed'}</span><span className="font-semibold text-blue-600">{loansSummary.completed}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'খেলাপি' : 'Defaulted'}</span><span className="font-semibold text-red-600">{loansSummary.defaulted}</span></div>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-3 text-sm">
+                <div className="border border-gray-200 bg-white p-3">
+                  <span className="text-gray-500 block mb-1">{locale === 'bn' ? 'খেলাপি হার' : 'Default Rate'}</span>
+                  <span className="font-semibold text-red-600 inline-flex items-center gap-1">
+                    <TrendingDown className="h-3.5 w-3.5" />{loansSummary.defaultRate}%
+                  </span>
+                </div>
+                <div className="border border-gray-200 bg-white p-3">
+                  <span className="text-gray-500 block mb-1">{locale === 'bn' ? 'পুনরুদ্ধার হার' : 'Recovery Rate'}</span>
+                  <span className="font-semibold text-green-600 inline-flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />{loansSummary.recoveryRate}%
+                  </span>
+                </div>
+                <div className="border border-gray-200 bg-white p-3">
+                  <span className="text-gray-500 block mb-1">{locale === 'bn' ? 'গড় ঋণ পরিমাণ' : 'Average Loan Amount'}</span>
+                  <span className="font-semibold text-blue-600">{formatCurrency(loansSummary.avgLoanAmount, locale)}</span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+
+          {activeReport === 'donations' && (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'মোট প্রাপ্ত' : 'Received'}</span><span className="font-semibold text-green-600">{formatCurrency(donationsSummary.received, locale)}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'বর্তমান তহবিল' : 'Current Fund'}</span><span className="font-semibold text-purple-600">{formatCurrency(donationsSummary.currentFund, locale)}</span></div>
+                <div className="border border-gray-200 bg-white p-3"><span className="text-gray-500 block">{locale === 'bn' ? 'এন্ট্রি' : 'Entries'}</span><span className="font-semibold">{donationsSummary.entries}</span></div>
+              </div>
+
+              <div className="border border-gray-200 bg-white">
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 font-medium text-sm text-gray-700">{locale === 'bn' ? 'শীর্ষ দাতারা' : 'Top Donors'}</div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'দাতা' : 'Donor'}</th>
+                      <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {donationsSummary.topDonors.length === 0 ? (
+                      <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-500">{locale === 'bn' ? 'কোনো দাতা তথ্য নেই' : 'No donor data available'}</td></tr>
+                    ) : (
+                      donationsSummary.topDonors.map((donor) => (
+                        <tr key={donor.name} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-4 py-2">{donor.name}</td>
+                          <td className="px-4 py-2 text-right text-green-600 font-medium">{formatCurrency(donor.amount, locale)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

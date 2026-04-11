@@ -11,7 +11,7 @@ import { Eye, EyeOff, ArrowRight, Home, Globe, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Logo, LogoIcon } from '@/components/ui/logo';
+import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { setClientAuthToken } from '@/lib/client-auth';
 
@@ -179,7 +179,13 @@ export default function LoginPage() {
             {/* Form Header */}
             <div className="text-center mb-4 flex flex-col items-center">
               <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
-                <Logo size="md" showTagline={false} className="drop-shadow-sm" />
+                <span className="inline-flex h-12 w-44 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+                  <Logo
+                    size="lg"
+                    showTagline={false}
+                    className="h-20 w-[220px] max-w-none object-cover object-center"
+                  />
+                </span>
               </Link>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
                 {welcomeMessage || t('welcomeBack')}

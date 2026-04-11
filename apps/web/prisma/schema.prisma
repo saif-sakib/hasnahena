@@ -118,6 +118,8 @@ model User {
   updatedAt     DateTime   @updatedAt
   approvedAt    DateTime?
   approvedBy    String?
+  approvedByUser User?     @relation("UserApprovals", fields: [approvedBy], references: [id])
+  approvedUsers  User[]    @relation("UserApprovals")
   
   // Relations
   permanentAddress Address? @relation("PermanentAddress")
@@ -126,16 +128,22 @@ model User {
   
   nominee       Nominee?
   accounts      Account[]
-  transactions  Transaction[]
+  transactions  Transaction[] @relation("UserTransactions")
+  processedTransactions Transaction[] @relation("ProcessedTransactions")
   loans         Loan[]         @relation("Borrower")
   guaranteedLoans Loan[]       @relation("Guarantor")
+  approvedLoans Loan[]         @relation("ApprovedLoans")
   documents     Document[]
+  supportThreads SupportThread[] @relation("MemberSupportThreads")
+  processedSupportThreads SupportThread[] @relation("ProcessedSupportThreads")
+  supportMessages SupportMessage[] @relation("SentSupportMessages")
   
   // Worker-specific
   assignedBranch String?
   
   @@index([status, createdAt])
   @@index([role, status])
+  @@index([approvedBy, approvedAt])
   @@index([approvedAt])
   @@map("users")
 }
@@ -244,17 +252,19 @@ model Transaction {
   account       Account         @relation(fields: [accountId], references: [id])
   accountId     String
   
-  user          User            @relation(fields: [userId], references: [id])
+  user          User            @relation("UserTransactions", fields: [userId], references: [id])
   userId        String
   
   loan          Loan?           @relation(fields: [loanId], references: [id])
   loanId        String?
   
-  processedBy   String?         // Worker who processed (store display name)
+  processedBy   String?         // Worker ID who processed this transaction
+  processedByUser User?         @relation("ProcessedTransactions", fields: [processedBy], references: [id])
   
   @@index([type, status, createdAt])
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([receiptNumber])
   @@index([processedBy, processedAt])
   @@map("transactions")
 }
@@ -304,6 +314,7 @@ model Loan {
   transactions    Transaction[]
   
   approvedBy      String?
+  approvedByUser  User?      @relation("ApprovedLoans", fields: [approvedBy], references: [id])
   
   @@index([status, createdAt])
   @@index([borrowerId, status])
@@ -361,6 +372,45 @@ model AuditLog {
 }
 
 // ============================================================
+// SUPPORT CHAT
+// ============================================================
+
+model SupportThread {
+  id                String   @id
+  memberUserId      String   @map("memberUserId")
+  member            User     @relation("MemberSupportThreads", fields: [memberUserId], references: [id], onDelete: Cascade)
+  status            String   @default("OPEN")
+  processedByUserId String?  @map("processedByUserId")
+  processedByUser   User?    @relation("ProcessedSupportThreads", fields: [processedByUserId], references: [id])
+  processedAt       DateTime? @map("processedAt")
+  deleteAt          DateTime @map("deleteAt")
+  createdAt         DateTime @default(now()) @map("createdAt")
+  updatedAt         DateTime @updatedAt @map("updatedAt")
+
+  messages          SupportMessage[]
+
+  @@index([memberUserId], map: "idx_support_threads_member")
+  @@index([status, updatedAt(sort: Desc)], map: "idx_support_threads_status_updated")
+  @@index([deleteAt], map: "idx_support_threads_delete_at")
+  @@map("support_threads")
+}
+
+model SupportMessage {
+  id           String   @id
+  threadId     String   @map("threadId")
+  thread       SupportThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderUserId String   @map("senderUserId")
+  sender       User     @relation("SentSupportMessages", fields: [senderUserId], references: [id], onDelete: Cascade)
+  message      String
+  createdAt    DateTime @default(now()) @map("createdAt")
+
+  @@index([threadId, createdAt], map: "idx_support_messages_thread_created")
+  @@index([threadId, createdAt(sort: Desc)], map: "idx_support_messages_thread_created_desc")
+  @@index([senderUserId, createdAt])
+  @@map("support_messages")
+}
+
+// ============================================================
 // NOTIFICATIONS
 // ============================================================
 
@@ -394,6 +444,7 @@ model Notification {
 
   @@index([targetRole, isRead])
   @@index([targetUserId, isRead])
+  @@index([createdAt])
   @@map("notifications")
 }
 

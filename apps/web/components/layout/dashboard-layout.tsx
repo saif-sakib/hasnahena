@@ -111,17 +111,21 @@ const workerNav = [
   { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
 ];
 
-// Admin navigation - full access: members, workers, approvals, reports, settings
-const adminNav = [
-  { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
-  { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
-  { name: 'workers', href: '/workers', icon: UserPlus, en: 'Workers', bn: 'কর্মীগণ' },
+// Admin primary navigation - day-to-day operational workflow
+const adminPrimaryNav = [
+  { name: 'overview', href: '', icon: LayoutDashboard, en: 'Command Center', bn: 'কমান্ড সেন্টার' },
   { name: 'approvals', href: '/approvals', icon: ClipboardList, en: 'Approvals', bn: 'অনুমোদন' },
-  { name: 'deposits', href: '/deposits', icon: Wallet, en: 'All Deposits', bn: 'সকল আমানত' },
-  { name: 'loans', href: '/loans', icon: HandCoins, en: 'All Loans', bn: 'সকল ঋণ' },
+  { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
+  { name: 'deposits', href: '/deposits', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
+  { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
+];
+
+// Admin secondary navigation - management and configuration tools
+const adminSecondaryNav = [
+  { name: 'workers', href: '/workers', icon: UserPlus, en: 'Workers', bn: 'কর্মীগণ' },
+  { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
   { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
   { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
-  { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
 
@@ -197,7 +201,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const hasFetchedRef = useRef(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
-  const navItems = role === 'admin' ? adminNav : role === 'worker' ? workerNav : memberNav;
+  const navItems = role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
 
   const roleLabels = {
@@ -694,35 +698,109 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
           {/* Navigation - Clean list */}
           <nav className="flex-1 py-1 overflow-y-auto px-3" style={{ scrollbarWidth: 'thin' }}>
-            <div className="space-y-1">
-              {navItems.map((item) => {
-                const href = `${basePath}${item.href}`;
-                const isActive = pathname === href || (item.href === '' && pathname === basePath);
+            {role === 'admin' ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
+                    {locale === 'bn' ? 'প্রতিদিনের কাজ' : 'Daily Operations'}
+                  </p>
+                  <div className="space-y-1">
+                    {adminPrimaryNav.map((item) => {
+                      const href = `${basePath}${item.href}`;
+                      const isActive = pathname === href || (item.href === '' && pathname === basePath);
 
-                return (
-                  <Link
-                    key={item.name}
-                    href={href}
-                    prefetch={true}
-                    className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
-                      isActive
-                        ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
-                        : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
-                    }`}
-                    onClick={() => {
-                      if (pathname !== href) {
-                        setPendingHref(href);
-                      }
-                      setSidebarOpen(false);
-                    }}
-                  >
-                    <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
-                    {locale === 'bn' ? item.bn : item.en}
-                    {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-                  </Link>
-                );
-              })}
-            </div>
+                      return (
+                        <Link
+                          key={item.name}
+                          href={href}
+                          prefetch={true}
+                          className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
+                            isActive
+                              ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
+                              : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
+                          }`}
+                          onClick={() => {
+                            if (pathname !== href) {
+                              setPendingHref(href);
+                            }
+                            setSidebarOpen(false);
+                          }}
+                        >
+                          <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
+                          {locale === 'bn' ? item.bn : item.en}
+                          {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
+                    {locale === 'bn' ? 'ম্যানেজমেন্ট টুলস' : 'Management Tools'}
+                  </p>
+                  <div className="space-y-1">
+                    {adminSecondaryNav.map((item) => {
+                      const href = `${basePath}${item.href}`;
+                      const isActive = pathname === href || (item.href === '' && pathname === basePath);
+
+                      return (
+                        <Link
+                          key={item.name}
+                          href={href}
+                          prefetch={true}
+                          className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
+                            isActive
+                              ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
+                              : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
+                          }`}
+                          onClick={() => {
+                            if (pathname !== href) {
+                              setPendingHref(href);
+                            }
+                            setSidebarOpen(false);
+                          }}
+                        >
+                          <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
+                          {locale === 'bn' ? item.bn : item.en}
+                          {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {navItems.map((item) => {
+                  const href = `${basePath}${item.href}`;
+                  const isActive = pathname === href || (item.href === '' && pathname === basePath);
+
+                  return (
+                    <Link
+                      key={item.name}
+                      href={href}
+                      prefetch={true}
+                      className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
+                        isActive
+                          ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
+                          : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
+                      }`}
+                      onClick={() => {
+                        if (pathname !== href) {
+                          setPendingHref(href);
+                        }
+                        setSidebarOpen(false);
+                      }}
+                    >
+                      <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
+                      {locale === 'bn' ? item.bn : item.en}
+                      {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </nav>
 
           {/* Logout - Compact */}

@@ -26,6 +26,11 @@ const updateStaffSchema = z.object({
   assignedArea: z.string().optional(),
 });
 
+const updateStaffStatusSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(['ACTIVE', 'INACTIVE']),
+});
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -237,5 +242,222 @@ export async function PUT(req: Request) {
   } catch (error) {
     console.error('[Admin/UpdateStaff] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to update staff account' }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const auth = requireAuth(req);
+    if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+    }
+
+    const parsed = updateStaffStatusSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
+        { status: 400 },
+      );
+    }
+
+    const { id, status } = parsed.data;
+
+    if (id === auth.id && status === 'INACTIVE') {
+      return NextResponse.json({ ok: false, error: 'You cannot deactivate your own account' }, { status: 400 });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nameEn: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        memberId: true,
+        createdAt: true,
+        assignedBranch: true,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
+    }
+
+    if (existing.role !== UserRole.WORKER && existing.role !== UserRole.ADMIN) {
+      return NextResponse.json({ ok: false, error: 'Only worker/admin accounts can be updated here' }, { status: 400 });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        status: status === 'ACTIVE' ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+      },
+      select: {
+        id: true,
+        nameEn: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        memberId: true,
+        createdAt: true,
+        assignedBranch: true,
+      },
+    });
+
+    await createAuditLog({
+      action: 'USER_STATUS_CHANGED',
+      entityType: 'USER',
+      entityId: updated.id,
+      userId: auth.id,
+      oldValue: { status: existing.status },
+      newValue: { status: updated.status },
+      details: `Updated staff status for ${updated.nameEn} to ${updated.status}`,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        id: updated.id,
+        name: updated.nameEn,
+        email: updated.email,
+        phone: updated.phone,
+        role: updated.role,
+        status: updated.status,
+        assignedArea: updated.assignedBranch || '',
+        joinDate: updated.createdAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('[Admin/UpdateStaffStatus] Error:', error);
+    return NextResponse.json({ ok: false, error: 'Failed to update staff status' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const auth = requireAuth(req);
+    if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
+      return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+    }
+
+    const url = new URL(req.url);
+    const id = (url.searchParams.get('id') || '').trim();
+    if (!id) {
+      return NextResponse.json({ ok: false, error: 'Missing staff id' }, { status: 400 });
+    }
+
+    if (id === auth.id) {
+      return NextResponse.json({ ok: false, error: 'You cannot delete your own account' }, { status: 400 });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nameEn: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
+    }
+
+    if (existing.role !== UserRole.WORKER && existing.role !== UserRole.ADMIN) {
+      return NextResponse.json({ ok: false, error: 'Only worker/admin accounts can be deleted here' }, { status: 400 });
+    }
+
+    const [processedTransactions, approvedLoans, approvedUsers, processedSupportThreads] = await prisma.$transaction([
+      prisma.transaction.count({ where: { processedBy: id } }),
+      prisma.loan.count({ where: { approvedBy: id } }),
+      prisma.user.count({ where: { approvedBy: id } }),
+      prisma.supportThread.count({ where: { processedByUserId: id } }),
+    ]);
+
+    const referenceCount = processedTransactions + approvedLoans + approvedUsers + processedSupportThreads;
+
+    // If historical references exist, archive (INACTIVE) instead of hard delete.
+    if (referenceCount > 0) {
+      const archived = await prisma.user.update({
+        where: { id },
+        data: { status: UserStatus.INACTIVE },
+        select: {
+          id: true,
+          nameEn: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+        },
+      });
+
+      await createAuditLog({
+        action: 'USER_STATUS_CHANGED',
+        entityType: 'USER',
+        entityId: archived.id,
+        userId: auth.id,
+        oldValue: { status: existing.status },
+        newValue: { status: archived.status },
+        details: `Archived staff ${archived.nameEn} due to linked historical records`,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          deleted: false,
+          archived: true,
+          id: archived.id,
+          references: {
+            processedTransactions,
+            approvedLoans,
+            approvedUsers,
+            processedSupportThreads,
+          },
+        },
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (existing.email || existing.phone) {
+        await tx.passwordResetToken.deleteMany({
+          where: {
+            OR: [
+              ...(existing.email ? [{ email: existing.email }] : []),
+              ...(existing.phone ? [{ phone: existing.phone }] : []),
+            ],
+          },
+        });
+      }
+      await tx.notification.deleteMany({ where: { targetUserId: id } });
+      await tx.user.delete({ where: { id } });
+    });
+
+    await createAuditLog({
+      action: 'WORKER_UPDATED',
+      entityType: 'USER',
+      entityId: id,
+      userId: auth.id,
+      oldValue: { name: existing.nameEn, role: existing.role },
+      newValue: {},
+      details: `Deleted staff account ${existing.nameEn}`,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        deleted: true,
+        archived: false,
+        id,
+      },
+    });
+  } catch (error) {
+    console.error('[Admin/DeleteStaff] Error:', error);
+    return NextResponse.json({ ok: false, error: 'Failed to delete staff account' }, { status: 500 });
   }
 }
