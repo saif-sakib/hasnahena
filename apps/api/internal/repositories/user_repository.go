@@ -1511,6 +1511,8 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 			COALESCE(u."motherName", ''),
 			COALESCE(u.gender::text, ''),
 			COALESCE(u."maritalStatus"::text, ''),
+			COALESCE(to_jsonb(u)->>'bloodGroup', ''),
+			COALESCE(to_jsonb(u)->>'profession', ''),
 			COALESCE(u."childrenCount", 0),
 			u."dateOfBirth",
 			COALESCE(a.district, ''),
@@ -1543,7 +1545,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 		defer regRows.Close()
 		registrations := []map[string]interface{}{}
 		for regRows.Next() {
-			var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, area string
+			var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
 			var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
 			var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
 			var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
@@ -1553,7 +1555,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 			var documents []string
 			if err := regRows.Scan(
 				&id, &name, &nameBn, &email, &phone, &nid,
-				&fatherName, &motherName, &gender, &maritalStatus, &childrenCount, &dateOfBirth,
+				&fatherName, &motherName, &gender, &maritalStatus, &bloodGroup, &profession, &childrenCount, &dateOfBirth,
 				&area,
 				&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
 				&presentDistrict, &presentHouseNo, &presentRoadNo, &presentVillage, &presentUnion, &presentPoliceStation,
@@ -1578,6 +1580,8 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 				"motherName":  motherName,
 				"gender":      gender,
 				"maritalStatus": maritalStatus,
+				"bloodGroup":  bloodGroup,
+				"profession":  profession,
 				"childrenCount": childrenCount,
 				"dateOfBirth": dateOfBirthValue,
 				"permanentAddress": map[string]interface{}{
@@ -1748,16 +1752,18 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		}
 	}
 
-	// Create audit log
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Write audit log after commit so audit failures never poison the approval transaction.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
-	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, notes); err != nil {
-		// Audit log is optional, don't fail if table doesn't exist
-	}
+	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, notes)
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reason string) error {
@@ -1777,16 +1783,18 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 		return err
 	}
 
-	// Create audit log
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Write audit log after commit so audit failures never poison the rejection transaction.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
-	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, reason); err != nil {
-		// Audit log is optional
-	}
+	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, reason)
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
@@ -2000,7 +2008,16 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 
 	if search, ok := filters["search"].(string); ok && search != "" {
 		argCount++
-		query += fmt.Sprintf(` AND (u."nameEn" ILIKE $%d OR u."memberId" ILIKE $%d)`, argCount, argCount)
+		query += fmt.Sprintf(`
+			AND (
+				u."nameEn" ILIKE $%d
+				OR COALESCE(u."nameBn", '') ILIKE $%d
+				OR u."memberId" ILIKE $%d
+				OR COALESCE(processor."nameEn", '') ILIKE $%d
+				OR COALESCE(t."receiptNumber", '') ILIKE $%d
+				OR t.id::text ILIKE $%d
+			)
+		`, argCount, argCount, argCount, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 	}
 

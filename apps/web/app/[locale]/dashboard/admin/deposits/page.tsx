@@ -72,7 +72,12 @@ export default function AdminDepositsPage() {
 
   const filteredDeposits = useMemo(() => deposits.filter((d) => {
     const q = searchQuery.toLowerCase();
-    const matchesSearch = d.member.name.toLowerCase().includes(q) || (d.member.memberId ?? '').toLowerCase().includes(q) || (d.processedBy ?? '').toLowerCase().includes(q);
+    const matchesSearch =
+      d.member.name.toLowerCase().includes(q) ||
+      (d.member.memberId ?? '').toLowerCase().includes(q) ||
+      (d.processedBy ?? '').toLowerCase().includes(q) ||
+      (d.receiptNumber ?? '').toLowerCase().includes(q) ||
+      d.id.toLowerCase().includes(q);
     const matchesStatus = statusFilter === 'all' || d.status === statusFilter;
     const matchesType = typeFilter === 'all' || d.type === typeFilter;
     return matchesSearch && matchesStatus && matchesType;
@@ -111,7 +116,7 @@ export default function AdminDepositsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder={locale === 'bn' ? 'সদস্য/কর্মী দিয়ে খুঁজুন...' : 'Search member/processor...'}
+            placeholder={locale === 'bn' ? 'সদস্য, কর্মী, ট্রানজেকশন নম্বর দিয়ে খুঁজুন...' : 'Search member, processor, transaction number...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
@@ -141,15 +146,16 @@ export default function AdminDepositsPage() {
               <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'ধরন' : 'Type'}</th>
               <th className="px-4 py-2 text-right font-medium text-gray-600">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-600 hidden lg:table-cell">{locale === 'bn' ? 'ট্রানজেকশন নম্বর' : 'Transaction No'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'তারিখ' : 'Date'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600"></th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></td></tr>
             ) : filteredDeposits.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}</td></tr>
             ) : filteredDeposits.map((d) => (
               <tr key={d.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-3">
@@ -168,6 +174,9 @@ export default function AdminDepositsPage() {
                   <span className={`px-2 py-0.5 text-xs rounded ${statusStyles[d.status]}`}>
                     {locale === 'bn' ? statusLabels[d.status].bn : statusLabels[d.status].en}
                   </span>
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-600">
+                  {d.receiptNumber || d.id}
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">
                   {new Date(d.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}

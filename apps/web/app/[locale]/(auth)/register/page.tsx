@@ -34,6 +34,8 @@ const registerSchema = z.object({
   maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
   childrenCount: z.number().min(0).optional(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
+  bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
+  profession: z.string().min(2, 'Profession is required'),
   dateOfBirth: z.string().optional(),
   
   // Permanent Address
@@ -87,6 +89,7 @@ export default function RegisterPage() {
     defaultValues: {
       maritalStatus: 'UNMARRIED',
       gender: 'MALE',
+      bloodGroup: 'A+',
       childrenCount: 0,
     },
     mode: 'onBlur', // Validate on blur for better UX
@@ -95,7 +98,7 @@ export default function RegisterPage() {
   // Fields to validate per step
   const stepFields: (keyof RegisterFormData)[][] = [
     // Step 0: Personal Info
-    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'maritalStatus'],
+    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus'],
     // Step 1: Address
     ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict'],
     // Step 2: Nominee
@@ -123,6 +126,8 @@ export default function RegisterPage() {
           maritalStatus: data.maritalStatus,
           childrenCount: data.childrenCount,
           gender: data.gender,
+          bloodGroup: data.bloodGroup,
+          profession: data.profession,
           dateOfBirth: data.dateOfBirth,
           // Permanent Address
           permanentHouseNo: data.permanentHouseNo,
@@ -445,6 +450,45 @@ export default function RegisterPage() {
                           type="date"
                           {...register('dateOfBirth')}
                         />
+                      </div>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="bloodGroup">
+                          {locale === 'bn' ? 'রক্তের গ্রুপ *' : 'Blood Group *'}
+                        </Label>
+                        <select
+                          id="bloodGroup"
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                          {...register('bloodGroup')}
+                        >
+                          <option value="A+">A+</option>
+                          <option value="A-">A-</option>
+                          <option value="B+">B+</option>
+                          <option value="B-">B-</option>
+                          <option value="AB+">AB+</option>
+                          <option value="AB-">AB-</option>
+                          <option value="O+">O+</option>
+                          <option value="O-">O-</option>
+                        </select>
+                        {errors.bloodGroup && (
+                          <p className="text-sm text-destructive">{errors.bloodGroup.message}</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="profession">
+                          {locale === 'bn' ? 'পেশা *' : 'Profession *'}
+                        </Label>
+                        <Input
+                          id="profession"
+                          placeholder={locale === 'bn' ? 'যেমন: কৃষক, শিক্ষক, ব্যবসায়ী' : 'e.g. Farmer, Teacher, Business'}
+                          {...register('profession')}
+                        />
+                        {errors.profession && (
+                          <p className="text-sm text-destructive">{errors.profession.message}</p>
+                        )}
                       </div>
                     </div>
 

@@ -101,6 +101,8 @@ model User {
   fatherName    String     // পিতার নাম
   motherName    String     // মাতার নাম
   gender        Gender     @default(MALE)
+  bloodGroup    String?    // রক্তের গ্রুপ
+  profession    String?    // পেশা
   dateOfBirth   DateTime?
   maritalStatus MaritalStatus @default(UNMARRIED)
   childrenCount Int        @default(0) // সন্তানের সংখ্যা

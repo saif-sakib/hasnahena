@@ -17,6 +17,8 @@ const registerSchema = z
     maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
     childrenCount: z.number().min(0).optional(),
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
+    bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
+    profession: z.string().min(2, 'Profession is required'),
     dateOfBirth: z.string().optional(),
 
     // Permanent Address
@@ -142,6 +144,8 @@ export async function POST(req: Request) {
         motherName: payload.motherName,
 
         gender: payload.gender,
+        bloodGroup: payload.bloodGroup,
+        profession: payload.profession,
         dateOfBirth: parseOptionalDate(payload.dateOfBirth),
         maritalStatus: payload.maritalStatus,
         childrenCount: payload.childrenCount ?? 0,
