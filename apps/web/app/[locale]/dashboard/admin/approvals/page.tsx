@@ -16,6 +16,8 @@ interface RegistrationRequest {
   fatherName?: string;
   motherName?: string;
   gender?: string;
+  bloodGroup?: string;
+  profession?: string;
   maritalStatus?: string;
   childrenCount?: number;
   dateOfBirth?: string;
@@ -121,6 +123,12 @@ function RegistrationRow({
               </div>
               <div>
                 <span className="text-gray-500">{locale === 'bn' ? 'লিঙ্গ:' : 'Gender:'}</span> {item.gender || '-'}
+              </div>
+              <div>
+                <span className="text-gray-500">{locale === 'bn' ? 'রক্তের গ্রুপ:' : 'Blood Group:'}</span> {item.bloodGroup || '-'}
+              </div>
+              <div>
+                <span className="text-gray-500">{locale === 'bn' ? 'পেশা:' : 'Profession:'}</span> {item.profession || '-'}
               </div>
               <div>
                 <span className="text-gray-500">{locale === 'bn' ? 'বৈবাহিক:' : 'Marital:'}</span> {item.maritalStatus || '-'}

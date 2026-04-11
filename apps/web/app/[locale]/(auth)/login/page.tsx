@@ -179,7 +179,7 @@ export default function LoginPage() {
             {/* Form Header */}
             <div className="text-center mb-4 flex flex-col items-center">
               <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
-                <Logo size="lg" className="drop-shadow-sm" />
+                <Logo size="md" showTagline={false} className="drop-shadow-sm" />
               </Link>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
                 {welcomeMessage || t('welcomeBack')}
