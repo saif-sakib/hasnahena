@@ -255,6 +255,8 @@ Important:
 - Do not wrap Render values in quotes. Use `KEY=value`, not `KEY="value"`.
 - If using Gmail, set an App Password (16 chars). If copied with spaces, remove spaces.
 - You can use `SMTP_URL` instead of individual SMTP keys (example: `smtp://user:pass@smtp.gmail.com:587`).
+- Gmail SMTP sends only when `EMAIL_USER` is the same Gmail account that owns `EMAIL_PASS` (App Password).
+- Keep `EMAIL_FROM` aligned to `EMAIL_USER` for Gmail SMTP to avoid sender rejection.
 
 Important:
 
@@ -276,6 +278,8 @@ curl https://<your-render-service>.onrender.com/v1/health
 ```
 
 Expected: JSON with `status: ok`.
+
+If `emailConfigured` is `false`, approval emails cannot be sent.
 
 ---
 
