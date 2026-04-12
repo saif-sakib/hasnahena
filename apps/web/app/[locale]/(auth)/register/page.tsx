@@ -29,7 +29,7 @@ const registerSchema = z.object({
   fatherName: z.string().min(3, 'Father name is required'),
   motherName: z.string().min(3, 'Mother name is required'),
   phone: z.string().min(11, 'Phone must be 11 digits').regex(/^01\d{9}$/, 'Invalid BD phone number'),
-  email: z.string().email('Invalid email').optional().or(z.literal('')),
+  email: z.string().email('Valid email is required'),
   nidNumber: z.string().min(10, 'NID must be 10 or 17 digits'),
   maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
   childrenCount: z.number().min(0).optional(),
@@ -98,7 +98,7 @@ export default function RegisterPage() {
   // Fields to validate per step
   const stepFields: (keyof RegisterFormData)[][] = [
     // Step 0: Personal Info
-    ['nameEn', 'fatherName', 'motherName', 'phone', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus'],
+    ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus'],
     // Step 1: Address
     ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict'],
     // Step 2: Nominee
@@ -400,7 +400,7 @@ export default function RegisterPage() {
                       
                       <div className="space-y-2">
                         <Label htmlFor="email">
-                          {locale === 'bn' ? 'ই-মেইল' : 'Email'}
+                          {locale === 'bn' ? 'ই-মেইল *' : 'Email *'}
                         </Label>
                         <Input
                           id="email"
@@ -408,6 +408,9 @@ export default function RegisterPage() {
                           placeholder="name@example.com"
                           {...register('email')}
                         />
+                        {errors.email && (
+                          <p className="text-sm text-destructive">{errors.email.message}</p>
+                        )}
                       </div>
                     </div>
 

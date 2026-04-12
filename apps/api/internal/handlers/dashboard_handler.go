@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"hasnahena/apps/api/internal/repositories"
 	"hasnahena/apps/api/internal/services"
 	"hasnahena/apps/api/internal/utils"
@@ -16,6 +19,7 @@ import (
 type DashboardHandler struct {
 	authService     *services.AuthService
 	securityService *services.SecurityService
+	emailService    *services.EmailService
 	userRepo        *repositories.UserRepository
 }
 
@@ -24,12 +28,34 @@ type authContext struct {
 	Role   string
 }
 
-func NewDashboardHandler(authService *services.AuthService, securityService *services.SecurityService, userRepo *repositories.UserRepository) *DashboardHandler {
+func NewDashboardHandler(authService *services.AuthService, securityService *services.SecurityService, userRepo *repositories.UserRepository, emailService *services.EmailService) *DashboardHandler {
 	return &DashboardHandler{
 		authService:     authService,
 		securityService: securityService,
+		emailService:    emailService,
 		userRepo:        userRepo,
 	}
+}
+
+func generateFirstLoginToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "first-login-" + hex.EncodeToString(buf), nil
+}
+
+func generateTempPassword() (string, error) {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	out := make([]byte, 12)
+	for i := range out {
+		out[i] = chars[int(buf[i])%len(chars)]
+	}
+	return string(out), nil
 }
 
 func (h *DashboardHandler) MemberDashboard(w http.ResponseWriter, r *http.Request) {
@@ -361,14 +387,62 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	var req struct {
 		UserID string `json:"userId"`
 		Notes  string `json:"notes"`
+		Locale string `json:"locale"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
+	if strings.TrimSpace(req.UserID) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "userId is required")
+		return
+	}
 
-	if err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes); err != nil {
+	if h.emailService == nil || !h.emailService.IsConfigured() {
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured")
+		return
+	}
+
+	candidate, err := h.userRepo.GetRegistrationApprovalCandidate(r.Context(), req.UserID)
+	if err != nil {
+		utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+		return
+	}
+	if strings.TrimSpace(candidate.Email) == "" {
+		utils.Error(w, http.StatusBadRequest, "EMAIL_REQUIRED", "Member email is required before approval")
+		return
+	}
+
+	tempPassword, err := generateTempPassword()
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "TEMP_PASSWORD_GENERATION_FAILED", "Failed to generate temporary password")
+		return
+	}
+
+	passwordHashBytes, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "PASSWORD_HASH_FAILED", "Failed to prepare credentials")
+		return
+	}
+
+	firstLoginToken, err := generateFirstLoginToken()
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "Failed to prepare first-login token")
+		return
+	}
+
+	if err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken); err != nil {
+		log.Printf("[ApproveRegistration] repo error for user %s: %v", req.UserID, err)
 		utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve registration")
+		return
+	}
+
+	if err := h.emailService.SendMemberApprovalEmail(candidate.Email, candidate.NameEn, tempPassword, req.Locale); err != nil {
+		revertErr := h.userRepo.RevertRegistrationApproval(r.Context(), req.UserID, userID, "approval email delivery failed")
+		if revertErr != nil {
+			log.Printf("[ApproveRegistration] failed to revert approval after email failure for user %s: %v", req.UserID, revertErr)
+		}
+		utils.Error(w, http.StatusInternalServerError, "EMAIL_SEND_FAILED", "Failed to send approval email; approval has been rolled back")
 		return
 	}
 

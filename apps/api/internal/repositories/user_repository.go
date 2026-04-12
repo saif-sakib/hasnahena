@@ -20,6 +20,16 @@ type UserRepository struct {
 	db *pgxpool.Pool
 }
 
+type RegistrationApprovalCandidate struct {
+	ID       string
+	Email    string
+	Phone    string
+	NameEn   string
+	Role     string
+	Status   string
+	MemberID string
+}
+
 type DashboardStats struct {
 	CurrentBalance  int64 `json:"currentBalance"`
 	TotalDeposited  int64 `json:"totalDeposited"`
@@ -79,20 +89,20 @@ type Notification struct {
 }
 
 type SupportThread struct {
-	ID             string `json:"id"`
-	MemberUserID   string `json:"memberUserId"`
-	MemberName     string `json:"memberName"`
-	MemberUid      string `json:"memberUid"`
-	MemberPhone    string `json:"memberPhone"`
-	Status         string `json:"status"`
-	LatestMessage  string `json:"latestMessage"`
+	ID               string `json:"id"`
+	MemberUserID     string `json:"memberUserId"`
+	MemberName       string `json:"memberName"`
+	MemberUid        string `json:"memberUid"`
+	MemberPhone      string `json:"memberPhone"`
+	Status           string `json:"status"`
+	LatestMessage    string `json:"latestMessage"`
 	LatestSenderRole string `json:"latestSenderRole"`
-	LatestAt       string `json:"latestAt"`
-	UpdatedAt      string `json:"updatedAt"`
-	DeleteAt       string `json:"deleteAt"`
-	ProcessedBy    string `json:"processedBy"`
-	ProcessedAt    string `json:"processedAt"`
-	IsProcessed    bool   `json:"isProcessed"`
+	LatestAt         string `json:"latestAt"`
+	UpdatedAt        string `json:"updatedAt"`
+	DeleteAt         string `json:"deleteAt"`
+	ProcessedBy      string `json:"processedBy"`
+	ProcessedAt      string `json:"processedAt"`
+	IsProcessed      bool   `json:"isProcessed"`
 }
 
 type SupportMessage struct {
@@ -1569,21 +1579,21 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 				dateOfBirthValue = dateOfBirth.Format(time.RFC3339)
 			}
 			registrations = append(registrations, map[string]interface{}{
-				"id":          id,
-				"name":        name,
-				"nameBn":      nameBn,
-				"email":       email,
-				"phone":       phone,
-				"nidNumber":   nid,
-				"area":        area,
-				"fatherName":  fatherName,
-				"motherName":  motherName,
-				"gender":      gender,
+				"id":            id,
+				"name":          name,
+				"nameBn":        nameBn,
+				"email":         email,
+				"phone":         phone,
+				"nidNumber":     nid,
+				"area":          area,
+				"fatherName":    fatherName,
+				"motherName":    motherName,
+				"gender":        gender,
 				"maritalStatus": maritalStatus,
-				"bloodGroup":  bloodGroup,
-				"profession":  profession,
+				"bloodGroup":    bloodGroup,
+				"profession":    profession,
 				"childrenCount": childrenCount,
-				"dateOfBirth": dateOfBirthValue,
+				"dateOfBirth":   dateOfBirthValue,
 				"permanentAddress": map[string]interface{}{
 					"houseNo":       permanentHouseNo,
 					"roadNo":        permanentRoadNo,
@@ -1718,24 +1728,123 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 	return result, nil
 }
 
-func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes string) error {
+func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, userID string) (*RegistrationApprovalCandidate, error) {
+	const query = `
+		SELECT
+			u.id,
+			COALESCE(u.email, ''),
+			u.phone,
+			COALESCE(u."nameEn", ''),
+			u.role::text,
+			u.status::text,
+			COALESCE(u."memberId", '')
+		FROM users u
+		WHERE u.id = $1
+		LIMIT 1
+	`
+
+	var candidate RegistrationApprovalCandidate
+	err := r.db.QueryRow(ctx, query, userID).Scan(
+		&candidate.ID,
+		&candidate.Email,
+		&candidate.Phone,
+		&candidate.NameEn,
+		&candidate.Role,
+		&candidate.Status,
+		&candidate.MemberID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.ToUpper(strings.TrimSpace(candidate.Role)) != "MEMBER" {
+		return nil, errors.New("user is not a member")
+	}
+	if strings.ToUpper(strings.TrimSpace(candidate.Status)) != "PENDING" {
+		return nil, errors.New("user is not pending approval")
+	}
+
+	return &candidate, nil
+}
+
+func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginToken string) error {
+	if strings.TrimSpace(passwordHash) == "" {
+		return errors.New("password hash is required")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(firstLoginToken), "first-login-") {
+		return errors.New("invalid first login token")
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
-	// Update user status to ACTIVE
-	const updateQuery = `
-		UPDATE users
-		SET status = 'ACTIVE', "approvedAt" = NOW(), "approvedBy" = $2, "updatedAt" = NOW()
+	var email, phone, memberID, role, status string
+	err = tx.QueryRow(ctx, `
+		SELECT
+			COALESCE(email, ''),
+			phone,
+			COALESCE("memberId", ''),
+			role::text,
+			status::text
+		FROM users
 		WHERE id = $1
-	`
-	if _, err := tx.Exec(ctx, updateQuery, userID, approverID); err != nil {
+		FOR UPDATE
+	`, userID).Scan(&email, &phone, &memberID, &role, &status)
+	if err != nil {
 		return err
 	}
 
-	// Create account if not exists
+	if strings.ToUpper(strings.TrimSpace(role)) != "MEMBER" {
+		return errors.New("user is not a member")
+	}
+	if strings.ToUpper(strings.TrimSpace(status)) != "PENDING" {
+		return errors.New("user is not pending approval")
+	}
+
+	const updateQuery = `
+		UPDATE users
+		SET
+			status = 'ACTIVE',
+			"approvedAt" = NOW(),
+			"approvedBy" = $2,
+			"passwordHash" = $3,
+			"updatedAt" = NOW()
+		WHERE id = $1 AND role = 'MEMBER' AND status = 'PENDING'
+	`
+	result, err := tx.Exec(ctx, updateQuery, userID, approverID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("registration approval update failed")
+	}
+
+	if strings.TrimSpace(memberID) == "" {
+		memberID = fmt.Sprintf("MBR-%d", time.Now().Unix())
+		if _, err := tx.Exec(ctx, `UPDATE users SET "memberId" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, memberID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM password_reset_tokens
+		WHERE token LIKE 'first-login-%'
+		  AND "usedAt" IS NULL
+		  AND (("email" = $1 AND $1 <> '') OR "phone" = $2)
+	`, email, phone); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO password_reset_tokens (id, token, email, phone, "expiresAt", "createdAt")
+		VALUES (gen_random_uuid()::text, $1, NULLIF($2, ''), $3, NOW() + INTERVAL '365 days', NOW())
+	`, firstLoginToken, email, phone); err != nil {
+		return err
+	}
+
 	var accountExists bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE "userId" = $1)`, userID).Scan(&accountExists)
 	if err != nil {
@@ -1745,23 +1854,82 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	if !accountExists {
 		const createAccountQuery = `
 			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES (gen_random_uuid()::text, CONCAT('HN-ACC-', (SELECT "memberId" FROM users WHERE id = $1)), 0, 0, true, 0, NOW(), NOW(), $1)
+			VALUES (gen_random_uuid()::text, CONCAT('HN-ACC-', $2), 0, 0, true, 0, NOW(), NOW(), $1)
 		`
-		if _, err := tx.Exec(ctx, createAccountQuery, userID); err != nil {
+		if _, err := tx.Exec(ctx, createAccountQuery, userID, memberID); err != nil {
 			return err
 		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notifications (id, type, title, message, "targetUserId", "createdAt")
+		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', 'Account Approved', 'Your membership has been approved. Please log in and change your password.', $1, NOW())
+	`, userID); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 
-	// Write audit log after commit so audit failures never poison the approval transaction.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
 	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, notes)
+
+	return nil
+}
+
+func (r *UserRepository) RevertRegistrationApproval(ctx context.Context, userID, approverID, reason string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var email, phone string
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(email, ''), phone
+		FROM users
+		WHERE id = $1
+		FOR UPDATE
+	`, userID).Scan(&email, &phone)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET
+			status = 'PENDING',
+			"approvedAt" = NULL,
+			"approvedBy" = NULL,
+			"passwordHash" = '__PENDING_APPROVAL_NO_LOGIN__',
+			"updatedAt" = NOW()
+		WHERE id = $1
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM password_reset_tokens
+		WHERE token LIKE 'first-login-%'
+		  AND "usedAt" IS NULL
+		  AND (("email" = $1 AND $1 <> '') OR "phone" = $2)
+	`, email, phone); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION_ROLLBACK', 'USER', $1, $2, NOW(), $3)
+	`
+	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, reason)
 
 	return nil
 }

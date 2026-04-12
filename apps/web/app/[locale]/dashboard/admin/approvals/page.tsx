@@ -192,7 +192,7 @@ export default function AdminApprovalsPage() {
     setError(null);
     try {
       if (action === 'approve') {
-        await apiPost('/v1/dashboard/admin/approvals/registration', { userId: id, notes: '' });
+        await apiPost('/v1/dashboard/admin/approvals/registration', { userId: id, notes: '', locale });
       } else {
         await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
       }
@@ -266,7 +266,13 @@ export default function AdminApprovalsPage() {
                   item={item}
                   locale={locale}
                   isActionLoading={isActionLoading}
-                  onApprove={() => void runAction(item.id, 'approve')}
+                  onApprove={() => {
+                    if (!item.email) {
+                      setError(locale === 'bn' ? 'ইমেইল ছাড়া অনুমোদন করা যাবে না' : 'Cannot approve without member email');
+                      return;
+                    }
+                    void runAction(item.id, 'approve');
+                  }}
                   onReject={() => void runAction(item.id, 'reject')}
                 />
               ))

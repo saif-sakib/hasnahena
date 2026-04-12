@@ -29,8 +29,8 @@ func (e *ErrRateLimited) Error() string {
 }
 
 type AuthService struct {
-	users    *repositories.UserRepository
-	security *SecurityService
+	users     *repositories.UserRepository
+	security  *SecurityService
 	jwtSecret []byte
 	jwtExpiry int64
 }
@@ -78,7 +78,7 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 	if strings.ToUpper(user.Status) != "ACTIVE" {
 		return nil, ErrUserInactive
 	}
-	
+
 	// Clear rate limit on successful login
 	s.security.ClearRateLimit(ctx, "login", identifierKey)
 
@@ -115,12 +115,13 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 		TokenType:   "Bearer",
 		ExpiresIn:   s.jwtExpiry,
 		User: models.User{
-			ID:     user.ID,
-			Email:  user.Email,
-			Phone:  user.Phone,
-			Role:   user.Role,
-			Status: user.Status,
-			NameEn: user.NameEn,
+			ID:                 user.ID,
+			Email:              user.Email,
+			Phone:              user.Phone,
+			Role:               user.Role,
+			Status:             user.Status,
+			NameEn:             user.NameEn,
+			MustChangePassword: user.MustChangePassword,
 		},
 	}, nil
 }
@@ -132,7 +133,7 @@ func (s *AuthService) Logout(ctx context.Context, token string, userID string, u
 	if err != nil {
 		return err
 	}
-	
+
 	exp, ok := claims["exp"].(float64)
 	if !ok {
 		return ErrInvalidToken

@@ -54,8 +54,16 @@ func main() {
 	}
 	securityService := services.NewSecurityService(dbPool)
 	authService := services.NewAuthService(userRepo, securityService, config.JWTSecret, config.JWTExpiry)
+	emailService := services.NewEmailService(services.EmailConfig{
+		Host:     config.EmailHost,
+		Port:     config.EmailPort,
+		Username: config.EmailUser,
+		Password: config.EmailPass,
+		From:     config.EmailFrom,
+		AppURL:   config.AppURL,
+	})
 	authHandler := handlers.NewAuthHandler(authService, securityService)
-	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo)
+	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
