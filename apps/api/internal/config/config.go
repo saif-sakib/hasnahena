@@ -16,6 +16,12 @@ type Config struct {
 	JWTSecret           string
 	JWTExpiry           int64
 	CORSOrigins         []string
+	EmailHost           string
+	EmailPort           int
+	EmailUser           string
+	EmailPass           string
+	EmailFrom           string
+	AppURL              string
 	DBMaxConns          int32
 	DBMinConns          int32
 	DBMaxConnIdleTime   time.Duration
@@ -42,6 +48,12 @@ func Load() Config {
 		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		EmailHost:           getEnv("EMAIL_HOST", ""),
+		EmailPort:           getEnvInt("EMAIL_PORT", 587),
+		EmailUser:           getEnv("EMAIL_USER", ""),
+		EmailPass:           getEnv("EMAIL_PASS", ""),
+		EmailFrom:           getEnv("EMAIL_FROM", ""),
+		AppURL:              getFirstNonEmpty(getEnv("PRODUCTION_APP_URL", ""), getEnv("APP_URL", ""), getEnv("NEXT_PUBLIC_APP_URL", ""), "https://hasnahenafoundation.com"),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
 		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
@@ -190,4 +202,14 @@ func parseCSV(value string) []string {
 		}
 	}
 	return origins
+}
+
+func getFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

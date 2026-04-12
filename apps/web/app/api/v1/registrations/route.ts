@@ -12,7 +12,7 @@ const registerSchema = z
     fatherName: z.string().min(3, 'Father name is required'),
     motherName: z.string().min(3, 'Mother name is required'),
     phone: z.string().regex(/^01\d{9}$/, 'Invalid phone number format'),
-    email: z.string().email().optional().or(z.literal('')),
+    email: z.string().email('Valid email is required'),
     nidNumber: z.string().min(10, 'NID must be at least 10 digits'),
     maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
     childrenCount: z.number().min(0).optional(),
@@ -71,13 +71,14 @@ export async function POST(req: Request) {
     }
 
     const payload = parsed.data;
+    const normalizedEmail = payload.email.trim().toLowerCase();
 
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { phone: payload.phone },
-          ...(payload.email ? [{ email: payload.email }] : []),
+          { email: normalizedEmail },
         ],
       },
       select: { phone: true, email: true },
@@ -129,7 +130,7 @@ export async function POST(req: Request) {
 
     const created = await prisma.user.create({
       data: {
-        email: normalizeOptionalString(payload.email),
+        email: normalizedEmail,
         phone: payload.phone,
         passwordHash: provisionalPasswordHash,
         role: UserRole.MEMBER,
