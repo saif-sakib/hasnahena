@@ -24,6 +24,7 @@ const steps = [
 
 const bdPhoneRegex = /^01\d{9}$/;
 const bdNidRegex = /^(?:\d{10}|\d{13}|\d{17})$/;
+const emailSchema = z.string().email();
 
 const normalizeOptionalNumber = (value: unknown) => {
   if (value === '' || value === null || value === undefined) {
@@ -60,7 +61,7 @@ const registerSchema = z
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
     profession: z.string().trim().min(2, 'Profession is required').max(80, 'Profession must be at most 80 characters'),
-    dateOfBirth: z.string().optional(),
+    dateOfBirth: z.string().trim().min(1, 'Date of birth is required'),
 
     // Permanent Address
     permanentHouseNo: z.string().trim().min(1, 'Permanent house no is required').max(50, 'House no must be at most 50 characters'),
@@ -98,38 +99,36 @@ const registerSchema = z
     }),
   })
   .superRefine((data, ctx) => {
-    const dob = (data.dateOfBirth || '').trim();
-    if (dob !== '') {
-      const birthDate = new Date(dob);
-      if (Number.isNaN(birthDate.getTime())) {
+    const dob = data.dateOfBirth.trim();
+    const birthDate = new Date(dob);
+    if (Number.isNaN(birthDate.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dateOfBirth'],
+        message: 'Date of birth is invalid',
+      });
+    } else {
+      const today = new Date();
+      if (birthDate > today) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['dateOfBirth'],
-          message: 'Date of birth is invalid',
+          message: 'Date of birth cannot be in the future',
         });
       } else {
-        const today = new Date();
-        if (birthDate > today) {
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const hasHadBirthday =
+          today.getMonth() > birthDate.getMonth() ||
+          (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+        if (!hasHadBirthday) {
+          age -= 1;
+        }
+        if (age < 18) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['dateOfBirth'],
-            message: 'Date of birth cannot be in the future',
+            message: 'You must be at least 18 years old to register',
           });
-        } else {
-          let age = today.getFullYear() - birthDate.getFullYear();
-          const hasHadBirthday =
-            today.getMonth() > birthDate.getMonth() ||
-            (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
-          if (!hasHadBirthday) {
-            age -= 1;
-          }
-          if (age < 18) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['dateOfBirth'],
-              message: 'You must be at least 18 years old to register',
-            });
-          }
         }
       }
     }
@@ -165,6 +164,7 @@ const registerSchema = z
   });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
+type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
 
 const REGISTRATION_DRAFT_KEY_PREFIX = 'hn_registration_draft_v1';
 
@@ -181,6 +181,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
+  const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
   const draftStorageKey = useMemo(() => `${REGISTRATION_DRAFT_KEY_PREFIX}:${locale}`, [locale]);
 
   const {
@@ -193,13 +195,94 @@ export default function RegisterPage() {
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: FORM_DEFAULT_VALUES,
-    mode: 'onBlur', // Validate on blur for better UX
+    mode: 'onChange',
+    reValidateMode: 'onChange',
   });
 
   const sameAsPermanent = watch('sameAsPermanent') ?? true;
+  const watchedEmail = watch('email');
+  const watchedPhone = watch('phone');
   const watchedDateOfBirth = watch('dateOfBirth');
   const watchedChildrenCount = watch('childrenCount');
   const watchedMaritalStatus = watch('maritalStatus');
+
+  useEffect(() => {
+    const email = (watchedEmail || '').trim().toLowerCase();
+    if (email === '') {
+      setEmailAvailability('idle');
+      return;
+    }
+    if (!emailSchema.safeParse(email).success) {
+      setEmailAvailability('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setEmailAvailability('checking');
+      try {
+        const response = await fetch(`/api/v1/registrations?email=${encodeURIComponent(email)}`, {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const json = (await response.json().catch(() => ({}))) as { emailExists?: boolean };
+        if (!response.ok) {
+          throw new Error('Failed to validate email availability');
+        }
+
+        setEmailAvailability(json.emailExists ? 'taken' : 'available');
+      } catch {
+        if (!controller.signal.aborted) {
+          setEmailAvailability('error');
+        }
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [watchedEmail]);
+
+  useEffect(() => {
+    const phone = (watchedPhone || '').trim();
+    if (phone === '') {
+      setPhoneAvailability('idle');
+      return;
+    }
+    if (!bdPhoneRegex.test(phone)) {
+      setPhoneAvailability('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setPhoneAvailability('checking');
+      try {
+        const response = await fetch(`/api/v1/registrations?phone=${encodeURIComponent(phone)}`, {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const json = (await response.json().catch(() => ({}))) as { phoneExists?: boolean };
+        if (!response.ok) {
+          throw new Error('Failed to validate phone availability');
+        }
+
+        setPhoneAvailability(json.phoneExists ? 'taken' : 'available');
+      } catch {
+        if (!controller.signal.aborted) {
+          setPhoneAvailability('error');
+        }
+      }
+    }, 450);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [watchedPhone]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -251,7 +334,7 @@ export default function RegisterPage() {
   }, [watch, currentStep, draftStorageKey]);
 
   useEffect(() => {
-    if (!watchedDateOfBirth) {
+    if (watchedDateOfBirth === undefined) {
       return;
     }
     void trigger('dateOfBirth');
@@ -278,6 +361,24 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: RegisterFormData) => {
     setSubmitError(null);
+
+    if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
+      setSubmitError(
+        locale === 'bn'
+          ? 'ই-মেইল/মোবাইল যাচাই চলছে। অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন।'
+          : 'Email/phone validation is in progress. Please wait a moment.'
+      );
+      return;
+    }
+
+    if (emailAvailability === 'taken' || phoneAvailability === 'taken') {
+      setSubmitError(
+        locale === 'bn'
+          ? 'এই ই-মেইল বা মোবাইল নম্বর দিয়ে ইতোমধ্যে নিবন্ধন করা হয়েছে।'
+          : 'This email or phone number is already registered.'
+      );
+      return;
+    }
 
     try {
       const response = await fetch('/api/v1/registrations', {
@@ -398,6 +499,32 @@ export default function RegisterPage() {
   };
 
   const nextStep = async () => {
+    if (currentStep === 0) {
+      if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
+        toast({
+          title: locale === 'bn' ? 'যাচাই চলছে' : 'Validation in progress',
+          description:
+            locale === 'bn'
+              ? 'ই-মেইল/মোবাইল যাচাই সম্পন্ন না হওয়া পর্যন্ত অপেক্ষা করুন।'
+              : 'Please wait until email/phone validation finishes.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (emailAvailability === 'taken' || phoneAvailability === 'taken') {
+        toast({
+          title: locale === 'bn' ? 'ডুপ্লিকেট তথ্য পাওয়া গেছে' : 'Duplicate information found',
+          description:
+            locale === 'bn'
+              ? 'এই ই-মেইল বা মোবাইল নম্বর আগে থেকেই ব্যবহৃত হয়েছে।'
+              : 'This email or phone number is already in use.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
     // Validate current step fields before proceeding
     const fieldsToValidate = stepFields[currentStep];
     const isValid = await trigger(fieldsToValidate);
@@ -594,6 +721,18 @@ export default function RegisterPage() {
                         {errors.phone && (
                           <p className="text-sm text-destructive">{errors.phone.message}</p>
                         )}
+                        {!errors.phone && phoneAvailability === 'checking' && (
+                          <p className="text-xs text-muted-foreground">
+                            {locale === 'bn' ? 'মোবাইল নম্বর যাচাই হচ্ছে...' : 'Checking phone number...'}
+                          </p>
+                        )}
+                        {!errors.phone && phoneAvailability === 'taken' && (
+                          <p className="text-sm text-destructive">
+                            {locale === 'bn'
+                              ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
+                              : 'This phone number is already registered'}
+                          </p>
+                        )}
                       </div>
                       
                       <div className="space-y-2">
@@ -608,6 +747,18 @@ export default function RegisterPage() {
                         />
                         {errors.email && (
                           <p className="text-sm text-destructive">{errors.email.message}</p>
+                        )}
+                        {!errors.email && emailAvailability === 'checking' && (
+                          <p className="text-xs text-muted-foreground">
+                            {locale === 'bn' ? 'ই-মেইল যাচাই হচ্ছে...' : 'Checking email...'}
+                          </p>
+                        )}
+                        {!errors.email && emailAvailability === 'taken' && (
+                          <p className="text-sm text-destructive">
+                            {locale === 'bn'
+                              ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত'
+                              : 'This email is already registered'}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -644,11 +795,12 @@ export default function RegisterPage() {
                       
                       <div className="space-y-2">
                         <Label htmlFor="dateOfBirth">
-                          {locale === 'bn' ? 'জন্ম তারিখ' : 'Date of Birth'}
+                          {locale === 'bn' ? 'জন্ম তারিখ *' : 'Date of Birth *'}
                         </Label>
                         <Input
                           id="dateOfBirth"
                           type="date"
+                          required
                           {...register('dateOfBirth')}
                         />
                         {errors.dateOfBirth && (

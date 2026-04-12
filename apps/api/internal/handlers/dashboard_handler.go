@@ -400,7 +400,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	if h.emailService == nil || !h.emailService.IsConfigured() {
-		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured")
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set EMAIL_HOST/EMAIL_PORT/EMAIL_USER/EMAIL_PASS (or SMTP_URL) and EMAIL_FROM on backend deployment")
 		return
 	}
 

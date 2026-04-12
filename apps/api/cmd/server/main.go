@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,6 +63,19 @@ func main() {
 		From:     config.EmailFrom,
 		AppURL:   config.AppURL,
 	})
+	log.Printf(
+		"email config: enabled=%t host=%q port=%d user_set=%t pass_set=%t from_set=%t app_url=%q",
+		emailService.IsConfigured(),
+		config.EmailHost,
+		config.EmailPort,
+		strings.TrimSpace(config.EmailUser) != "",
+		strings.TrimSpace(config.EmailPass) != "",
+		strings.TrimSpace(config.EmailFrom) != "",
+		config.AppURL,
+	)
+	if !emailService.IsConfigured() {
+		log.Printf("email service disabled: set EMAIL_HOST/EMAIL_PORT/EMAIL_USER/EMAIL_PASS (or SMTP_URL) and EMAIL_FROM in backend environment")
+	}
 	authHandler := handlers.NewAuthHandler(authService, securityService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
 
@@ -73,7 +87,10 @@ func main() {
 	r.Use(appmw.CORS(config.CORSOrigins))
 
 	r.Get("/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		utils.Success(w, http.StatusOK, map[string]string{"status": "ok"})
+		utils.Success(w, http.StatusOK, map[string]interface{}{
+			"status":          "ok",
+			"emailConfigured": emailService.IsConfigured(),
+		})
 	})
 
 	r.Route("/v1", func(v1 chi.Router) {

@@ -42,7 +42,7 @@ const registerSchema = z
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
     profession: z.string().trim().min(2, 'Profession is required').max(80, 'Profession must be at most 80 characters'),
-    dateOfBirth: z.string().optional(),
+    dateOfBirth: z.string().trim().min(1, 'Date of birth is required'),
 
     // Permanent Address
     permanentHouseNo: z.string().trim().min(1, 'Permanent house no is required').max(50, 'House no must be at most 50 characters'),
@@ -76,38 +76,36 @@ const registerSchema = z
   })
   .strict()
   .superRefine((data, ctx) => {
-    const dob = (data.dateOfBirth || '').trim();
-    if (dob !== '') {
-      const birthDate = new Date(dob);
-      if (Number.isNaN(birthDate.getTime())) {
+    const dob = data.dateOfBirth.trim();
+    const birthDate = new Date(dob);
+    if (Number.isNaN(birthDate.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dateOfBirth'],
+        message: 'Date of birth is invalid',
+      });
+    } else {
+      const today = new Date();
+      if (birthDate > today) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['dateOfBirth'],
-          message: 'Date of birth is invalid',
+          message: 'Date of birth cannot be in the future',
         });
       } else {
-        const today = new Date();
-        if (birthDate > today) {
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const hasHadBirthday =
+          today.getMonth() > birthDate.getMonth() ||
+          (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+        if (!hasHadBirthday) {
+          age -= 1;
+        }
+        if (age < 18) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['dateOfBirth'],
-            message: 'Date of birth cannot be in the future',
+            message: 'You must be at least 18 years old to register',
           });
-        } else {
-          let age = today.getFullYear() - birthDate.getFullYear();
-          const hasHadBirthday =
-            today.getMonth() > birthDate.getMonth() ||
-            (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
-          if (!hasHadBirthday) {
-            age -= 1;
-          }
-          if (age < 18) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['dateOfBirth'],
-              message: 'You must be at least 18 years old to register',
-            });
-          }
         }
       }
     }
@@ -152,6 +150,68 @@ function parseOptionalDate(v: string | undefined): Date | null {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const email = searchParams.get('email')?.trim().toLowerCase() || '';
+    const phone = searchParams.get('phone')?.trim() || '';
+
+    if (!email && !phone) {
+      return NextResponse.json(
+        { ok: false, error: 'email or phone query parameter is required' },
+        { status: 400 },
+      );
+    }
+
+    if (email && !z.string().email().safeParse(email).success) {
+      return NextResponse.json(
+        { ok: false, error: 'Invalid email format' },
+        { status: 400 },
+      );
+    }
+
+    if (phone && !bdPhoneRegex.test(phone)) {
+      return NextResponse.json(
+        { ok: false, error: 'Invalid phone format' },
+        { status: 400 },
+      );
+    }
+
+    const clauses = [] as Array<{ phone?: string; email?: string }>;
+    if (email) {
+      clauses.push({ email });
+    }
+    if (phone) {
+      clauses.push({ phone });
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: clauses,
+      },
+      select: {
+        email: true,
+        phone: true,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        emailExists: Boolean(email) && existingUser?.email === email,
+        phoneExists: Boolean(phone) && existingUser?.phone === phone,
+      },
+      { status: 200 },
+    );
+  } catch (err) {
+    console.error('Registration availability check failed:', err);
+    return NextResponse.json(
+      { ok: false, error: 'Availability check failed' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: Request) {
