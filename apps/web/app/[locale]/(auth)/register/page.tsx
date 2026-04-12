@@ -197,6 +197,9 @@ export default function RegisterPage() {
   });
 
   const sameAsPermanent = watch('sameAsPermanent') ?? true;
+  const watchedDateOfBirth = watch('dateOfBirth');
+  const watchedChildrenCount = watch('childrenCount');
+  const watchedMaritalStatus = watch('maritalStatus');
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -247,10 +250,24 @@ export default function RegisterPage() {
     return () => subscription.unsubscribe();
   }, [watch, currentStep, draftStorageKey]);
 
+  useEffect(() => {
+    if (!watchedDateOfBirth) {
+      return;
+    }
+    void trigger('dateOfBirth');
+  }, [watchedDateOfBirth, trigger]);
+
+  useEffect(() => {
+    if (watchedChildrenCount === undefined || watchedChildrenCount === null) {
+      return;
+    }
+    void trigger('childrenCount');
+  }, [watchedChildrenCount, watchedMaritalStatus, trigger]);
+
   // Fields to validate per step
   const stepFields: (keyof RegisterFormData)[][] = [
     // Step 0: Personal Info
-    ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus'],
+    ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus', 'dateOfBirth'],
     // Step 1: Address
     ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict', 'sameAsPermanent', 'presentHouseNo', 'presentVillage', 'presentUnion', 'presentPoliceStation', 'presentDistrict'],
     // Step 2: Nominee
@@ -370,12 +387,6 @@ export default function RegisterPage() {
     }
 
     setCurrentStep(targetStep);
-    setSubmitError(
-      locale === 'bn'
-        ? 'ফর্মে কিছু তথ্য অসম্পূর্ণ বা ভুল আছে। অনুগ্রহ করে চিহ্নিত ফিল্ডগুলো ঠিক করুন।'
-        : 'Some information is missing or invalid. Please fix the highlighted fields.'
-    );
-
     toast({
       title: locale === 'bn' ? 'ফর্মে সমস্যা আছে' : 'Form needs attention',
       description:

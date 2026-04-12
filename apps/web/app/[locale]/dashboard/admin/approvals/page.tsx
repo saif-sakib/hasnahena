@@ -198,7 +198,17 @@ export default function AdminApprovalsPage() {
       }
       await loadRegistrations();
     } catch (e: any) {
-      setError(e?.message ?? 'Action failed');
+      const message = e?.message ?? 'Action failed';
+      if (action === 'approve' && /taking too long/i.test(message)) {
+        await loadRegistrations();
+        setError(
+          locale === 'bn'
+            ? 'অনুমোদন প্রক্রিয়া বেশি সময় নিচ্ছে। অবস্থা রিফ্রেশ করা হয়েছে, তালিকা দেখে নিশ্চিত করুন।'
+            : 'Approval is taking longer than expected. Status has been refreshed; please verify in the list.'
+        );
+      } else {
+        setError(message);
+      }
     } finally {
       setIsActionLoading(false);
     }
