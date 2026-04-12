@@ -72,8 +72,10 @@ const registrationBaseObject = z
   })
   .strict();
 
-const registrationCoreSchema = registrationBaseObject
-  .superRefine((data, ctx) => {
+const applySharedRegistrationRules = (
+  data: z.infer<typeof registrationBaseObject>,
+  ctx: z.RefinementCtx,
+) => {
     const dob = data.dateOfBirth.trim();
     const birthDate = new Date(dob);
     if (Number.isNaN(birthDate.getTime())) {
@@ -136,16 +138,19 @@ const registrationCoreSchema = registrationBaseObject
         }
       }
     }
-  });
+};
 
-export const registerSchema = registrationCoreSchema.extend({
-  // Agreement is required for browser form submit
-  agreeToTerms: z.literal(true, {
-    errorMap: () => ({ message: 'You must agree to the terms' }),
-  }),
-});
+export const registerSchema = registrationBaseObject
+  .extend({
+    // Agreement is required for browser form submit
+    agreeToTerms: z.literal(true, {
+      errorMap: () => ({ message: 'You must agree to the terms' }),
+    }),
+  })
+  .superRefine((data, ctx) => applySharedRegistrationRules(data, ctx));
 
-export const registerApiSchema = registrationCoreSchema;
+export const registerApiSchema = registrationBaseObject
+  .superRefine((data, ctx) => applySharedRegistrationRules(data, ctx));
 
 export type RegisterFormData = z.infer<typeof registerSchema>;
 
