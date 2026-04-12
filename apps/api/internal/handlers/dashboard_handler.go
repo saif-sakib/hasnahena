@@ -438,6 +438,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.emailService.SendMemberApprovalEmail(candidate.Email, candidate.NameEn, tempPassword, req.Locale); err != nil {
+		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, candidate.Email, err)
 		revertErr := h.userRepo.RevertRegistrationApproval(r.Context(), req.UserID, userID, "approval email delivery failed")
 		if revertErr != nil {
 			log.Printf("[ApproveRegistration] failed to revert approval after email failure for user %s: %v", req.UserID, revertErr)

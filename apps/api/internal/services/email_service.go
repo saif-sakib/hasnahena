@@ -1,7 +1,9 @@
 package services
 
 import (
+	"crypto/tls"
 	"fmt"
+	"io"
 	"net/smtp"
 	"strings"
 )
@@ -35,7 +37,7 @@ func NewEmailService(cfg EmailConfig) *EmailService {
 
 	appURL := strings.TrimSuffix(strings.TrimSpace(cfg.AppURL), "/")
 	if appURL == "" {
-		appURL = "https://hasnahenafoundation.com"
+		appURL = "https://www.hasnahenafoundation.com"
 	}
 
 	return &EmailService{
@@ -104,8 +106,62 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 func (s *EmailService) send(to string, subject string, textBody string, htmlBody string) error {
 	address := fmt.Sprintf("%s:%d", s.host, s.port)
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+	envelopeFrom := s.username
+	if strings.TrimSpace(envelopeFrom) == "" {
+		envelopeFrom = s.from
+	}
 	message := buildMultipartMessage(s.from, to, subject, textBody, htmlBody)
-	return smtp.SendMail(address, auth, s.from, []string{to}, message)
+
+	if s.port == 465 {
+		return s.sendTLS(address, auth, envelopeFrom, to, message)
+	}
+
+	return smtp.SendMail(address, auth, envelopeFrom, []string{to}, message)
+}
+
+func (s *EmailService) sendTLS(address string, auth smtp.Auth, from string, to string, message []byte) error {
+	conn, err := tls.Dial("tcp", address, &tls.Config{
+		ServerName: s.host,
+		MinVersion: tls.VersionTLS12,
+	})
+	if err != nil {
+		return err
+	}
+
+	client, err := smtp.NewClient(conn, s.host)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer client.Close()
+
+	if ok, _ := client.Extension("AUTH"); ok {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(writer, strings.NewReader(string(message))); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	return client.Quit()
 }
 
 func buildMultipartMessage(from string, to string, subject string, textBody string, htmlBody string) []byte {

@@ -4,47 +4,143 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { UserRole, UserStatus } from '@prisma/client';
 
+const bdPhoneRegex = /^01\d{9}$/;
+const bdNidRegex = /^(?:\d{10}|\d{13}|\d{17})$/;
+
+const normalizeOptionalNumber = (value: unknown) => {
+  if (value === '' || value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'number' && Number.isNaN(value)) {
+    return undefined;
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    return undefined;
+  }
+  return value;
+};
+
 const registerSchema = z
   .object({
     // Personal Info
-    nameEn: z.string().min(3, 'Name must be at least 3 characters'),
-    nameBn: z.string().optional(),
-    fatherName: z.string().min(3, 'Father name is required'),
-    motherName: z.string().min(3, 'Mother name is required'),
-    phone: z.string().regex(/^01\d{9}$/, 'Invalid phone number format'),
-    email: z.string().email('Valid email is required'),
-    nidNumber: z.string().min(10, 'NID must be at least 10 digits'),
+    nameEn: z.string().trim().min(3, 'Name must be at least 3 characters').max(80, 'Name must be at most 80 characters'),
+    nameBn: z.string().trim().max(80, 'Name must be at most 80 characters').optional().or(z.literal('')),
+    fatherName: z.string().trim().min(3, 'Father name is required').max(80, 'Father name must be at most 80 characters'),
+    motherName: z.string().trim().min(3, 'Mother name is required').max(80, 'Mother name must be at most 80 characters'),
+    phone: z.string().trim().regex(bdPhoneRegex, 'Enter a valid 11-digit Bangladeshi mobile number'),
+    email: z.string().trim().email('Enter a valid email address'),
+    nidNumber: z.string().trim().regex(bdNidRegex, 'NID must be 10, 13, or 17 digits'),
     maritalStatus: z.enum(['UNMARRIED', 'MARRIED']),
-    childrenCount: z.number().min(0).optional(),
+    childrenCount: z.preprocess(
+      normalizeOptionalNumber,
+      z.number({ invalid_type_error: 'Children count must be a number' })
+        .int('Children count must be a whole number')
+        .min(0, 'Children count cannot be negative')
+        .max(20, 'Children count seems too high')
+        .optional(),
+    ),
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
-    profession: z.string().min(2, 'Profession is required'),
+    profession: z.string().trim().min(2, 'Profession is required').max(80, 'Profession must be at most 80 characters'),
     dateOfBirth: z.string().optional(),
 
     // Permanent Address
-    permanentHouseNo: z.string().min(1, 'House number is required'),
-    permanentRoadNo: z.string().optional(),
-    permanentVillage: z.string().min(1, 'Village is required'),
-    permanentUnion: z.string().min(1, 'Union is required'),
-    permanentPoliceStation: z.string().min(1, 'Police station is required'),
-    permanentDistrict: z.string().min(1, 'District is required'),
+    permanentHouseNo: z.string().trim().min(1, 'Permanent house no is required').max(50, 'House no must be at most 50 characters'),
+    permanentRoadNo: z.string().trim().max(50, 'Road no must be at most 50 characters').optional(),
+    permanentVillage: z.string().trim().min(1, 'Permanent village is required').max(80, 'Village must be at most 80 characters'),
+    permanentUnion: z.string().trim().min(1, 'Permanent union is required').max(80, 'Union must be at most 80 characters'),
+    permanentPoliceStation: z.string().trim().min(1, 'Permanent police station is required').max(80, 'Police station must be at most 80 characters'),
+    permanentDistrict: z.string().trim().min(1, 'Permanent district is required').max(80, 'District must be at most 80 characters'),
 
     // Present Address
     sameAsPermanent: z.boolean().optional(),
-    presentHouseNo: z.string().optional(),
-    presentRoadNo: z.string().optional(),
-    presentVillage: z.string().optional(),
-    presentUnion: z.string().optional(),
-    presentPoliceStation: z.string().optional(),
-    presentDistrict: z.string().optional(),
+    presentHouseNo: z.string().trim().max(50, 'House no must be at most 50 characters').optional(),
+    presentRoadNo: z.string().trim().max(50, 'Road no must be at most 50 characters').optional(),
+    presentVillage: z.string().trim().max(80, 'Village must be at most 80 characters').optional(),
+    presentUnion: z.string().trim().max(80, 'Union must be at most 80 characters').optional(),
+    presentPoliceStation: z.string().trim().max(80, 'Police station must be at most 80 characters').optional(),
+    presentDistrict: z.string().trim().max(80, 'District must be at most 80 characters').optional(),
 
     // Nominee
-    nomineeName: z.string().min(3, 'Nominee name is required'),
-    nomineeRelationship: z.string().min(1, 'Relationship is required'),
-    nomineeNid: z.string().min(10, 'Nominee NID is required'),
-    nomineePhone: z.string().optional(),
+    nomineeName: z.string().trim().min(3, 'Nominee name is required').max(80, 'Nominee name must be at most 80 characters'),
+    nomineeRelationship: z.string().trim().min(2, 'Relationship is required').max(40, 'Relationship must be at most 40 characters'),
+    nomineeNid: z.string().trim().regex(bdNidRegex, 'Nominee NID must be 10, 13, or 17 digits'),
+    nomineePhone: z
+      .string()
+      .trim()
+      .optional()
+      .or(z.literal(''))
+      .refine((value) => typeof value !== 'string' || value === '' || bdPhoneRegex.test(value), {
+        message: 'Nominee phone must be a valid 11-digit Bangladeshi mobile number',
+      }),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    const dob = (data.dateOfBirth || '').trim();
+    if (dob !== '') {
+      const birthDate = new Date(dob);
+      if (Number.isNaN(birthDate.getTime())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['dateOfBirth'],
+          message: 'Date of birth is invalid',
+        });
+      } else {
+        const today = new Date();
+        if (birthDate > today) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['dateOfBirth'],
+            message: 'Date of birth cannot be in the future',
+          });
+        } else {
+          let age = today.getFullYear() - birthDate.getFullYear();
+          const hasHadBirthday =
+            today.getMonth() > birthDate.getMonth() ||
+            (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+          if (!hasHadBirthday) {
+            age -= 1;
+          }
+          if (age < 18) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['dateOfBirth'],
+              message: 'You must be at least 18 years old to register',
+            });
+          }
+        }
+      }
+    }
+
+    if (data.maritalStatus === 'UNMARRIED' && (data.childrenCount ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['childrenCount'],
+        message: 'Children count must be 0 for unmarried applicants',
+      });
+    }
+
+    if (!data.sameAsPermanent) {
+      const requiredPresentFields: Array<{ key: string; message: string }> = [
+        { key: 'presentHouseNo', message: 'Present house no is required' },
+        { key: 'presentVillage', message: 'Present village is required' },
+        { key: 'presentUnion', message: 'Present union is required' },
+        { key: 'presentPoliceStation', message: 'Present police station is required' },
+        { key: 'presentDistrict', message: 'Present district is required' },
+      ];
+
+      for (const field of requiredPresentFields) {
+        const value = (data as Record<string, unknown>)[field.key];
+        if (typeof value !== 'string' || value.trim() === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: field.message,
+          });
+        }
+      }
+    }
+  });
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -99,14 +195,7 @@ export async function POST(req: Request) {
     const accountNumber = `ACC-${phoneDigits}-${timestamp.toString(36)}`;
 
     const sameAsPermanent = payload.sameAsPermanent ?? false;
-    const hasAllPresentFields =
-      !!payload.presentHouseNo &&
-      !!payload.presentVillage &&
-      !!payload.presentUnion &&
-      !!payload.presentPoliceStation &&
-      !!payload.presentDistrict;
-
-    const presentFallback = sameAsPermanent || !hasAllPresentFields;
+    const presentFallback = sameAsPermanent;
 
     const permanentAddress = {
       houseNo: payload.permanentHouseNo,
