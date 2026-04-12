@@ -43,17 +43,19 @@ func Load() Config {
 		log.Fatal("SECURITY ERROR: JWT_SECRET must be at least 32 characters long for adequate security")
 	}
 
+	emailHost, emailPort, emailUser, emailPass := resolveSMTPConfig()
+
 	return Config{
 		Port:                getEnv("API_PORT", getEnv("PORT", "8081")),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
 		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
-		EmailHost:           getFirstNonEmpty(getEnv("EMAIL_HOST", ""), getEnv("SMTP_HOST", ""), getEnv("MAIL_HOST", "")),
-		EmailPort:           getFirstValidInt(587, getEnv("EMAIL_PORT", ""), getEnv("SMTP_PORT", ""), getEnv("MAIL_PORT", "")),
-		EmailUser:           getFirstNonEmpty(getEnv("EMAIL_USER", ""), getEnv("SMTP_USER", ""), getEnv("SMTP_USERNAME", ""), getEnv("MAIL_USER", ""), getEnv("MAIL_USERNAME", "")),
-		EmailPass:           getFirstNonEmpty(getEnv("EMAIL_PASS", ""), getEnv("SMTP_PASS", ""), getEnv("SMTP_PASSWORD", ""), getEnv("MAIL_PASSWORD", "")),
-		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("SMTP_FROM", ""), getEnv("MAIL_FROM", "")),
+		EmailHost:           emailHost,
+		EmailPort:           emailPort,
+		EmailUser:           emailUser,
+		EmailPass:           emailPass,
+		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("EMAIL_SENDER", ""), getEnv("SMTP_FROM", ""), getEnv("MAIL_FROM", ""), getEnv("FROM_EMAIL", "")),
 		AppURL:              resolvePublicAppURL(),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
@@ -65,11 +67,6 @@ func Load() Config {
 
 // loadEnvironment loads .env files from the project root
 func loadEnvironment() {
-	// If DATABASE_URL already set, don't override
-	if os.Getenv("DATABASE_URL") != "" {
-		return
-	}
-
 	wd, err := os.Getwd()
 	if err != nil {
 		return
@@ -229,10 +226,104 @@ func getFirstValidInt(fallback int, values ...string) int {
 	return fallback
 }
 
+func resolveSMTPConfig() (host string, port int, user string, pass string) {
+	parsedHost, parsedPort, parsedUser, parsedPass := parseSMTPURL(
+		getFirstNonEmpty(getEnv("SMTP_URL", ""), getEnv("EMAIL_URL", ""), getEnv("MAIL_URL", "")),
+	)
+
+	parsedPortCandidate := ""
+	if parsedPort > 0 {
+		parsedPortCandidate = strconv.Itoa(parsedPort)
+	}
+
+	host = getFirstNonEmpty(
+		getEnv("EMAIL_HOST", ""),
+		getEnv("EMAIL_SERVER", ""),
+		getEnv("SMTP_HOST", ""),
+		getEnv("SMTP_SERVER", ""),
+		getEnv("MAIL_HOST", ""),
+		parsedHost,
+	)
+
+	port = getFirstValidInt(
+		587,
+		getEnv("EMAIL_PORT", ""),
+		getEnv("SMTP_PORT", ""),
+		getEnv("MAIL_PORT", ""),
+		parsedPortCandidate,
+	)
+
+	user = getFirstNonEmpty(
+		getEnv("EMAIL_USER", ""),
+		getEnv("EMAIL_USERNAME", ""),
+		getEnv("SMTP_USER", ""),
+		getEnv("SMTP_USERNAME", ""),
+		getEnv("MAIL_USER", ""),
+		getEnv("MAIL_USERNAME", ""),
+		parsedUser,
+	)
+
+	pass = getFirstNonEmpty(
+		getEnv("EMAIL_PASS", ""),
+		getEnv("EMAIL_PASSWORD", ""),
+		getEnv("SMTP_PASS", ""),
+		getEnv("SMTP_PASSWORD", ""),
+		getEnv("MAIL_PASS", ""),
+		getEnv("MAIL_PASSWORD", ""),
+		parsedPass,
+	)
+
+	return host, port, user, pass
+}
+
+func parseSMTPURL(raw string) (host string, port int, user string, pass string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", 0, "", ""
+	}
+
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "smtp://") && !strings.HasPrefix(lower, "smtps://") {
+		trimmed = "smtp://" + trimmed
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Hostname() == "" {
+		return "", 0, "", ""
+	}
+
+	host = parsed.Hostname()
+	if strings.EqualFold(parsed.Scheme, "smtps") {
+		port = 465
+	} else {
+		port = 587
+	}
+
+	if parsed.Port() != "" {
+		if p, err := strconv.Atoi(parsed.Port()); err == nil && p > 0 {
+			port = p
+		}
+	}
+
+	if parsed.User != nil {
+		user = strings.TrimSpace(parsed.User.Username())
+		if parsedPassword, ok := parsed.User.Password(); ok {
+			pass = parsedPassword
+		}
+	}
+
+	return host, port, user, pass
+}
+
 func resolvePublicAppURL() string {
 	candidates := []string{
 		getEnv("EMAIL_APP_URL", ""),
 		getEnv("PRODUCTION_APP_URL", ""),
+		getEnv("FRONTEND_URL", ""),
+		getEnv("WEB_URL", ""),
+		getEnv("SITE_URL", ""),
+		getEnv("NEXT_PUBLIC_SITE_URL", ""),
+		getEnv("PUBLIC_URL", ""),
 		getEnv("NEXT_PUBLIC_APP_URL", ""),
 		getEnv("APP_URL", ""),
 		getEnv("WEBSITE_URL", ""),
