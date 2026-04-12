@@ -3,9 +3,17 @@ package services
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
+	"net"
 	"net/smtp"
 	"strings"
+	"time"
+)
+
+const (
+	smtpConnectTimeout = 8 * time.Second
+	smtpCommandTimeout = 20 * time.Second
+	smtpRetryAttempts  = 2
+	smtpRetryBackoff   = 1200 * time.Millisecond
 )
 
 type EmailConfig struct {
@@ -100,7 +108,23 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 		loginURL,
 	)
 
-	return s.send(to, subject, textBody, htmlBody)
+	return s.sendWithRetry(to, subject, textBody, htmlBody)
+}
+
+func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
+	var lastErr error
+	for attempt := 1; attempt <= smtpRetryAttempts; attempt++ {
+		err := s.send(to, subject, textBody, htmlBody)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < smtpRetryAttempts {
+			time.Sleep(smtpRetryBackoff)
+		}
+	}
+
+	return fmt.Errorf("failed to send email after %d attempt(s): %w", smtpRetryAttempts, lastErr)
 }
 
 func (s *EmailService) send(to string, subject string, textBody string, htmlBody string) error {
@@ -112,19 +136,12 @@ func (s *EmailService) send(to string, subject string, textBody string, htmlBody
 	}
 	message := buildMultipartMessage(s.from, to, subject, textBody, htmlBody)
 
-	if s.port == 465 {
-		return s.sendTLS(address, auth, envelopeFrom, to, message)
-	}
-
-	return smtp.SendMail(address, auth, envelopeFrom, []string{to}, message)
-}
-
-func (s *EmailService) sendTLS(address string, auth smtp.Auth, from string, to string, message []byte) error {
-	conn, err := tls.Dial("tcp", address, &tls.Config{
-		ServerName: s.host,
-		MinVersion: tls.VersionTLS12,
-	})
+	conn, err := s.openConnection(address)
 	if err != nil {
+		return err
+	}
+	if err := conn.SetDeadline(time.Now().Add(smtpCommandTimeout)); err != nil {
+		_ = conn.Close()
 		return err
 	}
 
@@ -135,13 +152,21 @@ func (s *EmailService) sendTLS(address string, auth smtp.Auth, from string, to s
 	}
 	defer client.Close()
 
+	if s.port != 465 {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: s.host, MinVersion: tls.VersionTLS12}); err != nil {
+				return err
+			}
+		}
+	}
+
 	if ok, _ := client.Extension("AUTH"); ok {
 		if err := client.Auth(auth); err != nil {
 			return err
 		}
 	}
 
-	if err := client.Mail(from); err != nil {
+	if err := client.Mail(envelopeFrom); err != nil {
 		return err
 	}
 	if err := client.Rcpt(to); err != nil {
@@ -153,7 +178,7 @@ func (s *EmailService) sendTLS(address string, auth smtp.Auth, from string, to s
 		return err
 	}
 
-	if _, err := io.Copy(writer, strings.NewReader(string(message))); err != nil {
+	if _, err := writer.Write(message); err != nil {
 		_ = writer.Close()
 		return err
 	}
@@ -162,6 +187,22 @@ func (s *EmailService) sendTLS(address string, auth smtp.Auth, from string, to s
 	}
 
 	return client.Quit()
+}
+
+func (s *EmailService) openConnection(address string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout:   smtpConnectTimeout,
+		KeepAlive: 30 * time.Second,
+	}
+
+	if s.port == 465 {
+		return tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
+			ServerName: s.host,
+			MinVersion: tls.VersionTLS12,
+		})
+	}
+
+	return dialer.Dial("tcp", address)
 }
 
 func buildMultipartMessage(from string, to string, subject string, textBody string, htmlBody string) []byte {

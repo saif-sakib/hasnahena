@@ -45,6 +45,37 @@ export function ImageUpload({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const handleUpload = useCallback(async (file: File) => {
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const result = await onUpload(formData);
+
+      if (result.success && result.imageUrl) {
+        onUploadComplete(result.imageUrl);
+        // Update preview to the uploaded URL
+        if (preview && preview !== currentImage) {
+          revokeImagePreview(preview);
+        }
+        setPreview(result.imageUrl);
+      } else {
+        const errorMsg = result.error || 'Upload failed';
+        setError(errorMsg);
+        if (onUploadError) onUploadError(errorMsg);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Upload failed';
+      setError(errorMsg);
+      if (onUploadError) onUploadError(errorMsg);
+    } finally {
+      setIsUploading(false);
+    }
+  }, [onUpload, onUploadComplete, preview, currentImage, onUploadError]);
+
   const processFile = useCallback(
     async (file: File) => {
       setError(null);
@@ -76,39 +107,8 @@ export function ImageUpload({
         await handleUpload(file);
       }
     },
-    [maxSizeMB, acceptedTypes, preview, currentImage, onUploadError, autoUpload, onFileSelected]
+    [maxSizeMB, acceptedTypes, preview, currentImage, onUploadError, autoUpload, onFileSelected, handleUpload]
   );
-
-  const handleUpload = async (file: File) => {
-    setIsUploading(true);
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const result = await onUpload(formData);
-
-      if (result.success && result.imageUrl) {
-        onUploadComplete(result.imageUrl);
-        // Update preview to the uploaded URL
-        if (preview && preview !== currentImage) {
-          revokeImagePreview(preview);
-        }
-        setPreview(result.imageUrl);
-      } else {
-        const errorMsg = result.error || 'Upload failed';
-        setError(errorMsg);
-        if (onUploadError) onUploadError(errorMsg);
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Upload failed';
-      setError(errorMsg);
-      if (onUploadError) onUploadError(errorMsg);
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
