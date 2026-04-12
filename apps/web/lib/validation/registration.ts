@@ -16,7 +16,7 @@ const normalizeOptionalNumber = (value: unknown) => {
   return value;
 };
 
-const registrationCoreSchema = z
+const registrationBaseObject = z
   .object({
     // Personal Information
     nameEn: z.string().trim().min(3, 'Name must be at least 3 characters').max(80, 'Name must be at most 80 characters'),
@@ -72,8 +72,8 @@ const registrationCoreSchema = z
   })
   .strict();
 
-const registrationSuperRefine = <T extends z.ZodTypeAny>(schema: T) =>
-  schema.superRefine((data: any, ctx) => {
+const registrationCoreSchema = registrationBaseObject
+  .superRefine((data, ctx) => {
     const dob = data.dateOfBirth.trim();
     const birthDate = new Date(dob);
     if (Number.isNaN(birthDate.getTime())) {
@@ -126,7 +126,7 @@ const registrationSuperRefine = <T extends z.ZodTypeAny>(schema: T) =>
       ];
 
       for (const field of requiredPresentFields) {
-        const value = data[field.key];
+        const value = (data as Record<string, unknown>)[field.key];
         if (typeof value !== 'string' || value.trim() === '') {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -138,16 +138,14 @@ const registrationSuperRefine = <T extends z.ZodTypeAny>(schema: T) =>
     }
   });
 
-export const registerSchema = registrationSuperRefine(
-  registrationCoreSchema.extend({
-    // Agreement (required on frontend form submit)
-    agreeToTerms: z.literal(true, {
-      errorMap: () => ({ message: 'You must agree to the terms' }),
-    }),
+export const registerSchema = registrationCoreSchema.extend({
+  // Agreement is required for browser form submit
+  agreeToTerms: z.literal(true, {
+    errorMap: () => ({ message: 'You must agree to the terms' }),
   }),
-);
+});
 
-export const registerApiSchema = registrationSuperRefine(registrationCoreSchema);
+export const registerApiSchema = registrationCoreSchema;
 
 export type RegisterFormData = z.infer<typeof registerSchema>;
 
