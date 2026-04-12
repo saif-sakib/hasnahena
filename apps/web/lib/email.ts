@@ -1,11 +1,11 @@
 import nodemailer from 'nodemailer';
 
 // Email configuration using environment variables
-const EMAIL_FROM = process.env.EMAIL_FROM || 'info@hasnahenafoundation.com';
-const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
-const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '587');
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.SMTP_FROM || 'info@hasnahenafoundation.com';
+const EMAIL_HOST = process.env.EMAIL_HOST || process.env.SMTP_HOST || process.env.MAIL_HOST || 'smtp.gmail.com';
+const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || process.env.MAIL_PORT || '587', 10);
+const EMAIL_USER = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.SMTP_USERNAME || process.env.MAIL_USER || process.env.MAIL_USERNAME;
+const EMAIL_PASS = process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.MAIL_PASSWORD;
 
 function normalizeAbsoluteUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -27,9 +27,12 @@ function normalizeAbsoluteUrl(raw: string | undefined): string | null {
 // Get the app URL - always prefer canonical production domain.
 function getProductionUrl(): string {
   const explicitCandidates = [
+    process.env.EMAIL_APP_URL,
     process.env.PRODUCTION_APP_URL,
-    process.env.APP_URL,
     process.env.NEXT_PUBLIC_APP_URL,
+    process.env.APP_URL,
+    process.env.WEBSITE_URL,
+    process.env.PUBLIC_WEB_URL,
   ];
   for (const candidate of explicitCandidates) {
     const normalized = normalizeAbsoluteUrl(candidate);
@@ -41,7 +44,13 @@ function getProductionUrl(): string {
     if (vercelProd) return vercelProd;
   }
 
-  return 'https://hasnahenafoundation.com';
+  const vercelUrl = normalizeAbsoluteUrl(process.env.VERCEL_URL);
+  if (vercelUrl) return vercelUrl;
+
+  const renderUrl = normalizeAbsoluteUrl(process.env.RENDER_EXTERNAL_URL);
+  if (renderUrl) return renderUrl;
+
+  return 'https://www.hasnahenafoundation.com';
 }
 
 // Create transporter with connection pooling for better performance

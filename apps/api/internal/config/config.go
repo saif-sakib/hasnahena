@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,12 +49,12 @@ func Load() Config {
 		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
-		EmailHost:           getEnv("EMAIL_HOST", ""),
-		EmailPort:           getEnvInt("EMAIL_PORT", 587),
-		EmailUser:           getEnv("EMAIL_USER", ""),
-		EmailPass:           getEnv("EMAIL_PASS", ""),
-		EmailFrom:           getEnv("EMAIL_FROM", ""),
-		AppURL:              getFirstNonEmpty(getEnv("PRODUCTION_APP_URL", ""), getEnv("APP_URL", ""), getEnv("NEXT_PUBLIC_APP_URL", ""), "https://hasnahenafoundation.com"),
+		EmailHost:           getFirstNonEmpty(getEnv("EMAIL_HOST", ""), getEnv("SMTP_HOST", ""), getEnv("MAIL_HOST", "")),
+		EmailPort:           getFirstValidInt(587, getEnv("EMAIL_PORT", ""), getEnv("SMTP_PORT", ""), getEnv("MAIL_PORT", "")),
+		EmailUser:           getFirstNonEmpty(getEnv("EMAIL_USER", ""), getEnv("SMTP_USER", ""), getEnv("SMTP_USERNAME", ""), getEnv("MAIL_USER", ""), getEnv("MAIL_USERNAME", "")),
+		EmailPass:           getFirstNonEmpty(getEnv("EMAIL_PASS", ""), getEnv("SMTP_PASS", ""), getEnv("SMTP_PASSWORD", ""), getEnv("MAIL_PASSWORD", "")),
+		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("SMTP_FROM", ""), getEnv("MAIL_FROM", "")),
+		AppURL:              resolvePublicAppURL(),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
 		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
@@ -212,4 +213,64 @@ func getFirstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func getFirstValidInt(fallback int, values ...string) int {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		parsed, err := strconv.Atoi(trimmed)
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func resolvePublicAppURL() string {
+	candidates := []string{
+		getEnv("EMAIL_APP_URL", ""),
+		getEnv("PRODUCTION_APP_URL", ""),
+		getEnv("NEXT_PUBLIC_APP_URL", ""),
+		getEnv("APP_URL", ""),
+		getEnv("WEBSITE_URL", ""),
+		getEnv("PUBLIC_WEB_URL", ""),
+		getEnv("VERCEL_PROJECT_PRODUCTION_URL", ""),
+		getEnv("VERCEL_URL", ""),
+		getEnv("RENDER_EXTERNAL_URL", ""),
+	}
+
+	for _, candidate := range candidates {
+		if normalized := normalizePublicURL(candidate); normalized != "" {
+			return normalized
+		}
+	}
+
+	return "https://www.hasnahenafoundation.com"
+}
+
+func normalizePublicURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	withScheme := trimmed
+	if !strings.HasPrefix(strings.ToLower(withScheme), "http://") && !strings.HasPrefix(strings.ToLower(withScheme), "https://") {
+		withScheme = "https://" + withScheme
+	}
+
+	parsed, err := url.Parse(withScheme)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || host == "localhost" || host == "127.0.0.1" || strings.HasSuffix(host, ".local") {
+		return ""
+	}
+
+	return "https://" + parsed.Host
 }
