@@ -147,7 +147,7 @@ func normalizeEnvValue(raw string) string {
 }
 
 func getEnv(key string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := normalizeEnvValue(strings.TrimSpace(os.Getenv(key)))
 	if value == "" {
 		return fallback
 	}
@@ -155,7 +155,7 @@ func getEnv(key string, fallback string) string {
 }
 
 func getEnvInt64(key string, fallback int64) int64 {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := normalizeEnvValue(strings.TrimSpace(os.Getenv(key)))
 	if value == "" {
 		return fallback
 	}
@@ -167,7 +167,7 @@ func getEnvInt64(key string, fallback int64) int64 {
 }
 
 func getEnvInt(key string, fallback int) int {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := normalizeEnvValue(strings.TrimSpace(os.Getenv(key)))
 	if value == "" {
 		return fallback
 	}
@@ -179,7 +179,7 @@ func getEnvInt(key string, fallback int) int {
 }
 
 func getEnvDuration(key string, fallback time.Duration) time.Duration {
-	value := strings.TrimSpace(os.Getenv(key))
+	value := normalizeEnvValue(strings.TrimSpace(os.Getenv(key)))
 	if value == "" {
 		return fallback
 	}

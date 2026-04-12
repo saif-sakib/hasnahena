@@ -191,6 +191,8 @@ export default function RegisterPage() {
     watch,
     reset,
     trigger,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -210,10 +212,16 @@ export default function RegisterPage() {
     const email = (watchedEmail || '').trim().toLowerCase();
     if (email === '') {
       setEmailAvailability('idle');
+      if (errors.email?.type === 'manual') {
+        clearErrors('email');
+      }
       return;
     }
     if (!emailSchema.safeParse(email).success) {
       setEmailAvailability('idle');
+      if (errors.email?.type === 'manual') {
+        clearErrors('email');
+      }
       return;
     }
 
@@ -231,7 +239,18 @@ export default function RegisterPage() {
           throw new Error('Failed to validate email availability');
         }
 
-        setEmailAvailability(json.emailExists ? 'taken' : 'available');
+        if (json.emailExists) {
+          setEmailAvailability('taken');
+          setError('email', {
+            type: 'manual',
+            message: locale === 'bn' ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
+          });
+        } else {
+          setEmailAvailability('available');
+          if (errors.email?.type === 'manual') {
+            clearErrors('email');
+          }
+        }
       } catch {
         if (!controller.signal.aborted) {
           setEmailAvailability('error');
@@ -243,16 +262,22 @@ export default function RegisterPage() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [watchedEmail]);
+  }, [watchedEmail, setError, clearErrors, errors.email?.type, locale]);
 
   useEffect(() => {
     const phone = (watchedPhone || '').trim();
     if (phone === '') {
       setPhoneAvailability('idle');
+      if (errors.phone?.type === 'manual') {
+        clearErrors('phone');
+      }
       return;
     }
     if (!bdPhoneRegex.test(phone)) {
       setPhoneAvailability('idle');
+      if (errors.phone?.type === 'manual') {
+        clearErrors('phone');
+      }
       return;
     }
 
@@ -270,7 +295,18 @@ export default function RegisterPage() {
           throw new Error('Failed to validate phone availability');
         }
 
-        setPhoneAvailability(json.phoneExists ? 'taken' : 'available');
+        if (json.phoneExists) {
+          setPhoneAvailability('taken');
+          setError('phone', {
+            type: 'manual',
+            message: locale === 'bn' ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত' : 'This phone number is already registered',
+          });
+        } else {
+          setPhoneAvailability('available');
+          if (errors.phone?.type === 'manual') {
+            clearErrors('phone');
+          }
+        }
       } catch {
         if (!controller.signal.aborted) {
           setPhoneAvailability('error');
@@ -282,7 +318,7 @@ export default function RegisterPage() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [watchedPhone]);
+  }, [watchedPhone, setError, clearErrors, errors.phone?.type, locale]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -662,7 +698,7 @@ export default function RegisterPage() {
                           {...register('nameEn')}
                         />
                         {errors.nameEn && (
-                          <p className="text-sm text-red-500">{errors.nameEn.message}</p>
+                          <p className="text-sm text-destructive">{errors.nameEn.message}</p>
                         )}
                       </div>
                       
@@ -992,7 +1028,7 @@ export default function RegisterPage() {
                         <div className="grid sm:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="presentHouseNo">
-                              {locale === 'bn' ? 'বাড়ী নং' : 'House No'}
+                              {locale === 'bn' ? 'বাড়ী নং *' : 'House No *'}
                             </Label>
                             <Input
                               id="presentHouseNo"
@@ -1013,7 +1049,7 @@ export default function RegisterPage() {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="presentVillage">
-                              {locale === 'bn' ? 'গ্রাম' : 'Village'}
+                              {locale === 'bn' ? 'গ্রাম *' : 'Village *'}
                             </Label>
                             <Input
                               id="presentVillage"
@@ -1028,7 +1064,7 @@ export default function RegisterPage() {
                         <div className="grid sm:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="presentUnion">
-                              {locale === 'bn' ? 'ইউনিয়ন' : 'Union'}
+                              {locale === 'bn' ? 'ইউনিয়ন *' : 'Union *'}
                             </Label>
                             <Input
                               id="presentUnion"
@@ -1040,7 +1076,7 @@ export default function RegisterPage() {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="presentPoliceStation">
-                              {locale === 'bn' ? 'থানা' : 'Police Station'}
+                              {locale === 'bn' ? 'থানা *' : 'Police Station *'}
                             </Label>
                             <Input
                               id="presentPoliceStation"
@@ -1052,7 +1088,7 @@ export default function RegisterPage() {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="presentDistrict">
-                              {locale === 'bn' ? 'জেলা' : 'District'}
+                              {locale === 'bn' ? 'জেলা *' : 'District *'}
                             </Label>
                             <Input
                               id="presentDistrict"
