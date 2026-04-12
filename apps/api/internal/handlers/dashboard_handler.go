@@ -59,6 +59,36 @@ func generateTempPassword() (string, error) {
 	return string(out), nil
 }
 
+func summarizeEmailDeliveryError(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+
+	msg := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
+	lower := strings.ToLower(msg)
+
+	switch {
+	case strings.Contains(lower, "authentication") || strings.Contains(lower, "535") || strings.Contains(lower, "username and password not accepted"):
+		return "SMTP authentication failed (check EMAIL_USER/EMAIL_PASS and Gmail app password)"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "i/o timeout"):
+		return "SMTP connection timed out (check EMAIL_HOST/EMAIL_PORT and provider connectivity)"
+	case strings.Contains(lower, "starttls"):
+		return "SMTP STARTTLS negotiation failed"
+	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host"):
+		return "SMTP host/port is unreachable"
+	case strings.Contains(lower, "not configured"):
+		return "Email service is not configured"
+	default:
+		if len(msg) > 160 {
+			return msg[:160] + "..."
+		}
+		if msg == "" {
+			return "unknown error"
+		}
+		return msg
+	}
+}
+
 func (h *DashboardHandler) MemberDashboard(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "MEMBER")
 	if !ok {
@@ -446,7 +476,12 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		if revertErr != nil {
 			log.Printf("[ApproveRegistration] failed to revert approval after email failure for user %s: %v", req.UserID, revertErr)
 		}
-		utils.Error(w, http.StatusInternalServerError, "EMAIL_SEND_FAILED", "Failed to send approval email; approval has been rolled back")
+		utils.Error(
+			w,
+			http.StatusInternalServerError,
+			"EMAIL_SEND_FAILED",
+			"Failed to send approval email; approval has been rolled back. Reason: "+summarizeEmailDeliveryError(err),
+		)
 		return
 	}
 

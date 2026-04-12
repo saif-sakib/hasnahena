@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	smtpConnectTimeout = 8 * time.Second
-	smtpCommandTimeout = 20 * time.Second
-	smtpRetryAttempts  = 2
-	smtpRetryBackoff   = 1200 * time.Millisecond
+	smtpConnectTimeout  = 8 * time.Second
+	smtpCommandTimeout  = 35 * time.Second
+	smtpRetryAttempts   = 3
+	smtpRetryBackoff    = 1500 * time.Millisecond
+	smtpImplicitTLSPort = 465
 )
 
 type EmailConfig struct {
@@ -36,12 +37,14 @@ type EmailService struct {
 }
 
 func NewEmailService(cfg EmailConfig) *EmailService {
+	host := strings.TrimSpace(cfg.Host)
+	password := normalizeSMTPPassword(host, cfg.Password)
 	from := strings.TrimSpace(cfg.From)
 	if from == "" {
 		from = strings.TrimSpace(cfg.Username)
 	}
 
-	enabled := strings.TrimSpace(cfg.Host) != "" && cfg.Port > 0 && strings.TrimSpace(cfg.Username) != "" && strings.TrimSpace(cfg.Password) != "" && from != ""
+	enabled := host != "" && cfg.Port > 0 && strings.TrimSpace(cfg.Username) != "" && strings.TrimSpace(password) != "" && from != ""
 
 	appURL := strings.TrimSuffix(strings.TrimSpace(cfg.AppURL), "/")
 	if appURL == "" {
@@ -49,10 +52,10 @@ func NewEmailService(cfg EmailConfig) *EmailService {
 	}
 
 	return &EmailService{
-		host:     strings.TrimSpace(cfg.Host),
+		host:     host,
 		port:     cfg.Port,
 		username: strings.TrimSpace(cfg.Username),
-		password: cfg.Password,
+		password: password,
 		from:     from,
 		appURL:   appURL,
 		enabled:  enabled,
@@ -112,13 +115,21 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 }
 
 func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
+	portsToTry := []int{s.port}
+	if shouldTryImplicitTLSFallback(s.host, s.port) {
+		portsToTry = append(portsToTry, smtpImplicitTLSPort)
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= smtpRetryAttempts; attempt++ {
-		err := s.send(to, subject, textBody, htmlBody)
-		if err == nil {
-			return nil
+		for _, port := range portsToTry {
+			err := s.sendOnPort(to, subject, textBody, htmlBody, port)
+			if err == nil {
+				return nil
+			}
+			lastErr = fmt.Errorf("smtp port %d attempt %d: %w", port, attempt, err)
 		}
-		lastErr = err
+
 		if attempt < smtpRetryAttempts {
 			time.Sleep(smtpRetryBackoff)
 		}
@@ -127,16 +138,28 @@ func (s *EmailService) sendWithRetry(to string, subject string, textBody string,
 	return fmt.Errorf("failed to send email after %d attempt(s): %w", smtpRetryAttempts, lastErr)
 }
 
-func (s *EmailService) send(to string, subject string, textBody string, htmlBody string) error {
-	address := fmt.Sprintf("%s:%d", s.host, s.port)
+func (s *EmailService) sendOnPort(to string, subject string, textBody string, htmlBody string, port int) error {
+	address := fmt.Sprintf("%s:%d", s.host, port)
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
 	envelopeFrom := s.username
 	if strings.TrimSpace(envelopeFrom) == "" {
 		envelopeFrom = s.from
 	}
-	message := buildMultipartMessage(s.from, to, subject, textBody, htmlBody)
 
-	conn, err := s.openConnection(address)
+	headerFrom := s.from
+	replyTo := ""
+	if isGmailHost(s.host) {
+		if strings.TrimSpace(s.username) != "" {
+			headerFrom = s.username
+		}
+		if !strings.EqualFold(strings.TrimSpace(s.from), strings.TrimSpace(headerFrom)) {
+			replyTo = s.from
+		}
+	}
+
+	message := buildMultipartMessage(headerFrom, to, subject, textBody, htmlBody, replyTo)
+
+	conn, err := s.openConnection(address, port)
 	if err != nil {
 		return err
 	}
@@ -151,18 +174,27 @@ func (s *EmailService) send(to string, subject string, textBody string, htmlBody
 		return err
 	}
 	defer client.Close()
+	if err := client.Hello("hasnahenafoundation.com"); err != nil {
+		return err
+	}
 
-	if s.port != 465 {
+	if port != smtpImplicitTLSPort {
 		if ok, _ := client.Extension("STARTTLS"); ok {
 			if err := client.StartTLS(&tls.Config{ServerName: s.host, MinVersion: tls.VersionTLS12}); err != nil {
 				return err
 			}
+		} else if port == 587 {
+			return fmt.Errorf("smtp server does not support STARTTLS on port 587")
 		}
 	}
 
-	if ok, _ := client.Extension("AUTH"); ok {
-		if err := client.Auth(auth); err != nil {
-			return err
+	if strings.TrimSpace(s.username) != "" {
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return fmt.Errorf("smtp authentication failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("smtp authentication extension not available")
 		}
 	}
 
@@ -189,13 +221,13 @@ func (s *EmailService) send(to string, subject string, textBody string, htmlBody
 	return client.Quit()
 }
 
-func (s *EmailService) openConnection(address string) (net.Conn, error) {
+func (s *EmailService) openConnection(address string, port int) (net.Conn, error) {
 	dialer := &net.Dialer{
 		Timeout:   smtpConnectTimeout,
 		KeepAlive: 30 * time.Second,
 	}
 
-	if s.port == 465 {
+	if port == smtpImplicitTLSPort {
 		return tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
 			ServerName: s.host,
 			MinVersion: tls.VersionTLS12,
@@ -205,16 +237,48 @@ func (s *EmailService) openConnection(address string) (net.Conn, error) {
 	return dialer.Dial("tcp", address)
 }
 
-func buildMultipartMessage(from string, to string, subject string, textBody string, htmlBody string) []byte {
+func shouldTryImplicitTLSFallback(host string, port int) bool {
+	if port != 587 {
+		return false
+	}
+	return isGmailHost(host)
+}
+
+func isGmailHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	return strings.Contains(h, "gmail.com") || strings.Contains(h, "googlemail.com")
+}
+
+func normalizeSMTPPassword(host string, password string) string {
+	trimmed := strings.TrimSpace(password)
+	h := strings.ToLower(strings.TrimSpace(host))
+	if trimmed == "" {
+		return trimmed
+	}
+
+	if strings.Contains(h, "gmail.com") || strings.Contains(h, "googlemail.com") {
+		compact := strings.ReplaceAll(trimmed, " ", "")
+		if len(compact) == 16 {
+			return compact
+		}
+	}
+
+	return trimmed
+}
+
+func buildMultipartMessage(from string, to string, subject string, textBody string, htmlBody string, replyTo string) []byte {
 	boundary := "hn-boundary-7f3d4a8e"
-	headers := []string{
-		fmt.Sprintf("From: Hasnahena Foundation <%s>", from),
+	headers := []string{fmt.Sprintf("From: Hasnahena Foundation <%s>", from)}
+	if strings.TrimSpace(replyTo) != "" {
+		headers = append(headers, fmt.Sprintf("Reply-To: %s", strings.TrimSpace(replyTo)))
+	}
+	headers = append(headers,
 		fmt.Sprintf("To: %s", to),
 		fmt.Sprintf("Subject: %s", subject),
 		"MIME-Version: 1.0",
 		fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q", boundary),
 		"",
-	}
+	)
 
 	parts := []string{
 		fmt.Sprintf("--%s", boundary),

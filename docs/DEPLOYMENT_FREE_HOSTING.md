@@ -243,7 +243,18 @@ JWT_SECRET=replace-with-strong-random-secret
 JWT_EXPIRY_SECONDS=86400
 API_PORT=10000
 CORS_ORIGINS=https://hasnahenafoundation.com,https://www.hasnahenafoundation.com,https://<your-vercel-project>.vercel.app
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your-gmail-address@gmail.com
+EMAIL_PASS=your-gmail-app-password
+EMAIL_FROM=info@hasnahenafoundation.com
+NEXT_PUBLIC_APP_URL=https://www.hasnahenafoundation.com
 ```
+
+Important:
+- Do not wrap Render values in quotes. Use `KEY=value`, not `KEY="value"`.
+- If using Gmail, set an App Password (16 chars). If copied with spaces, remove spaces.
+- You can use `SMTP_URL` instead of individual SMTP keys (example: `smtp://user:pass@smtp.gmail.com:587`).
 
 Important:
 
