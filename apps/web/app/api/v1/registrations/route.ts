@@ -194,7 +194,7 @@ export async function POST(req: Request) {
     const memberId = `MBR-${phoneDigits}-${timestamp.toString(36)}`;
     const accountNumber = `ACC-${phoneDigits}-${timestamp.toString(36)}`;
 
-    const sameAsPermanent = payload.sameAsPermanent ?? false;
+    const sameAsPermanent = payload.sameAsPermanent ?? true;
     const presentFallback = sameAsPermanent;
 
     const permanentAddress = {

@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useTranslations, useLocale } from 'next-intl';
-import { useForm } from 'react-hook-form';
+import { useLocale } from 'next-intl';
+import { useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -166,31 +166,86 @@ const registerSchema = z
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
+const REGISTRATION_DRAFT_KEY_PREFIX = 'hn_registration_draft_v1';
+
+const FORM_DEFAULT_VALUES: Partial<RegisterFormData> = {
+  maritalStatus: 'UNMARRIED',
+  gender: 'MALE',
+  bloodGroup: 'A+',
+  childrenCount: 0,
+  sameAsPermanent: true,
+};
+
 export default function RegisterPage() {
-  const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
-  const [sameAsPermanent, setSameAsPermanent] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const draftStorageKey = useMemo(() => `${REGISTRATION_DRAFT_KEY_PREFIX}:${locale}`, [locale]);
 
   const {
     register,
     handleSubmit,
     watch,
-    setValue,
+    reset,
     trigger,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
-    defaultValues: {
-      maritalStatus: 'UNMARRIED',
-      gender: 'MALE',
-      bloodGroup: 'A+',
-      childrenCount: 0,
-    },
+    defaultValues: FORM_DEFAULT_VALUES,
     mode: 'onBlur', // Validate on blur for better UX
   });
+
+  const sameAsPermanent = watch('sameAsPermanent') ?? true;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const raw = window.localStorage.getItem(draftStorageKey);
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        data?: Partial<RegisterFormData>;
+        currentStep?: number;
+      };
+      const restoredValues: Partial<RegisterFormData> = {
+        ...FORM_DEFAULT_VALUES,
+        ...(parsed.data || {}),
+      };
+      reset(restoredValues);
+
+      if (typeof parsed.currentStep === 'number' && Number.isFinite(parsed.currentStep)) {
+        const clampedStep = Math.min(Math.max(parsed.currentStep, 0), steps.length - 1);
+        setCurrentStep(clampedStep);
+      }
+    } catch {
+      window.localStorage.removeItem(draftStorageKey);
+    }
+  }, [draftStorageKey, reset]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const subscription = watch((value) => {
+      window.localStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({
+          data: value,
+          currentStep,
+          savedAt: Date.now(),
+        }),
+      );
+    });
+
+    return () => subscription.unsubscribe();
+  }, [watch, currentStep, draftStorageKey]);
 
   // Fields to validate per step
   const stepFields: (keyof RegisterFormData)[][] = [
@@ -235,7 +290,7 @@ export default function RegisterPage() {
           permanentDistrict: data.permanentDistrict,
 
           // Present Address
-          sameAsPermanent: data.sameAsPermanent ?? false,
+          sameAsPermanent: data.sameAsPermanent ?? true,
           presentHouseNo: data.presentHouseNo,
           presentRoadNo: data.presentRoadNo,
           presentVillage: data.presentVillage,
@@ -283,6 +338,10 @@ export default function RegisterPage() {
         variant: 'success',
       });
 
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+
       // Redirect after a short delay so user can see the message
       setTimeout(() => {
         router.push(`/${locale}/login`);
@@ -294,6 +353,37 @@ export default function RegisterPage() {
           : 'Registration failed. Please try again.'
       );
     }
+  };
+
+  const onInvalidSubmit = (formErrors: FieldErrors<RegisterFormData>) => {
+    const errorFields = Object.keys(formErrors) as (keyof RegisterFormData)[];
+    if (!errorFields.length) {
+      return;
+    }
+
+    let targetStep = steps.length - 1;
+    for (const [index, fields] of stepFields.entries()) {
+      if (errorFields.some((field) => fields.includes(field))) {
+        targetStep = index;
+        break;
+      }
+    }
+
+    setCurrentStep(targetStep);
+    setSubmitError(
+      locale === 'bn'
+        ? 'ফর্মে কিছু তথ্য অসম্পূর্ণ বা ভুল আছে। অনুগ্রহ করে চিহ্নিত ফিল্ডগুলো ঠিক করুন।'
+        : 'Some information is missing or invalid. Please fix the highlighted fields.'
+    );
+
+    toast({
+      title: locale === 'bn' ? 'ফর্মে সমস্যা আছে' : 'Form needs attention',
+      description:
+        locale === 'bn'
+          ? 'যে ধাপে সমস্যা আছে সেখানে আপনাকে নিয়ে যাওয়া হয়েছে।'
+          : 'You have been moved to the step that needs correction.',
+      variant: 'destructive',
+    });
   };
 
   const nextStep = async () => {
@@ -414,7 +504,7 @@ export default function RegisterPage() {
                   {submitError}
                 </div>
               )}
-              <form onSubmit={handleSubmit(onSubmit)}>
+              <form onSubmit={handleSubmit(onSubmit, onInvalidSubmit)}>
                 {/* Step 1: Personal Information */}
                 {currentStep === 0 && (
                   <div className="space-y-6">
@@ -720,13 +810,8 @@ export default function RegisterPage() {
                       <input
                         type="checkbox"
                         id="sameAsPermanent"
-                        checked={sameAsPermanent}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setSameAsPermanent(checked);
-                          setValue('sameAsPermanent', checked);
-                        }}
                         className="h-4 w-4"
+                        {...register('sameAsPermanent')}
                       />
                       <Label htmlFor="sameAsPermanent" className="text-sm font-normal">
                         {locale === 'bn'
