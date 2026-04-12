@@ -22,6 +22,21 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
+type PendingFirstLogin = {
+  identifier: string;
+  currentPassword: string;
+  token: string;
+  role?: string;
+};
+
+function getRolePath(role: string | undefined, locale: string) {
+  return role === 'ADMIN' || role === 'SUPER_ADMIN'
+    ? `/${locale}/dashboard/admin`
+    : role === 'WORKER'
+      ? `/${locale}/dashboard/worker`
+      : `/${locale}/dashboard/member`;
+}
+
 export default function LoginPage() {
   const t = useTranslations('auth');
   const locale = useLocale();
@@ -29,6 +44,12 @@ export default function LoginPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [welcomeMessage, setWelcomeMessage] = useState('');
+  const [pendingFirstLogin, setPendingFirstLogin] = useState<PendingFirstLogin | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
     fetch('/api/v1/settings')
@@ -86,38 +107,54 @@ export default function LoginPage() {
         return;
       }
 
-    const role = payload?.data?.user?.role;
-    const token = payload?.data?.accessToken;
-    const expiresIn = payload?.data?.expiresIn;
-    const mustChangePassword = Boolean(payload?.data?.user?.mustChangePassword);
-    if (token) {
-      setClientAuthToken(token, typeof expiresIn === 'number' ? expiresIn : undefined);
+      const role = payload?.data?.user?.role;
+      const token = payload?.data?.accessToken;
+      const expiresIn = payload?.data?.expiresIn;
+      const mustChangePassword = Boolean(payload?.data?.user?.mustChangePassword);
+
       if (mustChangePassword) {
-        localStorage.setItem('hn_force_password_change', '1');
-      } else {
+        if (!token) {
+          setSubmitError(
+            locale === 'bn'
+              ? 'পাসওয়ার্ড আপডেটের জন্য সেশন তৈরি করা যায়নি। আবার লগইন করুন।'
+              : 'Unable to initialize first-login password update. Please sign in again.'
+          );
+          return;
+        }
+
+        setPendingFirstLogin({
+          identifier: data.identifier,
+          currentPassword: data.password,
+          token,
+          role,
+        });
+        setNewPassword('');
+        setConfirmPassword('');
+        setSubmitError(null);
+
+        toast({
+          title: locale === 'bn' ? 'নতুন পাসওয়ার্ড সেট করুন' : 'Set a new password',
+          description:
+            locale === 'bn'
+              ? 'প্রথম লগইনের জন্য একটি নতুন পাসওয়ার্ড দিন এবং এটি পরবর্তী লগইনের জন্য মনে রাখুন।'
+              : 'For your first login, set a new password and remember it for your next login.',
+          variant: 'success',
+        });
+        return;
+      }
+
+      if (token) {
+        setClientAuthToken(token, typeof expiresIn === 'number' ? expiresIn : undefined);
         localStorage.removeItem('hn_force_password_change');
       }
-    }
-    
-    // Show success toast
-    toast({
-      title: locale === 'bn' ? 'সফলভাবে লগইন হয়েছে' : 'Login Successful',
-      description: locale === 'bn' ? 'আপনাকে স্বাগতম!' : 'Welcome back!',
-      variant: 'success',
-    });
-    
-    const rolePath =
-      role === 'ADMIN' || role === 'SUPER_ADMIN'
-        ? `/${locale}/dashboard/admin`
-        : role === 'WORKER'
-          ? `/${locale}/dashboard/worker`
-          : `/${locale}/dashboard/member`;
 
-    if (mustChangePassword) {
-      router.replace(`${rolePath}/profile?forcePasswordChange=1`);
-    } else {
-      router.replace(rolePath);
-    }
+      toast({
+        title: locale === 'bn' ? 'সফলভাবে লগইন হয়েছে' : 'Login Successful',
+        description: locale === 'bn' ? 'আপনাকে স্বাগতম!' : 'Welcome back!',
+        variant: 'success',
+      });
+
+      router.replace(getRolePath(role, locale));
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setSubmitError(
@@ -132,6 +169,107 @@ export default function LoginPage() {
           ? 'লগইন আপাতত সম্ভব হচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।'
           : 'Login is temporarily unavailable. Please try again shortly.'
       );
+    }
+  };
+
+  const handleFirstLoginPasswordUpdate = async () => {
+    if (!pendingFirstLogin) {
+      return;
+    }
+
+    setSubmitError(null);
+
+    if (newPassword.length < 8) {
+      setSubmitError(locale === 'bn' ? 'নতুন পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।' : 'New password must be at least 8 characters long.');
+      return;
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'নতুন পাসওয়ার্ডে অন্তত একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর এবং একটি সংখ্যা থাকতে হবে।'
+          : 'New password must include at least one uppercase letter, one lowercase letter, and one number.'
+      );
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSubmitError(locale === 'bn' ? 'নতুন পাসওয়ার্ড এবং নিশ্চিতকরণ মিলেনি।' : 'New password and confirmation do not match.');
+      return;
+    }
+    if (newPassword === pendingFirstLogin.currentPassword) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'নতুন পাসওয়ার্ড অস্থায়ী পাসওয়ার্ডের মতো হতে পারবে না।'
+          : 'New password cannot be the same as the temporary password.'
+      );
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const changeResponse = await fetch('/api/v1/dashboard/password', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${pendingFirstLogin.token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: pendingFirstLogin.currentPassword,
+          newPassword,
+        }),
+      });
+
+      const changePayload = await changeResponse.json().catch(() => ({}));
+      if (!changeResponse.ok || !changePayload?.success) {
+        setSubmitError(changePayload?.error?.message || (locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন করা যায়নি।' : 'Failed to update password.'));
+        return;
+      }
+
+      const loginResponse = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: pendingFirstLogin.identifier,
+          password: newPassword,
+        }),
+      });
+
+      const loginPayload = await loginResponse.json().catch(() => ({}));
+      if (!loginResponse.ok || !loginPayload?.success) {
+        setSubmitError(
+          locale === 'bn'
+            ? 'পাসওয়ার্ড পরিবর্তন হয়েছে, কিন্তু স্বয়ংক্রিয় লগইন ব্যর্থ হয়েছে। নতুন পাসওয়ার্ড দিয়ে আবার লগইন করুন।'
+            : 'Password updated, but automatic sign-in failed. Please sign in again with your new password.'
+        );
+        setPendingFirstLogin(null);
+        return;
+      }
+
+      const finalToken = loginPayload?.data?.accessToken;
+      const expiresIn = loginPayload?.data?.expiresIn;
+      const role = loginPayload?.data?.user?.role;
+      if (finalToken) {
+        setClientAuthToken(finalToken, typeof expiresIn === 'number' ? expiresIn : undefined);
+      }
+      localStorage.removeItem('hn_force_password_change');
+
+      toast({
+        title: locale === 'bn' ? 'পাসওয়ার্ড আপডেট সম্পন্ন' : 'Password updated',
+        description:
+          locale === 'bn'
+            ? 'নতুন পাসওয়ার্ড সেট হয়েছে। পরবর্তী লগইনে এই পাসওয়ার্ড ব্যবহার করুন।'
+            : 'Your new password is set. Use this password for your next login.',
+        variant: 'success',
+      });
+
+      router.replace(getRolePath(role, locale));
+    } catch {
+      setSubmitError(
+        locale === 'bn'
+          ? 'পাসওয়ার্ড পরিবর্তনের সময় সমস্যা হয়েছে। আবার চেষ্টা করুন।'
+          : 'Something went wrong while updating password. Please try again.'
+      );
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -195,8 +333,109 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {/* Login Form */}
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {/* Login / First Login Form */}
+            {pendingFirstLogin ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleFirstLoginPasswordUpdate();
+                }}
+                className="space-y-4"
+              >
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800">
+                  {locale === 'bn'
+                    ? 'প্রথম লগইনের জন্য একটি নতুন পাসওয়ার্ড সেট করুন। দয়া করে এটি মনে রাখুন, পরবর্তী লগইনে এই পাসওয়ার্ডই লাগবে।'
+                    : 'Set a new password for your first login. Please remember it, as this password will be required for your next login.'}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="newPassword" className="text-[13px] font-semibold text-slate-700 ml-1">
+                    {locale === 'bn' ? 'নতুন পাসওয়ার্ড' : 'New Password'}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="newPassword"
+                      type={showNewPassword ? 'text' : 'password'}
+                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                      placeholder="••••••••"
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
+                      aria-label="Toggle new password visibility"
+                    >
+                      {showNewPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword" className="text-[13px] font-semibold text-slate-700 ml-1">
+                    {locale === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm Password'}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                      placeholder="••••••••"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
+                      aria-label="Toggle confirm password visibility"
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                    </button>
+                  </div>
+                </div>
+
+                {submitError && (
+                  <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-sm shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                    <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  className="w-full h-12 mt-4 text-[15px] font-bold shadow-lg shadow-emerald-600/20 bg-emerald-600 hover:bg-emerald-500 hover:-translate-y-0.5 active:translate-y-0 text-white transition-all rounded-xl"
+                  disabled={isChangingPassword}
+                >
+                  {isChangingPassword ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      {locale === 'bn' ? 'আপডেট হচ্ছে...' : 'Updating...'}
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2 w-full">
+                      {locale === 'bn' ? 'পাসওয়ার্ড সেট করে লগইন করুন' : 'Set Password and Continue'}
+                      <ArrowRight className="h-[18px] w-[18px] opacity-80" />
+                    </span>
+                  )}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full h-11 text-[13px] font-semibold text-slate-600"
+                  onClick={() => {
+                    setPendingFirstLogin(null);
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    setSubmitError(null);
+                  }}
+                >
+                  {locale === 'bn' ? 'লগইন ফর্মে ফিরে যান' : 'Back to login form'}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="identifier" className="text-[13px] font-semibold text-slate-700 ml-1">
                   {t('email')}
@@ -272,6 +511,7 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
+            )}
 
             <div className="mt-8 text-center">
               <p className="text-[13px] text-slate-500 font-medium">
