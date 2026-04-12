@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
-import { useForm, type FieldErrors } from 'react-hook-form';
+import { useForm, type FieldErrors, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe } from 'lucide-react';
@@ -30,6 +30,7 @@ const steps = [
 
 const emailSchema = z.string().email();
 type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
+type RegisterFieldName = FieldPath<RegisterFormData>;
 
 const REGISTRATION_DRAFT_KEY_PREFIX = 'hn_registration_draft_v1';
 
@@ -220,7 +221,7 @@ export default function RegisterPage() {
       return;
     }
 
-    const subscription = watch((value) => {
+    const subscription = watch((value: Partial<RegisterFormData>) => {
       window.localStorage.setItem(
         draftStorageKey,
         JSON.stringify({
@@ -249,7 +250,7 @@ export default function RegisterPage() {
   }, [watchedChildrenCount, watchedMaritalStatus, trigger]);
 
   // Fields to validate per step
-  const stepFields: (keyof RegisterFormData)[][] = [
+  const stepFields: RegisterFieldName[][] = [
     // Step 0: Personal Info
     ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus', 'dateOfBirth'],
     // Step 1: Address
@@ -375,7 +376,7 @@ export default function RegisterPage() {
   };
 
   const onInvalidSubmit = (formErrors: FieldErrors<RegisterFormData>) => {
-    const errorFields = Object.keys(formErrors) as (keyof RegisterFormData)[];
+    const errorFields = Object.keys(formErrors) as RegisterFieldName[];
     if (!errorFields.length) {
       return;
     }
