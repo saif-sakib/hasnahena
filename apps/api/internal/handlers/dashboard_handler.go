@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -470,22 +469,20 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 
 	if err := h.emailService.SendMemberApprovalEmail(candidate.Email, candidate.NameEn, tempPassword, req.Locale); err != nil {
 		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, candidate.Email, err)
-		revertCtx, cancelRevert := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancelRevert()
-		revertErr := h.userRepo.RevertRegistrationApproval(revertCtx, req.UserID, userID, "approval email delivery failed")
-		if revertErr != nil {
-			log.Printf("[ApproveRegistration] failed to revert approval after email failure for user %s: %v", req.UserID, revertErr)
-		}
-		utils.Error(
-			w,
-			http.StatusInternalServerError,
-			"EMAIL_SEND_FAILED",
-			"Failed to send approval email; approval has been rolled back. Reason: "+summarizeEmailDeliveryError(err),
-		)
+		deliveryError := summarizeEmailDeliveryError(err)
+		utils.Success(w, http.StatusOK, map[string]interface{}{
+			"message":           "Registration approved, but approval email could not be delivered",
+			"emailDelivered":    false,
+			"deliveryError":     deliveryError,
+			"temporaryPassword": tempPassword,
+		})
 		return
 	}
 
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration approved successfully"})
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":        "Registration approved successfully",
+		"emailDelivered": true,
+	})
 }
 
 func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Request) {

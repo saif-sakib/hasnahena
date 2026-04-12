@@ -46,6 +46,13 @@ interface RegistrationRequest {
   requestDate: string;
 }
 
+interface ApproveRegistrationResult {
+  message?: string;
+  emailDelivered?: boolean;
+  deliveryError?: string;
+  temporaryPassword?: string;
+}
+
 function RegistrationRow({
   item,
   locale,
@@ -192,7 +199,23 @@ export default function AdminApprovalsPage() {
     setError(null);
     try {
       if (action === 'approve') {
-        await apiPost('/v1/dashboard/admin/approvals/registration', { userId: id, notes: '', locale });
+        const approvalResult = await apiPost<ApproveRegistrationResult>('/v1/dashboard/admin/approvals/registration', {
+          userId: id,
+          notes: '',
+          locale,
+        });
+        if (approvalResult.emailDelivered === false) {
+          const fallbackMessage = locale === 'bn'
+            ? 'সদস্য অনুমোদিত হয়েছে, কিন্তু অনুমোদন ইমেইল পাঠানো যায়নি। প্রদত্ত অস্থায়ী পাসওয়ার্ডটি সদস্যকে নিরাপদভাবে জানিয়ে দিন।'
+            : 'Member was approved, but approval email was not delivered. Share the temporary password securely with the member.';
+          const details = approvalResult.deliveryError
+            ? ` ${locale === 'bn' ? 'কারণ:' : 'Reason:'} ${approvalResult.deliveryError}.`
+            : '';
+          const passwordHint = approvalResult.temporaryPassword
+            ? ` ${locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড:' : 'Temporary password:'} ${approvalResult.temporaryPassword}`
+            : '';
+          setError(`${fallbackMessage}${details}${passwordHint}`);
+        }
       } else {
         await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
       }
