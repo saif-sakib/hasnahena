@@ -1,173 +1,57 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import { createAuditLog } from '@/lib/audit';
 
-const resetPasswordSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
-});
-
-// GET - Validate token
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const token = searchParams.get('token');
 
     if (!token) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Token is required'
-      }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'Token is required' }, { status: 400 });
     }
 
-    // Find token
-    const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
-    });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8080/api';
+    const response = await fetch(`${apiUrl}/v1/auth/reset-password?token=${encodeURIComponent(token)}`);
+    const data = await response.json();
 
-    if (!resetToken) {
+    if (!response.ok) {
       return NextResponse.json({
         ok: false,
-        error: 'Invalid or expired token'
-      }, { status: 400 });
+        error: data.message || 'Invalid or expired token',
+      }, { status: response.status });
     }
 
-    // Check if token is expired
-    if (resetToken.expiresAt < new Date()) {
-      // Delete expired token
-      await prisma.passwordResetToken.delete({ where: { id: resetToken.id } });
-      return NextResponse.json({
-        ok: false,
-        error: 'Token has expired'
-      }, { status: 400 });
-    }
-
-    // Check if token was already used
-    if (resetToken.usedAt) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Token has already been used'
-      }, { status: 400 });
-    }
-
-    return NextResponse.json({
-      ok: true,
-      valid: true,
-      email: resetToken.email,
-    });
+    return NextResponse.json(data);
   } catch (error) {
     console.error('[ResetPassword GET] Error:', error);
-    return NextResponse.json({
-      ok: false,
-      error: 'Failed to validate token'
-    }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to validate token' }, { status: 500 });
   }
 }
 
-// POST - Reset password
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8080/api';
 
-    // Validate input
-    const validation = resetPasswordSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Invalid input',
-        details: validation.error.flatten()
-      }, { status: 400 });
-    }
-
-    const { token, password } = validation.data;
-
-    // Find token
-    const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
-    });
-
-    if (!resetToken) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Invalid or expired token'
-      }, { status: 400 });
-    }
-
-    // Check if token is expired
-    if (resetToken.expiresAt < new Date()) {
-      await prisma.passwordResetToken.delete({ where: { id: resetToken.id } });
-      return NextResponse.json({
-        ok: false,
-        error: 'Token has expired'
-      }, { status: 400 });
-    }
-
-    // Check if token was already used
-    if (resetToken.usedAt) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Token has already been used'
-      }, { status: 400 });
-    }
-
-    // Find user
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          ...(resetToken.email ? [{ email: resetToken.email }] : []),
-          ...(resetToken.phone ? [{ phone: resetToken.phone }] : []),
-        ],
+    const response = await fetch(`${apiUrl}/v1/auth/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify(body), // passing token and password directly
     });
 
-    if (!user) {
+    const data = await response.json();
+
+    if (!response.ok) {
       return NextResponse.json({
         ok: false,
-        error: 'User not found'
-      }, { status: 404 });
+        error: data.message || 'Failed to reset password',
+      }, { status: response.status });
     }
 
-    // Hash new password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // Update password and mark token as used in a transaction
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash },
-      }),
-      prisma.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { usedAt: new Date() },
-      }),
-    ]);
-
-    // Audit log for password reset
-    await createAuditLog({
-      action: 'PASSWORD_RESET',
-      entityType: 'USER',
-      entityId: user.id,
-      userId: user.id,
-      details: `Password reset via email/phone link`,
-    });
-
-    console.log('[ResetPassword] Password reset for user:', user.email || user.phone);
-
-    return NextResponse.json({
-      ok: true,
-      message: 'Password reset successfully'
-    });
+    return NextResponse.json(data);
   } catch (error) {
     console.error('[ResetPassword POST] Error:', error);
-    return NextResponse.json({
-      ok: false,
-      error: 'Failed to reset password'
-    }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Failed to reset password' }, { status: 500 });
   }
 }

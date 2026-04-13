@@ -295,3 +295,50 @@ func buildMultipartMessage(from string, to string, subject string, textBody stri
 
 	return []byte(strings.Join(append(headers, parts...), "\r\n"))
 }
+
+func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service not configured")
+	}
+
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("recipient email is required")
+	}
+
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	if locale != "bn" {
+		locale = "en"
+	}
+
+	resetURL := fmt.Sprintf("%s/%s/reset-password?token=%s", s.appURL, locale, token)
+	
+	var subject, textBody, htmlBody string
+	if locale == "bn" {
+		subject = "পাসওয়ার্ড রিসেট করুন - Hasnahena Foundation"
+		textBody = fmt.Sprintf("আপনার পাসওয়ার্ড রিসেট করতে নিচের লিঙ্কে ক্লিক করুন:\n\n%s\n\nএই লিঙ্কটি পরবর্তী ১ ঘণ্টার জন্য কার্যকর থাকবে।", resetURL)
+		htmlBody = fmt.Sprintf(`
+			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
+				<h2>পাসওয়ার্ড রিসেট</h2>
+				<p>আপনার পাসওয়ার্ড রিসেট করতে নিচের বাটনে ক্লিক করুন:</p>
+				<p><a href="%s" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">পাসওয়ার্ড রিসেট করুন</a></p>
+				<p>এই লিঙ্কটি পরবর্তী <strong>১ ঘণ্টার</strong> জন্য কার্যকর থাকবে।</p>
+				<p style="font-size:12px;color:#6b7280">আপনি যদি এই অনুরোধ না করে থাকেন, তবে এই ইমেইলটি এড়িয়ে যান।</p>
+			</div>
+		`, resetURL)
+	} else {
+		subject = "Reset Your Password - Hasnahena Foundation"
+		textBody = fmt.Sprintf("Click the link below to reset your password:\n\n%s\n\nThis link will expire in 1 hour.", resetURL)
+		htmlBody = fmt.Sprintf(`
+			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
+				<h2>Password Reset</h2>
+				<p>Click the button below to reset your password:</p>
+				<p><a href="%s" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Reset Password</a></p>
+				<p>This link will expire in <strong>1 hour</strong>.</p>
+				<p style="font-size:12px;color:#6b7280">If you didn't request this, you can safely ignore this email.</p>
+</div>
+`, resetURL)
+	}
+
+	return s.sendWithRetry(to, subject, textBody, htmlBody)
+}
