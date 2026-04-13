@@ -3815,3 +3815,90 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 
 	return receiptNumber, nil
 }
+
+type PasswordResetToken struct {
+	ID        string
+	Token     string
+	Email     *string
+	Phone     *string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+func (r *UserRepository) DeleteResetTokens(ctx context.Context, email, phone string) error {
+	query := `DELETE FROM password_reset_tokens WHERE email = $1 OR phone = $2`
+	var dbEmail, dbPhone *string
+	if email != "" {
+		dbEmail = &email
+	}
+	if phone != "" {
+		dbPhone = &phone
+	}
+	_, err := r.db.Exec(ctx, query, dbEmail, dbPhone)
+	return err
+}
+
+func (r *UserRepository) CreateResetToken(ctx context.Context, token, email, phone string, expiresAt time.Time) error {
+	query := `
+		INSERT INTO password_reset_tokens (id, token, email, phone, "expiresAt", "usedAt", "createdAt")
+		VALUES ($1, $2, $3, $4, $5, NULL, $6)
+	`
+	idBytes := make([]byte, 12)
+	rand.Read(idBytes)
+	id := hex.EncodeToString(idBytes)
+
+	var dbEmail, dbPhone *string
+	if email != "" {
+		dbEmail = &email
+	}
+	if phone != "" {
+		dbPhone = &phone
+	}
+
+	_, err := r.db.Exec(ctx, query, id, token, dbEmail, dbPhone, expiresAt, time.Now())
+	return err
+}
+
+func (r *UserRepository) GetResetToken(ctx context.Context, token string) (*PasswordResetToken, error) {
+	query := `
+		SELECT id, token, email, phone, "expiresAt", "usedAt", "createdAt"
+		FROM password_reset_tokens
+		WHERE token = $1
+	`
+	var t PasswordResetToken
+	err := r.db.QueryRow(ctx, query, token).Scan(
+		&t.ID, &t.Token, &t.Email, &t.Phone, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (r *UserRepository) DeleteResetTokenByID(ctx context.Context, id string) error {
+	query := `DELETE FROM password_reset_tokens WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, id)
+	return err
+}
+
+func (r *UserRepository) MarkResetTokenUsed(ctx context.Context, id string) error {
+	query := `UPDATE password_reset_tokens SET "usedAt" = $1 WHERE id = $2`
+	_, err := r.db.Exec(ctx, query, time.Now(), id)
+	return err
+}
+
+func (r *UserRepository) UpdatePassword(ctx context.Context, email, phone, newPasswordHash string) error {
+	query := `UPDATE users SET "passwordHash" = $1 WHERE email = $2 OR phone = $3`
+
+	var dbEmail, dbPhone *string
+	if email != "" {
+		dbEmail = &email
+	}
+	if phone != "" {
+		dbPhone = &phone
+	}
+
+	_, err := r.db.Exec(ctx, query, newPasswordHash, dbEmail, dbPhone)
+	return err
+}

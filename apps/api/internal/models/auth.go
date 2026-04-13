@@ -22,3 +22,13 @@ type LoginData struct {
 	ExpiresIn   int64  `json:"expiresIn"`
 	User        User   `json:"user"`
 }
+
+type ForgotPasswordRequest struct {
+	Identifier string `json:"identifier"` // Email or Phone
+	Locale     string `json:"locale"`     // Defaults to "en"
+}
+
+type ResetPasswordRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}

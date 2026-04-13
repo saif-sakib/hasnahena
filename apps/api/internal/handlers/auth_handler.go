@@ -110,3 +110,78 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Successfully logged out"})
 }
+
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req models.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Invalid request payload")
+		return
+	}
+
+	if req.Identifier == "" {
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Email or phone is required")
+		return
+	}
+
+	if req.Locale == "" {
+		req.Locale = "en"
+	}
+
+	err := h.authService.ForgotPassword(r.Context(), req.Identifier, req.Locale)
+	if err != nil {
+		// Do not leak existence of user. Just return generic success.
+		utils.Success(w, http.StatusOK, map[string]interface{}{
+"ok":      true,
+"message": "Password reset link sent if account exists.",
+})
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+"ok":      true,
+"message": "Password reset link sent to your email.",
+})
+}
+
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req models.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Invalid request payload")
+		return
+	}
+
+	if req.Token == "" || req.Password == "" {
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Token and password are required")
+		return
+	}
+
+	err := h.authService.ResetPassword(r.Context(), req.Token, req.Password)
+	if err != nil {
+		utils.Error(w, http.StatusBadRequest, "AUTH_RESET_ERROR", err.Error())
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+"ok":      true,
+"message": "Password reset successfully",
+})
+}
+
+func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Token is required")
+		return
+	}
+
+	_, err := h.authService.ValidateResetToken(r.Context(), token)
+	if err != nil {
+		utils.Error(w, http.StatusBadRequest, "AUTH_INVALID_TOKEN", err.Error())
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+"ok":    true,
+"valid": true,
+})
+}

@@ -54,7 +54,6 @@ func main() {
 		log.Fatalf("failed to ensure support schema: %v", err)
 	}
 	securityService := services.NewSecurityService(dbPool)
-	authService := services.NewAuthService(userRepo, securityService, config.JWTSecret, config.JWTExpiry)
 	emailService := services.NewEmailService(services.EmailConfig{
 		Host:     config.EmailHost,
 		Port:     config.EmailPort,
@@ -63,6 +62,7 @@ func main() {
 		From:     config.EmailFrom,
 		AppURL:   config.AppURL,
 	})
+	authService := services.NewAuthService(userRepo, securityService, emailService, config.JWTSecret, config.JWTExpiry)
 	log.Printf(
 		"email config: enabled=%t host=%q port=%d user_set=%t pass_set=%t from_set=%t app_url=%q",
 		emailService.IsConfigured(),
@@ -97,6 +97,9 @@ func main() {
 		v1.Route("/auth", func(auth chi.Router) {
 			auth.Post("/login", authHandler.Login)
 			auth.Post("/logout", authHandler.Logout)
+			auth.Post("/forgot-password", authHandler.ForgotPassword)
+			auth.Get("/reset-password", authHandler.ValidateResetToken)
+			auth.Post("/reset-password", authHandler.ResetPassword)
 		})
 		v1.Route("/dashboard", func(dashboard chi.Router) {
 			dashboard.Get("/user", dashboardHandler.UserInfo)

@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -31,14 +33,16 @@ func (e *ErrRateLimited) Error() string {
 type AuthService struct {
 	users     *repositories.UserRepository
 	security  *SecurityService
+	email     *EmailService
 	jwtSecret []byte
 	jwtExpiry int64
 }
 
-func NewAuthService(users *repositories.UserRepository, security *SecurityService, jwtSecret string, jwtExpiry int64) *AuthService {
+func NewAuthService(users *repositories.UserRepository, security *SecurityService, email *EmailService, jwtSecret string, jwtExpiry int64) *AuthService {
 	return &AuthService{
 		users:     users,
 		security:  security,
+		email:     email,
 		jwtSecret: []byte(jwtSecret),
 		jwtExpiry: jwtExpiry,
 	}
@@ -216,4 +220,94 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (jw
 	}
 
 	return claims, nil
+}
+
+func (s *AuthService) ForgotPassword(ctx context.Context, identifier string, locale string) error {
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return errors.New("identifier is required")
+	}
+
+	user, err := s.users.FindByIdentifier(ctx, identifier)
+	if err != nil || user.Email == "" {
+		return errors.New("user not found or no email associated")
+	}
+
+	if err := s.users.DeleteResetTokens(ctx, user.Email, user.Phone); err != nil {
+		return err
+	}
+
+	token := make([]byte, 32)
+	rand.Read(token)
+	tokenHex := hex.EncodeToString(token)
+	expiresAt := time.Now().Add(time.Hour)
+
+	if err := s.users.CreateResetToken(ctx, tokenHex, user.Email, user.Phone, expiresAt); err != nil {
+		return err
+	}
+
+	return s.email.SendPasswordResetEmail(user.Email, tokenHex, locale)
+}
+
+func (s *AuthService) ValidateResetToken(ctx context.Context, token string) (*repositories.PasswordResetToken, error) {
+	resetToken, err := s.users.GetResetToken(ctx, token)
+	if err != nil {
+		return nil, errors.New("invalid or expired token")
+	}
+
+	if resetToken.UsedAt != nil || resetToken.ExpiresAt.Before(time.Now()) {
+		if resetToken.ExpiresAt.Before(time.Now()) {
+			_ = s.users.DeleteResetTokenByID(ctx, resetToken.ID)
+		}
+		return nil, errors.New("token is expired or already used")
+	}
+
+	return resetToken, nil
+}
+
+func (s *AuthService) ResetPassword(ctx context.Context, token string, newPassword string) error {
+	resetToken, err := s.ValidateResetToken(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	email := ""
+	if resetToken.Email != nil {
+		email = *resetToken.Email
+	}
+	phone := ""
+	if resetToken.Phone != nil {
+		phone = *resetToken.Phone
+	}
+
+	user, err := s.users.FindByIdentifier(ctx, email)
+	if err != nil {
+		user, err = s.users.FindByIdentifier(ctx, phone)
+		if err != nil {
+			return errors.New("user not found")
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.users.UpdatePassword(ctx, email, phone, string(hash)); err != nil {
+		return err
+	}
+
+	if err := s.users.MarkResetTokenUsed(ctx, resetToken.ID); err != nil {
+		return err
+	}
+
+	s.security.CreateAuditLog(ctx, AuditLogEntry{
+		Action:     "PASSWORD_RESET",
+		EntityType: "USER",
+		EntityID:   user.ID,
+		UserID:     user.ID,
+		Details:    "Password reset via email/phone link",
+	})
+
+	return nil
 }
