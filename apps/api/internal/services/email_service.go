@@ -174,7 +174,7 @@ func (s *EmailService) sendOnPort(to string, subject string, textBody string, ht
 		return err
 	}
 	defer client.Close()
-	if err := client.Hello("hasnahenafoundation.com"); err != nil {
+	if err := client.Hello("localhost"); err != nil {
 		return err
 	}
 

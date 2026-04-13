@@ -38,7 +38,30 @@ const registrationBaseObject = z
     gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
     bloodGroup: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
     profession: z.string().trim().min(2, 'Profession is required').max(80, 'Profession must be at most 80 characters'),
-    dateOfBirth: z.string().trim().min(1, 'Date of birth is required'),
+    dateOfBirth: z
+      .string()
+      .trim()
+      .min(1, 'Date of birth is required')
+      .refine((dob) => {
+        const birthDate = new Date(dob);
+        return !Number.isNaN(birthDate.getTime());
+      }, { message: 'Date of birth is invalid' })
+      .refine((dob) => {
+        const birthDate = new Date(dob);
+        return birthDate <= new Date();
+      }, { message: 'Date of birth cannot be in the future' })
+      .refine((dob) => {
+        const birthDate = new Date(dob);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const hasHadBirthday =
+          today.getMonth() > birthDate.getMonth() ||
+          (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+        if (!hasHadBirthday) {
+          age -= 1;
+        }
+        return age >= 18;
+      }, { message: 'You must be at least 18 years old to register' }),
 
     // Permanent Address
     permanentHouseNo: z.string().trim().min(1, 'Permanent house no is required').max(50, 'House no must be at most 50 characters'),
@@ -76,40 +99,6 @@ const applySharedRegistrationRules = (
   data: z.infer<typeof registrationBaseObject>,
   ctx: z.RefinementCtx,
 ) => {
-    const dob = data.dateOfBirth.trim();
-    const birthDate = new Date(dob);
-    if (Number.isNaN(birthDate.getTime())) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['dateOfBirth'],
-        message: 'Date of birth is invalid',
-      });
-    } else {
-      const today = new Date();
-      if (birthDate > today) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['dateOfBirth'],
-          message: 'Date of birth cannot be in the future',
-        });
-      } else {
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const hasHadBirthday =
-          today.getMonth() > birthDate.getMonth() ||
-          (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
-        if (!hasHadBirthday) {
-          age -= 1;
-        }
-        if (age < 18) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['dateOfBirth'],
-            message: 'You must be at least 18 years old to register',
-          });
-        }
-      }
-    }
-
     if (data.maritalStatus === 'UNMARRIED' && (data.childrenCount ?? 0) > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
