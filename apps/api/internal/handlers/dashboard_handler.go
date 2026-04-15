@@ -67,14 +67,16 @@ func summarizeEmailDeliveryError(err error) string {
 	lower := strings.ToLower(msg)
 
 	switch {
-	case strings.Contains(lower, "authentication") || strings.Contains(lower, "535") || strings.Contains(lower, "username and password not accepted"):
-		return "SMTP authentication failed (check EMAIL_USER/EMAIL_PASS and Gmail app password)"
-	case strings.Contains(lower, "timeout") || strings.Contains(lower, "i/o timeout"):
-		return "SMTP connection timed out (check EMAIL_HOST/EMAIL_PORT and provider connectivity)"
-	case strings.Contains(lower, "starttls"):
-		return "SMTP STARTTLS negotiation failed"
-	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host"):
-		return "SMTP host/port is unreachable"
+	case strings.Contains(lower, "status 401") || strings.Contains(lower, "status 403") || strings.Contains(lower, "invalid api key"):
+		return "Brevo authentication failed (check BREVO_API_KEY)"
+	case strings.Contains(lower, "status 429") || strings.Contains(lower, "quota") || strings.Contains(lower, "rate limit"):
+		return "Brevo rate limit or sending quota reached"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "i/o timeout") || strings.Contains(lower, "deadline exceeded"):
+		return "Brevo API request timed out"
+	case strings.Contains(lower, "status 400") || strings.Contains(lower, "status 422"):
+		return "Brevo rejected the email payload (check EMAIL_FROM and recipient addresses)"
+	case strings.Contains(lower, "status 5"):
+		return "Brevo service is temporarily unavailable"
 	case strings.Contains(lower, "not configured"):
 		return "Email service is not configured"
 	default:
@@ -429,7 +431,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	if h.emailService == nil || !h.emailService.IsConfigured() {
-		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set EMAIL_HOST/EMAIL_PORT/EMAIL_USER/EMAIL_PASS (or SMTP_URL) and EMAIL_FROM on backend deployment")
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
 		return
 	}
 

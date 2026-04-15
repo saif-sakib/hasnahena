@@ -17,11 +17,10 @@ type Config struct {
 	JWTSecret           string
 	JWTExpiry           int64
 	CORSOrigins         []string
-	EmailHost           string
-	EmailPort           int
-	EmailUser           string
-	EmailPass           string
+	BrevoAPIKey         string
+	BrevoAPIURL         string
 	EmailFrom           string
+	EmailFromName       string
 	AppURL              string
 	DBMaxConns          int32
 	DBMinConns          int32
@@ -43,19 +42,16 @@ func Load() Config {
 		log.Fatal("SECURITY ERROR: JWT_SECRET must be at least 32 characters long for adequate security")
 	}
 
-	emailHost, emailPort, emailUser, emailPass := resolveSMTPConfig()
-
 	return Config{
 		Port:                getEnv("API_PORT", getEnv("PORT", "8081")),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
 		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
-		EmailHost:           emailHost,
-		EmailPort:           emailPort,
-		EmailUser:           emailUser,
-		EmailPass:           emailPass,
-		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("EMAIL_SENDER", ""), getEnv("SMTP_FROM", ""), getEnv("MAIL_FROM", ""), getEnv("FROM_EMAIL", "")),
+		BrevoAPIKey:         getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
+		BrevoAPIURL:         getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
+		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
+		EmailFromName:       getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
 		AppURL:              resolvePublicAppURL(),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
@@ -210,109 +206,6 @@ func getFirstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func getFirstValidInt(fallback int, values ...string) int {
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		parsed, err := strconv.Atoi(trimmed)
-		if err == nil {
-			return parsed
-		}
-	}
-	return fallback
-}
-
-func resolveSMTPConfig() (host string, port int, user string, pass string) {
-	parsedHost, parsedPort, parsedUser, parsedPass := parseSMTPURL(
-		getFirstNonEmpty(getEnv("SMTP_URL", ""), getEnv("EMAIL_URL", ""), getEnv("MAIL_URL", "")),
-	)
-
-	parsedPortCandidate := ""
-	if parsedPort > 0 {
-		parsedPortCandidate = strconv.Itoa(parsedPort)
-	}
-
-	host = getFirstNonEmpty(
-		getEnv("EMAIL_HOST", ""),
-		getEnv("EMAIL_SERVER", ""),
-		getEnv("SMTP_HOST", ""),
-		getEnv("SMTP_SERVER", ""),
-		getEnv("MAIL_HOST", ""),
-		parsedHost,
-	)
-
-	port = getFirstValidInt(
-		587,
-		getEnv("EMAIL_PORT", ""),
-		getEnv("SMTP_PORT", ""),
-		getEnv("MAIL_PORT", ""),
-		parsedPortCandidate,
-	)
-
-	user = getFirstNonEmpty(
-		getEnv("EMAIL_USER", ""),
-		getEnv("EMAIL_USERNAME", ""),
-		getEnv("SMTP_USER", ""),
-		getEnv("SMTP_USERNAME", ""),
-		getEnv("MAIL_USER", ""),
-		getEnv("MAIL_USERNAME", ""),
-		parsedUser,
-	)
-
-	pass = getFirstNonEmpty(
-		getEnv("EMAIL_PASS", ""),
-		getEnv("EMAIL_PASSWORD", ""),
-		getEnv("SMTP_PASS", ""),
-		getEnv("SMTP_PASSWORD", ""),
-		getEnv("MAIL_PASS", ""),
-		getEnv("MAIL_PASSWORD", ""),
-		parsedPass,
-	)
-
-	return host, port, user, pass
-}
-
-func parseSMTPURL(raw string) (host string, port int, user string, pass string) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", 0, "", ""
-	}
-
-	lower := strings.ToLower(trimmed)
-	if !strings.HasPrefix(lower, "smtp://") && !strings.HasPrefix(lower, "smtps://") {
-		trimmed = "smtp://" + trimmed
-	}
-
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Hostname() == "" {
-		return "", 0, "", ""
-	}
-
-	host = parsed.Hostname()
-	if strings.EqualFold(parsed.Scheme, "smtps") {
-		port = 465
-	} else {
-		port = 587
-	}
-
-	if parsed.Port() != "" {
-		if p, err := strconv.Atoi(parsed.Port()); err == nil && p > 0 {
-			port = p
-		}
-	}
-
-	if parsed.User != nil {
-		user = strings.TrimSpace(parsed.User.Username())
-		if parsedPassword, ok := parsed.User.Password(); ok {
-			pass = parsedPassword
-		}
-	}
-
-	return host, port, user, pass
 }
 
 func resolvePublicAppURL() string {
