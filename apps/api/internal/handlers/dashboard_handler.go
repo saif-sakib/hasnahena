@@ -561,12 +561,14 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	if err := h.emailService.SendMemberApprovalEmail(candidate.Email, candidate.NameEn, tempPassword, req.Locale); err != nil {
 		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, candidate.Email, err)
 		deliveryError := summarizeEmailDeliveryError(err)
-		utils.Success(w, http.StatusOK, map[string]interface{}{
-			"message":           "Registration approved, but approval email could not be delivered",
-			"emailDelivered":    false,
-			"deliveryError":     deliveryError,
-			"temporaryPassword": tempPassword,
-		})
+		revertReason := "auto-reverted after member approval email delivery failure: " + deliveryError
+		if rollbackErr := h.userRepo.RevertRegistrationApproval(r.Context(), req.UserID, userID, revertReason); rollbackErr != nil {
+			log.Printf("[ApproveRegistration] rollback failed for user %s: %v", req.UserID, rollbackErr)
+			utils.Error(w, http.StatusInternalServerError, "APPROVE_ROLLBACK_FAILED", "Registration email failed and rollback also failed. Please contact support immediately.")
+			return
+		}
+
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_DELIVERY_FAILED", "Approval email could not be delivered, so registration was not approved. Please retry. Reason: "+deliveryError)
 		return
 	}
 
