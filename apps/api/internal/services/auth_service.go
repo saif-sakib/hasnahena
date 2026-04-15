@@ -229,8 +229,13 @@ func (s *AuthService) ForgotPassword(ctx context.Context, identifier string, loc
 	}
 
 	user, err := s.users.FindByIdentifier(ctx, identifier)
-	if err != nil || user.Email == "" {
-		return errors.New("user not found or no email associated")
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	user.Email = strings.TrimSpace(user.Email)
+	if user.Email == "" {
+		return errors.New("no email associated with account")
 	}
 
 	if err := s.users.DeleteResetTokens(ctx, user.Email, user.Phone); err != nil {

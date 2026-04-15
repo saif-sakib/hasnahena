@@ -967,7 +967,6 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 
 	var req struct {
 		CurrentPassword string `json:"currentPassword"`
-		NewPassword     string `json:"newPassword"`
 		Locale          string `json:"locale"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
@@ -976,17 +975,8 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	}
 
 	currentPassword := strings.TrimSpace(req.CurrentPassword)
-	newPassword := strings.TrimSpace(req.NewPassword)
-	if currentPassword == "" || newPassword == "" {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword and newPassword are required")
-		return
-	}
-	if currentPassword == newPassword {
-		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "New password must be different from current password")
-		return
-	}
-	if err := validateStrongPassword(newPassword); err != nil {
-		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+	if currentPassword == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword is required")
 		return
 	}
 
@@ -1065,6 +1055,43 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	utils.Success(w, http.StatusOK, map[string]interface{}{
 		"message":          "Verification code sent to your email",
 		"expiresInSeconds": 600,
+	})
+}
+
+func (h *DashboardHandler) VerifyPasswordChangeCode(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		VerificationCode string `json:"verificationCode"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	verificationCode := strings.TrimSpace(req.VerificationCode)
+	if len(verificationCode) != 6 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Verification code must be 6 digits")
+		return
+	}
+	for _, c := range verificationCode {
+		if c < '0' || c > '9' {
+			utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Verification code must contain only digits")
+			return
+		}
+	}
+
+	token := "pwd-change:" + auth.UserID + ":" + verificationCode
+	if _, err := h.authService.ValidateResetToken(r.Context(), token); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Invalid or expired verification code")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message": "Verification code verified",
 	})
 }
 

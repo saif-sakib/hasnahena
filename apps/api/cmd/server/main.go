@@ -108,6 +108,7 @@ func main() {
 			dashboard.Patch("/notifications", dashboardHandler.Notifications)
 			dashboard.Put("/password", dashboardHandler.ChangePassword)
 			dashboard.Post("/password/change/request-code", dashboardHandler.RequestPasswordChangeCode)
+			dashboard.Post("/password/change/verify-code", dashboardHandler.VerifyPasswordChangeCode)
 			dashboard.Post("/password/change/confirm", dashboardHandler.ConfirmPasswordChangeWithCode)
 			dashboard.Get("/support/config", dashboardHandler.SupportConfig)
 			dashboard.Put("/support/config", dashboardHandler.SupportConfig)
