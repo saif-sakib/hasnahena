@@ -29,6 +29,10 @@ type PendingFirstLogin = {
   role?: string;
 };
 
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+
 function getRolePath(role: string | undefined, locale: string) {
   return role === 'ADMIN' || role === 'SUPER_ADMIN'
     ? `/${locale}/dashboard/admin`
@@ -206,7 +210,7 @@ export default function LoginPage() {
 
     setIsChangingPassword(true);
     try {
-      const changeResponse = await fetch('/api/v1/dashboard/password', {
+      const changeResponse = await fetch(`${API_BASE_URL}/v1/dashboard/password`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

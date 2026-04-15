@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -94,6 +95,72 @@ func (s *EmailService) IsConfigured() bool {
 	return s != nil && s.enabled
 }
 
+func normalizeLocale(locale string) string {
+	normalized := strings.ToLower(strings.TrimSpace(locale))
+	if normalized == "bn" {
+		return "bn"
+	}
+	return "en"
+}
+
+func (s *EmailService) renderOfficialEmailHTML(locale, preheader, heading, bodyHTML string) string {
+	orgLine := "Official message from Hasnahena Foundation"
+	legalLine := "This is an official system-generated message from Hasnahena Foundation."
+	safetyLine := "For account safety, never share your password or verification code with anyone."
+	if locale == "bn" {
+		orgLine = "Hasnahena Foundation-এর অফিসিয়াল বার্তা"
+		legalLine = "এটি Hasnahena Foundation থেকে পাঠানো একটি অফিসিয়াল স্বয়ংক্রিয় বার্তা।"
+		safetyLine = "অ্যাকাউন্টের নিরাপত্তার জন্য আপনার পাসওয়ার্ড বা যাচাইকরণ কোড কাউকে শেয়ার করবেন না।"
+	}
+
+	return fmt.Sprintf(`
+<!doctype html>
+<html lang="%s">
+	<body style="margin:0;padding:0;background:#f3f7f6;font-family:Arial,sans-serif;color:#0f172a;">
+		<span style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;visibility:hidden;">%s</span>
+		<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">
+			<tr>
+				<td align="center">
+					<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border-radius:14px;border:1px solid #dbe7e5;overflow:hidden;">
+						<tr>
+							<td style="padding:22px 24px;background:#0f766e;color:#ffffff;">
+								<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">%s</div>
+								<div style="margin-top:6px;font-size:24px;font-weight:700;line-height:1.2;">Hasnahena Foundation</div>
+							</td>
+						</tr>
+						<tr>
+							<td style="padding:28px 24px 12px 24px;">
+								<h2 style="margin:0 0 14px 0;font-size:22px;line-height:1.3;color:#0f172a;">%s</h2>
+								%s
+							</td>
+						</tr>
+						<tr>
+							<td style="padding:18px 24px 24px 24px;">
+								<div style="font-size:12px;line-height:1.7;color:#475569;border-top:1px solid #e2ecea;padding-top:14px;">
+									<div>%s</div>
+									<div style="margin-top:4px;">%s</div>
+									<div style="margin-top:4px;">Website: <a href="%s" style="color:#0f766e;text-decoration:none;">%s</a></div>
+								</div>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
+`, locale, html.EscapeString(preheader), html.EscapeString(orgLine), html.EscapeString(heading), bodyHTML, html.EscapeString(legalLine), html.EscapeString(safetyLine), html.EscapeString(s.appURL), html.EscapeString(s.appURL))
+}
+
+func (s *EmailService) renderOfficialEmailText(locale, heading, body string) string {
+	footer := "Official message from Hasnahena Foundation\nWebsite: " + s.appURL + "\nFor account safety, never share your password or verification code with anyone."
+	if locale == "bn" {
+		footer = "Hasnahena Foundation-এর অফিসিয়াল বার্তা\nওয়েবসাইট: " + s.appURL + "\nঅ্যাকাউন্টের নিরাপত্তার জন্য আপনার পাসওয়ার্ড বা যাচাইকরণ কোড কাউকে শেয়ার করবেন না।"
+	}
+
+	return strings.TrimSpace(heading) + "\n\n" + strings.TrimSpace(body) + "\n\n" + footer
+}
+
 func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service not configured")
@@ -109,35 +176,44 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 		memberName = "Member"
 	}
 
-	locale = strings.ToLower(strings.TrimSpace(locale))
-	if locale != "bn" {
-		locale = "en"
-	}
+	locale = normalizeLocale(locale)
 
 	loginURL := fmt.Sprintf("%s/%s/login", s.appURL, locale)
-	subject := "Your membership has been approved - Hasnahena Foundation"
 
-	textBody := fmt.Sprintf(
-		"Dear %s,\n\nYour membership application has been approved.\n\nTemporary Password: %s\nLogin URL: %s\n\nYou must change your password immediately after first login.\n\nHasnahena Foundation",
-		memberName,
-		temporaryPassword,
-		loginURL,
-	)
+	escapedMemberName := html.EscapeString(memberName)
+	escapedPassword := html.EscapeString(temporaryPassword)
+	escapedLoginURL := html.EscapeString(loginURL)
 
-	htmlBody := fmt.Sprintf(
-		"<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111827\">"+
-			"<h2>Your membership has been approved</h2>"+
-			"<p>Dear %s,</p>"+
-			"<p>Your membership application has been approved.</p>"+
-			"<p><strong>Temporary Password:</strong> %s</p>"+
-			"<p><a href=\"%s\" style=\"background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px\">Login</a></p>"+
-			"<p><strong>Password change is mandatory after first login.</strong></p>"+
-			"<p style=\"font-size:12px;color:#6b7280\">Do not share this password with anyone.</p>"+
-			"</div>",
-		memberName,
-		temporaryPassword,
-		loginURL,
-	)
+	var subject, textBody, htmlBody string
+	if locale == "bn" {
+		subject = "সদস্যপদ অনুমোদন নিশ্চিতকরণ | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf("প্রিয় %s,\n\nআপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে।\n\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন লিংক: %s\n\nপ্রথম লগইনের পর অবশ্যই পাসওয়ার্ড পরিবর্তন করবেন।", memberName, temporaryPassword, loginURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "সদস্যপদ অনুমোদন", "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">প্রিয় %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">আপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে। নিচের তথ্য ব্যবহার করে লগইন করুন।</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>অস্থায়ী পাসওয়ার্ড:</strong> %s</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><strong>মেয়াদ:</strong> প্রথম লগইন পর্যন্ত</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">লগইন করুন</a></p>"+
+				"<p style=\"margin:0;color:#334155;\"><strong>গুরুত্বপূর্ণ:</strong> প্রথম লগইনের পর সাথে সাথে পাসওয়ার্ড পরিবর্তন করুন।</p>",
+			escapedMemberName,
+			escapedPassword,
+			escapedLoginURL,
+		))
+	} else {
+		subject = "Membership Approval Confirmation | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "Membership Approved", fmt.Sprintf("Dear %s,\n\nYour membership application has been approved.\n\nTemporary password: %s\nLogin URL: %s\n\nPlease change this password immediately after your first login.", memberName, temporaryPassword, loginURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "Membership approved", "Your Membership Has Been Approved", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">Dear %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">Your membership application has been approved. Use the temporary password below to access your account.</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Temporary password:</strong> %s</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><strong>Validity:</strong> until first login</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Log in to your account</a></p>"+
+				"<p style=\"margin:0;color:#334155;\"><strong>Important:</strong> change this password immediately after first login.</p>",
+			escapedMemberName,
+			escapedPassword,
+			escapedLoginURL,
+		))
+	}
 
 	return s.sendWithRetry(to, subject, textBody, htmlBody)
 }
@@ -162,12 +238,14 @@ func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role s
 		role = "WORKER"
 	}
 
-	locale = strings.ToLower(strings.TrimSpace(locale))
-	if locale != "bn" {
-		locale = "en"
-	}
+	locale = normalizeLocale(locale)
 
 	loginURL := fmt.Sprintf("%s/%s/login", s.appURL, locale)
+	escapedStaffName := html.EscapeString(staffName)
+	escapedEmail := html.EscapeString(to)
+	escapedPhone := html.EscapeString(strings.TrimSpace(phone))
+	escapedTempPassword := html.EscapeString(temporaryPassword)
+	escapedLoginURL := html.EscapeString(loginURL)
 
 	var subject, textBody, htmlBody string
 	if locale == "bn" {
@@ -175,67 +253,45 @@ func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role s
 		if role == "ADMIN" {
 			roleLabel = "অ্যাডমিন"
 		}
-		subject = "নতুন স্টাফ অ্যাকাউন্ট - Hasnahena Foundation"
-		textBody = fmt.Sprintf(
-			"প্রিয় %s,\n\nআপনাকে %s হিসেবে যুক্ত করা হয়েছে।\n\nইমেইল: %s\nফোন: %s\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন: %s\n\nপ্রথম লগইনের পরে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন।\n\nHasnahena Foundation",
-			staffName,
-			roleLabel,
-			to,
-			strings.TrimSpace(phone),
-			temporaryPassword,
-			loginURL,
-		)
-		htmlBody = fmt.Sprintf(
-			"<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111827\">"+
-				"<h2>আপনার অ্যাকাউন্ট তৈরি হয়েছে</h2>"+
-				"<p>প্রিয় %s,</p>"+
-				"<p>আপনাকে %s হিসেবে যুক্ত করা হয়েছে।</p>"+
-				"<p><strong>ইমেইল:</strong> %s</p>"+
-				"<p><strong>ফোন:</strong> %s</p>"+
-				"<p><strong>অস্থায়ী পাসওয়ার্ড:</strong> %s</p>"+
-				"<p><a href=\"%s\" style=\"background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px\">লগইন করুন</a></p>"+
-				"<p><strong>প্রথম লগইনের পরে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন।</strong></p>"+
-				"</div>",
-			staffName,
-			roleLabel,
-			to,
-			strings.TrimSpace(phone),
-			temporaryPassword,
-			loginURL,
-		)
+		subject = "স্টাফ অ্যাকাউন্ট সক্রিয়করণ | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "স্টাফ অ্যাকাউন্ট তৈরি হয়েছে", fmt.Sprintf("প্রিয় %s,\n\nআপনাকে %s হিসেবে যুক্ত করা হয়েছে।\n\nইমেইল: %s\nফোন: %s\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন: %s\n\nপ্রথম লগইনের পর অবশ্যই পাসওয়ার্ড পরিবর্তন করবেন।", staffName, roleLabel, to, strings.TrimSpace(phone), temporaryPassword, loginURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "নতুন স্টাফ অ্যাকাউন্ট", "আপনার স্টাফ অ্যাকাউন্ট সক্রিয় হয়েছে", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">প্রিয় %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">আপনাকে <strong>%s</strong> হিসেবে যুক্ত করা হয়েছে।</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>ইমেইল:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>ফোন:</strong> %s</p>"+
+				"<p style=\"margin:0 0 14px 0;\"><strong>অস্থায়ী পাসওয়ার্ড:</strong> %s</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">ড্যাশবোর্ডে লগইন করুন</a></p>"+
+				"<p style=\"margin:0;color:#334155;\"><strong>গুরুত্বপূর্ণ:</strong> প্রথম লগইনের পর নতুন পাসওয়ার্ড সেট করুন।</p>",
+			escapedStaffName,
+			html.EscapeString(roleLabel),
+			escapedEmail,
+			escapedPhone,
+			escapedTempPassword,
+			escapedLoginURL,
+		))
 	} else {
 		roleLabel := "Worker"
 		if role == "ADMIN" {
 			roleLabel = "Admin"
 		}
-		subject = "New Staff Account - Hasnahena Foundation"
-		textBody = fmt.Sprintf(
-			"Dear %s,\n\nYou were added as %s.\n\nEmail: %s\nPhone: %s\nTemporary Password: %s\nLogin URL: %s\n\nYou must change your password immediately after first login.\n\nHasnahena Foundation",
-			staffName,
-			roleLabel,
-			to,
-			strings.TrimSpace(phone),
-			temporaryPassword,
-			loginURL,
-		)
-		htmlBody = fmt.Sprintf(
-			"<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111827\">"+
-				"<h2>Your account has been created</h2>"+
-				"<p>Dear %s,</p>"+
-				"<p>You were added as %s.</p>"+
-				"<p><strong>Email:</strong> %s</p>"+
-				"<p><strong>Phone:</strong> %s</p>"+
-				"<p><strong>Temporary Password:</strong> %s</p>"+
-				"<p><a href=\"%s\" style=\"background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px\">Login</a></p>"+
-				"<p><strong>Password change is mandatory after first login.</strong></p>"+
-				"</div>",
-			staffName,
-			roleLabel,
-			to,
-			strings.TrimSpace(phone),
-			temporaryPassword,
-			loginURL,
-		)
+		subject = "Staff Account Activation | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "Your Staff Account Is Ready", fmt.Sprintf("Dear %s,\n\nYou have been added as %s.\n\nEmail: %s\nPhone: %s\nTemporary password: %s\nLogin URL: %s\n\nPlease change your password immediately after first login.", staffName, roleLabel, to, strings.TrimSpace(phone), temporaryPassword, loginURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "New staff account", "Your Staff Account Has Been Activated", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">Dear %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">You have been added as <strong>%s</strong>.</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Email:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Phone:</strong> %s</p>"+
+				"<p style=\"margin:0 0 14px 0;\"><strong>Temporary password:</strong> %s</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Log in to dashboard</a></p>"+
+				"<p style=\"margin:0;color:#334155;\"><strong>Important:</strong> update your password immediately after first login.</p>",
+			escapedStaffName,
+			html.EscapeString(roleLabel),
+			escapedEmail,
+			escapedPhone,
+			escapedTempPassword,
+			escapedLoginURL,
+		))
 	}
 
 	return s.sendWithRetry(to, subject, textBody, htmlBody)
@@ -340,6 +396,58 @@ func buildBrevoAPIError(statusCode int, responseBody []byte) error {
 	return fmt.Errorf("brevo api status %d: %s", statusCode, message)
 }
 
+func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipientName string, code string, locale string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service not configured")
+	}
+
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("recipient email is required")
+	}
+
+	recipientName = strings.TrimSpace(recipientName)
+	if recipientName == "" {
+		recipientName = "Member"
+	}
+
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return fmt.Errorf("verification code is required")
+	}
+
+	locale = normalizeLocale(locale)
+	escapedName := html.EscapeString(recipientName)
+	escapedCode := html.EscapeString(code)
+
+	var subject, textBody, htmlBody string
+	if locale == "bn" {
+		subject = "পাসওয়ার্ড পরিবর্তন যাচাইকরণ কোড | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড পরিবর্তন যাচাইকরণ", fmt.Sprintf("প্রিয় %s,\n\nআপনার পাসওয়ার্ড পরিবর্তন অনুরোধের জন্য যাচাইকরণ কোড নিচে দেওয়া হলো:\n\nকোড: %s\n\nএই কোড ১০ মিনিটের জন্য কার্যকর।", recipientName, code))
+		htmlBody = s.renderOfficialEmailHTML(locale, "পাসওয়ার্ড যাচাইকরণ কোড", "পাসওয়ার্ড পরিবর্তনের আগে এই কোডটি যাচাই করুন", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">প্রিয় %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">আপনার পাসওয়ার্ড পরিবর্তন অনুরোধ নিশ্চিত করতে নিচের কোডটি দিন:</p>"+
+				"<div style=\"margin:0 0 16px 0;padding:14px 16px;background:#e7f5f3;border:1px solid #bae4dd;border-radius:10px;font-size:30px;letter-spacing:6px;font-weight:700;text-align:center;color:#115e59;\">%s</div>"+
+				"<p style=\"margin:0;color:#334155;\">এই কোড <strong>১০ মিনিট</strong> পরে মেয়াদোত্তীর্ণ হবে। আপনি অনুরোধ না করে থাকলে অ্যাকাউন্ট নিরাপদ আছে।</p>",
+			escapedName,
+			escapedCode,
+		))
+	} else {
+		subject = "Password Change Verification Code | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "Password Change Verification", fmt.Sprintf("Dear %s,\n\nUse the verification code below to confirm your password change request:\n\nCode: %s\n\nThis code expires in 10 minutes.", recipientName, code))
+		htmlBody = s.renderOfficialEmailHTML(locale, "Password verification code", "Verify Your Password Change Request", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">Dear %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">Enter the verification code below to confirm your password change:</p>"+
+				"<div style=\"margin:0 0 16px 0;padding:14px 16px;background:#e7f5f3;border:1px solid #bae4dd;border-radius:10px;font-size:30px;letter-spacing:6px;font-weight:700;text-align:center;color:#115e59;\">%s</div>"+
+				"<p style=\"margin:0;color:#334155;\">This code will expire in <strong>10 minutes</strong>. If you did not request this, your account is still secure.</p>",
+			escapedName,
+			escapedCode,
+		))
+	}
+
+	return s.sendWithRetry(to, subject, textBody, htmlBody)
+}
+
 func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service not configured")
@@ -350,38 +458,30 @@ func (s *EmailService) SendPasswordResetEmail(to string, token string, locale st
 		return fmt.Errorf("recipient email is required")
 	}
 
-	locale = strings.ToLower(strings.TrimSpace(locale))
-	if locale != "bn" {
-		locale = "en"
-	}
+	locale = normalizeLocale(locale)
 
 	resetURL := fmt.Sprintf("%s/%s/reset-password?token=%s", s.appURL, locale, token)
+	escapedResetURL := html.EscapeString(resetURL)
 
 	var subject, textBody, htmlBody string
 	if locale == "bn" {
-		subject = "পাসওয়ার্ড রিসেট করুন - Hasnahena Foundation"
-		textBody = fmt.Sprintf("আপনার পাসওয়ার্ড রিসেট করতে নিচের লিঙ্কে ক্লিক করুন:\n\n%s\n\nএই লিঙ্কটি পরবর্তী ১ ঘণ্টার জন্য কার্যকর থাকবে।", resetURL)
-		htmlBody = fmt.Sprintf(`
-			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
-				<h2>পাসওয়ার্ড রিসেট</h2>
-				<p>আপনার পাসওয়ার্ড রিসেট করতে নিচের বাটনে ক্লিক করুন:</p>
-				<p><a href="%s" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">পাসওয়ার্ড রিসেট করুন</a></p>
-				<p>এই লিঙ্কটি পরবর্তী <strong>১ ঘণ্টার</strong> জন্য কার্যকর থাকবে।</p>
-				<p style="font-size:12px;color:#6b7280">আপনি যদি এই অনুরোধ না করে থাকেন, তবে এই ইমেইলটি এড়িয়ে যান।</p>
-			</div>
-		`, resetURL)
+		subject = "পাসওয়ার্ড রিসেট অনুরোধ | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড রিসেট করুন", fmt.Sprintf("আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে। নিচের লিংক ব্যবহার করে নতুন পাসওয়ার্ড সেট করুন:\n\n%s\n\nএই লিংক ১ ঘণ্টার মধ্যে মেয়াদোত্তীর্ণ হবে।", resetURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "পাসওয়ার্ড রিসেট অনুরোধ", "আপনার পাসওয়ার্ড রিসেট করুন", fmt.Sprintf(
+			"<p style=\"margin:0 0 14px 0;\">আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে।</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">পাসওয়ার্ড রিসেট করুন</a></p>"+
+				"<p style=\"margin:0;color:#334155;\">এই লিংক <strong>১ ঘণ্টা</strong> পর্যন্ত কার্যকর থাকবে। আপনি অনুরোধ না করলে এই ইমেইল উপেক্ষা করুন।</p>",
+			escapedResetURL,
+		))
 	} else {
-		subject = "Reset Your Password - Hasnahena Foundation"
-		textBody = fmt.Sprintf("Click the link below to reset your password:\n\n%s\n\nThis link will expire in 1 hour.", resetURL)
-		htmlBody = fmt.Sprintf(`
-			<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
-				<h2>Password Reset</h2>
-				<p>Click the button below to reset your password:</p>
-				<p><a href="%s" style="background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">Reset Password</a></p>
-				<p>This link will expire in <strong>1 hour</strong>.</p>
-				<p style="font-size:12px;color:#6b7280">If you didn't request this, you can safely ignore this email.</p>
-</div>
-`, resetURL)
+		subject = "Password Reset Request | Hasnahena Foundation"
+		textBody = s.renderOfficialEmailText(locale, "Reset Your Password", fmt.Sprintf("We received a password reset request for your account. Use the link below to set a new password:\n\n%s\n\nThis link expires in 1 hour.", resetURL))
+		htmlBody = s.renderOfficialEmailHTML(locale, "Password reset request", "Reset Your Password", fmt.Sprintf(
+			"<p style=\"margin:0 0 14px 0;\">We received a password reset request for your account.</p>"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Reset password</a></p>"+
+				"<p style=\"margin:0;color:#334155;\">This link expires in <strong>1 hour</strong>. If you did not request this, you can safely ignore this email.</p>",
+			escapedResetURL,
+		))
 	}
 
 	return s.sendWithRetry(to, subject, textBody, htmlBody)

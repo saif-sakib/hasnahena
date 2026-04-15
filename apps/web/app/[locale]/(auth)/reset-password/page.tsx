@@ -12,6 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+
 export default function ResetPasswordPage() {
   const locale = useLocale();
   const router = useRouter();
@@ -39,13 +43,19 @@ export default function ResetPasswordPage() {
       }
 
       try {
-        const response = await fetch(`/api/v1/auth/reset-password?token=${token}`);
+        const response = await fetch(`${API_BASE_URL}/v1/auth/reset-password?token=${encodeURIComponent(token)}`);
         const result = await response.json();
+        const isSuccess = response.ok && Boolean(result?.success || result?.ok);
+        const valid = Boolean(result?.data?.valid ?? result?.valid);
+        const errorMessage =
+          result?.error?.message ||
+          result?.error ||
+          (locale === 'bn' ? 'অবৈধ বা মেয়াদোত্তীর্ণ টোকেন' : 'Invalid or expired token');
 
-        if (response.ok && result.ok && result.valid) {
+        if (isSuccess && valid) {
           setIsValid(true);
         } else {
-          setError(result.error || (locale === 'bn' ? 'অবৈধ বা মেয়াদোত্তীর্ণ টোকেন' : 'Invalid or expired token'));
+          setError(errorMessage);
         }
       } catch {
         setError(locale === 'bn' ? 'টোকেন যাচাই করতে ব্যর্থ' : 'Failed to validate token');
@@ -81,15 +91,17 @@ export default function ResetPasswordPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/v1/auth/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/v1/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
       });
 
       const result = await response.json();
+      const isSuccess = response.ok && Boolean(result?.success || result?.ok);
+      const errorMessage = result?.error?.message || result?.error || 'Failed to reset password';
 
-      if (response.ok && result.ok) {
+      if (isSuccess) {
         setIsSuccess(true);
         toast({
           title: locale === 'bn' ? 'সফল' : 'Success',
@@ -97,7 +109,7 @@ export default function ResetPasswordPage() {
           variant: 'success',
         });
       } else {
-        throw new Error(result.error || 'Failed to reset password');
+        throw new Error(errorMessage);
       }
     } catch (err) {
       toast({
