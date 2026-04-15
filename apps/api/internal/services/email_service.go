@@ -1,50 +1,76 @@
 package services
 
 import (
-	"crypto/tls"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"net"
-	"net/smtp"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 )
 
 const (
-	smtpConnectTimeout  = 8 * time.Second
-	smtpCommandTimeout  = 35 * time.Second
-	smtpRetryAttempts   = 3
-	smtpRetryBackoff    = 1500 * time.Millisecond
-	smtpImplicitTLSPort = 465
+	brevoDefaultBaseURL = "https://api.brevo.com/v3"
+	brevoHTTPTimeout    = 12 * time.Second
+	brevoRetryAttempts  = 3
+	brevoRetryBackoff   = 1500 * time.Millisecond
 )
 
 type EmailConfig struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	From     string
-	AppURL   string
+	BrevoAPIKey  string
+	BrevoBaseURL string
+	From         string
+	FromName     string
+	AppURL       string
 }
 
 type EmailService struct {
-	host     string
-	port     int
-	username string
-	password string
-	from     string
-	appURL   string
-	enabled  bool
+	apiKey    string
+	baseURL   string
+	fromEmail string
+	fromName  string
+	appURL    string
+	enabled   bool
+	client    *http.Client
+}
+
+type brevoSendEmailRequest struct {
+	Sender      brevoParticipant   `json:"sender"`
+	To          []brevoParticipant `json:"to"`
+	Subject     string             `json:"subject"`
+	HTMLContent string             `json:"htmlContent,omitempty"`
+	TextContent string             `json:"textContent,omitempty"`
+}
+
+type brevoParticipant struct {
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+}
+
+type brevoErrorResponse struct {
+	Message string `json:"message"`
+	Code    string `json:"code"`
 }
 
 func NewEmailService(cfg EmailConfig) *EmailService {
-	host := strings.TrimSpace(cfg.Host)
-	password := normalizeSMTPPassword(host, cfg.Password)
-	from := strings.TrimSpace(cfg.From)
-	if from == "" {
-		from = strings.TrimSpace(cfg.Username)
+	apiKey := strings.TrimSpace(cfg.BrevoAPIKey)
+	baseURL := strings.TrimSuffix(strings.TrimSpace(cfg.BrevoBaseURL), "/")
+	if baseURL == "" {
+		baseURL = brevoDefaultBaseURL
 	}
 
-	enabled := host != "" && cfg.Port > 0 && strings.TrimSpace(cfg.Username) != "" && strings.TrimSpace(password) != "" && from != ""
+	fromEmail := strings.TrimSpace(cfg.From)
+	if fromEmail == "" {
+		fromEmail = "info@hasnahenafoundation.com"
+	}
+
+	fromName := strings.TrimSpace(cfg.FromName)
+	if fromName == "" {
+		fromName = "Hasnahena Foundation"
+	}
+
+	enabled := apiKey != "" && fromEmail != ""
 
 	appURL := strings.TrimSuffix(strings.TrimSpace(cfg.AppURL), "/")
 	if appURL == "" {
@@ -52,13 +78,15 @@ func NewEmailService(cfg EmailConfig) *EmailService {
 	}
 
 	return &EmailService{
-		host:     host,
-		port:     cfg.Port,
-		username: strings.TrimSpace(cfg.Username),
-		password: password,
-		from:     from,
-		appURL:   appURL,
-		enabled:  enabled,
+		apiKey:    apiKey,
+		baseURL:   baseURL,
+		fromEmail: fromEmail,
+		fromName:  fromName,
+		appURL:    appURL,
+		enabled:   enabled,
+		client: &http.Client{
+			Timeout: brevoHTTPTimeout,
+		},
 	}
 }
 
@@ -115,185 +143,102 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 }
 
 func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
-	portsToTry := []int{s.port}
-	if shouldTryImplicitTLSFallback(s.host, s.port) {
-		portsToTry = append(portsToTry, smtpImplicitTLSPort)
-	}
-
 	var lastErr error
-	for attempt := 1; attempt <= smtpRetryAttempts; attempt++ {
-		for _, port := range portsToTry {
-			err := s.sendOnPort(to, subject, textBody, htmlBody, port)
-			if err == nil {
-				return nil
-			}
-			lastErr = fmt.Errorf("smtp port %d attempt %d: %w", port, attempt, err)
+	for attempt := 1; attempt <= brevoRetryAttempts; attempt++ {
+		err := s.sendViaBrevo(to, subject, textBody, htmlBody)
+		if err == nil {
+			return nil
 		}
+		lastErr = fmt.Errorf("attempt %d: %w", attempt, err)
 
-		if attempt < smtpRetryAttempts {
-			time.Sleep(smtpRetryBackoff)
+		if attempt < brevoRetryAttempts {
+			time.Sleep(brevoRetryBackoff)
 		}
 	}
 
-	return fmt.Errorf("failed to send email after %d attempt(s): %w", smtpRetryAttempts, lastErr)
+	return fmt.Errorf("failed to send email after %d attempt(s): %w", brevoRetryAttempts, lastErr)
 }
 
-func (s *EmailService) sendOnPort(to string, subject string, textBody string, htmlBody string, port int) error {
-	address := fmt.Sprintf("%s:%d", s.host, port)
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-	envelopeFrom := s.username
-	if strings.TrimSpace(envelopeFrom) == "" {
-		envelopeFrom = s.from
+func (s *EmailService) sendViaBrevo(to string, subject string, textBody string, htmlBody string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service not configured")
 	}
 
-	headerFrom := s.from
-	replyTo := ""
-	if isGmailHost(s.host) {
-		if strings.TrimSpace(s.username) != "" {
-			headerFrom = s.username
-		}
-		if !strings.EqualFold(strings.TrimSpace(s.from), strings.TrimSpace(headerFrom)) {
-			replyTo = s.from
-		}
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("recipient email is required")
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return fmt.Errorf("email subject is required")
+	}
+	if strings.TrimSpace(textBody) == "" && strings.TrimSpace(htmlBody) == "" {
+		return fmt.Errorf("email body is required")
 	}
 
-	message := buildMultipartMessage(headerFrom, to, subject, textBody, htmlBody, replyTo)
+	payload := brevoSendEmailRequest{
+		Sender: brevoParticipant{
+			Name:  s.fromName,
+			Email: s.fromEmail,
+		},
+		To:          []brevoParticipant{{Email: to}},
+		Subject:     subject,
+		HTMLContent: htmlBody,
+		TextContent: textBody,
+	}
 
-	conn, err := s.openConnection(address, port)
+	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
-		return err
-	}
-	if err := conn.SetDeadline(time.Now().Add(smtpCommandTimeout)); err != nil {
-		_ = conn.Close()
-		return err
+		return fmt.Errorf("failed to marshal brevo payload: %w", err)
 	}
 
-	client, err := smtp.NewClient(conn, s.host)
+	requestURL := s.baseURL + "/smtp/email"
+	req, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		_ = conn.Close()
-		return err
-	}
-	defer client.Close()
-	if err := client.Hello("localhost"); err != nil {
-		return err
+		return fmt.Errorf("failed to build brevo request: %w", err)
 	}
 
-	if port != smtpImplicitTLSPort {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: s.host, MinVersion: tls.VersionTLS12}); err != nil {
-				return err
-			}
-		} else if port == 587 {
-			return fmt.Errorf("smtp server does not support STARTTLS on port 587")
-		}
-	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("api-key", s.apiKey)
 
-	if strings.TrimSpace(s.username) != "" {
-		if ok, _ := client.Extension("AUTH"); ok {
-			if err := client.Auth(auth); err != nil {
-				return fmt.Errorf("smtp authentication failed: %w", err)
-			}
-		} else {
-			return fmt.Errorf("smtp authentication extension not available")
-		}
-	}
-
-	if err := client.Mail(envelopeFrom); err != nil {
-		return err
-	}
-	if err := client.Rcpt(to); err != nil {
-		return err
-	}
-
-	writer, err := client.Data()
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("brevo request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return buildBrevoAPIError(resp.StatusCode, responseBody)
 	}
 
-	if _, err := writer.Write(message); err != nil {
-		_ = writer.Close()
-		return err
-	}
-	if err := writer.Close(); err != nil {
-		return err
-	}
-
-	return client.Quit()
+	return nil
 }
 
-func (s *EmailService) openConnection(address string, port int) (net.Conn, error) {
-	dialer := &net.Dialer{
-		Timeout:   smtpConnectTimeout,
-		KeepAlive: 30 * time.Second,
-	}
-
-	if port == smtpImplicitTLSPort {
-		return tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
-			ServerName: s.host,
-			MinVersion: tls.VersionTLS12,
-		})
-	}
-
-	return dialer.Dial("tcp", address)
-}
-
-func shouldTryImplicitTLSFallback(host string, port int) bool {
-	if port != 587 {
-		return false
-	}
-	return isGmailHost(host)
-}
-
-func isGmailHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	return strings.Contains(h, "gmail.com") || strings.Contains(h, "googlemail.com")
-}
-
-func normalizeSMTPPassword(host string, password string) string {
-	trimmed := strings.TrimSpace(password)
-	h := strings.ToLower(strings.TrimSpace(host))
-	if trimmed == "" {
-		return trimmed
-	}
-
-	if strings.Contains(h, "gmail.com") || strings.Contains(h, "googlemail.com") {
-		compact := strings.ReplaceAll(trimmed, " ", "")
-		if len(compact) == 16 {
-			return compact
+func buildBrevoAPIError(statusCode int, responseBody []byte) error {
+	message := strings.TrimSpace(string(responseBody))
+	if len(responseBody) > 0 {
+		var parsed brevoErrorResponse
+		if err := json.Unmarshal(responseBody, &parsed); err == nil {
+			if parsedMsg := strings.TrimSpace(parsed.Message); parsedMsg != "" {
+				message = parsedMsg
+			}
+			if parsedCode := strings.TrimSpace(parsed.Code); parsedCode != "" {
+				if message == "" {
+					message = parsedCode
+				} else if !strings.Contains(strings.ToLower(message), strings.ToLower(parsedCode)) {
+					message = parsedCode + ": " + message
+				}
+			}
 		}
 	}
 
-	return trimmed
-}
-
-func buildMultipartMessage(from string, to string, subject string, textBody string, htmlBody string, replyTo string) []byte {
-	boundary := "hn-boundary-7f3d4a8e"
-	headers := []string{fmt.Sprintf("From: Hasnahena Foundation <%s>", from)}
-	if strings.TrimSpace(replyTo) != "" {
-		headers = append(headers, fmt.Sprintf("Reply-To: %s", strings.TrimSpace(replyTo)))
-	}
-	headers = append(headers,
-		fmt.Sprintf("To: %s", to),
-		fmt.Sprintf("Subject: %s", subject),
-		"MIME-Version: 1.0",
-		fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q", boundary),
-		"",
-	)
-
-	parts := []string{
-		fmt.Sprintf("--%s", boundary),
-		"Content-Type: text/plain; charset=UTF-8",
-		"",
-		textBody,
-		fmt.Sprintf("--%s", boundary),
-		"Content-Type: text/html; charset=UTF-8",
-		"",
-		htmlBody,
-		fmt.Sprintf("--%s--", boundary),
-		"",
+	if message == "" {
+		message = http.StatusText(statusCode)
 	}
 
-	return []byte(strings.Join(append(headers, parts...), "\r\n"))
+	return fmt.Errorf("brevo api status %d: %s", statusCode, message)
 }
 
 func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
@@ -312,7 +257,7 @@ func (s *EmailService) SendPasswordResetEmail(to string, token string, locale st
 	}
 
 	resetURL := fmt.Sprintf("%s/%s/reset-password?token=%s", s.appURL, locale, token)
-	
+
 	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		subject = "পাসওয়ার্ড রিসেট করুন - Hasnahena Foundation"

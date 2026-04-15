@@ -211,6 +211,8 @@ Notes:
 
 - `NEXT_PUBLIC_API_URL` should point to your Render custom API domain.
 - Keep `JWT_SECRET` and `DATABASE_URL` as secret variables.
+- For this Go-backend email flow, set `BREVO_API_KEY` only in Render.
+- Set `BREVO_API_KEY`, `EMAIL_FROM`, and `EMAIL_FROM_NAME` in Vercel only if a Next.js server route sends email directly.
 
 ### 2.3 Deploy and verify
 
@@ -243,20 +245,17 @@ JWT_SECRET=replace-with-strong-random-secret
 JWT_EXPIRY_SECONDS=86400
 API_PORT=10000
 CORS_ORIGINS=https://hasnahenafoundation.com,https://www.hasnahenafoundation.com,https://<your-vercel-project>.vercel.app
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your-gmail-address@gmail.com
-EMAIL_PASS=your-gmail-app-password
+BREVO_API_KEY=your-brevo-api-key
 EMAIL_FROM=info@hasnahenafoundation.com
+EMAIL_FROM_NAME=Hasnahena Foundation
 NEXT_PUBLIC_APP_URL=https://www.hasnahenafoundation.com
 ```
 
 Important:
 - Do not wrap Render values in quotes. Use `KEY=value`, not `KEY="value"`.
-- If using Gmail, set an App Password (16 chars). If copied with spaces, remove spaces.
-- You can use `SMTP_URL` instead of individual SMTP keys (example: `smtp://user:pass@smtp.gmail.com:587`).
-- Gmail SMTP sends only when `EMAIL_USER` is the same Gmail account that owns `EMAIL_PASS` (App Password).
-- Keep `EMAIL_FROM` aligned to `EMAIL_USER` for Gmail SMTP to avoid sender rejection.
+- Generate `BREVO_API_KEY` from Brevo dashboard: SMTP & API -> API Keys.
+- In Brevo, verify sender identity/domain for `info@hasnahenafoundation.com` before going live.
+- `EMAIL_FROM` must be a Brevo-verified sender email.
 
 Important:
 

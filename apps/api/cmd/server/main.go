@@ -55,26 +55,24 @@ func main() {
 	}
 	securityService := services.NewSecurityService(dbPool)
 	emailService := services.NewEmailService(services.EmailConfig{
-		Host:     config.EmailHost,
-		Port:     config.EmailPort,
-		Username: config.EmailUser,
-		Password: config.EmailPass,
-		From:     config.EmailFrom,
-		AppURL:   config.AppURL,
+		BrevoAPIKey:  config.BrevoAPIKey,
+		BrevoBaseURL: config.BrevoAPIURL,
+		From:         config.EmailFrom,
+		FromName:     config.EmailFromName,
+		AppURL:       config.AppURL,
 	})
 	authService := services.NewAuthService(userRepo, securityService, emailService, config.JWTSecret, config.JWTExpiry)
 	log.Printf(
-		"email config: enabled=%t host=%q port=%d user_set=%t pass_set=%t from_set=%t app_url=%q",
+		"email config: enabled=%t provider=%q api_key_set=%t from_set=%t from_name=%q app_url=%q",
 		emailService.IsConfigured(),
-		config.EmailHost,
-		config.EmailPort,
-		strings.TrimSpace(config.EmailUser) != "",
-		strings.TrimSpace(config.EmailPass) != "",
+		"brevo",
+		strings.TrimSpace(config.BrevoAPIKey) != "",
 		strings.TrimSpace(config.EmailFrom) != "",
+		config.EmailFromName,
 		config.AppURL,
 	)
 	if !emailService.IsConfigured() {
-		log.Printf("email service disabled: set EMAIL_HOST/EMAIL_PORT/EMAIL_USER/EMAIL_PASS (or SMTP_URL) and EMAIL_FROM in backend environment")
+		log.Printf("email service disabled: set BREVO_API_KEY and EMAIL_FROM in backend environment")
 	}
 	authHandler := handlers.NewAuthHandler(authService, securityService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
