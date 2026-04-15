@@ -261,6 +261,52 @@ func (h *DashboardHandler) AdminWorkers(w http.ResponseWriter, r *http.Request) 
 	utils.Success(w, http.StatusOK, data)
 }
 
+func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+		return
+	}
+
+	if h.emailService == nil || !h.emailService.IsConfigured() {
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
+		return
+	}
+
+	var req struct {
+		Email             string `json:"email"`
+		Name              string `json:"name"`
+		Role              string `json:"role"`
+		Phone             string `json:"phone"`
+		TemporaryPassword string `json:"temporaryPassword"`
+		Locale            string `json:"locale"`
+	}
+
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.TemporaryPassword) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "email, name and temporaryPassword are required")
+		return
+	}
+
+	role := strings.ToUpper(strings.TrimSpace(req.Role))
+	if role != "ADMIN" && role != "WORKER" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "role must be ADMIN or WORKER")
+		return
+	}
+
+	if err := h.emailService.SendStaffWelcomeEmail(req.Email, req.Name, role, req.Phone, req.TemporaryPassword, req.Locale); err != nil {
+		log.Printf("[SendWorkerWelcomeEmail] email send failed for %s: %v", req.Email, err)
+		utils.Error(w, http.StatusInternalServerError, "EMAIL_SEND_FAILED", summarizeEmailDeliveryError(err))
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message": "Staff welcome email sent successfully",
+	})
+}
+
 func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authHeader == "" {

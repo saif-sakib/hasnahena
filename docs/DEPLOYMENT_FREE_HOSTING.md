@@ -211,8 +211,8 @@ Notes:
 
 - `NEXT_PUBLIC_API_URL` should point to your Render custom API domain.
 - Keep `JWT_SECRET` and `DATABASE_URL` as secret variables.
-- For this Go-backend email flow, set `BREVO_API_KEY` only in Render.
-- Set `BREVO_API_KEY`, `EMAIL_FROM`, and `EMAIL_FROM_NAME` in Vercel only if a Next.js server route sends email directly.
+- Email sending is backend-only in Go. Configure `BREVO_API_KEY`, `EMAIL_FROM`, and `EMAIL_FROM_NAME` in Render.
+- Vercel does not need Brevo email secrets.
 
 ### 2.3 Deploy and verify
 

@@ -6,7 +6,6 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
-import { generateStaffWelcomeEmail, sendEmail } from '@/lib/email';
 import { createAuditLog } from '@/lib/audit';
 
 const createStaffSchema = z.object({
@@ -31,12 +30,16 @@ const updateStaffStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']),
 });
 
+const GO_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8081';
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
     if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
+
+    const authorizationHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
 
     const parsed = createStaffSchema.safeParse(await req.json());
     if (!parsed.success) {
@@ -99,24 +102,28 @@ export async function POST(req: Request) {
       },
     });
 
-    const emailContent = generateStaffWelcomeEmail({
-      locale,
-      name: created.nameEn,
-      role: created.role === UserRole.ADMIN ? 'ADMIN' : 'WORKER',
-      email: created.email || '',
-      phone: created.phone,
-      temporaryPassword: tempPassword,
-    });
-    const sent = await sendEmail({
-      to: created.email || '',
-      subject: emailContent.subject,
-      text: emailContent.text,
-      html: emailContent.html,
+    const emailResponse = await fetch(`${GO_API_BASE_URL}/v1/dashboard/admin/workers/welcome-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+      },
+      body: JSON.stringify({
+        email: created.email || '',
+        name: created.nameEn,
+        role: created.role === UserRole.ADMIN ? 'ADMIN' : 'WORKER',
+        phone: created.phone,
+        temporaryPassword: tempPassword,
+        locale,
+      }),
+      cache: 'no-store',
     });
 
-    if (!sent.success) {
+    const emailResult = await emailResponse.json().catch(() => ({} as any));
+    if (!emailResponse.ok || !emailResult?.success) {
+      const backendMessage = emailResult?.error?.message || emailResult?.message;
       return NextResponse.json(
-        { ok: false, error: 'Staff created but failed to send email', details: sent.error },
+        { ok: false, error: 'Staff created but failed to send email', details: backendMessage || 'Failed to send staff welcome email from Go backend' },
         { status: 500 },
       );
     }

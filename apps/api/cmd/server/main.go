@@ -139,6 +139,7 @@ func main() {
 			dashboard.Get("/admin", dashboardHandler.AdminDashboard)
 			dashboard.Get("/admin/members", dashboardHandler.AdminMembers)
 			dashboard.Get("/admin/workers", dashboardHandler.AdminWorkers)
+			dashboard.Post("/admin/workers/welcome-email", dashboardHandler.SendWorkerWelcomeEmail)
 			dashboard.Post("/admin/members/status", dashboardHandler.UpdateMemberStatus)
 
 			// Admin approvals
