@@ -104,12 +104,12 @@ func normalizeLocale(locale string) string {
 }
 
 func (s *EmailService) renderOfficialEmailHTML(locale, preheader, heading, bodyHTML string) string {
-	orgLine := "Official message from Hasnahena Foundation"
-	legalLine := "This is an official system-generated message from Hasnahena Foundation."
+	headerTag := "Accounts and Security Notification"
+	footerPrimary := "Hasnahena Foundation Member Support"
 	safetyLine := "For account safety, never share your password or verification code with anyone."
 	if locale == "bn" {
-		orgLine = "Hasnahena Foundation-এর অফিসিয়াল বার্তা"
-		legalLine = "এটি Hasnahena Foundation থেকে পাঠানো একটি অফিসিয়াল স্বয়ংক্রিয় বার্তা।"
+		headerTag = "অ্যাকাউন্ট ও নিরাপত্তা নোটিশ"
+		footerPrimary = "Hasnahena Foundation সদস্য সহায়তা টিম"
 		safetyLine = "অ্যাকাউন্টের নিরাপত্তার জন্য আপনার পাসওয়ার্ড বা যাচাইকরণ কোড কাউকে শেয়ার করবেন না।"
 	}
 
@@ -149,13 +149,13 @@ func (s *EmailService) renderOfficialEmailHTML(locale, preheader, heading, bodyH
 		</table>
 	</body>
 </html>
-`, locale, html.EscapeString(preheader), html.EscapeString(orgLine), html.EscapeString(heading), bodyHTML, html.EscapeString(legalLine), html.EscapeString(safetyLine), html.EscapeString(s.appURL), html.EscapeString(s.appURL))
+`, locale, html.EscapeString(preheader), html.EscapeString(headerTag), html.EscapeString(heading), bodyHTML, html.EscapeString(footerPrimary), html.EscapeString(safetyLine), html.EscapeString(s.appURL), html.EscapeString(s.appURL))
 }
 
 func (s *EmailService) renderOfficialEmailText(locale, heading, body string) string {
-	footer := "Official message from Hasnahena Foundation\nWebsite: " + s.appURL + "\nFor account safety, never share your password or verification code with anyone."
+	footer := "Hasnahena Foundation Member Support\nWebsite: " + s.appURL + "\nFor account safety, never share your password or verification code with anyone."
 	if locale == "bn" {
-		footer = "Hasnahena Foundation-এর অফিসিয়াল বার্তা\nওয়েবসাইট: " + s.appURL + "\nঅ্যাকাউন্টের নিরাপত্তার জন্য আপনার পাসওয়ার্ড বা যাচাইকরণ কোড কাউকে শেয়ার করবেন না।"
+		footer = "Hasnahena Foundation সদস্য সহায়তা টিম\nওয়েবসাইট: " + s.appURL + "\nঅ্যাকাউন্টের নিরাপত্তার জন্য আপনার পাসওয়ার্ড বা যাচাইকরণ কোড কাউকে শেয়ার করবেন না।"
 	}
 
 	return strings.TrimSpace(heading) + "\n\n" + strings.TrimSpace(body) + "\n\n" + footer
@@ -466,20 +466,20 @@ func (s *EmailService) SendPasswordResetEmail(to string, token string, locale st
 	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		subject = "পাসওয়ার্ড রিসেট অনুরোধ | Hasnahena Foundation"
-		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড রিসেট করুন", fmt.Sprintf("আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে। নিচের লিংক ব্যবহার করে নতুন পাসওয়ার্ড সেট করুন:\n\n%s\n\nএই লিংক ১ ঘণ্টার মধ্যে মেয়াদোত্তীর্ণ হবে।", resetURL))
+		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড রিসেট করুন", fmt.Sprintf("আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে। নিচের লিংক ব্যবহার করে নতুন পাসওয়ার্ড সেট করুন:\n\n%s\n\nএই লিংক ৩০ মিনিটের মধ্যে মেয়াদোত্তীর্ণ হবে।", resetURL))
 		htmlBody = s.renderOfficialEmailHTML(locale, "পাসওয়ার্ড রিসেট অনুরোধ", "আপনার পাসওয়ার্ড রিসেট করুন", fmt.Sprintf(
 			"<p style=\"margin:0 0 14px 0;\">আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে।</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">পাসওয়ার্ড রিসেট করুন</a></p>"+
-				"<p style=\"margin:0;color:#334155;\">এই লিংক <strong>১ ঘণ্টা</strong> পর্যন্ত কার্যকর থাকবে। আপনি অনুরোধ না করলে এই ইমেইল উপেক্ষা করুন।</p>",
+				"<p style=\"margin:0;color:#334155;\">এই লিংক <strong>৩০ মিনিট</strong> পর্যন্ত কার্যকর থাকবে। আপনি অনুরোধ না করলে এই ইমেইল উপেক্ষা করুন।</p>",
 			escapedResetURL,
 		))
 	} else {
 		subject = "Password Reset Request | Hasnahena Foundation"
-		textBody = s.renderOfficialEmailText(locale, "Reset Your Password", fmt.Sprintf("We received a password reset request for your account. Use the link below to set a new password:\n\n%s\n\nThis link expires in 1 hour.", resetURL))
+		textBody = s.renderOfficialEmailText(locale, "Reset Your Password", fmt.Sprintf("We received a password reset request for your account. Use the link below to set a new password:\n\n%s\n\nThis link expires in 30 minutes.", resetURL))
 		htmlBody = s.renderOfficialEmailHTML(locale, "Password reset request", "Reset Your Password", fmt.Sprintf(
 			"<p style=\"margin:0 0 14px 0;\">We received a password reset request for your account.</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Reset password</a></p>"+
-				"<p style=\"margin:0;color:#334155;\">This link expires in <strong>1 hour</strong>. If you did not request this, you can safely ignore this email.</p>",
+				"<p style=\"margin:0;color:#334155;\">This link expires in <strong>30 minutes</strong>. If you did not request this, you can safely ignore this email.</p>",
 			escapedResetURL,
 		))
 	}

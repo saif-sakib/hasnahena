@@ -96,8 +96,8 @@ export default function ForgotPasswordPage() {
           <CardContent className="space-y-4">
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-sm text-amber-800">
               {locale === 'bn'
-                ? '💡 টিপস: স্প্যাম ফোল্ডারও চেক করুন। লিঙ্কটি ১ ঘন্টার মধ্যে মেয়াদ উত্তীর্ণ হবে।'
-                : '💡 Tip: Check your spam folder too. The link expires in 1 hour.'}
+                ? '💡 টিপস: স্প্যাম ফোল্ডারও চেক করুন। লিঙ্কটি ৩০ মিনিটের মধ্যে মেয়াদ উত্তীর্ণ হবে।'
+                : '💡 Tip: Check your spam folder too. The link expires in 30 minutes.'}
             </div>
             <div className="flex flex-col gap-2">
               <Button

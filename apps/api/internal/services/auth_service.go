@@ -245,7 +245,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, identifier string, loc
 	token := make([]byte, 32)
 	rand.Read(token)
 	tokenHex := hex.EncodeToString(token)
-	expiresAt := time.Now().Add(time.Hour)
+	expiresAt := time.Now().UTC().Add(30 * time.Minute)
 
 	if err := s.users.CreateResetToken(ctx, tokenHex, user.Email, user.Phone, expiresAt); err != nil {
 		return err
@@ -258,13 +258,6 @@ func (s *AuthService) ValidateResetToken(ctx context.Context, token string) (*re
 	resetToken, err := s.users.GetResetToken(ctx, token)
 	if err != nil {
 		return nil, errors.New("invalid or expired token")
-	}
-
-	if resetToken.UsedAt != nil || resetToken.ExpiresAt.Before(time.Now()) {
-		if resetToken.ExpiresAt.Before(time.Now()) {
-			_ = s.users.DeleteResetTokenByID(ctx, resetToken.ID)
-		}
-		return nil, errors.New("token is expired or already used")
 	}
 
 	return resetToken, nil
