@@ -58,6 +58,49 @@ func generateTempPassword() (string, error) {
 	return string(out), nil
 }
 
+func generateNumericCode(length int) (string, error) {
+	if length <= 0 {
+		return "", errors.New("invalid code length")
+	}
+
+	const digits = "0123456789"
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+
+	out := make([]byte, length)
+	for i := range buf {
+		out[i] = digits[int(buf[i])%10]
+	}
+
+	return string(out), nil
+}
+
+func validateStrongPassword(newPass string) error {
+	if len(newPass) < 8 {
+		return errors.New("Password must be at least 8 characters")
+	}
+
+	hasUpper, hasLower, hasDigit := false, false, false
+	for _, c := range newPass {
+		switch {
+		case 'A' <= c && c <= 'Z':
+			hasUpper = true
+		case 'a' <= c && c <= 'z':
+			hasLower = true
+		case '0' <= c && c <= '9':
+			hasDigit = true
+		}
+	}
+
+	if !hasUpper || !hasLower || !hasDigit {
+		return errors.New("Password must contain uppercase, lowercase, and numbers")
+	}
+
+	return nil
+}
+
 func summarizeEmailDeliveryError(err error) string {
 	if err == nil {
 		return "unknown error"
@@ -876,25 +919,8 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword and newPassword are required")
 		return
 	}
-	// Enforce strong password policy
-	newPass := req.NewPassword
-	if len(newPass) < 8 {
-		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "Password must be at least 8 characters")
-		return
-	}
-	hasUpper, hasLower, hasDigit := false, false, false
-	for _, c := range newPass {
-		switch {
-		case 'A' <= c && c <= 'Z':
-			hasUpper = true
-		case 'a' <= c && c <= 'z':
-			hasLower = true
-		case '0' <= c && c <= '9':
-			hasDigit = true
-		}
-	}
-	if !hasUpper || !hasLower || !hasDigit {
-		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "Password must contain uppercase, lowercase, and numbers")
+	if err := validateStrongPassword(req.NewPassword); err != nil {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
 		return
 	}
 
@@ -923,6 +949,204 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		UserIP:     userIP,
 		UserAgent:  r.Header.Get("User-Agent"),
 		Details:    "Password changed successfully",
+	})
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
+}
+
+func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+
+	if h.emailService == nil || !h.emailService.IsConfigured() {
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+		Locale          string `json:"locale"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	currentPassword := strings.TrimSpace(req.CurrentPassword)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if currentPassword == "" || newPassword == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword and newPassword are required")
+		return
+	}
+	if currentPassword == newPassword {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "New password must be different from current password")
+		return
+	}
+	if err := validateStrongPassword(newPassword); err != nil {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+		return
+	}
+
+	if err := h.userRepo.VerifyCurrentPassword(r.Context(), auth.UserID, currentPassword); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "PASSWORD_CHANGE_FAILED", "Failed to verify current password")
+		return
+	}
+
+	userInfo, err := h.userRepo.GetUserInfo(r.Context(), auth.UserID)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "USER_FETCH_FAILED", "Failed to load user profile")
+		return
+	}
+
+	email, _ := userInfo["email"].(string)
+	phone, _ := userInfo["phone"].(string)
+	nameEn, _ := userInfo["nameEn"].(string)
+	email = strings.TrimSpace(email)
+	phone = strings.TrimSpace(phone)
+	nameEn = strings.TrimSpace(nameEn)
+	if email == "" {
+		utils.Error(w, http.StatusBadRequest, "EMAIL_REQUIRED", "No email is set on your account. Please contact admin support.")
+		return
+	}
+
+	code, err := generateNumericCode(6)
+	if err != nil {
+		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to generate verification code")
+		return
+	}
+
+	tokenPrefix := "pwd-change:" + auth.UserID + ":"
+	if err := h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to prepare verification code")
+		return
+	}
+
+	token := tokenPrefix + code
+	expiresAt := time.Now().Add(10 * time.Minute)
+	if err := h.userRepo.CreateResetToken(r.Context(), token, email, phone, expiresAt); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to store verification code")
+		return
+	}
+
+	locale := strings.ToLower(strings.TrimSpace(req.Locale))
+	if locale == "" {
+		locale = "en"
+	}
+
+	if err := h.emailService.SendPasswordChangeVerificationCodeEmail(email, nameEn, code, locale); err != nil {
+		_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix)
+		summary := summarizeEmailDeliveryError(err)
+		log.Printf("password change code email failed user=%s email=%s reason=%s raw=%v", auth.UserID, email, summary, err)
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_DELIVERY_FAILED", "Failed to send verification code: "+summary)
+		return
+	}
+
+	userIP := r.Header.Get("X-Forwarded-For")
+	if userIP == "" {
+		userIP = r.RemoteAddr
+	}
+	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+		Action:     "PASSWORD_CHANGE_CODE_SENT",
+		EntityType: "USER",
+		EntityID:   auth.UserID,
+		UserID:     auth.UserID,
+		UserIP:     userIP,
+		UserAgent:  r.Header.Get("User-Agent"),
+		Details:    "Password change verification code sent by email",
+	})
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":          "Verification code sent to your email",
+		"expiresInSeconds": 600,
+	})
+}
+
+func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		CurrentPassword  string `json:"currentPassword"`
+		NewPassword      string `json:"newPassword"`
+		VerificationCode string `json:"verificationCode"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	currentPassword := strings.TrimSpace(req.CurrentPassword)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	verificationCode := strings.TrimSpace(req.VerificationCode)
+	if currentPassword == "" || newPassword == "" || verificationCode == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "currentPassword, newPassword, and verificationCode are required")
+		return
+	}
+	if len(verificationCode) != 6 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Verification code must be 6 digits")
+		return
+	}
+	for _, c := range verificationCode {
+		if c < '0' || c > '9' {
+			utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Verification code must contain only digits")
+			return
+		}
+	}
+	if currentPassword == newPassword {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", "New password must be different from current password")
+		return
+	}
+	if err := validateStrongPassword(newPassword); err != nil {
+		utils.Error(w, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+		return
+	}
+
+	token := "pwd-change:" + auth.UserID + ":" + verificationCode
+	resetToken, err := h.authService.ValidateResetToken(r.Context(), token)
+	if err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Invalid or expired verification code")
+		return
+	}
+
+	if err := h.userRepo.ChangePassword(r.Context(), auth.UserID, currentPassword, newPassword); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
+			return
+		}
+		utils.Error(w, http.StatusInternalServerError, "PASSWORD_CHANGE_FAILED", "Failed to change password")
+		return
+	}
+
+	if err := h.userRepo.MarkResetTokenUsed(r.Context(), resetToken.ID); err != nil {
+		log.Printf("failed to mark password change verification code used user=%s token_id=%s error=%v", auth.UserID, resetToken.ID, err)
+	}
+	_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), "pwd-change:"+auth.UserID+":")
+
+	// Invalidate all user tokens (force re-login on all devices)
+	h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change")
+
+	// Create audit log
+	userIP := r.Header.Get("X-Forwarded-For")
+	if userIP == "" {
+		userIP = r.RemoteAddr
+	}
+	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+		Action:     "PASSWORD_CHANGE",
+		EntityType: "USER",
+		EntityID:   auth.UserID,
+		UserID:     auth.UserID,
+		UserIP:     userIP,
+		UserAgent:  r.Header.Get("User-Agent"),
+		Details:    "Password changed successfully with email verification code",
 	})
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})

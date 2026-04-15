@@ -11,6 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
+  .replace(/\/$/, '')
+  .replace(/\/api$/, '');
+
 export default function ForgotPasswordPage() {
   const locale = useLocale();
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +37,7 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/v1/auth/forgot-password', {
+      const response = await fetch(`${API_BASE_URL}/v1/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -43,16 +47,23 @@ export default function ForgotPasswordPage() {
       });
 
       const result = await response.json();
+      const isSuccess = response.ok && Boolean(result?.success || result?.ok);
+      const successMessage = result?.data?.message || result?.message;
+      const errorMessage = result?.error?.message || result?.error || 'Failed to send reset email';
 
-      if (response.ok && result.ok) {
+      if (isSuccess) {
         setEmailSent(true);
         toast({
           title: locale === 'bn' ? 'সফল' : 'Success',
-          description: result.message,
+          description:
+            successMessage ||
+            (locale === 'bn'
+              ? 'আপনার অ্যাকাউন্ট থাকলে রিসেট লিঙ্ক পাঠানো হয়েছে'
+              : 'If an account exists, a reset link has been sent'),
           variant: 'success',
         });
       } else {
-        throw new Error(result.error || 'Failed to send reset email');
+        throw new Error(errorMessage);
       }
     } catch (error) {
       toast({

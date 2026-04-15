@@ -3125,13 +3125,8 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, userID string, data 
 }
 
 func (r *UserRepository) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
-	var currentHash string
-	if err := r.db.QueryRow(ctx, `SELECT "passwordHash" FROM users WHERE id = $1`, userID).Scan(&currentHash); err != nil {
+	if err := r.VerifyCurrentPassword(ctx, userID, currentPassword); err != nil {
 		return err
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(currentPassword)); err != nil {
-		return fmt.Errorf("current password is incorrect")
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
@@ -3152,6 +3147,19 @@ func (r *UserRepository) ChangePassword(ctx context.Context, userID, currentPass
 		  AND ("email" = (SELECT email FROM users WHERE id = $1) OR "phone" = (SELECT phone FROM users WHERE id = $1))
 	`, userID)
 	return err
+}
+
+func (r *UserRepository) VerifyCurrentPassword(ctx context.Context, userID, currentPassword string) error {
+	var currentHash string
+	if err := r.db.QueryRow(ctx, `SELECT "passwordHash" FROM users WHERE id = $1`, userID).Scan(&currentHash); err != nil {
+		return err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(currentPassword)); err != nil {
+		return fmt.Errorf("current password is incorrect")
+	}
+
+	return nil
 }
 
 // ==================== WORKER-SPECIFIC METHODS ====================
@@ -3836,6 +3844,17 @@ func (r *UserRepository) DeleteResetTokens(ctx context.Context, email, phone str
 		dbPhone = &phone
 	}
 	_, err := r.db.Exec(ctx, query, dbEmail, dbPhone)
+	return err
+}
+
+func (r *UserRepository) DeleteResetTokensByPrefix(ctx context.Context, tokenPrefix string) error {
+	prefix := strings.TrimSpace(tokenPrefix)
+	if prefix == "" {
+		return fmt.Errorf("token prefix is required")
+	}
+
+	query := `DELETE FROM password_reset_tokens WHERE token LIKE $1`
+	_, err := r.db.Exec(ctx, query, prefix+"%")
 	return err
 }
 
