@@ -3884,6 +3884,9 @@ func (r *UserRepository) GetResetToken(ctx context.Context, token string) (*Pass
 		SELECT id, token, email, phone, "expiresAt", "usedAt", "createdAt"
 		FROM password_reset_tokens
 		WHERE token = $1
+		  AND "usedAt" IS NULL
+		  AND "expiresAt" > NOW()
+		LIMIT 1
 	`
 	var t PasswordResetToken
 	err := r.db.QueryRow(ctx, query, token).Scan(
