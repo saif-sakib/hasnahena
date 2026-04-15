@@ -16,7 +16,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { getValidatedClientToken } from '@/lib/client-auth';
 
-type VerificationStep = 'current' | 'new' | 'verify';
+type VerificationStep = 'current' | 'verify' | 'new';
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081').replace(/\/$/, '').replace(/\/api$/, '');
 
 interface PasswordChangeDialogProps {
@@ -41,6 +41,7 @@ export function PasswordChangeDialog({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const resetState = () => {
@@ -51,6 +52,7 @@ export function PasswordChangeDialog({
     setConfirmPassword('');
     setVerificationCode('');
     setIsSendingCode(false);
+    setIsVerifyingCode(false);
     setIsChangingPassword(false);
   };
 
@@ -58,19 +60,6 @@ export function PasswordChangeDialog({
     if (forcePasswordChange) return;
     onOpenChange(false);
     resetState();
-  };
-
-  const goToNewStep = () => {
-    if (!currentPassword.trim()) {
-      toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
-        description: locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Please enter your current password',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setStep('new');
   };
 
   const validateNewPassword = () => {
@@ -126,7 +115,13 @@ export function PasswordChangeDialog({
   };
 
   const requestVerificationCode = async (isResend = false) => {
-    if (!validateNewPassword()) {
+    const trimmedCurrent = currentPassword.trim();
+    if (!trimmedCurrent) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Please enter your current password',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -142,8 +137,7 @@ export function PasswordChangeDialog({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          currentPassword,
-          newPassword,
+          currentPassword: trimmedCurrent,
           locale,
         }),
         cache: 'no-store',
@@ -155,6 +149,7 @@ export function PasswordChangeDialog({
       }
 
       if (!isResend) {
+        setVerificationCode('');
         setStep('verify');
       }
 
@@ -176,6 +171,60 @@ export function PasswordChangeDialog({
       });
     } finally {
       setIsSendingCode(false);
+    }
+  };
+
+  const verifyCode = async () => {
+    const code = verificationCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: locale === 'bn' ? '৬ সংখ্যার যাচাইকরণ কোড লিখুন' : 'Enter the 6-digit verification code',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    try {
+      const token = getValidatedClientToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch(`${API_BASE_URL}/v1/dashboard/password/change/verify-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          verificationCode: code,
+        }),
+        cache: 'no-store',
+      });
+
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.error?.message || 'Invalid verification code');
+      }
+
+      setStep('new');
+      toast({
+        title: locale === 'bn' ? 'যাচাইকরণ সম্পন্ন' : 'Verification complete',
+        description:
+          locale === 'bn'
+            ? 'এখন নতুন পাসওয়ার্ড সেট করুন'
+            : 'Now set your new password',
+        variant: 'success',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid verification code';
+      toast({
+        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsVerifyingCode(false);
     }
   };
 
@@ -206,7 +255,7 @@ export function PasswordChangeDialog({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          currentPassword,
+          currentPassword: currentPassword.trim(),
           newPassword,
           verificationCode: code,
         }),
@@ -258,14 +307,14 @@ export function PasswordChangeDialog({
               (locale === 'bn'
                 ? 'প্রথমে বর্তমান পাসওয়ার্ড যাচাই করুন'
                 : 'First verify your current password')}
-            {step === 'new' &&
-              (locale === 'bn'
-                ? 'নতুন পাসওয়ার্ড সেট করুন এবং যাচাইকরণ কোড নিন'
-                : 'Set your new password and request a verification code')}
             {step === 'verify' &&
               (locale === 'bn'
                 ? 'ইমেইলে পাওয়া ৬ সংখ্যার কোড দিন'
                 : 'Enter the 6-digit code sent to your email')}
+            {step === 'new' &&
+              (locale === 'bn'
+                ? 'এখন নতুন পাসওয়ার্ড সেট করুন'
+                : 'Now set your new password')}
           </DialogDescription>
         </DialogHeader>
 
@@ -294,6 +343,25 @@ export function PasswordChangeDialog({
             </div>
           )}
 
+          {step === 'verify' && (
+            <div className="space-y-2">
+              <Label>{locale === 'bn' ? 'যাচাইকরণ কোড' : 'Verification Code'}</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                placeholder={locale === 'bn' ? '৬ সংখ্যার কোড' : '6-digit code'}
+              />
+              <p className="text-xs text-muted-foreground">
+                {locale === 'bn'
+                  ? 'কোডটি ১০ মিনিট পর্যন্ত কার্যকর থাকবে'
+                  : 'The code is valid for 10 minutes'}
+              </p>
+            </div>
+          )}
+
           {step === 'new' && (
             <>
               <div className="space-y-2">
@@ -318,62 +386,44 @@ export function PasswordChangeDialog({
               </div>
             </>
           )}
-
-          {step === 'verify' && (
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'যাচাইকরণ কোড' : 'Verification Code'}</Label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                placeholder={locale === 'bn' ? '৬ সংখ্যার কোড' : '6-digit code'}
-              />
-              <p className="text-xs text-muted-foreground">
-                {locale === 'bn'
-                  ? 'কোডটি ১০ মিনিট পর্যন্ত কার্যকর থাকবে'
-                  : 'The code is valid for 10 minutes'}
-              </p>
-            </div>
-          )}
         </div>
 
         <DialogFooter>
           {!forcePasswordChange && (
-            <Button variant="outline" onClick={close} disabled={isChangingPassword || isSendingCode}>
+            <Button variant="outline" onClick={close} disabled={isChangingPassword || isSendingCode || isVerifyingCode}>
               {locale === 'bn' ? 'বাতিল' : 'Cancel'}
             </Button>
           )}
 
           {step === 'current' && (
-            <Button onClick={goToNewStep} disabled={!currentPassword.trim()}>
-              {locale === 'bn' ? 'পরবর্তী' : 'Next'}
+            <Button onClick={() => requestVerificationCode(false)} disabled={!currentPassword.trim() || isSendingCode || isVerifyingCode || isChangingPassword}>
+              {isSendingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {locale === 'bn' ? 'কোড পাঠান' : 'Send Code'}
             </Button>
-          )}
-
-          {step === 'new' && (
-            <>
-              <Button variant="outline" onClick={() => setStep('current')} disabled={isSendingCode || isChangingPassword}>
-                {locale === 'bn' ? 'পেছনে' : 'Back'}
-              </Button>
-              <Button onClick={() => requestVerificationCode(false)} disabled={isSendingCode || isChangingPassword}>
-                {isSendingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                {locale === 'bn' ? 'কোড পাঠান' : 'Send Code'}
-              </Button>
-            </>
           )}
 
           {step === 'verify' && (
             <>
-              <Button variant="outline" onClick={() => setStep('new')} disabled={isSendingCode || isChangingPassword}>
+              <Button variant="outline" onClick={() => setStep('current')} disabled={isSendingCode || isVerifyingCode || isChangingPassword}>
                 {locale === 'bn' ? 'পেছনে' : 'Back'}
               </Button>
-              <Button variant="outline" onClick={() => requestVerificationCode(true)} disabled={isSendingCode || isChangingPassword}>
+              <Button variant="outline" onClick={() => requestVerificationCode(true)} disabled={isSendingCode || isVerifyingCode || isChangingPassword}>
                 {isSendingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 {locale === 'bn' ? 'আবার কোড পাঠান' : 'Resend Code'}
               </Button>
-              <Button onClick={changePassword} disabled={isSendingCode || isChangingPassword}>
+              <Button onClick={verifyCode} disabled={isSendingCode || isVerifyingCode || isChangingPassword || verificationCode.trim().length !== 6}>
+                {isVerifyingCode ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                {locale === 'bn' ? 'কোড যাচাই করুন' : 'Verify Code'}
+              </Button>
+            </>
+          )}
+
+          {step === 'new' && (
+            <>
+              <Button variant="outline" onClick={() => setStep('verify')} disabled={isSendingCode || isVerifyingCode || isChangingPassword}>
+                {locale === 'bn' ? 'পেছনে' : 'Back'}
+              </Button>
+              <Button onClick={changePassword} disabled={isSendingCode || isVerifyingCode || isChangingPassword}>
                 {isChangingPassword ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 {locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন করুন' : 'Change Password'}
               </Button>

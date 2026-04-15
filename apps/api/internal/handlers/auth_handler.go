@@ -118,6 +118,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Identifier = strings.TrimSpace(req.Identifier)
 	if req.Identifier == "" {
 		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Email or phone is required")
 		return
@@ -129,18 +130,27 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	err := h.authService.ForgotPassword(r.Context(), req.Identifier, req.Locale)
 	if err != nil {
-		// Do not leak existence of user. Just return generic success.
-		utils.Success(w, http.StatusOK, map[string]interface{}{
-"ok":      true,
-"message": "Password reset link sent if account exists.",
-})
-		return
+		errorText := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errorText, "user not found"):
+			utils.Error(w, http.StatusNotFound, "AUTH_USER_NOT_FOUND", "No account found with this email or phone")
+			return
+		case strings.Contains(errorText, "no email"):
+			utils.Error(w, http.StatusBadRequest, "AUTH_EMAIL_REQUIRED", "This account does not have an email address for password reset")
+			return
+		case strings.Contains(errorText, "not configured"):
+			utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
+			return
+		default:
+			utils.Error(w, http.StatusInternalServerError, "AUTH_FORGOT_PASSWORD_FAILED", "Failed to send password reset email")
+			return
+		}
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-"ok":      true,
-"message": "Password reset link sent to your email.",
-})
+		"ok":      true,
+		"message": "Password reset link sent to your email.",
+	})
 }
 
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
@@ -162,9 +172,9 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-"ok":      true,
-"message": "Password reset successfully",
-})
+		"ok":      true,
+		"message": "Password reset successfully",
+	})
 }
 
 func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +191,7 @@ func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-"ok":    true,
-"valid": true,
-})
+		"ok":    true,
+		"valid": true,
+	})
 }
