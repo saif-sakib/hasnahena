@@ -21,8 +21,8 @@ const registrationBaseObject = z
     // Personal Information
     nameEn: z.string().trim().min(3, 'Name must be at least 3 characters').max(80, 'Name must be at most 80 characters'),
     nameBn: z.string().trim().max(80, 'Name must be at most 80 characters').optional().or(z.literal('')),
-    fatherName: z.string().trim().min(3, 'Father name is required').max(80, 'Father name must be at most 80 characters'),
-    motherName: z.string().trim().min(3, 'Mother name is required').max(80, 'Mother name must be at most 80 characters'),
+    fatherName: z.string().trim().min(3, "Father's name must be at least 3 characters").max(80, 'Father name must be at most 80 characters'),
+    motherName: z.string().trim().min(3, "Mother's name must be at least 3 characters").max(80, 'Mother name must be at most 80 characters'),
     phone: z.string().trim().regex(bdPhoneRegex, 'Enter a valid 11-digit Bangladeshi mobile number'),
     email: z.string().trim().email('Enter a valid email address'),
     nidNumber: z.string().trim().regex(bdNidRegex, 'NID must be 10, 13, or 17 digits'),
@@ -81,7 +81,7 @@ const registrationBaseObject = z
     presentDistrict: z.string().trim().max(80, 'District must be at most 80 characters').optional(),
 
     // Nominee
-    nomineeName: z.string().trim().min(3, 'Nominee name is required').max(80, 'Nominee name must be at most 80 characters'),
+    nomineeName: z.string().trim().min(3, 'Nominee name must be at least 3 characters').max(80, 'Nominee name must be at most 80 characters'),
     nomineeRelationship: z.string().trim().min(2, 'Relationship is required').max(40, 'Relationship must be at most 40 characters'),
     nomineeNid: z.string().trim().regex(bdNidRegex, 'Nominee NID must be 10, 13, or 17 digits'),
     nomineePhone: z

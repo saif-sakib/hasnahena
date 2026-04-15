@@ -70,9 +70,6 @@ export default function RegisterPage() {
   const sameAsPermanent = watch('sameAsPermanent') ?? true;
   const watchedEmail = watch('email');
   const watchedPhone = watch('phone');
-  const watchedDateOfBirth = watch('dateOfBirth');
-  const watchedChildrenCount = watch('childrenCount');
-  const watchedMaritalStatus = watch('maritalStatus');
 
   useEffect(() => {
     const email = (watchedEmail || '').trim().toLowerCase();
@@ -235,21 +232,15 @@ export default function RegisterPage() {
     return () => subscription.unsubscribe();
   }, [watch, currentStep, draftStorageKey]);
 
-  useEffect(() => {
-    if (watchedDateOfBirth === undefined) {
-      return;
-    }
-    void trigger('dateOfBirth');
-  }, [watchedDateOfBirth, trigger]);
-
-  useEffect(() => {
-    if (watchedChildrenCount === undefined || watchedChildrenCount === null) {
-      return;
-    }
-    void trigger('childrenCount');
-  }, [watchedChildrenCount, watchedMaritalStatus, trigger]);
-
   // Fields to validate per step
+  const conditionalAddressFields: RegisterFieldName[] = [
+    'presentHouseNo',
+    'presentVillage',
+    'presentUnion',
+    'presentPoliceStation',
+    'presentDistrict',
+  ];
+
   const stepFields: RegisterFieldName[][] = [
     // Step 0: Personal Info
     ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus', 'dateOfBirth'],
@@ -376,14 +367,38 @@ export default function RegisterPage() {
   };
 
   const onInvalidSubmit = (formErrors: FieldErrors<RegisterFormData>) => {
-    const errorFields = Object.keys(formErrors) as RegisterFieldName[];
-    if (!errorFields.length) {
+    const stepFieldSet = new Set(stepFields.flat());
+    const errorFields = (Object.keys(formErrors) as RegisterFieldName[]).filter((field) =>
+      stepFieldSet.has(field)
+    );
+    const visibleErrorFields = errorFields.filter(
+      (field) => !(sameAsPermanent && conditionalAddressFields.includes(field))
+    );
+
+    if (!visibleErrorFields.length) {
+      const rootMessage = (formErrors as { root?: { message?: unknown } }).root?.message;
+      const firstFieldMessage = Object.values(formErrors).find((value) => {
+        if (!value || typeof value !== 'object') {
+          return false;
+        }
+        return typeof (value as { message?: unknown }).message === 'string';
+      }) as { message?: string } | undefined;
+
+      const fallbackMessage =
+        (typeof rootMessage === 'string' && rootMessage.trim())
+          ? rootMessage.trim()
+          : (firstFieldMessage?.message?.trim() ||
+            (locale === 'bn'
+              ? 'ফর্মে কিছু তথ্য আবার যাচাই করুন।'
+              : 'Please review the form information once more.'));
+
+      setSubmitError(fallbackMessage);
       return;
     }
 
     let targetStep = steps.length - 1;
     for (const [index, fields] of stepFields.entries()) {
-      if (errorFields.some((field) => fields.includes(field))) {
+      if (visibleErrorFields.some((field) => fields.includes(field))) {
         targetStep = index;
         break;
       }
@@ -401,6 +416,8 @@ export default function RegisterPage() {
   };
 
   const nextStep = async () => {
+    setSubmitError(null);
+
     if (currentStep === 0) {
       if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
         toast({
@@ -428,7 +445,10 @@ export default function RegisterPage() {
     }
 
     // Validate current step fields before proceeding
-    const fieldsToValidate = stepFields[currentStep];
+    const fieldsToValidate =
+      currentStep === 1 && sameAsPermanent
+        ? stepFields[currentStep].filter((field) => !conditionalAddressFields.includes(field))
+        : stepFields[currentStep];
     const isValid = await trigger(fieldsToValidate);
 
     if (isValid && currentStep < steps.length - 1) {
@@ -446,6 +466,8 @@ export default function RegisterPage() {
   };
 
   const prevStep = () => {
+    setSubmitError(null);
+
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
     }

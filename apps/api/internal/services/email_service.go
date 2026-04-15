@@ -142,6 +142,105 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 	return s.sendWithRetry(to, subject, textBody, htmlBody)
 }
 
+func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service not configured")
+	}
+
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("recipient email is required")
+	}
+
+	staffName = strings.TrimSpace(staffName)
+	if staffName == "" {
+		staffName = "Staff"
+	}
+
+	role = strings.ToUpper(strings.TrimSpace(role))
+	if role != "ADMIN" {
+		role = "WORKER"
+	}
+
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	if locale != "bn" {
+		locale = "en"
+	}
+
+	loginURL := fmt.Sprintf("%s/%s/login", s.appURL, locale)
+
+	var subject, textBody, htmlBody string
+	if locale == "bn" {
+		roleLabel := "কর্মী"
+		if role == "ADMIN" {
+			roleLabel = "অ্যাডমিন"
+		}
+		subject = "নতুন স্টাফ অ্যাকাউন্ট - Hasnahena Foundation"
+		textBody = fmt.Sprintf(
+			"প্রিয় %s,\n\nআপনাকে %s হিসেবে যুক্ত করা হয়েছে।\n\nইমেইল: %s\nফোন: %s\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন: %s\n\nপ্রথম লগইনের পরে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন।\n\nHasnahena Foundation",
+			staffName,
+			roleLabel,
+			to,
+			strings.TrimSpace(phone),
+			temporaryPassword,
+			loginURL,
+		)
+		htmlBody = fmt.Sprintf(
+			"<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111827\">"+
+				"<h2>আপনার অ্যাকাউন্ট তৈরি হয়েছে</h2>"+
+				"<p>প্রিয় %s,</p>"+
+				"<p>আপনাকে %s হিসেবে যুক্ত করা হয়েছে।</p>"+
+				"<p><strong>ইমেইল:</strong> %s</p>"+
+				"<p><strong>ফোন:</strong> %s</p>"+
+				"<p><strong>অস্থায়ী পাসওয়ার্ড:</strong> %s</p>"+
+				"<p><a href=\"%s\" style=\"background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px\">লগইন করুন</a></p>"+
+				"<p><strong>প্রথম লগইনের পরে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন।</strong></p>"+
+				"</div>",
+			staffName,
+			roleLabel,
+			to,
+			strings.TrimSpace(phone),
+			temporaryPassword,
+			loginURL,
+		)
+	} else {
+		roleLabel := "Worker"
+		if role == "ADMIN" {
+			roleLabel = "Admin"
+		}
+		subject = "New Staff Account - Hasnahena Foundation"
+		textBody = fmt.Sprintf(
+			"Dear %s,\n\nYou were added as %s.\n\nEmail: %s\nPhone: %s\nTemporary Password: %s\nLogin URL: %s\n\nYou must change your password immediately after first login.\n\nHasnahena Foundation",
+			staffName,
+			roleLabel,
+			to,
+			strings.TrimSpace(phone),
+			temporaryPassword,
+			loginURL,
+		)
+		htmlBody = fmt.Sprintf(
+			"<div style=\"font-family:Arial,sans-serif;line-height:1.6;color:#111827\">"+
+				"<h2>Your account has been created</h2>"+
+				"<p>Dear %s,</p>"+
+				"<p>You were added as %s.</p>"+
+				"<p><strong>Email:</strong> %s</p>"+
+				"<p><strong>Phone:</strong> %s</p>"+
+				"<p><strong>Temporary Password:</strong> %s</p>"+
+				"<p><a href=\"%s\" style=\"background:#059669;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px\">Login</a></p>"+
+				"<p><strong>Password change is mandatory after first login.</strong></p>"+
+				"</div>",
+			staffName,
+			roleLabel,
+			to,
+			strings.TrimSpace(phone),
+			temporaryPassword,
+			loginURL,
+		)
+	}
+
+	return s.sendWithRetry(to, subject, textBody, htmlBody)
+}
+
 func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
 	var lastErr error
 	for attempt := 1; attempt <= brevoRetryAttempts; attempt++ {
