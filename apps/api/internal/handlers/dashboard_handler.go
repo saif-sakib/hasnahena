@@ -231,6 +231,117 @@ func (h *DashboardHandler) MemberLoans(w http.ResponseWriter, r *http.Request) {
 	utils.Success(w, http.StatusOK, data)
 }
 
+func (h *DashboardHandler) MemberCreateDepositRequest(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Amount         int64  `json:"amount"`
+		BkashReference string `json:"bkashReference"`
+		Notes          string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxDepositAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
+		return
+	}
+	if strings.TrimSpace(req.BkashReference) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "bKash reference is required")
+		return
+	}
+
+	requestID, err := h.userRepo.CreateMemberDepositRequest(r.Context(), auth.UserID, req.Amount, req.BkashReference, req.Notes)
+	if err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+		case strings.Contains(errMsg, "not active"):
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+		case strings.Contains(errMsg, "duplicate"):
+			utils.Error(w, http.StatusConflict, "DUPLICATE_REQUEST", "A similar deposit request is already pending")
+		default:
+			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit deposit request")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":   "Deposit request submitted successfully",
+		"requestId": requestID,
+	})
+}
+
+func (h *DashboardHandler) MemberCreateLoanRepaymentRequest(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		LoanID         string `json:"loanId"`
+		Amount         int64  `json:"amount"`
+		BkashReference string `json:"bkashReference"`
+		Notes          string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.LoanID) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "loanId is required")
+		return
+	}
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxLoanPaymentAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
+		return
+	}
+	if strings.TrimSpace(req.BkashReference) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "bKash reference is required")
+		return
+	}
+
+	requestID, err := h.userRepo.CreateMemberLoanRepaymentRequest(r.Context(), auth.UserID, req.LoanID, req.Amount, req.BkashReference, req.Notes)
+	if err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "member not found"):
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+		case strings.Contains(errMsg, "loan not found"):
+			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan not found")
+		case strings.Contains(errMsg, "not active"):
+			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "Loan is not active")
+		case strings.Contains(errMsg, "exceeds remaining"):
+			utils.Error(w, http.StatusBadRequest, "EXCEEDS_REMAINING", "Amount exceeds remaining loan balance")
+		case strings.Contains(errMsg, "duplicate"):
+			utils.Error(w, http.StatusConflict, "DUPLICATE_REQUEST", "A similar loan repayment request is already pending")
+		default:
+			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit loan repayment request")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":   "Loan repayment request submitted successfully",
+		"requestId": requestID,
+	})
+}
+
 func (h *DashboardHandler) MemberProfile(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "MEMBER")
 	if !ok {
@@ -487,10 +598,12 @@ func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Req
 // ==================== ADMIN APPROVAL HANDLERS ====================
 
 func (h *DashboardHandler) AdminApprovals(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
-	data, err := h.userRepo.GetPendingApprovals(r.Context())
+	includeRegistration := auth.Role == "ADMIN" || auth.Role == "SUPER_ADMIN"
+	data, err := h.userRepo.GetPendingApprovals(r.Context(), includeRegistration)
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "APPROVALS_FETCH_FAILED", "Failed to load approvals")
 		return
@@ -519,18 +632,9 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if h.emailService == nil || !h.emailService.IsConfigured() {
-		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
-		return
-	}
-
 	candidate, err := h.userRepo.GetRegistrationApprovalCandidate(r.Context(), req.UserID)
 	if err != nil {
 		utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-		return
-	}
-	if strings.TrimSpace(candidate.Email) == "" {
-		utils.Error(w, http.StatusBadRequest, "EMAIL_REQUIRED", "Member email is required before approval")
 		return
 	}
 
@@ -558,23 +662,25 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := h.emailService.SendMemberApprovalEmail(candidate.Email, candidate.NameEn, tempPassword, req.Locale); err != nil {
-		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, candidate.Email, err)
-		deliveryError := summarizeEmailDeliveryError(err)
-		revertReason := "auto-reverted after member approval email delivery failure: " + deliveryError
-		if rollbackErr := h.userRepo.RevertRegistrationApproval(r.Context(), req.UserID, userID, revertReason); rollbackErr != nil {
-			log.Printf("[ApproveRegistration] rollback failed for user %s: %v", req.UserID, rollbackErr)
-			utils.Error(w, http.StatusInternalServerError, "APPROVE_ROLLBACK_FAILED", "Registration email failed and rollback also failed. Please contact support immediately.")
-			return
-		}
-
-		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_DELIVERY_FAILED", "Approval email could not be delivered, so registration was not approved. Please retry. Reason: "+deliveryError)
-		return
+	emailDelivered := false
+	deliveryError := ""
+	emailAddress := strings.TrimSpace(candidate.Email)
+	if h.emailService == nil || !h.emailService.IsConfigured() {
+		deliveryError = "Email service is not configured"
+	} else if emailAddress == "" {
+		deliveryError = "Member email is not available"
+	} else if err := h.emailService.SendMemberApprovalEmail(emailAddress, candidate.NameEn, tempPassword, req.Locale); err != nil {
+		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, emailAddress, err)
+		deliveryError = summarizeEmailDeliveryError(err)
+	} else {
+		emailDelivered = true
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-		"message":        "Registration approved successfully",
-		"emailDelivered": true,
+		"message":           "Registration approved successfully",
+		"emailDelivered":    emailDelivered,
+		"deliveryError":     deliveryError,
+		"temporaryPassword": tempPassword,
 	})
 }
 
@@ -593,8 +699,17 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
+	if strings.TrimSpace(req.UserID) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "userId is required")
+		return
+	}
 
 	if err := h.userRepo.RejectRegistration(r.Context(), req.UserID, userID, req.Reason); err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		if strings.Contains(errMsg, "not found") {
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+			return
+		}
 		utils.Error(w, http.StatusInternalServerError, "REJECT_FAILED", "Failed to reject registration")
 		return
 	}
@@ -602,23 +717,113 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration rejected successfully"})
 }
 
+func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		LoanID string `json:"loanId"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.LoanID) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "loanId is required")
+		return
+	}
+
+	if err := h.userRepo.ApproveLoan(r.Context(), req.LoanID, auth.UserID); err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "only pending"):
+			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_PENDING", "Only pending loans can be approved")
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan request not found")
+		default:
+			utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve loan")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan approved successfully"})
+}
+
+func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		LoanID string `json:"loanId"`
+		Reason string `json:"reason"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.LoanID) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "loanId is required")
+		return
+	}
+
+	if err := h.userRepo.RejectLoan(r.Context(), req.LoanID, auth.UserID, req.Reason); err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "only pending"):
+			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_PENDING", "Only pending loans can be rejected")
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan request not found")
+		default:
+			utils.Error(w, http.StatusInternalServerError, "REJECT_FAILED", "Failed to reject loan")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]string{"message": "Loan rejected successfully"})
+}
+
 func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
 	if !ok {
 		return
 	}
 	userID := auth.UserID
 
 	var req struct {
-		RequestID string `json:"requestId"`
+		RequestID     string `json:"requestId"`
+		TransactionID string `json:"transactionId"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		requestID = strings.TrimSpace(req.TransactionID)
+	}
+	if requestID == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "requestId is required")
+		return
+	}
 
-	if err := h.userRepo.ApproveWithdrawal(r.Context(), req.RequestID, userID); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "APPROVE_WITHDRAWAL_FAILED", "Failed to approve withdrawal")
+	if err := h.userRepo.ApproveWithdrawal(r.Context(), requestID, userID); err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
+		case strings.Contains(errMsg, "only pending"),
+			strings.Contains(errMsg, "loan is not active"),
+			strings.Contains(errMsg, "exceeds remaining"),
+			strings.Contains(errMsg, "missing loan reference"),
+			strings.Contains(errMsg, "unsupported transaction type"):
+			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
+		default:
+			utils.Error(w, http.StatusInternalServerError, "APPROVE_WITHDRAWAL_FAILED", "Failed to approve withdrawal")
+		}
 		return
 	}
 
@@ -626,23 +831,42 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
 	if !ok {
 		return
 	}
 	userID := auth.UserID
 
 	var req struct {
-		RequestID string `json:"requestId"`
-		Reason    string `json:"reason"`
+		RequestID     string `json:"requestId"`
+		TransactionID string `json:"transactionId"`
+		Reason        string `json:"reason"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		requestID = strings.TrimSpace(req.TransactionID)
+	}
+	if requestID == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "requestId is required")
+		return
+	}
 
-	if err := h.userRepo.RejectWithdrawal(r.Context(), req.RequestID, userID, req.Reason); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "REJECT_WITHDRAWAL_FAILED", "Failed to reject withdrawal")
+	if err := h.userRepo.RejectWithdrawal(r.Context(), requestID, userID, req.Reason); err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
+		case strings.Contains(errMsg, "only pending"):
+			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
+		case strings.Contains(errMsg, "unsupported transaction type"):
+			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
+		default:
+			utils.Error(w, http.StatusInternalServerError, "REJECT_WITHDRAWAL_FAILED", "Failed to reject withdrawal")
+		}
 		return
 	}
 

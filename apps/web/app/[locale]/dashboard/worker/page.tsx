@@ -2,7 +2,7 @@
 
 import { useLocale } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { Users, HandCoins, ArrowUpRight, Wallet, Receipt, ArrowRight } from 'lucide-react';
+import { Users, HandCoins, ArrowUpRight, Wallet, Receipt, ArrowRight, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -101,6 +101,20 @@ export default function WorkerDashboard() {
           {locale === 'bn' ? 'আজকের কাজ' : 'Action Center'}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Link href={`/${locale}/dashboard/worker/approvals`} className="group rounded-2xl border p-4 transition-all hover:shadow-md text-amber-700 bg-amber-50 border-amber-200">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-semibold">{locale === 'bn' ? 'অনুমোদন কিউ' : 'Approval Queue'}</p>
+                <p className="mt-1 text-xs text-neutral-600">{locale === 'bn' ? 'ডিপোজিট ও ঋণ পরিশোধ অনুরোধ' : 'Deposit and repayment requests'}</p>
+              </div>
+              <ClipboardList className="h-5 w-5 opacity-80" />
+            </div>
+            <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-neutral-700 group-hover:text-neutral-900">
+              {locale === 'bn' ? 'খুলুন' : 'Open'}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </div>
+          </Link>
+
           <Link href={`/${locale}/dashboard/worker/members`} className="group rounded-2xl border p-4 transition-all hover:shadow-md text-blue-700 bg-blue-50 border-blue-200">
             <div className="flex items-start justify-between">
               <div>

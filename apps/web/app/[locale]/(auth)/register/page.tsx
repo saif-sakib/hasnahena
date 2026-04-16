@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
@@ -20,6 +20,7 @@ import {
   registerSchema,
   type RegisterFormData,
 } from '@/lib/validation/registration';
+import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -42,13 +43,34 @@ const FORM_DEFAULT_VALUES: Partial<RegisterFormData> = {
   sameAsPermanent: true,
 };
 
+type RequiredDocumentKey =
+  | 'nidFrontImage'
+  | 'nidBackImage'
+  | 'memberPhotoImage'
+  | 'signatureImage';
+
+const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
+  'nidFrontImage',
+  'nidBackImage',
+  'memberPhotoImage',
+  'signatureImage',
+];
+
 export default function RegisterPage() {
   const locale = useLocale();
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'finishing'>('idle');
   const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
   const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
+  const [documentFiles, setDocumentFiles] = useState<Record<RequiredDocumentKey, File | null>>({
+    nidFrontImage: null,
+    nidBackImage: null,
+    memberPhotoImage: null,
+    signatureImage: null,
+  });
+  const [documentErrors, setDocumentErrors] = useState<Partial<Record<RequiredDocumentKey, string>>>({});
   const draftStorageKey = useMemo(() => `${REGISTRATION_DRAFT_KEY_PREFIX}:${locale}`, [locale]);
 
   const {
@@ -254,6 +276,7 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: RegisterFormData) => {
     setSubmitError(null);
+    setSubmitStage('idle');
 
     if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
       setSubmitError(
@@ -273,48 +296,82 @@ export default function RegisterPage() {
       return;
     }
 
+    const missingDocumentKey = REQUIRED_DOCUMENT_KEYS.find((key) => !documentFiles[key]);
+    if (missingDocumentKey) {
+      setDocumentErrors((prev) => ({
+        ...prev,
+        [missingDocumentKey]: locale === 'bn' ? 'এই ফাইলটি প্রয়োজন' : 'This file is required',
+      }));
+      setSubmitError(
+        locale === 'bn'
+          ? 'নিবন্ধন সম্পন্ন করতে সব বাধ্যতামূলক নথি আপলোড করুন।'
+          : 'Please upload all required documents to complete registration.',
+      );
+      return;
+    }
+
+    if (Object.values(documentErrors).some(Boolean)) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'নথির ত্রুটিগুলো ঠিক করে আবার চেষ্টা করুন।'
+          : 'Please fix the document upload errors and try again.',
+      );
+      return;
+    }
+
     try {
+      setSubmitStage('uploading');
+      const registrationPayload = {
+        // Personal Info
+        nameEn: data.nameEn,
+        nameBn: data.nameBn,
+        fatherName: data.fatherName,
+        motherName: data.motherName,
+        phone: data.phone,
+        email: data.email,
+        nidNumber: data.nidNumber,
+        maritalStatus: data.maritalStatus,
+        childrenCount: data.childrenCount,
+        gender: data.gender,
+        bloodGroup: data.bloodGroup,
+        profession: data.profession,
+        dateOfBirth: data.dateOfBirth,
+        // Permanent Address
+        permanentHouseNo: data.permanentHouseNo,
+        permanentRoadNo: data.permanentRoadNo,
+        permanentVillage: data.permanentVillage,
+        permanentUnion: data.permanentUnion,
+        permanentPoliceStation: data.permanentPoliceStation,
+        permanentDistrict: data.permanentDistrict,
+
+        // Present Address
+        sameAsPermanent: data.sameAsPermanent ?? true,
+        presentHouseNo: data.presentHouseNo,
+        presentRoadNo: data.presentRoadNo,
+        presentVillage: data.presentVillage,
+        presentUnion: data.presentUnion,
+        presentPoliceStation: data.presentPoliceStation,
+        presentDistrict: data.presentDistrict,
+
+        // Nominee
+        nomineeName: data.nomineeName,
+        nomineeRelationship: data.nomineeRelationship,
+        nomineeNid: data.nomineeNid,
+        nomineePhone: data.nomineePhone,
+      };
+
+      const formData = new FormData();
+      formData.append('payload', JSON.stringify(registrationPayload));
+      for (const key of REQUIRED_DOCUMENT_KEYS) {
+        const file = documentFiles[key];
+        if (file) {
+          formData.append(key, file);
+        }
+      }
+
       const response = await fetch('/api/v1/registrations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Personal Info
-          nameEn: data.nameEn,
-          nameBn: data.nameBn,
-          fatherName: data.fatherName,
-          motherName: data.motherName,
-          phone: data.phone,
-          email: data.email,
-          nidNumber: data.nidNumber,
-          maritalStatus: data.maritalStatus,
-          childrenCount: data.childrenCount,
-          gender: data.gender,
-          bloodGroup: data.bloodGroup,
-          profession: data.profession,
-          dateOfBirth: data.dateOfBirth,
-          // Permanent Address
-          permanentHouseNo: data.permanentHouseNo,
-          permanentRoadNo: data.permanentRoadNo,
-          permanentVillage: data.permanentVillage,
-          permanentUnion: data.permanentUnion,
-          permanentPoliceStation: data.permanentPoliceStation,
-          permanentDistrict: data.permanentDistrict,
-
-          // Present Address
-          sameAsPermanent: data.sameAsPermanent ?? true,
-          presentHouseNo: data.presentHouseNo,
-          presentRoadNo: data.presentRoadNo,
-          presentVillage: data.presentVillage,
-          presentUnion: data.presentUnion,
-          presentPoliceStation: data.presentPoliceStation,
-          presentDistrict: data.presentDistrict,
-
-          // Nominee
-          nomineeName: data.nomineeName,
-          nomineeRelationship: data.nomineeRelationship,
-          nomineeNid: data.nomineeNid,
-          nomineePhone: data.nomineePhone,
-        }),
+        body: formData,
       });
 
       const json = (await response.json().catch(() => ({}))) as {
@@ -323,6 +380,7 @@ export default function RegisterPage() {
       };
 
       if (!response.ok) {
+        setSubmitStage('idle');
         // Show detailed validation errors if available
         if (json?.details?.fieldErrors) {
           const fieldErrors = json.details.fieldErrors;
@@ -352,12 +410,21 @@ export default function RegisterPage() {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(draftStorageKey);
       }
+      setDocumentFiles({
+        nidFrontImage: null,
+        nidBackImage: null,
+        memberPhotoImage: null,
+        signatureImage: null,
+      });
+      setDocumentErrors({});
+      setSubmitStage('finishing');
 
       // Redirect after a short delay so user can see the message
       setTimeout(() => {
         router.push(`/${locale}/login`);
       }, 2000);
     } catch {
+      setSubmitStage('idle');
       setSubmitError(
         locale === 'bn'
           ? 'নিবন্ধন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
@@ -476,6 +543,58 @@ export default function RegisterPage() {
   const stepTitles = locale === 'bn' 
     ? ['ব্যক্তিগত তথ্য', 'ঠিকানা', 'নমিনী', 'নথি ও চুক্তি']
     : ['Personal Info', 'Address', 'Nominee', 'Documents'];
+
+  const documentFieldMeta: Array<{ key: RequiredDocumentKey; label: string; helper: string }> = [
+    {
+      key: 'nidFrontImage',
+      label: locale === 'bn' ? 'NID কার্ডের সামনের ছবি *' : 'NID front image *',
+      helper: locale === 'bn' ? 'স্পষ্ট ও পূর্ণ ফ্রেমে তুলুন' : 'Upload a clear full-frame image',
+    },
+    {
+      key: 'nidBackImage',
+      label: locale === 'bn' ? 'NID কার্ডের পেছনের ছবি *' : 'NID back image *',
+      helper: locale === 'bn' ? 'সব লেখা স্পষ্ট দেখা যেতে হবে' : 'Make sure all text is readable',
+    },
+    {
+      key: 'memberPhotoImage',
+      label: locale === 'bn' ? 'আপনার পাসপোর্ট সাইজ ছবি *' : 'Your passport photo *',
+      helper: locale === 'bn' ? 'সাম্প্রতিক ছবি দিন' : 'Use a recent portrait photo',
+    },
+    {
+      key: 'signatureImage',
+      label: locale === 'bn' ? 'স্বাক্ষরের ছবি *' : 'Signature image *',
+      helper: locale === 'bn' ? 'সাদা কাগজে কালো কালি/কলমে' : 'Use dark ink on white background',
+    },
+  ];
+
+  const handleDocumentChange = (key: RequiredDocumentKey, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setSubmitError(null);
+
+    if (!file) {
+      setDocumentFiles((prev) => ({ ...prev, [key]: null }));
+      setDocumentErrors((prev) => ({ ...prev, [key]: locale === 'bn' ? 'এই ফাইলটি প্রয়োজন' : 'This file is required' }));
+      return;
+    }
+
+    const validation = validateImageFile(file, {
+      acceptedTypes: UPLOAD_TYPES.avatar,
+      maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+    });
+    if (!validation.valid) {
+      setDocumentFiles((prev) => ({ ...prev, [key]: null }));
+      setDocumentErrors((prev) => ({ ...prev, [key]: validation.error || (locale === 'bn' ? 'অবৈধ ফাইল' : 'Invalid file') }));
+      event.target.value = '';
+      return;
+    }
+
+    setDocumentFiles((prev) => ({ ...prev, [key]: file }));
+    setDocumentErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
   return (
     <div className="min-h-[100dvh] bg-slate-50">
@@ -1067,18 +1186,36 @@ export default function RegisterPage() {
                     
                     <div className="bg-muted/50 rounded-lg p-4 text-sm">
                       <p className="font-medium mb-2">
-                        {locale === 'bn' ? 'নিম্নলিখিত নথি প্রয়োজন:' : 'Following documents are required:'}
+                        {locale === 'bn' ? 'নিবন্ধন সম্পন্ন করতে নিচের নথিগুলো আপলোড বাধ্যতামূলক:' : 'All uploads below are mandatory to complete registration:'}
                       </p>
-                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                        <li>{locale === 'bn' ? 'দুই কপি পাসপোর্ট সাইজের ছবি' : 'Two passport-sized photographs'}</li>
-                        <li>{locale === 'bn' ? 'ভোটার আই ডি কার্ডের ফটোকপি' : 'Photocopy of NID Card'}</li>
-                        <li>{locale === 'bn' ? 'নমিনীর এক কপি পাসপোর্ট সাইজের ছবি' : 'One passport-sized photo of nominee'}</li>
-                      </ul>
                       <p className="mt-2 text-xs text-muted-foreground">
                         {locale === 'bn'
-                          ? '(নিবন্ধনের পর অফিসে জমা দিতে হবে)'
-                          : '(Submit at office after registration)'}
+                          ? 'শুধু JPG/PNG/WebP, সর্বোচ্চ ১০MB।'
+                          : 'Only JPG/PNG/WebP, up to 10MB each.'}
                       </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {documentFieldMeta.map((field) => (
+                        <div key={field.key} className="space-y-2">
+                          <Label htmlFor={field.key}>{field.label}</Label>
+                          <Input
+                            id={field.key}
+                            type="file"
+                            accept="image/jpeg,image/jpg,image/png,image/webp"
+                            onChange={(event) => handleDocumentChange(field.key, event)}
+                          />
+                          <p className="text-xs text-muted-foreground">{field.helper}</p>
+                          {documentFiles[field.key] && (
+                            <p className="text-xs text-emerald-700">
+                              {locale === 'bn' ? 'নির্বাচিত:' : 'Selected:'} {documentFiles[field.key]?.name}
+                            </p>
+                          )}
+                          {documentErrors[field.key] && (
+                            <p className="text-xs text-destructive">{documentErrors[field.key]}</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
 
                     <h3 className="text-lg font-semibold border-b pb-2">
@@ -1157,7 +1294,9 @@ export default function RegisterPage() {
                       {isSubmitting ? (
                         <span className="flex items-center gap-2">
                           <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                          {locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...'}
+                          {submitStage === 'uploading'
+                            ? (locale === 'bn' ? 'নথি আপলোড হচ্ছে...' : 'Uploading documents...')
+                            : (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')}
                         </span>
                       ) : (
                         <>

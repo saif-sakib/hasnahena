@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { UserRole, UserStatus } from '@prisma/client';
 import { bdPhoneRegex, registerApiSchema } from '@/lib/validation/registration';
+import { uploadImage, deleteImage } from '@/lib/cloudinary';
+import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -15,6 +17,43 @@ function parseOptionalDate(v: string | undefined): Date | null {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const REQUIRED_DOCUMENT_FIELDS = [
+  {
+    formKey: 'nidFrontImage',
+    documentType: 'nid_front',
+    folderSlug: 'nid-front',
+    label: 'NID front image',
+  },
+  {
+    formKey: 'nidBackImage',
+    documentType: 'nid_back',
+    folderSlug: 'nid-back',
+    label: 'NID back image',
+  },
+  {
+    formKey: 'memberPhotoImage',
+    documentType: 'member_photo',
+    folderSlug: 'member-photo',
+    label: 'Member photo',
+  },
+  {
+    formKey: 'signatureImage',
+    documentType: 'member_signature',
+    folderSlug: 'signature',
+    label: 'Member signature',
+  },
+] as const;
+
+function isFileEntry(value: FormDataEntryValue | null): value is File {
+  if (!value || typeof value === 'string') return false;
+  return (
+    typeof (value as File).arrayBuffer === 'function'
+    && typeof (value as File).size === 'number'
+    && typeof (value as File).name === 'string'
+    && typeof (value as File).type === 'string'
+  );
 }
 
 export async function GET(req: Request) {
@@ -80,9 +119,47 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const uploadedPublicIds: string[] = [];
+  const cleanupUploadedAssets = async () => {
+    if (uploadedPublicIds.length === 0) return;
+    await Promise.all(
+      uploadedPublicIds.map((publicId) =>
+        deleteImage(publicId).catch((deleteErr) => {
+          console.error('Failed to cleanup uploaded registration document:', deleteErr);
+        })
+      ),
+    );
+  };
+
   try {
-    const body = await req.json();
-    const parsed = registerApiSchema.safeParse(body);
+    const contentType = req.headers.get('content-type')?.toLowerCase() || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return NextResponse.json(
+        { ok: false, error: 'Registration documents are required. Submit as multipart/form-data.' },
+        { status: 400 },
+      );
+    }
+
+    const formData = await req.formData();
+    const payloadRaw = formData.get('payload');
+    if (typeof payloadRaw !== 'string' || payloadRaw.trim() === '') {
+      return NextResponse.json(
+        { ok: false, error: 'Missing registration payload' },
+        { status: 400 },
+      );
+    }
+
+    let payloadInput: unknown;
+    try {
+      payloadInput = JSON.parse(payloadRaw);
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: 'Invalid registration payload format' },
+        { status: 400 },
+      );
+    }
+
+    const parsed = registerApiSchema.safeParse(payloadInput);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -118,6 +195,63 @@ export async function POST(req: Request) {
     const phoneDigits = payload.phone.replace(/\D/g, '');
     const memberId = `MBR-${phoneDigits}-${timestamp.toString(36)}`;
     const accountNumber = `ACC-${phoneDigits}-${timestamp.toString(36)}`;
+
+    const validatedFiles: Array<{
+      requirement: typeof REQUIRED_DOCUMENT_FIELDS[number];
+      fileEntry: File;
+    }> = [];
+
+    for (const requirement of REQUIRED_DOCUMENT_FIELDS) {
+      const fileEntry = formData.get(requirement.formKey);
+      if (!isFileEntry(fileEntry) || fileEntry.size <= 0) {
+        return NextResponse.json(
+          { ok: false, error: `${requirement.label} is required` },
+          { status: 400 },
+        );
+      }
+
+      const validation = validateImageFile(fileEntry, {
+        acceptedTypes: UPLOAD_TYPES.avatar,
+        maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+      });
+      if (!validation.valid) {
+        return NextResponse.json(
+          { ok: false, error: `${requirement.label}: ${validation.error}` },
+          { status: 400 },
+        );
+      }
+
+      validatedFiles.push({ requirement, fileEntry });
+    }
+
+    const uploadResults = await Promise.all(
+      validatedFiles.map(async ({ requirement, fileEntry }) => {
+        const fileBuffer = Buffer.from(await fileEntry.arrayBuffer());
+        const uploadResult = await uploadImage(
+          fileBuffer,
+          `registrations/members/${memberId}/${requirement.folderSlug}`,
+          {
+            preserveOriginal: true,
+            useFilename: true,
+            uniqueFilename: true,
+          },
+        );
+
+        return {
+          publicId: uploadResult.publicId,
+          document: {
+            type: requirement.documentType,
+            url: uploadResult.url,
+            fileName: fileEntry.name,
+            mimeType: fileEntry.type,
+            size: fileEntry.size,
+          },
+        };
+      }),
+    );
+
+    uploadedPublicIds.push(...uploadResults.map((entry) => entry.publicId));
+    const uploadedDocuments = uploadResults.map((entry) => entry.document);
 
     const sameAsPermanent = payload.sameAsPermanent ?? true;
     const presentFallback = sameAsPermanent;
@@ -198,6 +332,10 @@ export async function POST(req: Request) {
           },
         },
 
+        documents: {
+          create: uploadedDocuments,
+        },
+
         accounts: {
           create: {
             accountNumber,
@@ -239,6 +377,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, user: created }, { status: 201 });
   } catch (err) {
+    await cleanupUploadedAssets();
+
     if (err instanceof z.ZodError) {
       return NextResponse.json(
         { ok: false, error: 'Invalid request', details: err.flatten() },

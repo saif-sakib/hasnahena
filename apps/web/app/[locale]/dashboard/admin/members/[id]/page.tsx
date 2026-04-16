@@ -18,11 +18,15 @@ import {
   Minus,
   CheckCircle2,
   AlertCircle,
+  Loader2,
   Hash,
   Receipt,
   TrendingUp,
   Users,
   Printer,
+  FileImage,
+  Eye,
+  Download,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +56,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/lib/api';
+import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency } from '@/lib/utils';
 import {
   generateReceiptHTML,
@@ -83,6 +88,17 @@ interface MemberDetails {
     maxLoanAmount: number;
     reason?: string;
   };
+  documents?: MemberDocument[];
+}
+
+interface MemberDocument {
+  id: string;
+  type: string;
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  uploadedAt?: string;
 }
 
 interface Transaction {
@@ -130,6 +146,8 @@ export default function MemberDetailPage() {
   const [showLoanPaymentModal, setShowLoanPaymentModal] = useState(false);
   const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<Loan | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<MemberDocument | null>(null);
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
 
   // Form states
   const [depositAmount, setDepositAmount] = useState('');
@@ -415,6 +433,36 @@ export default function MemberDetailPage() {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  const formatDocumentType = (type: string) => {
+    const normalized = (type || '').toLowerCase();
+    const labels: Record<string, { en: string; bn: string }> = {
+      nid_front: { en: 'NID Front', bn: 'NID সামনের অংশ' },
+      nid_back: { en: 'NID Back', bn: 'NID পেছনের অংশ' },
+      member_photo: { en: 'Member Photo', bn: 'সদস্যের ছবি' },
+      member_signature: { en: 'Member Signature', bn: 'সদস্যের স্বাক্ষর' },
+      passport_photo: { en: 'Passport Photo', bn: 'পাসপোর্ট ছবি' },
+      nominee_photo: { en: 'Nominee Photo', bn: 'নমিনীর ছবি' },
+    };
+    return labels[normalized]?.[locale === 'bn' ? 'bn' : 'en'] || type.replace(/_/g, ' ');
+  };
+
+  const formatFileSize = (size?: number) => {
+    if (!size || size <= 0) return '-';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleDownloadDocument = async (doc: MemberDocument) => {
+    setDownloadingDocumentId(doc.id);
+    try {
+      const fallbackName = guessFileNameFromUrl(doc.url, `document-${doc.id}`);
+      await downloadDocumentFile(doc.url, doc.fileName || fallbackName);
+    } finally {
+      setDownloadingDocumentId(null);
+    }
   };
 
   const getTransactionMeta = (type: Transaction['type']) => {
@@ -726,6 +774,73 @@ export default function MemberDetailPage() {
                   )}
                 </div>
               </div>
+
+              <div className="mt-6 border-t pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <FileImage className="h-5 w-5 text-muted-foreground" />
+                  <h3 className="text-base font-semibold">
+                    {locale === 'bn' ? 'নিবন্ধন নথি' : 'Registration Documents'}
+                  </h3>
+                </div>
+
+                {member.documents && member.documents.length > 0 ? (
+                  <div className="space-y-3">
+                    {member.documents.map((doc) => (
+                      <div key={doc.id} className="rounded-sm border bg-slate-50 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className="h-14 w-14 overflow-hidden rounded-sm border bg-white">
+                              {isImageDocument(doc.url, doc.mimeType) ? (
+                                <img
+                                  src={doc.url}
+                                  alt={formatDocumentType(doc.type)}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                                  {locale === 'bn' ? 'ফাইল' : 'File'}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                            <p className="font-medium">{formatDocumentType(doc.type)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {doc.fileName || '-'} • {formatFileSize(doc.size)} • {doc.uploadedAt ? formatDate(doc.uploadedAt) : '-'}
+                            </p>
+                          </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDocument(doc)}
+                              className="inline-flex items-center gap-1 rounded-sm border px-2.5 py-1.5 text-xs font-medium hover:bg-white"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              {locale === 'bn' ? 'দেখুন' : 'View'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={downloadingDocumentId === doc.id}
+                              onClick={() => void handleDownloadDocument(doc)}
+                              className="inline-flex items-center gap-1 rounded-sm border px-2.5 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-60"
+                            >
+                              {downloadingDocumentId === doc.id
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <Download className="h-3.5 w-3.5" />}
+                              {locale === 'bn' ? 'ডাউনলোড' : 'Download'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {locale === 'bn' ? 'এই সদস্যের কোনো নথি পাওয়া যায়নি।' : 'No registration documents found for this member.'}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -856,6 +971,58 @@ export default function MemberDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={Boolean(previewDocument)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewDocument(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {previewDocument ? formatDocumentType(previewDocument.type) : (locale === 'bn' ? 'নথি' : 'Document')}
+            </DialogTitle>
+            <DialogDescription>
+              {previewDocument?.fileName || '-'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-auto rounded-sm border bg-slate-50 p-3">
+            {previewDocument && isImageDocument(previewDocument.url, previewDocument.mimeType) ? (
+              <img
+                src={previewDocument.url}
+                alt={previewDocument.fileName || 'Document preview'}
+                className="mx-auto max-h-[62vh] w-auto rounded-sm border bg-white"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {locale === 'bn' ? 'এই নথির ইনলাইন প্রিভিউ উপলব্ধ নয়।' : 'Inline preview is unavailable for this document.'}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPreviewDocument(null)}
+            >
+              {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
+            </Button>
+            {previewDocument && (
+              <Button
+                onClick={() => void handleDownloadDocument(previewDocument)}
+                disabled={downloadingDocumentId === previewDocument.id}
+              >
+                {downloadingDocumentId === previewDocument.id
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <Download className="mr-2 h-4 w-4" />}
+                {locale === 'bn' ? 'ডাউনলোড' : 'Download'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Deposit Modal */}
       <Dialog open={showDepositModal} onOpenChange={setShowDepositModal}>
