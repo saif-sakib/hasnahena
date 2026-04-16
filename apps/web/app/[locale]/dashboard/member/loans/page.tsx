@@ -7,13 +7,11 @@ import {
   HandCoins,
   AlertCircle,
   Calendar,
-  MessageCircle,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import Link from 'next/link';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -112,12 +110,6 @@ export default function LoansPage() {
         <h1 className="text-lg font-semibold text-gray-900">
           {t('myLoans')}
         </h1>
-        <Link href={`/${locale}/dashboard/member/support`}>
-          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
-            <MessageCircle className="h-3.5 w-3.5" />
-            {locale === 'bn' ? 'ঋণের জন্য আবেদন' : 'Apply for Loan'}
-          </Button>
-        </Link>
       </div>
 
       {/* Eligibility Info */}
