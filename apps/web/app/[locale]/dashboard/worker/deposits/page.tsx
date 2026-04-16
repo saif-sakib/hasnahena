@@ -15,7 +15,8 @@ import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
 import { apiGet, apiPost } from '@/lib/api';
 
-type TransactionType = 'DEPOSIT' | 'WITHDRAWAL';
+type FormTransactionType = 'DEPOSIT' | 'WITHDRAWAL';
+type TransactionType = FormTransactionType | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | string;
 
 interface Transaction {
   id: string;
@@ -27,6 +28,7 @@ interface Transaction {
   date: string;
   balanceAfter: number;
   notes?: string;
+  status?: string;
 }
 
 interface Member {
@@ -42,12 +44,13 @@ export default function WorkerDepositsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [formType, setFormType] = useState<TransactionType>('DEPOSIT');
+  const [formType, setFormType] = useState<FormTransactionType>('DEPOSIT');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     loadTransactions();
@@ -56,58 +59,37 @@ export default function WorkerDepositsPage() {
 
   const loadTransactions = async () => {
     try {
-      const data = await apiGet<{ transactions: Transaction[] }>('/v1/dashboard/worker/transactions');
-      setTransactions(data.transactions || []);
+      const data = await apiGet<any[]>('/v1/dashboard/worker/transactions');
+      const items = (data ?? []).map((item) => ({
+        id: String(item.id ?? ''),
+        memberId: String(item.memberId ?? ''),
+        memberName: String(item.memberName ?? ''),
+        memberPhone: String(item.memberPhone ?? ''),
+        type: String(item.type ?? '').toUpperCase() as TransactionType,
+        amount: Number(item.amount ?? 0),
+        date: String(item.date ?? new Date().toISOString()),
+        balanceAfter: Number(item.balanceAfter ?? 0),
+        notes: item.description ? String(item.description) : undefined,
+        status: item.status ? String(item.status) : undefined,
+      }));
+      setTransactions(items.filter((item) => item.type === 'DEPOSIT' || item.type === 'WITHDRAWAL'));
     } catch {
-      // Use mock data for now
-      setTransactions([
-        {
-          id: '1',
-          memberId: 'm1',
-          memberName: 'আব্দুল করিম',
-          memberPhone: '01712345678',
-          type: 'DEPOSIT',
-          amount: 5000,
-          date: '2025-01-14T10:30:00',
-          balanceAfter: 85000,
-        },
-        {
-          id: '2',
-          memberId: 'm2',
-          memberName: 'ফাতেমা বেগম',
-          memberPhone: '01812345678',
-          type: 'DEPOSIT',
-          amount: 10000,
-          date: '2025-01-14T09:15:00',
-          balanceAfter: 130000,
-        },
-        {
-          id: '3',
-          memberId: 'm3',
-          memberName: 'রহিম উদ্দিন',
-          memberPhone: '01912345678',
-          type: 'WITHDRAWAL',
-          amount: 15000,
-          date: '2025-01-13T14:20:00',
-          balanceAfter: 30000,
-        },
-      ]);
+      setTransactions([]);
     }
   };
 
   const loadMembers = async () => {
     try {
-      const data = await apiGet<{ members: Member[] }>('/v1/dashboard/worker/members');
-      setMembers(data.members || []);
+      const data = await apiGet<any[]>('/v1/dashboard/worker/members');
+      const items = (data ?? []).map((member) => ({
+        id: String(member.id ?? ''),
+        name: String(member.name ?? ''),
+        phone: String(member.phone ?? ''),
+        balance: Number(member.currentDeposit ?? 0),
+      }));
+      setMembers(items);
     } catch {
-      // Use mock data
-      setMembers([
-        { id: 'm1', name: 'আব্দুল করিম', phone: '01712345678', balance: 85000 },
-        { id: 'm2', name: 'ফাতেমা বেগম', phone: '01812345678', balance: 130000 },
-        { id: 'm3', name: 'রহিম উদ্দিন', phone: '01912345678', balance: 30000 },
-        { id: 'm4', name: 'সাদিয়া আক্তার', phone: '01612345678', balance: 103000 },
-        { id: 'm5', name: 'জাকির হোসেন', phone: '01512345678', balance: 78000 },
-      ]);
+      setMembers([]);
     }
   };
 
@@ -130,46 +112,44 @@ export default function WorkerDepositsPage() {
       m.phone.includes(memberSearch)
   );
 
-  const openForm = (type: TransactionType) => {
+  const openForm = (type: FormTransactionType) => {
     setFormType(type);
     setShowForm(true);
     setSelectedMember(null);
     setAmount('');
     setNotes('');
     setMemberSearch('');
+    setFormError(null);
   };
 
   const handleSubmit = async () => {
-    if (!selectedMember || !amount) return;
+    const parsedAmount = Number.parseFloat(amount);
+    if (!selectedMember || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setFormError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      return;
+    }
+    if (formType === 'WITHDRAWAL' && parsedAmount > selectedMember.balance) {
+      setFormError(locale === 'bn' ? 'পর্যাপ্ত ব্যালেন্স নেই' : 'Insufficient balance');
+      return;
+    }
 
     setIsSubmitting(true);
+    setFormError(null);
     try {
-      await apiPost('/v1/dashboard/worker/transactions', {
-        memberId: selectedMember.id,
-        type: formType,
-        amount: parseFloat(amount),
-        notes,
+      const amountPaisa = Math.round(parsedAmount * 100);
+      const endpoint =
+        formType === 'DEPOSIT'
+          ? `/v1/dashboard/worker/members/${selectedMember.id}/deposit`
+          : `/v1/dashboard/worker/members/${selectedMember.id}/withdrawal`;
+
+      await apiPost(endpoint, {
+        amount: amountPaisa,
+        notes: notes.trim(),
       });
       setShowForm(false);
-      loadTransactions();
-    } catch {
-      // For demo, add to local state
-      const newTx: Transaction = {
-        id: Date.now().toString(),
-        memberId: selectedMember.id,
-        memberName: selectedMember.name,
-        memberPhone: selectedMember.phone,
-        type: formType,
-        amount: parseFloat(amount),
-        date: new Date().toISOString(),
-        balanceAfter:
-          formType === 'DEPOSIT'
-            ? selectedMember.balance + parseFloat(amount)
-            : selectedMember.balance - parseFloat(amount),
-        notes,
-      };
-      setTransactions([newTx, ...transactions]);
-      setShowForm(false);
+      await Promise.all([loadTransactions(), loadMembers()]);
+    } catch (error: any) {
+      setFormError(error?.message || (locale === 'bn' ? 'অনুরোধ ব্যর্থ হয়েছে' : 'Request failed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -346,6 +326,11 @@ export default function WorkerDepositsPage() {
             <div className="p-4 space-y-4">
               {/* Member Selection */}
               <div>
+                {formError && (
+                  <div className="mb-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {formError}
+                  </div>
+                )}
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {locale === 'bn' ? 'সদস্য নির্বাচন করুন' : 'Select Member'}
                 </label>

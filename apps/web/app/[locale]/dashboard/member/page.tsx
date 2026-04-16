@@ -76,9 +76,10 @@ export default function MemberDashboard() {
   const transactionLabels: Record<string, { bn: string; en: string; color: string }> = {
     DEPOSIT: { bn: 'জমা', en: 'Deposit', color: 'text-green-600' },
     WITHDRAWAL: { bn: 'উত্তোলন', en: 'Withdrawal', color: 'text-red-600' },
-    LOAN_DISBURSEMENT: { bn: 'ঋণ বিতরণ', en: 'Loan', color: 'text-blue-600' },
-    LOAN_REPAYMENT: { bn: 'কিস্তি পরিশোধ', en: 'Repayment', color: 'text-amber-600' },
+    LOAN_DISBURSEMENT: { bn: 'ঋণ বিতরণ', en: 'Loan Disbursement', color: 'text-blue-600' },
+    LOAN_REPAYMENT: { bn: 'কিস্তি পরিশোধ', en: 'Loan Repayment', color: 'text-amber-600' },
   };
+  const isCreditTransaction = (type: string) => type === 'DEPOSIT' || type === 'LOAN_DISBURSEMENT';
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-8 animate-in fade-in duration-500">
@@ -109,7 +110,7 @@ export default function MemberDashboard() {
             </div>
             {t('currentBalance')}
           </div>
-          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
             {formatCurrency(data.stats.currentBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -124,7 +125,7 @@ export default function MemberDashboard() {
             </div>
             {t('totalDeposited')}
           </div>
-          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
             {formatCurrency(data.stats.totalDeposited, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -139,7 +140,7 @@ export default function MemberDashboard() {
             </div>
             {t('loanBalance')}
           </div>
-          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
             {formatCurrency(data.stats.loanBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -154,7 +155,7 @@ export default function MemberDashboard() {
             </div>
             {t('loanEligibility')}
           </div>
-          <p className="text-3xl font-bold text-neutral-900 tracking-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
             {formatCurrency(data.stats.loanEligibility, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -267,12 +268,12 @@ export default function MemberDashboard() {
                 <div className="flex items-center gap-4">
                   <div
                     className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
-                      tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT'
+                      isCreditTransaction(tx.type)
                         ? 'bg-emerald-50 text-emerald-600'
                         : 'bg-red-50 text-red-600'
                     }`}
                   >
-                    {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? (
+                    {isCreditTransaction(tx.type) ? (
                       <ArrowUpRight className="h-4 w-4" />
                     ) : (
                       <ArrowDownRight className="h-4 w-4" />
@@ -281,15 +282,15 @@ export default function MemberDashboard() {
                   <div className="flex flex-col">
                     <p className="text-[14px] font-medium tracking-wide text-neutral-900">
                       {locale === 'bn'
-                        ? transactionLabels[tx.type]?.bn
-                        : transactionLabels[tx.type]?.en}
+                        ? transactionLabels[tx.type]?.bn ?? tx.type.replace(/_/g, ' ')
+                        : transactionLabels[tx.type]?.en ?? tx.type.replace(/_/g, ' ')}
                     </p>
                     <p className="text-xs font-medium text-neutral-400 mt-0.5">{tx.receipt}</p>
                   </div>
                 </div>
                 <div className="flex flex-col items-end text-right">
-                  <p className={`text-sm font-semibold tracking-tight ${tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {tx.type.includes('DEPOSIT') || tx.type === 'LOAN_REPAYMENT' ? '+' : '-'}
+                  <p className={`text-sm font-semibold tracking-tight ${isCreditTransaction(tx.type) ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {isCreditTransaction(tx.type) ? '+' : '-'}
                     {formatCurrency(tx.amount, locale)}
                   </p>
                   <p className="text-xs font-medium text-neutral-400 mt-0.5">{formatDate(tx.date, locale)}</p>
