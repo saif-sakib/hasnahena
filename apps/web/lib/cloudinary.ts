@@ -13,6 +13,10 @@ export interface UploadOptions {
   resource_type?: 'image' | 'video' | 'raw' | 'auto';
   format?: string;
   quality?: string | number;
+  useFilename?: boolean;
+  uniqueFilename?: boolean;
+  overwrite?: boolean;
+  preserveOriginal?: boolean;
 }
 
 export interface UploadResult {
@@ -43,16 +47,22 @@ export async function uploadImage(
   try {
     ensureCloudinaryConfigured();
     const result = await new Promise<any>((resolve, reject) => {
+      const uploadOptions: Record<string, unknown> = {
+        folder: `hasnahena/${folder}`,
+        resource_type: options.resource_type || 'image',
+        transformation: options.transformation,
+        format: options.format,
+        use_filename: options.useFilename,
+        unique_filename: options.uniqueFilename,
+        overwrite: options.overwrite,
+      };
+      if (!options.preserveOriginal) {
+        uploadOptions.quality = options.quality || 'auto';
+        uploadOptions.fetch_format = 'auto';
+      }
+
       const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: `hasnahena/${folder}`,
-          resource_type: options.resource_type || 'image',
-          transformation: options.transformation,
-          format: options.format,
-          quality: options.quality || 'auto',
-          fetch_format: 'auto',
-          ...options,
-        },
+        uploadOptions,
         (error, result) => {
           if (error) reject(error);
           else resolve(result);

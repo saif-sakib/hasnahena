@@ -104,6 +104,7 @@ const memberNav = [
 // Worker navigation - based on requirements: process requests, manage members, record transactions
 const workerNav = [
   { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
+  { name: 'approvals', href: '/approvals', icon: ClipboardList, en: 'Approvals', bn: 'অনুমোদন' },
   { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposits', bn: 'আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },

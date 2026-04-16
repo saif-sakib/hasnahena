@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -831,10 +832,13 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 			t.amount::bigint,
 			t."createdAt",
 			COALESCE(t."receiptNumber", ''),
-			COALESCE(t."processedBy", ''),
+			t.status::text,
+			COALESCE(processor."nameEn", processor."nameBn", ''),
 			COALESCE(t."savingsAfter", 0)::bigint
 		FROM transactions t
-		WHERE t."userId" = $1 AND t.type = 'DEPOSIT'
+		LEFT JOIN users processor ON processor.id = t."processedBy"
+		WHERE t."userId" = $1
+		  AND t.type = 'DEPOSIT'
 		ORDER BY t."createdAt" DESC
 	`
 
@@ -847,34 +851,45 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 	deposits := make([]map[string]interface{}, 0)
 	var totalDeposited int64
 	var pendingAmount int64
-	var currentBalance int64
 
 	for rows.Next() {
-		var id, receiptNumber, processedBy string
+		var id, receiptNumber, status, processedBy string
 		var amount, balanceAfter int64
 		var createdAt time.Time
-		if scanErr := rows.Scan(&id, &amount, &createdAt, &receiptNumber, &processedBy, &balanceAfter); scanErr != nil {
+		if scanErr := rows.Scan(&id, &amount, &createdAt, &receiptNumber, &status, &processedBy, &balanceAfter); scanErr != nil {
 			continue
 		}
 
-		totalDeposited += amount
-		currentBalance = balanceAfter
+		upperStatus := strings.ToUpper(strings.TrimSpace(status))
+		if upperStatus == "CONFIRMED" || upperStatus == "PROCESSED" {
+			totalDeposited += amount
+		}
+		if upperStatus == "PENDING" {
+			pendingAmount += amount
+		}
 
 		deposit := map[string]interface{}{
 			"id":            id,
 			"amount":        amount / 100,
 			"date":          createdAt.Format(time.RFC3339),
 			"receiptNumber": receiptNumber,
-			"status":        "CONFIRMED",
+			"status":        upperStatus,
 			"processedBy":   processedBy,
-			"balanceAfter":  balanceAfter / 100,
+		}
+		if upperStatus == "CONFIRMED" || upperStatus == "PROCESSED" {
+			deposit["balanceAfter"] = balanceAfter / 100
 		}
 		deposits = append(deposits, deposit)
 	}
 
-	if len(deposits) == 0 {
-		currentBalance = 0
-	}
+	var currentBalance int64
+	_ = r.db.QueryRow(ctx, `
+		SELECT COALESCE(a."savingsBalance", 0)::bigint
+		FROM accounts a
+		WHERE a."userId" = $1
+		ORDER BY a."createdAt" DESC
+		LIMIT 1
+	`, userID).Scan(&currentBalance)
 
 	return map[string]interface{}{
 		"deposits":       deposits,
@@ -893,9 +908,11 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 			t."createdAt",
 			COALESCE(t."receiptNumber", ''),
 			COALESCE(t.description, ''),
-			COALESCE(t."savingsAfter", 0)::bigint,
-			COALESCE(t."processedBy", '')
+			COALESCE(t."savingsAfter", t."loanAfter", 0)::bigint,
+			COALESCE(processor."nameEn", processor."nameBn", ''),
+			t.status::text
 		FROM transactions t
+		LEFT JOIN users processor ON processor.id = t."processedBy"
 		WHERE t."userId" = $1
 		ORDER BY t."createdAt" DESC
 	`
@@ -907,21 +924,21 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 
 	transactions := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, txType, receipt, description, processedBy string
+		var id, txType, receipt, description, processedBy, status string
 		var amount, balanceAfter int64
 		var createdAt time.Time
-		if scanErr := rows.Scan(&id, &txType, &amount, &createdAt, &receipt, &description, &balanceAfter, &processedBy); scanErr != nil {
+		if scanErr := rows.Scan(&id, &txType, &amount, &createdAt, &receipt, &description, &balanceAfter, &processedBy, &status); scanErr != nil {
 			continue
 		}
 
 		transactions = append(transactions, map[string]interface{}{
 			"id":            id,
-			"type":          txType,
+			"type":          strings.ToUpper(strings.TrimSpace(txType)),
 			"amount":        amount / 100,
 			"date":          createdAt.Format(time.RFC3339),
 			"receiptNumber": receipt,
 			"description":   description,
-			"status":        "CONFIRMED",
+			"status":        strings.ToUpper(strings.TrimSpace(status)),
 			"balanceAfter":  balanceAfter / 100,
 			"processedBy":   processedBy,
 		})
@@ -1537,15 +1554,17 @@ func (r *UserRepository) UpdateUserStatus(ctx context.Context, userID string, st
 
 // ==================== APPROVAL MANAGEMENT ====================
 
-func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]interface{}, error) {
+func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistration bool) (map[string]interface{}, error) {
 	result := map[string]interface{}{
 		"registrationRequests": []map[string]interface{}{},
 		"loanRequests":         []map[string]interface{}{},
 		"withdrawalRequests":   []map[string]interface{}{},
+		"transactionRequests":  []map[string]interface{}{},
 	}
 
 	// Get pending user registrations
-	const regQuery = `
+	if includeRegistration {
+		const regQuery = `
 		SELECT
 			u.id,
 			COALESCE(u."nameEn", ''),
@@ -1578,7 +1597,22 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 			COALESCE(n."nidNumber", ''),
 			COALESCE(n.phone, ''),
 			u."createdAt",
-			ARRAY[]::text[] as documents
+			COALESCE((
+				SELECT jsonb_agg(
+					jsonb_build_object(
+						'id', d.id,
+						'type', d.type::text,
+						'url', d.url,
+						'fileName', COALESCE(d."fileName", ''),
+						'mimeType', COALESCE(d."mimeType", ''),
+						'size', COALESCE(d.size, 0),
+						'uploadedAt', d."uploadedAt"
+					)
+					ORDER BY d."uploadedAt" ASC
+				)
+				FROM documents d
+				WHERE d."userId" = u.id
+			), '[]'::jsonb) as documents
 		FROM users u
 		LEFT JOIN addresses a ON a."userPermanentId" = u.id
 		LEFT JOIN addresses pa ON pa.id = u."presentAddressId"
@@ -1586,77 +1620,84 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 		WHERE u.status = 'PENDING' AND u.role = 'MEMBER'
 		ORDER BY u."createdAt" DESC
 	`
-	regRows, err := r.db.Query(ctx, regQuery)
-	if err == nil {
-		defer regRows.Close()
-		registrations := []map[string]interface{}{}
-		for regRows.Next() {
-			var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
-			var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
-			var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
-			var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
-			var childrenCount int
-			var dateOfBirth *time.Time
-			var createdAt time.Time
-			var documents []string
-			if err := regRows.Scan(
-				&id, &name, &nameBn, &email, &phone, &nid,
-				&fatherName, &motherName, &gender, &maritalStatus, &bloodGroup, &profession, &childrenCount, &dateOfBirth,
-				&area,
-				&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
-				&presentDistrict, &presentHouseNo, &presentRoadNo, &presentVillage, &presentUnion, &presentPoliceStation,
-				&nomineeName, &nomineeRelationship, &nomineeNID, &nomineePhone,
-				&createdAt, &documents,
-			); err != nil {
-				continue
+		regRows, err := r.db.Query(ctx, regQuery)
+		if err == nil {
+			defer regRows.Close()
+			registrations := []map[string]interface{}{}
+			for regRows.Next() {
+				var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
+				var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
+				var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
+				var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
+				var childrenCount int
+				var dateOfBirth *time.Time
+				var createdAt time.Time
+				var documentsJSON []byte
+				if err := regRows.Scan(
+					&id, &name, &nameBn, &email, &phone, &nid,
+					&fatherName, &motherName, &gender, &maritalStatus, &bloodGroup, &profession, &childrenCount, &dateOfBirth,
+					&area,
+					&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
+					&presentDistrict, &presentHouseNo, &presentRoadNo, &presentVillage, &presentUnion, &presentPoliceStation,
+					&nomineeName, &nomineeRelationship, &nomineeNID, &nomineePhone,
+					&createdAt, &documentsJSON,
+				); err != nil {
+					continue
+				}
+				documents := []map[string]interface{}{}
+				if len(documentsJSON) > 0 {
+					if err := json.Unmarshal(documentsJSON, &documents); err != nil {
+						documents = []map[string]interface{}{}
+					}
+				}
+				dateOfBirthValue := ""
+				if dateOfBirth != nil {
+					dateOfBirthValue = dateOfBirth.Format(time.RFC3339)
+				}
+				registrations = append(registrations, map[string]interface{}{
+					"id":            id,
+					"name":          name,
+					"nameBn":        nameBn,
+					"email":         email,
+					"phone":         phone,
+					"nidNumber":     nid,
+					"area":          area,
+					"fatherName":    fatherName,
+					"motherName":    motherName,
+					"gender":        gender,
+					"maritalStatus": maritalStatus,
+					"bloodGroup":    bloodGroup,
+					"profession":    profession,
+					"childrenCount": childrenCount,
+					"dateOfBirth":   dateOfBirthValue,
+					"permanentAddress": map[string]interface{}{
+						"houseNo":       permanentHouseNo,
+						"roadNo":        permanentRoadNo,
+						"village":       permanentVillage,
+						"union":         permanentUnion,
+						"policeStation": permanentPoliceStation,
+						"district":      area,
+					},
+					"presentAddress": map[string]interface{}{
+						"houseNo":       presentHouseNo,
+						"roadNo":        presentRoadNo,
+						"village":       presentVillage,
+						"union":         presentUnion,
+						"policeStation": presentPoliceStation,
+						"district":      presentDistrict,
+					},
+					"nominee": map[string]interface{}{
+						"name":         nomineeName,
+						"relationship": nomineeRelationship,
+						"nidNumber":    nomineeNID,
+						"phone":        nomineePhone,
+					},
+					"requestDate": createdAt.Format(time.RFC3339),
+					"documents":   documents,
+				})
 			}
-			dateOfBirthValue := ""
-			if dateOfBirth != nil {
-				dateOfBirthValue = dateOfBirth.Format(time.RFC3339)
-			}
-			registrations = append(registrations, map[string]interface{}{
-				"id":            id,
-				"name":          name,
-				"nameBn":        nameBn,
-				"email":         email,
-				"phone":         phone,
-				"nidNumber":     nid,
-				"area":          area,
-				"fatherName":    fatherName,
-				"motherName":    motherName,
-				"gender":        gender,
-				"maritalStatus": maritalStatus,
-				"bloodGroup":    bloodGroup,
-				"profession":    profession,
-				"childrenCount": childrenCount,
-				"dateOfBirth":   dateOfBirthValue,
-				"permanentAddress": map[string]interface{}{
-					"houseNo":       permanentHouseNo,
-					"roadNo":        permanentRoadNo,
-					"village":       permanentVillage,
-					"union":         permanentUnion,
-					"policeStation": permanentPoliceStation,
-					"district":      area,
-				},
-				"presentAddress": map[string]interface{}{
-					"houseNo":       presentHouseNo,
-					"roadNo":        presentRoadNo,
-					"village":       presentVillage,
-					"union":         presentUnion,
-					"policeStation": presentPoliceStation,
-					"district":      presentDistrict,
-				},
-				"nominee": map[string]interface{}{
-					"name":         nomineeName,
-					"relationship": nomineeRelationship,
-					"nidNumber":    nomineeNID,
-					"phone":        nomineePhone,
-				},
-				"requestDate": createdAt.Format(time.RFC3339),
-				"documents":   documents,
-			})
+			result["registrationRequests"] = registrations
 		}
-		result["registrationRequests"] = registrations
 	}
 
 	// Get pending loan requests
@@ -1709,9 +1750,9 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 				"memberId":          memberId,
 				"memberName":        memberName,
 				"memberNameBn":      memberNameBn,
-				"requestedAmount":   amount,
-				"currentDeposit":    currentDeposit,
-				"maxEligible":       maxEligible,
+				"requestedAmount":   amount / 100,
+				"currentDeposit":    currentDeposit / 100,
+				"maxEligible":       maxEligible / 100,
 				"guarantorId":       guarantorId,
 				"guarantorName":     guarantorName,
 				"guarantorApproved": guarantorId != "",
@@ -1724,7 +1765,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 		result["loanRequests"] = loans
 	}
 
-	const withdrawalQuery = `
+	const transactionRequestQuery = `
 		SELECT
 			t.id,
 			t.type::text,
@@ -1732,33 +1773,43 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context) (map[string]in
 			t.status::text,
 			t."createdAt",
 			COALESCE(u."nameEn", ''),
-			COALESCE(u."memberId", '')
+			COALESCE(u."memberId", ''),
+			COALESCE(t."receiptNumber", ''),
+			COALESCE(t.description, ''),
+			COALESCE(l."loanNumber", '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
-		WHERE t.type = 'WITHDRAWAL' AND t.status = 'PENDING'
+		LEFT JOIN loans l ON l.id = t."loanId"
+		WHERE t.status = 'PENDING'
+		  AND t.type IN ('WITHDRAWAL', 'DEPOSIT', 'LOAN_REPAYMENT')
 		ORDER BY t."createdAt" DESC
 	`
-	withdrawalRows, err := r.db.Query(ctx, withdrawalQuery)
+	requestRows, err := r.db.Query(ctx, transactionRequestQuery)
 	if err == nil {
-		defer withdrawalRows.Close()
-		withdrawals := []map[string]interface{}{}
-		for withdrawalRows.Next() {
-			var id, txType, status, memberName, memberID string
+		defer requestRows.Close()
+		requests := []map[string]interface{}{}
+		for requestRows.Next() {
+			var id, txType, status, memberName, memberID, reference, notes, loanNumber string
 			var amount int64
 			var createdAt time.Time
-			if err := withdrawalRows.Scan(&id, &txType, &amount, &status, &createdAt, &memberName, &memberID); err != nil {
+			if err := requestRows.Scan(&id, &txType, &amount, &status, &createdAt, &memberName, &memberID, &reference, &notes, &loanNumber); err != nil {
 				continue
 			}
-			withdrawals = append(withdrawals, map[string]interface{}{
+			requests = append(requests, map[string]interface{}{
 				"id":            id,
-				"type":          txType,
-				"amount":        amount,
-				"status":        status,
+				"type":          strings.ToUpper(strings.TrimSpace(txType)),
+				"amount":        amount / 100,
+				"status":        strings.ToUpper(strings.TrimSpace(status)),
 				"member":        map[string]interface{}{"name": memberName, "memberId": memberID},
+				"requestDate":   createdAt.Format(time.RFC3339),
 				"processedDate": createdAt.Format(time.RFC3339),
+				"reference":     reference,
+				"notes":         notes,
+				"loanNumber":    loanNumber,
 			})
 		}
-		result["withdrawalRequests"] = withdrawals
+		result["transactionRequests"] = requests
+		result["withdrawalRequests"] = requests
 	}
 
 	return result, nil
@@ -1989,8 +2040,12 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 		SET status = 'INACTIVE', "updatedAt" = NOW()
 		WHERE id = $1
 	`
-	if _, err := tx.Exec(ctx, updateQuery, userID); err != nil {
+	updateResult, err := tx.Exec(ctx, updateQuery, userID)
+	if err != nil {
 		return err
+	}
+	if updateResult.RowsAffected() == 0 {
+		return errors.New("registration not found")
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -2014,53 +2069,110 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 	}
 	defer tx.Rollback(ctx)
 
-	// Get loan details
 	var principalAmount int64
-	var borrowerID, accountID string
+	var borrowerID, accountID, loanStatus, loanNumber string
 	const loanQuery = `
-		SELECT "principalAmount", "borrowerId", "accountId"
+		SELECT
+			"principalAmount"::bigint,
+			"borrowerId",
+			"accountId",
+			status::text,
+			COALESCE("loanNumber", '')
 		FROM loans
 		WHERE id = $1
+		FOR UPDATE
 	`
-	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &accountID); err != nil {
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &accountID, &loanStatus, &loanNumber); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("loan request not found")
+		}
 		return err
 	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
+		return errors.New("only pending loan requests can be approved")
+	}
 
-	// Update loan status to ACTIVE and set disbursement date
 	const updateLoanQuery = `
 		UPDATE loans
-		SET status = 'ACTIVE', "disbursementDate" = NOW(), "approvedAt" = NOW(), "approvedBy" = $2, "updatedAt" = NOW()
+		SET status = 'ACTIVE',
+			"disbursementDate" = NOW(),
+			"approvedAt" = NOW(),
+			"approvedBy" = $2,
+			"remainingAmount" = $3,
+			"updatedAt" = NOW()
 		WHERE id = $1
 	`
-	if _, err := tx.Exec(ctx, updateLoanQuery, loanID, approverID); err != nil {
+	if _, err := tx.Exec(ctx, updateLoanQuery, loanID, approverID, principalAmount); err != nil {
 		return err
 	}
 
-	// Update account loan balance
+	var updatedLoanBalance, savingsBalance int64
 	const updateAccountQuery = `
 		UPDATE accounts
-		SET "loanBalance" = "loanBalance" + $2, "updatedAt" = NOW()
+		SET "loanBalance" = "loanBalance" + $2,
+			"updatedAt" = NOW()
 		WHERE id = $1
+		RETURNING "loanBalance"::bigint, "savingsBalance"::bigint
 	`
-	if _, err := tx.Exec(ctx, updateAccountQuery, accountID, principalAmount); err != nil {
+	if err := tx.QueryRow(ctx, updateAccountQuery, accountID, principalAmount).Scan(&updatedLoanBalance, &savingsBalance); err != nil {
 		return err
 	}
 
-	// Create LOAN_DISBURSEMENT transaction
 	const txnQuery = `
-		INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId", "processedBy")
-		VALUES (gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, 'ঋণ বিতরণ', NOW(), $2, $3, $4, $5)
+		INSERT INTO transactions (
+			id,
+			type,
+			amount,
+			description,
+			status,
+			"createdAt",
+			"processedAt",
+			"confirmedAt",
+			"accountId",
+			"userId",
+			"loanId",
+			"processedBy",
+			"savingsAfter",
+			"loanAfter"
+		)
+		VALUES (
+			gen_random_uuid()::text,
+			'LOAN_DISBURSEMENT',
+			$1,
+			'Loan approved and disbursed',
+			'CONFIRMED',
+			NOW(),
+			NOW(),
+			NOW(),
+			$2,
+			$3,
+			$4,
+			$5,
+			$6,
+			$7
+		)
 	`
-	if _, err := tx.Exec(ctx, txnQuery, principalAmount, accountID, borrowerID, loanID, approverID); err != nil {
+	if _, err := tx.Exec(ctx, txnQuery, principalAmount, accountID, borrowerID, loanID, approverID, savingsBalance, updatedLoanBalance); err != nil {
 		return err
 	}
 
-	// Create audit log
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan approved",
+		fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.", loanNumber, float64(principalAmount)/100),
+		&borrowerID,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify member: %w", err)
+	}
+
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt")
 		VALUES (gen_random_uuid()::text, 'APPROVE_LOAN', 'LOAN', $1, $2, NOW())
 	`
-	tx.Exec(ctx, auditQuery, loanID, approverID)
+	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID)
 
 	return tx.Commit(ctx)
 }
@@ -2072,7 +2184,22 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 	}
 	defer tx.Rollback(ctx)
 
-	// Update loan status to REJECTED
+	var borrowerID, loanStatus, loanNumber string
+	if err := tx.QueryRow(ctx, `
+		SELECT "borrowerId", status::text, COALESCE("loanNumber", '')
+		FROM loans
+		WHERE id = $1
+		FOR UPDATE
+	`, loanID).Scan(&borrowerID, &loanStatus, &loanNumber); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("loan request not found")
+		}
+		return err
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
+		return errors.New("only pending loan requests can be rejected")
+	}
+
 	const updateQuery = `
 		UPDATE loans
 		SET status = 'REJECTED', "updatedAt" = NOW()
@@ -2082,12 +2209,28 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 		return err
 	}
 
-	// Create audit log
+	reason = strings.TrimSpace(reason)
+	memberMessage := fmt.Sprintf("Your loan request %s has been rejected.", loanNumber)
+	if reason != "" {
+		memberMessage = fmt.Sprintf("%s Reason: %s", memberMessage, reason)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan request rejected",
+		memberMessage,
+		&borrowerID,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify member: %w", err)
+	}
+
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'REJECT_LOAN', 'LOAN', $1, $2, NOW(), $3)
 	`
-	tx.Exec(ctx, auditQuery, loanID, approverID, reason)
+	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID, reason)
 
 	return tx.Commit(ctx)
 }
@@ -2099,19 +2242,30 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 	}
 	defer tx.Rollback(ctx)
 
-	var txType, txStatus, accountID string
+	var txType, txStatus, accountID, memberID, loanID string
 	var amount int64
 	const getQuery = `
-		SELECT type::text, status::text, amount::bigint, "accountId"
+		SELECT
+			type::text,
+			status::text,
+			amount::bigint,
+			"accountId",
+			"userId",
+			COALESCE("loanId"::text, '')
 		FROM transactions
 		WHERE id = $1
+		FOR UPDATE
 	`
-	if err := tx.QueryRow(ctx, getQuery, requestID).Scan(&txType, &txStatus, &amount, &accountID); err != nil {
+	if err := tx.QueryRow(ctx, getQuery, requestID).Scan(&txType, &txStatus, &amount, &accountID, &memberID, &loanID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("transaction request not found")
+		}
 		return err
 	}
-	if txStatus != "PENDING" {
+	if strings.ToUpper(strings.TrimSpace(txStatus)) != "PENDING" {
 		return fmt.Errorf("only pending transactions can be approved")
 	}
+	txType = strings.ToUpper(strings.TrimSpace(txType))
 
 	if txType == "DEPOSIT" {
 		var savingsBalance, loanBalance int64
@@ -2129,6 +2283,18 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 		`, requestID, approverID, newSavings, loanBalance); err != nil {
 			return err
 		}
+		amountTaka := float64(amount) / 100
+		if err := r.insertNotificationTx(
+			ctx,
+			tx,
+			"DEPOSIT_CONFIRMED",
+			"Deposit request approved",
+			fmt.Sprintf("Your deposit request for BDT %.2f has been approved.", amountTaka),
+			&memberID,
+			nil,
+		); err != nil {
+			return fmt.Errorf("failed to notify member: %w", err)
+		}
 	} else if txType == "WITHDRAWAL" {
 		if _, err := tx.Exec(ctx, `
 			UPDATE transactions
@@ -2136,6 +2302,89 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			WHERE id = $1
 		`, requestID, approverID); err != nil {
 			return err
+		}
+	} else if txType == "LOAN_REPAYMENT" {
+		if strings.TrimSpace(loanID) == "" {
+			return fmt.Errorf("loan repayment request missing loan reference")
+		}
+
+		var remainingAmount int64
+		var loanStatus string
+		if err := tx.QueryRow(ctx, `
+			SELECT "remainingAmount"::bigint, status::text
+			FROM loans
+			WHERE id = $1 AND "borrowerId" = $2
+			FOR UPDATE
+		`, loanID, memberID).Scan(&remainingAmount, &loanStatus); err != nil {
+			return err
+		}
+		normalizedLoanStatus := strings.ToUpper(strings.TrimSpace(loanStatus))
+		if normalizedLoanStatus != "ACTIVE" && normalizedLoanStatus != "APPROVED" {
+			return fmt.Errorf("loan is not active")
+		}
+		if amount > remainingAmount {
+			return fmt.Errorf("repayment exceeds remaining balance")
+		}
+
+		newRemaining := remainingAmount - amount
+		loanUpdateStatus := "ACTIVE"
+		if newRemaining <= 0 {
+			loanUpdateStatus = "COMPLETED"
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE loans
+			SET "remainingAmount" = $1,
+				"paidInstallments" = "paidInstallments" + 1,
+				status = $2::"LoanStatus",
+				"completedAt" = CASE WHEN $2 = 'COMPLETED' THEN NOW() ELSE "completedAt" END,
+				"updatedAt" = NOW()
+			WHERE id = $3
+		`, newRemaining, loanUpdateStatus, loanID); err != nil {
+			return err
+		}
+
+		var newLoanBalance, savingsBalance int64
+		if err := tx.QueryRow(ctx, `
+			UPDATE accounts
+			SET "loanBalance" = GREATEST("loanBalance" - $1, 0),
+				"updatedAt" = NOW()
+			WHERE id = $2
+			RETURNING "loanBalance"::bigint, "savingsBalance"::bigint
+		`, amount, accountID).Scan(&newLoanBalance, &savingsBalance); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx, `
+			UPDATE transactions
+			SET status = 'CONFIRMED',
+				"processedAt" = NOW(),
+				"confirmedAt" = NOW(),
+				"processedBy" = $2,
+				"savingsAfter" = $3,
+				"loanAfter" = $4
+			WHERE id = $1
+		`, requestID, approverID, savingsBalance, newLoanBalance); err != nil {
+			return err
+		}
+
+		amountTaka := float64(amount) / 100
+		memberTitle := "Loan repayment approved"
+		memberMessage := fmt.Sprintf("Your loan repayment request for BDT %.2f has been approved.", amountTaka)
+		if loanUpdateStatus == "COMPLETED" {
+			memberTitle = "Loan completed"
+			memberMessage = fmt.Sprintf("Your final repayment request for BDT %.2f has been approved and the loan is now completed.", amountTaka)
+		}
+		if err := r.insertNotificationTx(
+			ctx,
+			tx,
+			"SYSTEM_ALERT",
+			memberTitle,
+			memberMessage,
+			&memberID,
+			nil,
+		); err != nil {
+			return fmt.Errorf("failed to notify member: %w", err)
 		}
 	} else {
 		return fmt.Errorf("unsupported transaction type")
@@ -2156,20 +2405,56 @@ func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approv
 	}
 	defer tx.Rollback(ctx)
 
-	var txStatus string
-	if err := tx.QueryRow(ctx, `SELECT status::text FROM transactions WHERE id = $1`, requestID).Scan(&txStatus); err != nil {
+	var txStatus, txType, memberID string
+	if err := tx.QueryRow(ctx, `
+		SELECT status::text, type::text, "userId"
+		FROM transactions
+		WHERE id = $1
+		FOR UPDATE
+	`, requestID).Scan(&txStatus, &txType, &memberID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("transaction request not found")
+		}
 		return err
 	}
-	if txStatus != "PENDING" {
+	if strings.ToUpper(strings.TrimSpace(txStatus)) != "PENDING" {
 		return fmt.Errorf("only pending transactions can be rejected")
+	}
+	txType = strings.ToUpper(strings.TrimSpace(txType))
+	if txType != "DEPOSIT" && txType != "WITHDRAWAL" && txType != "LOAN_REPAYMENT" {
+		return fmt.Errorf("unsupported transaction type")
 	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE transactions
-		SET status = 'REJECTED', "processedAt" = NOW(), "processedBy" = $2, description = COALESCE($3, description)
+		SET status = 'REJECTED',
+			"processedAt" = NOW(),
+			"processedBy" = $2,
+			description = COALESCE(NULLIF($3, ''), description)
 		WHERE id = $1
 	`, requestID, approverID, reason); err != nil {
 		return err
+	}
+
+	requestLabel := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(txType), "_", " "))
+	notifyMessage := "Your payment request was rejected."
+	if requestLabel != "" {
+		notifyMessage = fmt.Sprintf("Your %s request was rejected.", requestLabel)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason != "" {
+		notifyMessage = fmt.Sprintf("%s Reason: %s", notifyMessage, reason)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Request rejected",
+		notifyMessage,
+		&memberID,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify member: %w", err)
 	}
 
 	_, _ = tx.Exec(ctx, `
@@ -2178,6 +2463,279 @@ func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approv
 	`, requestID, approverID, reason)
 
 	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberID string, amount int64, bkashReference, notes string) (string, error) {
+	reference := strings.TrimSpace(bkashReference)
+	if reference == "" {
+		return "", errors.New("bkash reference is required")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var memberStatus, accountID, memberName string
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
+			a.id::text,
+			COALESCE(u."nameEn", '')
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1
+		  AND u.role = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&memberStatus, &accountID, &memberName); err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+
+	var existingRequestID string
+	dupErr := tx.QueryRow(ctx, `
+		SELECT t.id::text
+		FROM transactions t
+		WHERE t."userId" = $1
+		  AND t.type = 'DEPOSIT'
+		  AND t.status = 'PENDING'
+		  AND t.amount = $2
+		  AND COALESCE(t."receiptNumber", '') = $3
+		ORDER BY t."createdAt" DESC
+		LIMIT 1
+	`, memberID, amount, reference).Scan(&existingRequestID)
+	if dupErr == nil {
+		return "", errors.New("duplicate pending deposit request")
+	}
+	if !errors.Is(dupErr, pgx.ErrNoRows) {
+		return "", dupErr
+	}
+
+	description := strings.TrimSpace(notes)
+	if description == "" {
+		description = "Member-submitted bKash deposit request"
+	}
+
+	var requestID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO transactions (
+			id,
+			type,
+			amount,
+			"receiptNumber",
+			description,
+			status,
+			"createdAt",
+			"accountId",
+			"userId"
+		) VALUES (
+			gen_random_uuid()::text,
+			'DEPOSIT',
+			$1,
+			$2,
+			$3,
+			'PENDING',
+			NOW(),
+			$4,
+			$5
+		)
+		RETURNING id::text
+	`, amount, reference, description, accountID, memberID).Scan(&requestID); err != nil {
+		return "", err
+	}
+
+	amountTaka := float64(amount) / 100
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New deposit request",
+		fmt.Sprintf("%s submitted a deposit request for BDT %.2f (bKash ref: %s).", memberName, amountTaka, reference),
+		nil,
+		normalizedRolePtr("ADMIN"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify admins: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New deposit request",
+		fmt.Sprintf("%s submitted a deposit request for BDT %.2f (bKash ref: %s).", memberName, amountTaka, reference),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify staff: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Deposit request submitted",
+		fmt.Sprintf("Your deposit request for BDT %.2f has been submitted and is awaiting review.", amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to notify member: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+
+	return requestID, nil
+}
+
+func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, memberID, loanID string, amount int64, bkashReference, notes string) (string, error) {
+	reference := strings.TrimSpace(bkashReference)
+	if reference == "" {
+		return "", errors.New("bkash reference is required")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var memberStatus, accountID, memberName string
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
+			a.id::text,
+			COALESCE(u."nameEn", '')
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1
+		  AND u.role = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&memberStatus, &accountID, &memberName); err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+
+	var remainingAmount int64
+	var loanStatus, loanNumber string
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			"remainingAmount"::bigint,
+			status::text,
+			COALESCE("loanNumber", '')
+		FROM loans
+		WHERE id = $1
+		  AND "borrowerId" = $2
+		FOR UPDATE
+	`, loanID, memberID).Scan(&remainingAmount, &loanStatus, &loanNumber); err != nil {
+		return "", errors.New("loan not found")
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "ACTIVE" {
+		return "", errors.New("loan is not active")
+	}
+	if amount > remainingAmount {
+		return "", errors.New("repayment exceeds remaining balance")
+	}
+
+	var existingRequestID string
+	dupErr := tx.QueryRow(ctx, `
+		SELECT t.id::text
+		FROM transactions t
+		WHERE t."userId" = $1
+		  AND t.type = 'LOAN_REPAYMENT'
+		  AND t.status = 'PENDING'
+		  AND t."loanId" = $2
+		  AND t.amount = $3
+		  AND COALESCE(t."receiptNumber", '') = $4
+		ORDER BY t."createdAt" DESC
+		LIMIT 1
+	`, memberID, loanID, amount, reference).Scan(&existingRequestID)
+	if dupErr == nil {
+		return "", errors.New("duplicate pending loan repayment request")
+	}
+	if !errors.Is(dupErr, pgx.ErrNoRows) {
+		return "", dupErr
+	}
+
+	description := strings.TrimSpace(notes)
+	if description == "" {
+		description = "Member-submitted bKash loan repayment request"
+	}
+
+	var requestID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO transactions (
+			id,
+			type,
+			amount,
+			"receiptNumber",
+			description,
+			status,
+			"createdAt",
+			"accountId",
+			"userId",
+			"loanId"
+		) VALUES (
+			gen_random_uuid()::text,
+			'LOAN_REPAYMENT',
+			$1,
+			$2,
+			$3,
+			'PENDING',
+			NOW(),
+			$4,
+			$5,
+			$6
+		)
+		RETURNING id::text
+	`, amount, reference, description, accountID, memberID, loanID).Scan(&requestID); err != nil {
+		return "", err
+	}
+
+	amountTaka := float64(amount) / 100
+	requestSummary := fmt.Sprintf("%s submitted a loan repayment request for BDT %.2f (Loan %s, bKash ref: %s).", memberName, amountTaka, loanNumber, reference)
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New loan repayment request",
+		requestSummary,
+		nil,
+		normalizedRolePtr("ADMIN"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify admins: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New loan repayment request",
+		requestSummary,
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify staff: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan repayment request submitted",
+		fmt.Sprintf("Your loan repayment request for BDT %.2f has been submitted and is awaiting review.", amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to notify member: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+
+	return requestID, nil
 }
 
 // ==================== DEPOSIT & TRANSACTION MANAGEMENT ====================
@@ -3570,6 +4128,46 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		}
 		loans = append(loans, loan)
 	}
+
+	const documentQuery = `
+		SELECT
+			d.id::text,
+			COALESCE(d.type, ''),
+			COALESCE(d.url, ''),
+			COALESCE(d."fileName", ''),
+			COALESCE(d."mimeType", ''),
+			COALESCE(d.size, 0)::bigint,
+			d."uploadedAt"
+		FROM documents d
+		WHERE d."userId" = $1
+		ORDER BY d."uploadedAt" ASC
+	`
+	documentRows, err := r.db.Query(ctx, documentQuery, memberID)
+	if err != nil {
+		return nil, err
+	}
+	defer documentRows.Close()
+
+	documents := make([]map[string]interface{}, 0)
+	for documentRows.Next() {
+		var docID, docType, docURL, fileName, mimeType string
+		var size int64
+		var uploadedAt time.Time
+		if err := documentRows.Scan(&docID, &docType, &docURL, &fileName, &mimeType, &size, &uploadedAt); err != nil {
+			continue
+		}
+		documents = append(documents, map[string]interface{}{
+			"id":         docID,
+			"type":       docType,
+			"url":        docURL,
+			"fileName":   fileName,
+			"mimeType":   mimeType,
+			"size":       size,
+			"uploadedAt": uploadedAt.Format(time.RFC3339),
+		})
+	}
+
+	member["documents"] = documents
 
 	return map[string]interface{}{
 		"member":       member,

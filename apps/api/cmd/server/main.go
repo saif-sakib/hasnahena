@@ -120,6 +120,8 @@ func main() {
 			dashboard.Get("/member/deposits", dashboardHandler.MemberDeposits)
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
+			dashboard.Post("/member/requests/deposit", dashboardHandler.MemberCreateDepositRequest)
+			dashboard.Post("/member/requests/loan-repayment", dashboardHandler.MemberCreateLoanRepaymentRequest)
 			dashboard.Get("/member/profile", dashboardHandler.MemberProfile)
 
 			// Worker routes
@@ -149,6 +151,8 @@ func main() {
 			dashboard.Get("/admin/approvals", dashboardHandler.AdminApprovals)
 			dashboard.Post("/admin/approvals/registration", dashboardHandler.ApproveRegistration)
 			dashboard.Post("/admin/approvals/registration/reject", dashboardHandler.RejectRegistration)
+			dashboard.Post("/admin/approvals/loan", dashboardHandler.ApproveLoan)
+			dashboard.Post("/admin/approvals/loan/reject", dashboardHandler.RejectLoan)
 			dashboard.Post("/admin/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
 			dashboard.Post("/admin/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
 
