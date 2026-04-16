@@ -10,7 +10,6 @@ import {
   ArrowDownRight,
   ChevronRight,
   Calendar,
-  MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
@@ -93,12 +92,6 @@ export default function MemberDashboard() {
             {locale === 'bn' ? 'আপনার অ্যাকাউন্টের সারসংক্ষেপ' : 'Your account summary'}
           </p>
         </div>
-        <Link href={`/${locale}/dashboard/member/support`}>
-          <Button size="sm" variant="outline" className="h-9 gap-2 shadow-sm rounded-full px-4 border-neutral-200/60 hover:bg-neutral-50">
-            <MessageCircle className="h-4 w-4 text-neutral-500" />
-            <span className="text-[14px] font-medium tracking-wide">{locale === 'bn' ? 'সাপোর্ট' : 'Support'}</span>
-          </Button>
-        </Link>
       </div>
 
       {/* Account Summary */}

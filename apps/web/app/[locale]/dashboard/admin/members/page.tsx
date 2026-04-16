@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -30,6 +31,8 @@ const INITIAL_DISPLAY_COUNT = 15;
 
 export default function AdminMembersPage() {
   const locale = useLocale();
+  const pathname = usePathname();
+  const roleSegment = pathname.includes('/dashboard/worker') ? 'worker' : 'admin';
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
@@ -40,7 +43,7 @@ export default function AdminMembersPage() {
     const loadMembers = async () => {
       setIsLoading(true);
       try {
-        const data = await apiGet<Array<Member & { role?: string }>>('/v1/dashboard/admin/members');
+        const data = await apiGet<Array<Member & { role?: string }>>('/v1/dashboard/worker/members');
         setMembers(
           data.map((member): Member => {
             const normalized = member.status.toUpperCase();
@@ -171,7 +174,7 @@ export default function AdminMembersPage() {
               displayedMembers.map((member) => (
                 <tr key={member.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <Link href={`/${locale}/dashboard/admin/members/${member.id}`} className="block hover:text-blue-600">
+                    <Link href={`/${locale}/dashboard/${roleSegment}/members/${member.id}`} className="block hover:text-blue-600">
                       <div className="font-medium text-gray-900">{member.name}</div>
                       <div className="text-xs text-gray-500">#{member.uid} {member.memberId && `• ${member.memberId}`}</div>
                     </Link>
