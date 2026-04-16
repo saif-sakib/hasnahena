@@ -1,13 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Receipt,
   Search,
-  Filter,
   Calendar,
-  User,
   Wallet,
   HandCoins,
   ArrowDownLeft,
@@ -37,9 +35,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { formatCurrency } from '@/lib/utils';
+import { apiGet } from '@/lib/api';
 
-type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_PAYMENT';
-type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'DISPUTED';
+type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | 'DONATION' | 'FEE' | string;
+type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'DISPUTED' | 'PROCESSED' | 'REJECTED' | string;
 
 interface Transaction {
   id: string;
@@ -62,110 +61,37 @@ export default function WorkerTransactionsPage() {
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Mock data
-  const transactions: Transaction[] = [
-    {
-      id: 'TXN001',
-      memberId: 'm1',
-      memberName: 'আব্দুল করিম',
-      memberPhone: '01712345678',
-      type: 'DEPOSIT',
-      amount: 5000,
-      status: 'CONFIRMED',
-      date: '2025-01-14T10:30:00',
-      balanceAfter: 85000,
-      reference: 'DEP-20250114-001',
-    },
-    {
-      id: 'TXN002',
-      memberId: 'm2',
-      memberName: 'ফাতেমা বেগম',
-      memberPhone: '01812345678',
-      type: 'LOAN_PAYMENT',
-      amount: 5000,
-      status: 'CONFIRMED',
-      date: '2025-01-14T09:45:00',
-      balanceAfter: 120000,
-      reference: 'LPN-20250114-001',
-      notes: 'কিস্তি ১০/২০',
-    },
-    {
-      id: 'TXN003',
-      memberId: 'm3',
-      memberName: 'রহিম উদ্দিন',
-      memberPhone: '01912345678',
-      type: 'WITHDRAWAL',
-      amount: 15000,
-      status: 'CONFIRMED',
-      date: '2025-01-13T14:20:00',
-      balanceAfter: 30000,
-      reference: 'WTH-20250113-001',
-    },
-    {
-      id: 'TXN004',
-      memberId: 'm4',
-      memberName: 'সাদিয়া আক্তার',
-      memberPhone: '01612345678',
-      type: 'DEPOSIT',
-      amount: 10000,
-      status: 'PENDING',
-      date: '2025-01-14T11:00:00',
-      balanceAfter: 105000,
-      reference: 'DEP-20250114-002',
-    },
-    {
-      id: 'TXN005',
-      memberId: 'm5',
-      memberName: 'জাকির হোসেন',
-      memberPhone: '01512345678',
-      type: 'LOAN_DISBURSEMENT',
-      amount: 50000,
-      status: 'CONFIRMED',
-      date: '2025-01-12T15:00:00',
-      balanceAfter: 75000,
-      reference: 'LND-20250112-001',
-      notes: 'ঋণ L006 বিতরণ',
-    },
-    {
-      id: 'TXN006',
-      memberId: 'm6',
-      memberName: 'শামিমা বেগম',
-      memberPhone: '01312345678',
-      type: 'LOAN_PAYMENT',
-      amount: 4000,
-      status: 'CONFIRMED',
-      date: '2025-01-13T10:30:00',
-      balanceAfter: 55000,
-      reference: 'LPN-20250113-001',
-      notes: 'কিস্তি ৫/১০',
-    },
-    {
-      id: 'TXN007',
-      memberId: 'm1',
-      memberName: 'আব্দুল করিম',
-      memberPhone: '01712345678',
-      type: 'DEPOSIT',
-      amount: 8000,
-      status: 'DISPUTED',
-      date: '2025-01-11T16:00:00',
-      balanceAfter: 80000,
-      reference: 'DEP-20250111-001',
-      notes: 'সদস্য ১০,০০০ টাকা দিয়েছেন বলে দাবি',
-    },
-    {
-      id: 'TXN008',
-      memberId: 'm2',
-      memberName: 'ফাতেমা বেগম',
-      memberPhone: '01812345678',
-      type: 'DEPOSIT',
-      amount: 7000,
-      status: 'CONFIRMED',
-      date: '2025-01-10T09:00:00',
-      balanceAfter: 115000,
-      reference: 'DEP-20250110-001',
-    },
-  ];
+  useEffect(() => {
+    const loadTransactions = async () => {
+      setIsLoading(true);
+      try {
+        const data = await apiGet<any[]>('/v1/dashboard/worker/transactions');
+        const items = (data ?? []).map((item) => ({
+          id: String(item.id ?? ''),
+          memberId: String(item.memberId ?? ''),
+          memberName: String(item.memberName ?? ''),
+          memberPhone: String(item.memberPhone ?? ''),
+          type: String(item.type ?? '').toUpperCase() as TransactionType,
+          amount: Number(item.amount ?? 0),
+          status: String(item.status ?? 'CONFIRMED').toUpperCase() as TransactionStatus,
+          date: String(item.date ?? new Date().toISOString()),
+          balanceAfter: Number(item.balanceAfter ?? 0),
+          reference: item.receiptNumber ? String(item.receiptNumber) : item.receipt ? String(item.receipt) : undefined,
+          notes: item.description ? String(item.description) : undefined,
+        }));
+        setTransactions(items);
+      } catch {
+        setTransactions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void loadTransactions();
+  }, []);
 
 
   const formatDateTime = (dateString: string) => {
@@ -192,14 +118,19 @@ export default function WorkerTransactionsPage() {
         color: 'bg-blue-100 text-blue-700',
         icon: HandCoins,
       },
-      LOAN_PAYMENT: {
-        label: locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment',
+      LOAN_REPAYMENT: {
+        label: locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Repayment',
         color: 'bg-amber-100 text-amber-700',
         icon: Receipt,
       },
     };
 
-    const { label, color, icon: Icon } = config[type];
+    const fallback = {
+      label: type.replace(/_/g, ' '),
+      color: 'bg-slate-100 text-slate-700',
+      icon: Receipt,
+    };
+    const { label, color, icon: Icon } = config[type as keyof typeof config] ?? fallback;
     return (
       <Badge className={`${color} hover:${color}`}>
         <Icon className="h-3 w-3 mr-1" />
@@ -231,11 +162,31 @@ export default function WorkerTransactionsPage() {
             {locale === 'bn' ? 'বিতর্কিত' : 'Disputed'}
           </Badge>
         );
+      case 'PROCESSED':
+        return (
+          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
+            <Clock className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}
+          </Badge>
+        );
+      case 'REJECTED':
+        return (
+          <Badge className="bg-gray-200 text-gray-700 hover:bg-gray-200">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'প্রত্যাখ্যাত' : 'Rejected'}
+          </Badge>
+        );
+      default:
+        return (
+          <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
+            {status}
+          </Badge>
+        );
     }
   };
 
   const isIncoming = (type: TransactionType) => {
-    return type === 'DEPOSIT' || type === 'LOAN_PAYMENT';
+    return type === 'DEPOSIT' || type === 'LOAN_REPAYMENT' || type === 'DONATION';
   };
 
   // Filter by date
@@ -278,7 +229,7 @@ export default function WorkerTransactionsPage() {
     .filter((t) => t.type === 'DEPOSIT' && t.status === 'CONFIRMED' && filterByDate(t.date))
     .reduce((sum, t) => sum + t.amount, 0);
   const todayPayments = transactions
-    .filter((t) => t.type === 'LOAN_PAYMENT' && t.status === 'CONFIRMED' && filterByDate(t.date))
+    .filter((t) => t.type === 'LOAN_REPAYMENT' && t.status === 'CONFIRMED' && filterByDate(t.date))
     .reduce((sum, t) => sum + t.amount, 0);
   const totalTransactions = filteredTransactions.length;
 
@@ -357,7 +308,7 @@ export default function WorkerTransactionsPage() {
                 <SelectItem value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</SelectItem>
                 <SelectItem value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</SelectItem>
                 <SelectItem value="LOAN_DISBURSEMENT">{locale === 'bn' ? 'ঋণ বিতরণ' : 'Loan Disbursement'}</SelectItem>
-                <SelectItem value="LOAN_PAYMENT">{locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Payment'}</SelectItem>
+                <SelectItem value="LOAN_REPAYMENT">{locale === 'bn' ? 'ঋণ কিস্তি' : 'Loan Repayment'}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
@@ -391,6 +342,11 @@ export default function WorkerTransactionsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+            </div>
+          ) : (
           <div className="space-y-4">
             {filteredTransactions.map((transaction) => (
               <div
@@ -474,6 +430,7 @@ export default function WorkerTransactionsPage() {
               </div>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
 

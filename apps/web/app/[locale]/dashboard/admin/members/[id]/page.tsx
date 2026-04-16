@@ -87,7 +87,7 @@ interface MemberDetails {
 
 interface Transaction {
   id: string;
-  type: 'DEPOSIT' | 'WITHDRAWAL';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | string;
   amount: number;
   balanceAfter: number;
   receiptNumber: string;
@@ -417,6 +417,47 @@ export default function MemberDetailPage() {
     });
   };
 
+  const getTransactionMeta = (type: Transaction['type']) => {
+    const meta = {
+      DEPOSIT: {
+        label: locale === 'bn' ? 'জমা' : 'Deposit',
+        color: 'text-green-600',
+        bg: 'bg-green-100',
+        sign: '+',
+        icon: Plus,
+      },
+      WITHDRAWAL: {
+        label: locale === 'bn' ? 'উত্তোলন' : 'Withdrawal',
+        color: 'text-orange-600',
+        bg: 'bg-orange-100',
+        sign: '-',
+        icon: Minus,
+      },
+      LOAN_DISBURSEMENT: {
+        label: locale === 'bn' ? 'ঋণ বিতরণ' : 'Loan Disbursement',
+        color: 'text-blue-600',
+        bg: 'bg-blue-100',
+        sign: '+',
+        icon: Plus,
+      },
+      LOAN_REPAYMENT: {
+        label: locale === 'bn' ? 'ঋণ পরিশোধ' : 'Loan Repayment',
+        color: 'text-amber-600',
+        bg: 'bg-amber-100',
+        sign: '-',
+        icon: Minus,
+      },
+    } as const;
+
+    return meta[type as keyof typeof meta] ?? {
+      label: type.replace(/_/g, ' '),
+      color: 'text-slate-600',
+      bg: 'bg-slate-100',
+      sign: '',
+      icon: Receipt,
+    };
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -714,34 +755,34 @@ export default function MemberDetailPage() {
                   <div className="space-y-3">
                     {transactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between p-4 rounded-sm bg-slate-50">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${tx.type === 'DEPOSIT' ? 'bg-green-100' : 'bg-orange-100'}`}>
-                            {tx.type === 'DEPOSIT' ? (
-                              <Plus className="h-4 w-4 text-green-600" />
-                            ) : (
-                              <Minus className="h-4 w-4 text-orange-600" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-medium">
-                              {tx.type === 'DEPOSIT' 
-                                ? (locale === 'bn' ? 'জমা' : 'Deposit')
-                                : (locale === 'bn' ? 'উত্তোলন' : 'Withdrawal')}
-                            </p>
-                            <p className="text-sm text-muted-foreground">{tx.receiptNumber} • {formatDate(tx.createdAt)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className={`font-semibold ${tx.type === 'DEPOSIT' ? 'text-green-600' : 'text-orange-600'}`}>
-                              {tx.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(tx.amount, locale)}
-                            </p>
-                            {getStatusBadge(tx.status)}
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => handlePrintReceipt(tx)} title={locale === 'bn' ? 'রশিদ প্রিন্ট' : 'Print Receipt'}>
-                            <Printer className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        {(() => {
+                          const meta = getTransactionMeta(tx.type);
+                          const Icon = meta.icon;
+                          return (
+                            <>
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-full ${meta.bg}`}>
+                                  <Icon className={`h-4 w-4 ${meta.color}`} />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{meta.label}</p>
+                                  <p className="text-sm text-muted-foreground">{tx.receiptNumber} • {formatDate(tx.createdAt)}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className={`font-semibold ${meta.color}`}>
+                                    {meta.sign}{formatCurrency(tx.amount, locale)}
+                                  </p>
+                                  {getStatusBadge(tx.status)}
+                                </div>
+                                <Button variant="ghost" size="icon" onClick={() => handlePrintReceipt(tx)} title={locale === 'bn' ? 'রশিদ প্রিন্ট' : 'Print Receipt'}>
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

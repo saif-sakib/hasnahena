@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
@@ -120,6 +121,30 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+func normalizedRolePtr(role string) *string {
+	normalized := strings.ToUpper(strings.TrimSpace(role))
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
+func (r *UserRepository) insertNotificationTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	notificationType string,
+	title string,
+	message string,
+	targetUserID *string,
+	targetRole *string,
+) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO notifications (id, type, title, message, "targetUserId", "targetRole", "createdAt")
+		VALUES (gen_random_uuid()::text, $1::"NotificationType", $2, $3, $4, $5::"UserRole", NOW())
+	`, notificationType, title, message, targetUserID, targetRole)
+	return err
+}
+
 func newID(prefix string) (string, error) {
 	b := make([]byte, 10)
 	if _, err := rand.Read(b); err != nil {
@@ -223,6 +248,10 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	if err != nil {
 		stats = DashboardStats{}
 	}
+	stats.CurrentBalance = stats.CurrentBalance / 100
+	stats.TotalDeposited = stats.TotalDeposited / 100
+	stats.LoanBalance = stats.LoanBalance / 100
+	stats.LoanEligibility = stats.LoanEligibility / 100
 	data.Stats = stats
 
 	const pendingQuery = `
@@ -248,6 +277,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := pendingRows.Scan(&item.ID, &item.Type, &item.Amount, &createdAt, &item.Receipt); scanErr != nil {
 				continue
 			}
+			item.Amount = item.Amount / 100
 			item.Date = createdAt.Format(time.RFC3339)
 			data.PendingConfirmations = append(data.PendingConfirmations, item)
 		}
@@ -275,6 +305,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := guarantorRows.Scan(&item.ID, &item.BorrowerName, &item.LoanAmount, &createdAt); scanErr != nil {
 				continue
 			}
+			item.LoanAmount = item.LoanAmount / 100
 			item.RequestDate = createdAt.Format(time.RFC3339)
 			data.GuarantorRequests = append(data.GuarantorRequests, item)
 		}
@@ -304,6 +335,8 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		&activeLoan.PaidInstallments,
 		&activeLoan.TotalInstallments,
 	); err == nil {
+		activeLoan.RemainingAmount = activeLoan.RemainingAmount / 100
+		activeLoan.NextInstallment = activeLoan.NextInstallment / 100
 		if nextDueDate != nil {
 			activeLoan.NextDueDate = nextDueDate.Format(time.RFC3339)
 		}
@@ -331,6 +364,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := recentRows.Scan(&tx.ID, &tx.Type, &tx.Amount, &createdAt, &tx.Receipt); scanErr != nil {
 				continue
 			}
+			tx.Amount = tx.Amount / 100
 			tx.Date = createdAt.Format(time.RFC3339)
 			data.RecentTransactions = append(data.RecentTransactions, tx)
 		}
@@ -1210,10 +1244,11 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM users WHERE status = 'PENDING'), 0)::bigint,
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'WITHDRAWAL' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
 			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status IN ('APPROVED','ACTIVE') AND "createdAt"::date = CURRENT_DATE), 0)::bigint
 	`
-	var totalMembers, pendingRequests, todayDeposits, todayLoans int64
-	if err := r.db.QueryRow(ctx, statsQuery).Scan(&totalMembers, &pendingRequests, &todayDeposits, &todayLoans); err != nil {
+	var totalMembers, pendingRequests, todayDeposits, todayWithdrawals, todayLoans int64
+	if err := r.db.QueryRow(ctx, statsQuery).Scan(&totalMembers, &pendingRequests, &todayDeposits, &todayWithdrawals, &todayLoans); err != nil {
 		return nil, err
 	}
 
@@ -1255,10 +1290,11 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 
 	return map[string]interface{}{
 		"stats": map[string]interface{}{
-			"totalMembers":    totalMembers,
-			"pendingRequests": pendingRequests,
-			"todayDeposits":   todayDeposits / 100,
-			"todayLoans":      todayLoans / 100,
+			"totalMembers":     totalMembers,
+			"pendingRequests":  pendingRequests,
+			"todayDeposits":    todayDeposits / 100,
+			"todayWithdrawals": todayWithdrawals / 100,
+			"todayLoans":       todayLoans / 100,
 		},
 		"pendingRequests": pending,
 	}, nil
@@ -1865,6 +1901,12 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		INSERT INTO notifications (id, type, title, message, "targetUserId", "createdAt")
 		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', 'Account Approved', 'Your membership has been approved. Please log in and change your password.', $1, NOW())
 	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notifications (id, type, title, message, "targetRole", "createdAt")
+		VALUES (gen_random_uuid()::text, 'NEW_REGISTRATION', 'Daily task update', 'A member registration has been approved and is now active.', 'WORKER', NOW())
+	`); err != nil {
 		return err
 	}
 
@@ -3173,20 +3215,28 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 	// Get loans from members in worker's branch
 	const query = `
 		SELECT
-			l.id,
-			l."loanNumber",
+			l.id::text,
+			COALESCE(l."loanNumber", ''),
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
+			l."paidInstallments"::int,
+			l."totalInstallments"::int,
+			l."installmentAmount"::bigint,
 			l.status::text,
+			u.id::text,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."memberId", ''),
+			COALESCE(u.phone, ''),
+			COALESCE(g."nameEn", g."nameBn", ''),
+			COALESCE(l."installmentStartDate", l."disbursementDate"),
 			l."createdAt"
 		FROM loans l
 		JOIN users u ON u.id = l."borrowerId"
-		WHERE l.status IN ('ACTIVE', 'PENDING')
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		WHERE l.status IN ('PENDING', 'PENDING_GUARANTOR', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')
 		ORDER BY l."createdAt" DESC
-		LIMIT 50
+		LIMIT 100
 	`
 
 	rows, err := r.db.Query(ctx, query)
@@ -3197,25 +3247,54 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 
 	loans := []map[string]interface{}{}
 	for rows.Next() {
-		var id, loanNumber, status, memberName, memberNameBn, memberId string
-		var principalAmount, remainingAmount int64
+		var id, loanNumber, status, memberUserID, memberName, memberNameBn, memberID, memberPhone, guarantorName string
+		var principalAmount, remainingAmount, installmentAmount int64
+		var paidInstallments, totalInstallments int
+		var nextDueDate *time.Time
 		var createdAt time.Time
 
-		if err := rows.Scan(&id, &loanNumber, &principalAmount, &remainingAmount, &status, &memberName, &memberNameBn, &memberId, &createdAt); err != nil {
+		if err := rows.Scan(
+			&id,
+			&loanNumber,
+			&principalAmount,
+			&remainingAmount,
+			&paidInstallments,
+			&totalInstallments,
+			&installmentAmount,
+			&status,
+			&memberUserID,
+			&memberName,
+			&memberNameBn,
+			&memberID,
+			&memberPhone,
+			&guarantorName,
+			&nextDueDate,
+			&createdAt,
+		); err != nil {
 			continue
 		}
 
-		loans = append(loans, map[string]interface{}{
-			"id":              id,
-			"loanNumber":      loanNumber,
-			"principalAmount": principalAmount,
-			"remainingAmount": remainingAmount,
-			"status":          status,
-			"memberName":      memberName,
-			"memberNameBn":    memberNameBn,
-			"memberId":        memberId,
-			"createdAt":       createdAt.Format(time.RFC3339),
-		})
+		loan := map[string]interface{}{
+			"id":                id,
+			"loanNumber":        loanNumber,
+			"principalAmount":   principalAmount / 100,
+			"remainingAmount":   remainingAmount / 100,
+			"paidInstallments":  paidInstallments,
+			"totalInstallments": totalInstallments,
+			"installmentAmount": installmentAmount / 100,
+			"status":            strings.ToUpper(status),
+			"memberUserId":      memberUserID,
+			"memberName":        memberName,
+			"memberNameBn":      memberNameBn,
+			"memberId":          memberID,
+			"memberPhone":       memberPhone,
+			"guarantorName":     guarantorName,
+			"createdAt":         createdAt.Format(time.RFC3339),
+		}
+		if nextDueDate != nil {
+			loan["nextDueDate"] = nextDueDate.Format(time.RFC3339)
+		}
+		loans = append(loans, loan)
 	}
 
 	return loans, nil
@@ -3224,15 +3303,18 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
 	const query = `
 		SELECT
-			t.id,
+			t.id::text,
 			t.type::text,
 			t.amount::bigint,
 			COALESCE(t."receiptNumber", ''),
 			COALESCE(t.description, ''),
+			t.status::text,
+			COALESCE(t."savingsAfter", 0)::bigint,
 			t."createdAt",
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
-			COALESCE(u."memberId", '')
+			COALESCE(u."memberId", ''),
+			COALESCE(u.phone, '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
 		WHERE t."processedBy" = $1
@@ -3248,24 +3330,41 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 
 	transactions := []map[string]interface{}{}
 	for rows.Next() {
-		var id, txType, receipt, description, memberName, memberNameBn, memberId string
-		var amount int64
+		var id, txType, receipt, description, status, memberName, memberNameBn, memberID, memberPhone string
+		var amount, balanceAfter int64
 		var createdAt time.Time
 
-		if err := rows.Scan(&id, &txType, &amount, &receipt, &description, &createdAt, &memberName, &memberNameBn, &memberId); err != nil {
+		if err := rows.Scan(
+			&id,
+			&txType,
+			&amount,
+			&receipt,
+			&description,
+			&status,
+			&balanceAfter,
+			&createdAt,
+			&memberName,
+			&memberNameBn,
+			&memberID,
+			&memberPhone,
+		); err != nil {
 			continue
 		}
 
 		transactions = append(transactions, map[string]interface{}{
-			"id":           id,
-			"type":         txType,
-			"amount":       amount,
-			"receipt":      receipt,
-			"description":  description,
-			"date":         createdAt.Format(time.RFC3339),
-			"memberName":   memberName,
-			"memberNameBn": memberNameBn,
-			"memberId":     memberId,
+			"id":            id,
+			"type":          strings.ToUpper(txType),
+			"amount":        amount / 100,
+			"receipt":       receipt,
+			"receiptNumber": receipt,
+			"description":   description,
+			"status":        strings.ToUpper(status),
+			"balanceAfter":  balanceAfter / 100,
+			"date":          createdAt.Format(time.RFC3339),
+			"memberName":    memberName,
+			"memberNameBn":  memberNameBn,
+			"memberId":      memberID,
+			"memberPhone":   memberPhone,
 		})
 	}
 
@@ -3527,6 +3626,30 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", err
 	}
 
+	amountTaka := float64(amount) / 100
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"DEPOSIT_CONFIRMED",
+		"Deposit confirmed",
+		fmt.Sprintf("A deposit of BDT %.2f has been confirmed in your account.", amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Deposit recorded for member %s.", strings.ToUpper(memberID)),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
 	err = tx.Commit(ctx)
 	if err != nil {
 		return "", err
@@ -3596,6 +3719,30 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	`, amount, receipt, description, newBalance, accountID, memberID, workerID)
 	if err != nil {
 		return "", err
+	}
+
+	amountTaka := float64(amount) / 100
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Withdrawal processed",
+		fmt.Sprintf("A withdrawal of BDT %.2f has been processed from your account.", amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Withdrawal processed for member %s.", strings.ToUpper(memberID)),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
 	}
 
 	err = tx.Commit(ctx)
@@ -3700,6 +3847,30 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	`, amount, loanNumber, description, accountID, memberID, loanID, workerID, updatedLoanBalance)
 	if err != nil {
 		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
+	}
+
+	amountTaka := float64(amount) / 100
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"LOAN_APPROVED",
+		"Loan disbursed",
+		fmt.Sprintf("Your loan %s for BDT %.2f has been disbursed.", loanNumber, amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Loan %s disbursed for member %s.", loanNumber, strings.ToUpper(memberID)),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -3814,6 +3985,36 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	`, amount, receiptNumber, description, accountId, memberID, loanID, processedByID, newLoanBalance)
 	if err != nil {
 		return "", fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	amountTaka := float64(amount) / 100
+	memberTitle := "Loan repayment received"
+	memberMessage := fmt.Sprintf("A loan repayment of BDT %.2f has been recorded.", amountTaka)
+	if loanUpdateStatus == "COMPLETED" {
+		memberTitle = "Loan completed"
+		memberMessage = fmt.Sprintf("Your loan has been completed with a final repayment of BDT %.2f.", amountTaka)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		memberTitle,
+		memberMessage,
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Loan repayment recorded for member %s (BDT %.2f).", strings.ToUpper(memberID), amountTaka),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
 	}
 
 	// Commit transaction

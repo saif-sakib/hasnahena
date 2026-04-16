@@ -33,7 +33,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import { getInitials, getAvatarColor } from '@/lib/image-utils';
 import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 import Image from 'next/image';
@@ -104,7 +104,6 @@ const memberNav = [
 // Worker navigation - based on requirements: process requests, manage members, record transactions
 const workerNav = [
   { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
-  { name: 'requests', href: '/requests', icon: ClipboardList, en: 'Pending Requests', bn: 'অপেক্ষমান অনুরোধ' },
   { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
   { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposits', bn: 'আমানত' },
   { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
@@ -335,9 +334,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       }
     };
 
-    loadNotifications();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void loadNotifications();
+    const timer = setInterval(() => {
+      void loadNotifications();
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [handleUnauthorizedError]);
 
   useEffect(() => {
     const loadSupportSignals = async () => {
@@ -418,13 +420,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     // Persist to backend
     try {
-      const token = getValidatedClientToken();
-      if (token) {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ notificationId: id }),
-        });
+      if (getValidatedClientToken()) {
+        await apiPatch('/v1/dashboard/notifications', { notificationId: id });
       }
     } catch (error) {
       handleUnauthorizedError(error);
@@ -441,13 +438,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
     // Persist to backend
     try {
-      const token = getValidatedClientToken();
-      if (token) {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/v1/dashboard/notifications`, {
-          method: 'PATCH',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ markAll: true }),
-        });
+      if (getValidatedClientToken()) {
+        await apiPatch('/v1/dashboard/notifications', { markAll: true });
       }
     } catch (error) {
       handleUnauthorizedError(error);

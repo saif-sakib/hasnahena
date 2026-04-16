@@ -1,19 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   HandCoins,
   Search,
   Calendar,
-  User,
   CheckCircle2,
   Clock,
   AlertTriangle,
   Phone,
   TrendingUp,
   CreditCard,
-  Plus,
   Eye,
   Receipt,
 } from 'lucide-react';
@@ -40,21 +38,25 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCurrency } from '@/lib/utils';
+import { apiGet, apiPost } from '@/lib/api';
 
-type LoanStatus = 'ACTIVE' | 'OVERDUE' | 'COMPLETED';
+type LoanStatus = 'ACTIVE' | 'OVERDUE' | 'COMPLETED' | 'PENDING' | 'DEFAULTED' | string;
 
 interface ActiveLoan {
   id: string;
+  loanNumber: string;
+  memberUserId: string;
   memberId: string;
   memberName: string;
   memberPhone: string;
   loanAmount: number;
+  remainingAmount: number;
   paidAmount: number;
   installmentsPaid: number;
   totalInstallments: number;
   monthlyInstallment: number;
   status: LoanStatus;
-  nextDueDate: string;
+  nextDueDate?: string;
   missedPayments: number;
   guarantorName: string;
 }
@@ -68,85 +70,68 @@ export default function WorkerLoansPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [loans, setLoans] = useState<ActiveLoan[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  // Mock data
-  const loans: ActiveLoan[] = [
-    {
-      id: 'L001',
-      memberId: 'm1',
-      memberName: 'আব্দুল করিম',
-      memberPhone: '01712345678',
-      loanAmount: 100000,
-      paidAmount: 45000,
-      installmentsPaid: 9,
-      totalInstallments: 20,
-      monthlyInstallment: 5000,
-      status: 'ACTIVE',
-      nextDueDate: '2025-01-20',
-      missedPayments: 0,
-      guarantorName: 'ফাতেমা বেগম',
-    },
-    {
-      id: 'L002',
-      memberId: 'm3',
-      memberName: 'রহিম উদ্দিন',
-      memberPhone: '01912345678',
-      loanAmount: 50000,
-      paidAmount: 20000,
-      installmentsPaid: 4,
-      totalInstallments: 10,
-      monthlyInstallment: 5000,
-      status: 'OVERDUE',
-      nextDueDate: '2025-01-05',
-      missedPayments: 2,
-      guarantorName: 'জাকির হোসেন',
-    },
-    {
-      id: 'L003',
-      memberId: 'm4',
-      memberName: 'সাদিয়া আক্তার',
-      memberPhone: '01612345678',
-      loanAmount: 80000,
-      paidAmount: 32000,
-      installmentsPaid: 8,
-      totalInstallments: 20,
-      monthlyInstallment: 4000,
-      status: 'ACTIVE',
-      nextDueDate: '2025-01-25',
-      missedPayments: 0,
-      guarantorName: 'রাজিয়া সুলতানা',
-    },
-    {
-      id: 'L004',
-      memberId: 'm5',
-      memberName: 'জাকির হোসেন',
-      memberPhone: '01512345678',
-      loanAmount: 60000,
-      paidAmount: 60000,
-      installmentsPaid: 12,
-      totalInstallments: 12,
-      monthlyInstallment: 5000,
-      status: 'COMPLETED',
-      nextDueDate: '2024-12-15',
-      missedPayments: 0,
-      guarantorName: 'আব্দুল করিম',
-    },
-    {
-      id: 'L005',
-      memberId: 'm6',
-      memberName: 'শামিমা বেগম',
-      memberPhone: '01312345678',
-      loanAmount: 40000,
-      paidAmount: 16000,
-      installmentsPaid: 4,
-      totalInstallments: 10,
-      monthlyInstallment: 4000,
-      status: 'ACTIVE',
-      nextDueDate: '2025-01-18',
-      missedPayments: 0,
-      guarantorName: 'সাদিয়া আক্তার',
-    },
-  ];
+  const loadLoans = async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet<any[]>('/v1/dashboard/worker/loans');
+      const today = new Date();
+      const items = (data ?? []).map((loan) => {
+        const principalAmount = Number(loan.principalAmount ?? 0);
+        const remainingAmount = Number(loan.remainingAmount ?? 0);
+        const rawStatus = String(loan.status ?? 'PENDING').toUpperCase();
+        const nextDueDate = loan.nextDueDate ? String(loan.nextDueDate) : undefined;
+
+        let status: LoanStatus = rawStatus;
+        if (rawStatus === 'PENDING' || rawStatus === 'PENDING_APPROVAL' || rawStatus === 'PENDING_GUARANTOR') {
+          status = 'PENDING';
+        } else if (rawStatus === 'REJECTED') {
+          status = 'PENDING';
+        } else if (rawStatus === 'COMPLETED' || rawStatus === 'SETTLED') {
+          status = 'COMPLETED';
+        } else if (rawStatus === 'DEFAULTED') {
+          status = 'DEFAULTED';
+        } else {
+          status = 'ACTIVE';
+          if (nextDueDate && new Date(nextDueDate).getTime() < today.getTime()) {
+            status = 'OVERDUE';
+          }
+        }
+
+        return {
+          id: String(loan.id ?? ''),
+          loanNumber: String(loan.loanNumber ?? ''),
+          memberUserId: String(loan.memberUserId ?? ''),
+          memberId: String(loan.memberId ?? ''),
+          memberName: String(loan.memberName ?? ''),
+          memberPhone: String(loan.memberPhone ?? ''),
+          loanAmount: principalAmount,
+          remainingAmount,
+          paidAmount: Math.max(principalAmount - remainingAmount, 0),
+          installmentsPaid: Number(loan.paidInstallments ?? 0),
+          totalInstallments: Number(loan.totalInstallments ?? 0),
+          monthlyInstallment: Number(loan.installmentAmount ?? 0),
+          status,
+          nextDueDate,
+          missedPayments: status === 'OVERDUE' ? 1 : 0,
+          guarantorName: String(loan.guarantorName ?? ''),
+        } satisfies ActiveLoan;
+      });
+      setLoans(items);
+    } catch {
+      setLoans([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadLoans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   const getStatusBadge = (status: LoanStatus) => {
@@ -172,6 +157,26 @@ export default function WorkerLoansPage() {
             {locale === 'bn' ? 'সম্পন্ন' : 'Completed'}
           </Badge>
         );
+      case 'PENDING':
+        return (
+          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+            <Clock className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}
+          </Badge>
+        );
+      case 'DEFAULTED':
+        return (
+          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            {locale === 'bn' ? 'খেলাপি' : 'Defaulted'}
+          </Badge>
+        );
+      default:
+        return (
+          <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
+            {status}
+          </Badge>
+        );
     }
   };
 
@@ -179,39 +184,59 @@ export default function WorkerLoansPage() {
     const matchesSearch =
       loan.memberName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       loan.memberPhone.includes(searchQuery) ||
-      loan.id.toLowerCase().includes(searchQuery.toLowerCase());
+      loan.loanNumber.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
   // Summary stats
-  const activeLoans = loans.filter((l) => l.status === 'ACTIVE').length;
+  const activeLoans = loans.filter((l) => l.status === 'ACTIVE' || l.status === 'OVERDUE').length;
   const overdueLoans = loans.filter((l) => l.status === 'OVERDUE').length;
   const totalOutstanding = loans
     .filter((l) => l.status !== 'COMPLETED')
-    .reduce((sum, l) => sum + (l.loanAmount - l.paidAmount), 0);
+    .reduce((sum, l) => sum + l.remainingAmount, 0);
   const dueThisWeek = loans.filter((l) => {
+    if (!l.nextDueDate || l.status === 'COMPLETED') return false;
     const dueDate = new Date(l.nextDueDate);
     const today = new Date();
     const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-    return l.status !== 'COMPLETED' && dueDate <= weekFromNow && dueDate >= today;
+    return dueDate <= weekFromNow && dueDate >= today;
   }).length;
 
-  const handlePayment = () => {
-    console.log('Processing payment:', {
-      loanId: selectedLoan?.id,
-      amount: paymentAmount,
-      notes: paymentNotes,
-    });
-    setShowPaymentModal(false);
-    setSelectedLoan(null);
-    setPaymentAmount('');
-    setPaymentNotes('');
+  const handlePayment = async () => {
+    if (!selectedLoan) return;
+
+    const parsedAmount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setPaymentError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid payment amount');
+      return;
+    }
+    if (parsedAmount > selectedLoan.remainingAmount) {
+      setPaymentError(locale === 'bn' ? 'বাকি পরিমাণের বেশি নয়' : 'Amount exceeds remaining balance');
+      return;
+    }
+
+    setPaymentError(null);
+    try {
+      await apiPost(`/v1/dashboard/worker/members/${selectedLoan.memberUserId}/loan-payment`, {
+        loanId: selectedLoan.id,
+        amount: Math.round(parsedAmount * 100),
+        notes: paymentNotes.trim(),
+      });
+      setShowPaymentModal(false);
+      setSelectedLoan(null);
+      setPaymentAmount('');
+      setPaymentNotes('');
+      await loadLoans();
+    } catch (error: any) {
+      setPaymentError(error?.message || (locale === 'bn' ? 'পরিশোধ ব্যর্থ হয়েছে' : 'Payment failed'));
+    }
   };
 
   const openPaymentModal = (loan: ActiveLoan) => {
     setSelectedLoan(loan);
-    setPaymentAmount(loan.monthlyInstallment.toString());
+    setPaymentAmount(String(Math.min(loan.monthlyInstallment, loan.remainingAmount)));
+    setPaymentError(null);
     setShowPaymentModal(true);
   };
 
@@ -298,6 +323,8 @@ export default function WorkerLoansPage() {
                 <SelectItem value="all">{locale === 'bn' ? 'সব' : 'All'}</SelectItem>
                 <SelectItem value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</SelectItem>
                 <SelectItem value="OVERDUE">{locale === 'bn' ? 'বকেয়া' : 'Overdue'}</SelectItem>
+                <SelectItem value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</SelectItem>
+                <SelectItem value="DEFAULTED">{locale === 'bn' ? 'খেলাপি' : 'Defaulted'}</SelectItem>
                 <SelectItem value="COMPLETED">{locale === 'bn' ? 'সম্পন্ন' : 'Completed'}</SelectItem>
               </SelectContent>
             </Select>
@@ -319,6 +346,11 @@ export default function WorkerLoansPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+            </div>
+          ) : (
           <div className="space-y-4">
             {filteredLoans.map((loan) => (
               <div
@@ -350,12 +382,12 @@ export default function WorkerLoansPage() {
                         <p className="flex items-center gap-2">
                           <Phone className="h-3 w-3" /> {loan.memberPhone}
                           <span className="mx-1">•</span>
-                          {locale === 'bn' ? 'ঋণ ID:' : 'Loan ID:'} {loan.id}
+                          {locale === 'bn' ? 'ঋণ নং:' : 'Loan No:'} {loan.loanNumber}
                         </p>
                         <p>
                           {locale === 'bn' ? 'গ্যারান্টর:' : 'Guarantor:'} {loan.guarantorName}
                         </p>
-                        {loan.status !== 'COMPLETED' && (
+                        {loan.status !== 'COMPLETED' && loan.nextDueDate && (
                           <p className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
                             {locale === 'bn' ? 'পরবর্তী বকেয়া:' : 'Next Due:'}{' '}
@@ -388,7 +420,7 @@ export default function WorkerLoansPage() {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      {loan.status !== 'COMPLETED' && (
+                      {(loan.status === 'ACTIVE' || loan.status === 'OVERDUE') && loan.remainingAmount > 0 && (
                         <Button size="sm" onClick={() => openPaymentModal(loan)}>
                           <Receipt className="h-4 w-4 mr-1" />
                           {locale === 'bn' ? 'কিস্তি' : 'Payment'}
@@ -408,13 +440,13 @@ export default function WorkerLoansPage() {
                       {loan.installmentsPaid}/{loan.totalInstallments} {locale === 'bn' ? 'কিস্তি' : 'installments'}
                     </span>
                   </div>
-                  <Progress value={(loan.paidAmount / loan.loanAmount) * 100} className="h-2" />
+                  <Progress value={loan.loanAmount > 0 ? (loan.paidAmount / loan.loanAmount) * 100 : 0} className="h-2" />
                   <div className="flex justify-between text-xs text-muted-foreground mt-1">
                     <span>
                       {locale === 'bn' ? 'পরিশোধিত:' : 'Paid:'} {formatCurrency(loan.paidAmount, locale)}
                     </span>
                     <span>
-                      {locale === 'bn' ? 'বাকি:' : 'Remaining:'} {formatCurrency(loan.loanAmount - loan.paidAmount, locale)}
+                      {locale === 'bn' ? 'বাকি:' : 'Remaining:'} {formatCurrency(loan.remainingAmount, locale)}
                     </span>
                   </div>
                 </div>
@@ -428,6 +460,7 @@ export default function WorkerLoansPage() {
               </div>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
 
@@ -437,7 +470,7 @@ export default function WorkerLoansPage() {
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'ঋণ কিস্তি গ্রহণ' : 'Accept Loan Payment'}</DialogTitle>
             <DialogDescription>
-              {selectedLoan?.memberName} - {locale === 'bn' ? 'ঋণ ID:' : 'Loan ID:'} {selectedLoan?.id}
+              {selectedLoan?.memberName} - {locale === 'bn' ? 'ঋণ নং:' : 'Loan No:'} {selectedLoan?.loanNumber}
             </DialogDescription>
           </DialogHeader>
 
@@ -451,7 +484,7 @@ export default function WorkerLoansPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি পরিমাণ' : 'Outstanding'}</span>
                   <span className="font-medium">
-                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount, locale)}
+                    {formatCurrency(selectedLoan.remainingAmount, locale)}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -463,6 +496,11 @@ export default function WorkerLoansPage() {
               </div>
 
               <div>
+                {paymentError && (
+                  <div className="mb-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {paymentError}
+                  </div>
+                )}
                 <Label>{locale === 'bn' ? 'পরিশোধের পরিমাণ (টাকা)' : 'Payment Amount (BDT)'}</Label>
                 <Input
                   type="number"
@@ -525,7 +563,7 @@ export default function WorkerLoansPage() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণ ID' : 'Loan ID'}</span>
-                  <p className="font-medium">{selectedLoan.id}</p>
+                  <p className="font-medium">{selectedLoan.loanNumber}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'ঋণের পরিমাণ' : 'Loan Amount'}</span>
@@ -538,7 +576,7 @@ export default function WorkerLoansPage() {
                 <div>
                   <span className="text-muted-foreground">{locale === 'bn' ? 'বাকি' : 'Remaining'}</span>
                   <p className="font-medium text-amber-600">
-                    {formatCurrency(selectedLoan.loanAmount - selectedLoan.paidAmount, locale)}
+                    {formatCurrency(selectedLoan.remainingAmount, locale)}
                   </p>
                 </div>
                 <div>
@@ -555,7 +593,7 @@ export default function WorkerLoansPage() {
                   <span className="text-muted-foreground">{locale === 'bn' ? 'গ্যারান্টর' : 'Guarantor'}</span>
                   <p className="font-medium">{selectedLoan.guarantorName}</p>
                 </div>
-                {selectedLoan.status !== 'COMPLETED' && (
+                {selectedLoan.status !== 'COMPLETED' && selectedLoan.nextDueDate && (
                   <div>
                     <span className="text-muted-foreground">{locale === 'bn' ? 'পরবর্তী বকেয়া' : 'Next Due'}</span>
                     <p className="font-medium">
@@ -569,10 +607,10 @@ export default function WorkerLoansPage() {
                 <div className="flex justify-between text-sm mb-2">
                   <span>{locale === 'bn' ? 'অগ্রগতি' : 'Progress'}</span>
                   <span className="font-medium">
-                    {((selectedLoan.paidAmount / selectedLoan.loanAmount) * 100).toFixed(1)}%
+                    {selectedLoan.loanAmount > 0 ? ((selectedLoan.paidAmount / selectedLoan.loanAmount) * 100).toFixed(1) : '0.0'}%
                   </span>
                 </div>
-                <Progress value={(selectedLoan.paidAmount / selectedLoan.loanAmount) * 100} />
+                <Progress value={selectedLoan.loanAmount > 0 ? (selectedLoan.paidAmount / selectedLoan.loanAmount) * 100 : 0} />
               </div>
             </div>
           )}
@@ -580,7 +618,7 @@ export default function WorkerLoansPage() {
             <Button variant="outline" onClick={() => setShowDetailModal(false)}>
               {locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
             </Button>
-            {selectedLoan?.status !== 'COMPLETED' && (
+            {(selectedLoan?.status === 'ACTIVE' || selectedLoan?.status === 'OVERDUE') && selectedLoan.remainingAmount > 0 && (
               <Button
                 onClick={() => {
                   setShowDetailModal(false);
