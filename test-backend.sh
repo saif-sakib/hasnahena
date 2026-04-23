@@ -56,11 +56,10 @@ else
     echo -e "${RED}✗ FAIL${NC}"
     echo "Response: $login_response"
     echo ""
-    echo -e "${YELLOW}⚠️  Have you run the seed script?${NC}"
+    echo -e "${YELLOW}⚠️  Admin login failed. Verify admin credentials and database state.${NC}"
     echo ""
-    echo "Run seed with:"
-    echo "  cd apps/api"
-    echo "  go run cmd/seed/main.go"
+    echo "If you need to clear non-core data while keeping admin/gallery/system info:"
+    echo "  pnpm db:clear"
     exit 1
 fi
 
@@ -83,16 +82,12 @@ fi
 
 # Test 4: Get Pending Approvals
 echo -n "4. Testing admin approvals... "
-approvals_response=$(curl -s "$API_URL/v1/dashboard/admin/approvals" \
-  -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+approvals_status=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/v1/dashboard/admin/approvals" \
+    -H "Authorization: Bearer $TOKEN" 2>/dev/null)
 
-if echo "$approvals_response" | grep -q "registrationRequests"; then
+if [ "$approvals_status" = "200" ]; then
     echo -e "${GREEN}✓ PASS${NC}"
-
-    # Count pending items
-    reg_count=$(echo "$approvals_response" | grep -o '"registrationRequests":\[' | wc -l)
-    loan_count=$(echo "$approvals_response" | grep -o '"loanRequests":\[' | wc -l)
-    echo -e "   ${GREEN}→${NC} Found pending registrations and loans"
+        echo -e "   ${GREEN}→${NC} Approvals endpoint reachable"
 else
     echo -e "${RED}✗ FAIL${NC}"
     all_pass=false
@@ -100,12 +95,12 @@ fi
 
 # Test 5: Get All Loans
 echo -n "5. Testing admin loans... "
-loans_response=$(curl -s "$API_URL/v1/dashboard/admin/loans" \
-  -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+loans_status=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/v1/dashboard/admin/loans" \
+    -H "Authorization: Bearer $TOKEN" 2>/dev/null)
 
-if echo "$loans_response" | grep -q "loanNumber"; then
+if [ "$loans_status" = "200" ]; then
     echo -e "${GREEN}✓ PASS${NC}"
-    echo -e "   ${GREEN}→${NC} Loans endpoint working"
+        echo -e "   ${GREEN}→${NC} Loans endpoint reachable"
 else
     echo -e "${RED}✗ FAIL${NC}"
     all_pass=false
@@ -113,12 +108,12 @@ fi
 
 # Test 6: Get Donations
 echo -n "6. Testing admin donations... "
-donations_response=$(curl -s "$API_URL/v1/dashboard/admin/donations" \
-  -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+donations_status=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/v1/dashboard/admin/donations" \
+    -H "Authorization: Bearer $TOKEN" 2>/dev/null)
 
-if echo "$donations_response" | grep -q "DON-"; then
+if [ "$donations_status" = "200" ]; then
     echo -e "${GREEN}✓ PASS${NC}"
-    echo -e "   ${GREEN}→${NC} Found donation transactions"
+        echo -e "   ${GREEN}→${NC} Donations endpoint reachable"
 else
     echo -e "${RED}✗ FAIL${NC}"
     all_pass=false
@@ -133,8 +128,6 @@ if [ "$all_pass" = true ]; then
     echo "  1. Start the frontend: cd apps/web && npm run dev"
     echo "  2. Login at http://localhost:3000 with:"
     echo "     - Admin: admin@hasnahena.local / Admin@12345"
-    echo "     - Member: member@hasnahena.local / Member@12345"
-    echo "     - Staff: staff@hasnahena.local / Staff@12345"
     echo ""
     echo "API Documentation: See QUICKSTART.md for all endpoints"
 else

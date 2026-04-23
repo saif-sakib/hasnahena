@@ -36,8 +36,7 @@ Original source materials and organized specifications:
 
 | Document | Description |
 |----------|-------------|
-| [Quick Start](../QUICKSTART.md) | Local run, database seed, and API smoke-test flow |
-| [Seed Data Guide](SEED_DATA.md) | Authoritative seed commands, dataset coverage, and consistency rules |
+| [Quick Start](../QUICKSTART.md) | Local run, database cleanup, and API smoke-test flow |
 | [Free Hosting Deployment Guide](DEPLOYMENT_FREE_HOSTING.md) | Step-by-step setup for Neon, Vercel, Render, Cloudinary, and Namecheap DNS |
 
 ### LaTeX Source Files
