@@ -6,7 +6,6 @@ All backend endpoints are now connected to the **real PostgreSQL database** with
 - ✅ 25+ repository methods
 - ✅ 25+ API endpoints
 - ✅ Dynamic recovery rate calculation
-- ✅ Comprehensive seed data with your exact login credentials
 
 ## Step 1: Setup Database
 
@@ -42,33 +41,13 @@ EOF
 
 **⚠️ Change the DATABASE_URL password to match your PostgreSQL setup!**
 
-## Step 4: Run Seed Data
+## Step 4: Clear Existing Non-Core Data
 
-This creates your 3 login users and comprehensive test data:
+Keep only the admin user plus gallery and system info records:
 
 ```bash
 cd ../..
-pnpm db:seed
-```
-
-See detailed seed usage notes in `docs/SEED_DATA.md`.
-
-If you want a clean reset first:
-
-```bash
-pnpm db:seed:reset
-```
-
-Expected output:
-```
-Created seed data:
-  - Member: member@hasnahena.local / Member@12345
-  - Admin: admin@hasnahena.local / Admin@12345
-  - Staff: staff@hasnahena.local / Staff@12345
-  - 14 total members: 10 ACTIVE, 3 PENDING, 1 SUSPENDED
-  - 6 loans: 1 ACTIVE, 1 COMPLETED, 1 DEFAULTED, 3 PENDING
-  - 6 donation transactions (charity fund)
-  - Multiple deposit and repayment transactions
+pnpm db:clear
 ```
 
 ## Step 5: Start API Server
@@ -115,14 +94,12 @@ pnpm dev
 1. Open http://localhost:3000
 2. Login with:
    - **Admin**: `admin@hasnahena.local` / `Admin@12345`
-   - **Member**: `member@hasnahena.local` / `Member@12345`
-   - **Staff**: `staff@hasnahena.local` / `Staff@12345`
 
 3. Test these features:
-   - ✅ Member dashboard (shows real balance, transactions, loans)
    - ✅ Admin dashboard (shows dynamic recovery rate, not 98.5%)
-   - ✅ Admin approvals (3 pending registrations, 3 pending loans)
-   - ✅ Worker dashboard
+  - ✅ Admin authentication and dashboard endpoints
+  - ✅ Gallery items remain visible
+  - ✅ System settings remain available
 
 ---
 
@@ -194,44 +171,18 @@ sudo systemctl start postgresql
 # Update DATABASE_URL in apps/api/.env with correct password
 ```
 
-### Seed Script Fails
+### `pnpm db:clear` Fails
 
-**Cause**: Prisma migrations not run or database doesn't exist
+**Cause**: `DATABASE_URL` is missing, unreachable, or no admin user exists
 
 **Fix**:
 ```bash
-cd apps/web
-npx prisma migrate dev
+# Verify connection variables are available
+echo "$DATABASE_URL"
+
+# Ensure at least one admin exists (or set KEEP_ADMIN_EMAIL)
+pnpm --filter @hasnahena/web exec prisma studio
 ```
-
----
-
-## 📊 Test Data Overview
-
-After seeding, you'll have:
-
-### Users (17 total)
-- 3 **system users** (admin, member, staff) - your login accounts
-- 10 **ACTIVE members** with balances
-- 3 **PENDING members** waiting for approval
-- 1 **SUSPENDED member**
-
-### Loans (6 total)
-- 1 **ACTIVE** loan (LN-001) - ৳50,000 principal, ৳40,000 remaining
-- 1 **COMPLETED** loan (LN-002) - fully paid
-- 1 **DEFAULTED** loan (LN-006) - for testing recovery
-- 3 **PENDING** loans (LN-003, LN-004, LN-005) - waiting for admin approval
-
-### Transactions
-- **Deposits**: Multiple deposit transactions for each member
-- **Repayments**: 2 repayment transactions for the active loan
-- **Donations**: 6 donation transactions totaling ৳26,50,000 (charity fund)
-
-### Financial Summary
-- **Total Deposits**: ~৳2.5 crore
-- **Active Loans**: ৳40,000 remaining
-- **Charity Fund**: ৳26,50,000
-- **Recovery Rate**: Calculated dynamically (not hardcoded!)
 
 ---
 
@@ -245,7 +196,6 @@ After seeding, you'll have:
 - ✅ Dynamic recovery rate calculation
 - ✅ Waterfall default recovery system
 - ✅ Bengali language support
-- ✅ Comprehensive seed data
 
 ### Frontend (Needs Integration)
 - ✅ 10 pages already using real API
@@ -324,12 +274,10 @@ useEffect(() => {
 You'll know everything is working when:
 
 1. ✅ API starts without errors on port 8081
-2. ✅ You can login with all 3 test accounts
-3. ✅ Member dashboard shows real balance (৳25,000)
-4. ✅ Admin dashboard shows dynamic recovery rate (not 98.5%)
-5. ✅ Admin approvals page shows 3 pending registrations and 3 pending loans
-6. ✅ All balances are in BDT (divided by 100 from paisa)
-7. ✅ Bengali descriptions display correctly
+2. ✅ You can login with the admin account
+3. ✅ Admin dashboard shows dynamic recovery rate (not 98.5%)
+4. ✅ Gallery and system settings data remain available
+5. ✅ Bengali descriptions display correctly
 
 ---
 

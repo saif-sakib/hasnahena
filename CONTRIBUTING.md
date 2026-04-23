@@ -63,8 +63,8 @@ docker compose up -d postgres
 # 6. Run database migrations
 pnpm db:migrate
 
-# 7. Seed development data
-pnpm db:seed
+# 7. Optional: clear existing data (keeps admin, gallery, system info)
+pnpm db:clear
 
 # 8. Start development servers
 pnpm dev

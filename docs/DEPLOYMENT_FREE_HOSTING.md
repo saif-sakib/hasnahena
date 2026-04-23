@@ -19,7 +19,7 @@ This is the current known state:
 - Frontend deployed on Vercel: `https://hasnahena-web.vercel.app`
 - Backend deployed on Render: `https://hasnahena-api.onrender.com`
 - Domain configured: `hasnahenafoundation.com`
-- Database configured on Neon and schema/seed applied
+- Database configured on Neon and schema applied
 - Cloudinary credentials added in Render environment variables
 
 Items still recommended to complete:
@@ -55,7 +55,7 @@ If your DB is already on Neon and working, this is mainly a safe cutover checkli
 
 1. In Neon, create a new production database/branch (optional but recommended for clean migration).
 2. Copy two URLs:
-   - Direct URL (no `-pooler`) -> for schema push/seed jobs
+   - Direct URL (no `-pooler`) -> for schema push jobs
    - Pooled URL (`-pooler`) -> for app runtime (`DATABASE_URL`)
 3. Apply schema:
 
@@ -65,12 +65,11 @@ export DATABASE_URL='postgresql://USER:PASSWORD@<direct-host>.neon.tech/hasnahen
 npx prisma db push
 ```
 
-4. Seed data:
+4. Optional cleanup (keep admin user, gallery, and system info):
 
 ```bash
-cd /home/sword/Documents/Github/Hasnahena/apps/api
-export DATABASE_URL='postgresql://USER:PASSWORD@<direct-host>.neon.tech/hasnahena_dev?sslmode=require'
-go run cmd/seed/main.go
+cd /home/sword/Documents/Github/Hasnahena
+pnpm db:clear
 ```
 
 5. Update runtime environments to pooled URL:
@@ -170,12 +169,11 @@ export DATABASE_URL='postgresql://USER:PASSWORD@ep-xxxx.ap-southeast-1.aws.neon.
 npx prisma db push
 ```
 
-### 1.4 Seed initial data
+### 1.4 Optional data cleanup
 
 ```bash
-cd /home/sword/Documents/Github/Hasnahena/apps/api
-export DATABASE_URL='postgresql://USER:PASSWORD@ep-xxxx.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require'
-go run cmd/seed/main.go
+cd /home/sword/Documents/Github/Hasnahena
+pnpm db:clear
 ```
 
 ### 1.5 Verify database
@@ -399,7 +397,7 @@ Note: older Vercel targets (`76.76.21.21` and `cname.vercel-dns.com`) can still 
 2. `https://www.hasnahenafoundation.com` redirects/loads correctly
 3. `https://api.hasnahenafoundation.com/v1/health` returns healthy status
 4. Login works from frontend (no CORS errors)
-5. Seed users exist and dashboard loads data
+5. Admin login works and dashboard loads data
 
 ---
 
@@ -426,7 +424,7 @@ export DATABASE_URL='postgresql://...direct-host-without-pooler...'
 npx prisma db push
 ```
 
-Then rerun seed from `apps/api`.
+Then run `pnpm db:clear` from the repository root if you want only core records.
 
 ### Error: hostname resolving `...direct...`
 
@@ -496,7 +494,7 @@ CLOUDINARY_API_SECRET=your-api-secret
 NEXT_PUBLIC_API_URL=http://localhost:8080
 JWT_SECRET=<dev-secret>
 
-# Use direct Neon URL for schema push/seed OR local postgres URL
+# Use direct Neon URL for schema push OR local postgres URL
 DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx.ap-southeast-1.aws.neon.tech/hasnahena_dev?sslmode=require
 
 API_PORT=8080
@@ -555,14 +553,14 @@ Use local DB URL:
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_dev
 ```
 
-Then create schema and seed:
+Then create schema and clean non-core data:
 
 ```bash
 cd apps/web
 npx prisma db push
 
-cd ../api
-go run cmd/seed/main.go
+cd ../..
+pnpm db:clear
 ```
 
 ### 11.2 Run app locally
