@@ -2034,11 +2034,18 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 	}
 	defer tx.Rollback(ctx)
 
-	// Update user status to INACTIVE
+	// Mark registration as rejected and archive unique contact fields so the applicant can re-register.
 	const updateQuery = `
 		UPDATE users
-		SET status = 'INACTIVE', "updatedAt" = NOW()
-		WHERE id = $1
+		SET
+			status = 'INACTIVE',
+			email = CASE
+				WHEN email IS NULL OR btrim(email) = '' THEN NULL
+				ELSE CONCAT('rejected+', id, '@hasnahena.local')
+			END,
+			phone = CONCAT('rejected-', id),
+			"updatedAt" = NOW()
+		WHERE id = $1 AND role = 'MEMBER' AND status = 'PENDING'
 	`
 	updateResult, err := tx.Exec(ctx, updateQuery, userID)
 	if err != nil {

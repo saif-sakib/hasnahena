@@ -46,6 +46,14 @@ const REQUIRED_DOCUMENT_FIELDS = [
   },
 ] as const;
 
+const REJECTED_REGISTRATION_PASSWORD_HASH = '__PENDING_APPROVAL_NO_LOGIN__';
+const rejectedRegistrationFilter: Prisma.UserWhereInput = {
+  role: UserRole.MEMBER,
+  status: UserStatus.INACTIVE,
+  approvedAt: null,
+  passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
+};
+
 function isFileEntry(value: FormDataEntryValue | null): value is File {
   if (!value || typeof value === 'string') return false;
   return (
@@ -94,6 +102,7 @@ export async function GET(req: Request) {
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: clauses,
+        NOT: rejectedRegistrationFilter,
       },
       select: {
         email: true,
@@ -171,6 +180,22 @@ export async function POST(req: Request) {
     const payload = parsed.data;
     const normalizedEmail = payload.email.trim().toLowerCase();
 
+    await prisma.$executeRaw`
+      UPDATE users
+      SET
+        email = CASE
+          WHEN email IS NULL OR btrim(email) = '' THEN NULL
+          ELSE CONCAT('rejected+', id, '@hasnahena.local')
+        END,
+        phone = CONCAT('rejected-', id),
+        "updatedAt" = NOW()
+      WHERE role = 'MEMBER'
+        AND status = 'INACTIVE'
+        AND "approvedAt" IS NULL
+        AND "passwordHash" = ${REJECTED_REGISTRATION_PASSWORD_HASH}
+        AND (email = ${normalizedEmail} OR phone = ${payload.phone})
+    `;
+
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -178,6 +203,7 @@ export async function POST(req: Request) {
           { phone: payload.phone },
           { email: normalizedEmail },
         ],
+        NOT: rejectedRegistrationFilter,
       },
       select: { phone: true, email: true },
     });
@@ -274,13 +300,11 @@ export async function POST(req: Request) {
       district: presentFallback ? permanentAddress.district : payload.presentDistrict!,
     };
 
-    const provisionalPasswordHash = '__PENDING_APPROVAL_NO_LOGIN__';
-
     const created = await prisma.user.create({
       data: {
         email: normalizedEmail,
         phone: payload.phone,
-        passwordHash: provisionalPasswordHash,
+        passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
         role: UserRole.MEMBER,
         status: UserStatus.PENDING,
 
