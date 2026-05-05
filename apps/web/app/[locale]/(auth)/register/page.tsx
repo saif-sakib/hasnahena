@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
@@ -78,6 +78,7 @@ export default function RegisterPage() {
     handleSubmit,
     watch,
     reset,
+    getValues,
     trigger,
     setError,
     clearErrors,
@@ -274,20 +275,84 @@ export default function RegisterPage() {
     ['agreeToTerms'],
   ];
 
+  const checkContactAvailability = async (emailValue: string, phoneValue: string): Promise<'available' | 'taken' | 'error'> => {
+    const email = emailValue.trim().toLowerCase();
+    const phone = phoneValue.trim();
+
+    setEmailAvailability(email ? 'checking' : 'idle');
+    setPhoneAvailability(phone ? 'checking' : 'idle');
+
+    try {
+      const params = new URLSearchParams();
+      if (email) {
+        params.set('email', email);
+      }
+      if (phone) {
+        params.set('phone', phone);
+      }
+
+      const response = await fetch(`/api/v1/registrations?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        emailExists?: boolean;
+        phoneExists?: boolean;
+      };
+      if (!response.ok) {
+        throw new Error('Availability check failed');
+      }
+
+      const emailTaken = Boolean(email) && Boolean(json.emailExists);
+      const phoneTaken = Boolean(phone) && Boolean(json.phoneExists);
+
+      if (emailTaken) {
+        setError('email', {
+          type: 'manual',
+          message: locale === 'bn' ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
+        });
+      } else if (errors.email?.type === 'manual') {
+        clearErrors('email');
+      }
+
+      if (phoneTaken) {
+        setError('phone', {
+          type: 'manual',
+          message: locale === 'bn' ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত' : 'This phone number is already registered',
+        });
+      } else if (errors.phone?.type === 'manual') {
+        clearErrors('phone');
+      }
+
+      setEmailAvailability(email ? (emailTaken ? 'taken' : 'available') : 'idle');
+      setPhoneAvailability(phone ? (phoneTaken ? 'taken' : 'available') : 'idle');
+
+      if (emailTaken || phoneTaken) {
+        return 'taken';
+      }
+      return 'available';
+    } catch {
+      setEmailAvailability(email ? 'error' : 'idle');
+      setPhoneAvailability(phone ? 'error' : 'idle');
+      return 'error';
+    }
+  };
+
   const onSubmit = async (data: RegisterFormData) => {
     setSubmitError(null);
     setSubmitStage('idle');
 
-    if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
+    const availability = await checkContactAvailability(data.email, data.phone);
+    if (availability === 'error') {
       setSubmitError(
         locale === 'bn'
-          ? 'ই-মেইল/মোবাইল যাচাই চলছে। অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন।'
-          : 'Email/phone validation is in progress. Please wait a moment.'
+          ? 'ই-মেইল/মোবাইল যাচাই করা যাচ্ছে না। অনুগ্রহ করে আবার চেষ্টা করুন।'
+          : 'Unable to validate email/phone right now. Please try again.'
       );
       return;
     }
 
-    if (emailAvailability === 'taken' || phoneAvailability === 'taken') {
+    if (availability === 'taken') {
       setSubmitError(
         locale === 'bn'
           ? 'এই ই-মেইল বা মোবাইল নম্বর দিয়ে ইতোমধ্যে নিবন্ধন করা হয়েছে।'
@@ -485,20 +550,39 @@ export default function RegisterPage() {
   const nextStep = async () => {
     setSubmitError(null);
 
+    // Validate current step fields before proceeding
+    const fieldsToValidate =
+      currentStep === 1 && sameAsPermanent
+        ? stepFields[currentStep].filter((field) => !conditionalAddressFields.includes(field))
+        : stepFields[currentStep];
+    const isValid = await trigger(fieldsToValidate);
+
+    if (!isValid) {
+      // Show toast about validation errors
+      toast({
+        title: locale === 'bn' ? 'অনুগ্রহ করে ত্রুটি সংশোধন করুন' : 'Please fix the errors',
+        description: locale === 'bn'
+          ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
+          : 'Please fill all required fields correctly.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (currentStep === 0) {
-      if (emailAvailability === 'checking' || phoneAvailability === 'checking') {
+      const availability = await checkContactAvailability(getValues('email'), getValues('phone'));
+      if (availability === 'error') {
         toast({
-          title: locale === 'bn' ? 'যাচাই চলছে' : 'Validation in progress',
+          title: locale === 'bn' ? 'যাচাই ব্যর্থ' : 'Validation failed',
           description:
             locale === 'bn'
-              ? 'ই-মেইল/মোবাইল যাচাই সম্পন্ন না হওয়া পর্যন্ত অপেক্ষা করুন।'
-              : 'Please wait until email/phone validation finishes.',
+              ? 'ই-মেইল/মোবাইল যাচাই করা যাচ্ছে না। অনুগ্রহ করে আবার চেষ্টা করুন।'
+              : 'Unable to validate email/phone right now. Please try again.',
           variant: 'destructive',
         });
         return;
       }
-
-      if (emailAvailability === 'taken' || phoneAvailability === 'taken') {
+      if (availability === 'taken') {
         toast({
           title: locale === 'bn' ? 'ডুপ্লিকেট তথ্য পাওয়া গেছে' : 'Duplicate information found',
           description:
@@ -511,24 +595,8 @@ export default function RegisterPage() {
       }
     }
 
-    // Validate current step fields before proceeding
-    const fieldsToValidate =
-      currentStep === 1 && sameAsPermanent
-        ? stepFields[currentStep].filter((field) => !conditionalAddressFields.includes(field))
-        : stepFields[currentStep];
-    const isValid = await trigger(fieldsToValidate);
-
-    if (isValid && currentStep < steps.length - 1) {
+    if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
-    } else if (!isValid) {
-      // Show toast about validation errors
-      toast({
-        title: locale === 'bn' ? 'অনুগ্রহ করে ত্রুটি সংশোধন করুন' : 'Please fix the errors',
-        description: locale === 'bn'
-          ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
-          : 'Please fill all required fields correctly.',
-        variant: 'destructive',
-      });
     }
   };
 
@@ -594,6 +662,15 @@ export default function RegisterPage() {
       delete next[key];
       return next;
     });
+  };
+
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (currentStep < steps.length - 1) {
+      event.preventDefault();
+      void nextStep();
+      return;
+    }
+    void handleSubmit(onSubmit, onInvalidSubmit)(event);
   };
 
   return (
@@ -685,7 +762,7 @@ export default function RegisterPage() {
                   {submitError}
                 </div>
               )}
-              <form onSubmit={handleSubmit(onSubmit, onInvalidSubmit)}>
+              <form onSubmit={handleFormSubmit}>
                 {/* Step 1: Personal Information */}
                 {currentStep === 0 && (
                   <div className="space-y-6">
