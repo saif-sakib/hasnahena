@@ -80,6 +80,12 @@ export default function AdminSettingsPage() {
     loginAttempts: 5,
   });
   const [supportRetentionDays, setSupportRetentionDays] = useState(10);
+  const [appearanceSettings, setAppearanceSettings] = useState({
+    defaultLanguage: 'bn',
+    theme: 'light',
+    dateFormat: 'dd/mm/yyyy',
+    currencyFormat: 'bn-BD',
+  });
 
   // Landing Page Settings (Dynamic Content)
   const [landingSettings, setLandingSettings] = useState<Record<string, string>>({
@@ -115,28 +121,83 @@ export default function AdminSettingsPage() {
     try {
       const response = await fetch('/api/v1/settings');
       if (response.ok) {
-        const data = await response.json();
-        // Merge with existing settings
-        setLandingSettings(prev => ({ ...prev, ...data }));
-        
-        // Populate Org Settings if present
-        if (data['org.name']) {
-          setOrgSettings({
-            name: data['org.name'] || '',
-            nameEn: data['org.nameEn'] || '',
-            email: data['org.email'] || '',
-            phone: data['org.phone'] || '',
-            address: data['org.address'] || '',
-            website: data['org.website'] || '',
-            description: data['org.description'] || '',
-          });
-        }
-        if (data['support.chatRetentionDays']) {
-          const parsed = Number(data['support.chatRetentionDays']);
-          if (Number.isFinite(parsed) && parsed > 0) {
-            setSupportRetentionDays(parsed);
+        const data = (await response.json()) as Record<string, unknown>;
+        const parseNumberSetting = (value: unknown, fallback: number) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+        };
+        const parseBooleanSetting = (value: unknown, fallback: boolean) => {
+          if (typeof value === 'boolean') return value;
+          if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === 'true') return true;
+            if (normalized === 'false') return false;
           }
-        }
+          return fallback;
+        };
+
+        // Merge only string-based settings into landing config.
+        const stringSettings = Object.fromEntries(
+          Object.entries(data).filter(([, value]) => typeof value === 'string')
+        ) as Record<string, string>;
+        setLandingSettings((prev) => ({ ...prev, ...stringSettings }));
+        
+        setOrgSettings((prev) => ({
+          ...prev,
+          name: typeof data['org.name'] === 'string' ? data['org.name'] : prev.name,
+          nameEn: typeof data['org.nameEn'] === 'string' ? data['org.nameEn'] : prev.nameEn,
+          email: typeof data['org.email'] === 'string' ? data['org.email'] : prev.email,
+          phone: typeof data['org.phone'] === 'string' ? data['org.phone'] : prev.phone,
+          address: typeof data['org.address'] === 'string' ? data['org.address'] : prev.address,
+          website: typeof data['org.website'] === 'string' ? data['org.website'] : prev.website,
+          description: typeof data['org.description'] === 'string' ? data['org.description'] : prev.description,
+        }));
+        setLoanSettings((prev) => ({
+          ...prev,
+          maxLoanMultiplier: parseNumberSetting(data['loan.maxLoanMultiplier'], prev.maxLoanMultiplier),
+          minDepositForLoan: parseNumberSetting(data['loan.minDepositForLoan'], prev.minDepositForLoan),
+          maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], prev.maxInstallmentMonths),
+          missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], prev.missedPaymentsForDefault),
+          noticePeriodMonths: parseNumberSetting(data['loan.noticePeriodMonths'], prev.noticePeriodMonths),
+        }));
+
+        setNotificationSettings((prev) => ({
+          ...prev,
+          emailNotifications: parseBooleanSetting(data['notification.emailNotifications'], prev.emailNotifications),
+          smsNotifications: parseBooleanSetting(data['notification.smsNotifications'], prev.smsNotifications),
+          loanApprovalNotify: parseBooleanSetting(data['notification.loanApprovalNotify'], prev.loanApprovalNotify),
+          depositConfirmationNotify: parseBooleanSetting(data['notification.depositConfirmationNotify'], prev.depositConfirmationNotify),
+          paymentReminderNotify: parseBooleanSetting(data['notification.paymentReminderNotify'], prev.paymentReminderNotify),
+          newMemberNotify: parseBooleanSetting(data['notification.newMemberNotify'], prev.newMemberNotify),
+        }));
+
+        setSecuritySettings((prev) => ({
+          ...prev,
+          twoFactorAuth: parseBooleanSetting(data['security.twoFactorAuth'], prev.twoFactorAuth),
+          sessionTimeout: parseNumberSetting(data['security.sessionTimeout'], prev.sessionTimeout),
+          passwordExpiry: parseNumberSetting(data['security.passwordExpiry'], prev.passwordExpiry),
+          loginAttempts: parseNumberSetting(data['security.loginAttempts'], prev.loginAttempts),
+        }));
+
+        setAppearanceSettings((prev) => ({
+          ...prev,
+          defaultLanguage: typeof data['appearance.defaultLanguage'] === 'string'
+            ? data['appearance.defaultLanguage']
+            : prev.defaultLanguage,
+          theme: typeof data['appearance.theme'] === 'string'
+            ? data['appearance.theme']
+            : prev.theme,
+          dateFormat: typeof data['appearance.dateFormat'] === 'string'
+            ? data['appearance.dateFormat']
+            : prev.dateFormat,
+          currencyFormat: typeof data['appearance.currencyFormat'] === 'string'
+            ? data['appearance.currencyFormat']
+            : prev.currencyFormat,
+        }));
+
+        setSupportRetentionDays((prev) =>
+          parseNumberSetting(data['support.chatRetentionDays'], prev)
+        );
       }
     } catch (error) {
       console.error('Failed to fetch settings', error);
@@ -254,6 +315,25 @@ export default function AdminSettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const normalizePositiveNumber = (value: number, fallback: number) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+        return Math.trunc(parsed);
+      };
+      const normalizedLoanSettings = {
+        maxLoanMultiplier: normalizePositiveNumber(loanSettings.maxLoanMultiplier, 5),
+        minDepositForLoan: normalizePositiveNumber(loanSettings.minDepositForLoan, 8000),
+        maxInstallmentMonths: normalizePositiveNumber(loanSettings.maxInstallmentMonths, 24),
+        missedPaymentsForDefault: normalizePositiveNumber(loanSettings.missedPaymentsForDefault, 3),
+        noticePeriodMonths: normalizePositiveNumber(loanSettings.noticePeriodMonths, 3),
+      };
+      const normalizedSecuritySettings = {
+        sessionTimeout: normalizePositiveNumber(securitySettings.sessionTimeout, 30),
+        passwordExpiry: normalizePositiveNumber(securitySettings.passwordExpiry, 90),
+        loginAttempts: normalizePositiveNumber(securitySettings.loginAttempts, 5),
+      };
+      const normalizedSupportRetentionDays = normalizePositiveNumber(supportRetentionDays, 10);
+
       // Flatten settings for saving
       const settingsToSave = {
         ...landingSettings,
@@ -264,8 +344,34 @@ export default function AdminSettingsPage() {
         'org.address': orgSettings.address,
         'org.website': orgSettings.website,
         'org.description': orgSettings.description,
-        'support.chatRetentionDays': String(supportRetentionDays),
+        'loan.maxLoanMultiplier': String(normalizedLoanSettings.maxLoanMultiplier),
+        'loan.minDepositForLoan': String(normalizedLoanSettings.minDepositForLoan),
+        'loan.maxInstallmentMonths': String(normalizedLoanSettings.maxInstallmentMonths),
+        'loan.missedPaymentsForDefault': String(normalizedLoanSettings.missedPaymentsForDefault),
+        'loan.noticePeriodMonths': String(normalizedLoanSettings.noticePeriodMonths),
+        'notification.emailNotifications': String(notificationSettings.emailNotifications),
+        'notification.smsNotifications': String(notificationSettings.smsNotifications),
+        'notification.loanApprovalNotify': String(notificationSettings.loanApprovalNotify),
+        'notification.depositConfirmationNotify': String(notificationSettings.depositConfirmationNotify),
+        'notification.paymentReminderNotify': String(notificationSettings.paymentReminderNotify),
+        'notification.newMemberNotify': String(notificationSettings.newMemberNotify),
+        'security.twoFactorAuth': String(securitySettings.twoFactorAuth),
+        'security.sessionTimeout': String(normalizedSecuritySettings.sessionTimeout),
+        'security.passwordExpiry': String(normalizedSecuritySettings.passwordExpiry),
+        'security.loginAttempts': String(normalizedSecuritySettings.loginAttempts),
+        'appearance.defaultLanguage': appearanceSettings.defaultLanguage,
+        'appearance.theme': appearanceSettings.theme,
+        'appearance.dateFormat': appearanceSettings.dateFormat,
+        'appearance.currencyFormat': appearanceSettings.currencyFormat,
+        'support.chatRetentionDays': String(normalizedSupportRetentionDays),
       };
+
+      setLoanSettings(normalizedLoanSettings);
+      setSecuritySettings((prev) => ({
+        ...prev,
+        ...normalizedSecuritySettings,
+      }));
+      setSupportRetentionDays(normalizedSupportRetentionDays);
 
       const authToken = getAuthToken();
       const response = await fetch('/api/v1/settings', {
@@ -1178,7 +1284,13 @@ export default function AdminSettingsPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-sm">{locale === 'bn' ? 'ডিফল্ট ভাষা' : 'Default Language'}</Label>
-                    <select defaultValue="bn" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                    <select
+                      value={appearanceSettings.defaultLanguage}
+                      onChange={(e) =>
+                        setAppearanceSettings({ ...appearanceSettings, defaultLanguage: e.target.value })
+                      }
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                    >
                       <option value="bn">বাংলা</option>
                       <option value="en">English</option>
                     </select>
@@ -1186,7 +1298,13 @@ export default function AdminSettingsPage() {
 
                   <div className="space-y-2">
                     <Label className="text-sm">{locale === 'bn' ? 'থিম' : 'Theme'}</Label>
-                    <select defaultValue="light" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                    <select
+                      value={appearanceSettings.theme}
+                      onChange={(e) =>
+                        setAppearanceSettings({ ...appearanceSettings, theme: e.target.value })
+                      }
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                    >
                       <option value="light">{locale === 'bn' ? 'লাইট' : 'Light'}</option>
                       <option value="dark">{locale === 'bn' ? 'ডার্ক' : 'Dark'}</option>
                       <option value="system">{locale === 'bn' ? 'সিস্টেম' : 'System'}</option>
@@ -1195,7 +1313,13 @@ export default function AdminSettingsPage() {
 
                   <div className="space-y-2">
                     <Label className="text-sm">{locale === 'bn' ? 'তারিখ ফরম্যাট' : 'Date Format'}</Label>
-                    <select defaultValue="dd/mm/yyyy" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                    <select
+                      value={appearanceSettings.dateFormat}
+                      onChange={(e) =>
+                        setAppearanceSettings({ ...appearanceSettings, dateFormat: e.target.value })
+                      }
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                    >
                       <option value="dd/mm/yyyy">DD/MM/YYYY</option>
                       <option value="mm/dd/yyyy">MM/DD/YYYY</option>
                       <option value="yyyy-mm-dd">YYYY-MM-DD</option>
@@ -1204,7 +1328,13 @@ export default function AdminSettingsPage() {
 
                   <div className="space-y-2">
                     <Label className="text-sm">{locale === 'bn' ? 'মুদ্রা ফরম্যাট' : 'Currency Format'}</Label>
-                    <select defaultValue="bn-BD" className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64">
+                    <select
+                      value={appearanceSettings.currencyFormat}
+                      onChange={(e) =>
+                        setAppearanceSettings({ ...appearanceSettings, currencyFormat: e.target.value })
+                      }
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                    >
                       <option value="bn-BD">৳ 1,00,000 (বাংলাদেশি)</option>
                       <option value="en-BD">BDT 100,000 (English)</option>
                     </select>

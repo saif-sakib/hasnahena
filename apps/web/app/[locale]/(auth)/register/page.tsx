@@ -439,22 +439,37 @@ export default function RegisterPage() {
         body: formData,
       });
 
-      const json = (await response.json().catch(() => ({}))) as {
+      const responseText = await response.text();
+      let json: {
         error?: string;
         details?: {
-          fieldErrors?: Record<string, string[]>;
+          fieldErrors?: Record<string, string[] | undefined>;
           formErrors?: string[];
-        }
-      };
+        };
+      } = {};
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        json = {};
+      }
 
       if (!response.ok) {
         setSubmitStage('idle');
-        const fieldErrorMessages = json?.details?.fieldErrors
+        // Keep registration error rendering resilient so users never see a blank failure.
+        const fieldErrorMessages = json?.details?.fieldErrors && typeof json.details.fieldErrors === 'object'
           ? Object.entries(json.details.fieldErrors)
-            .map(([field, messages]) => `${getRegistrationFieldLabel(field, locale === 'bn' ? 'bn' : 'en')}: ${messages.join(', ')}`)
+            .map(([field, messages]) => {
+              const safeMessages = Array.isArray(messages)
+                ? messages.filter((message): message is string => typeof message === 'string' && message.trim() !== '')
+                : [];
+              if (!safeMessages.length) return '';
+              return `${getRegistrationFieldLabel(field, locale === 'bn' ? 'bn' : 'en')}: ${safeMessages.join(', ')}`;
+            })
+            .filter(Boolean)
             .join('\n')
           : '';
-        const formErrorMessages = (json?.details?.formErrors || [])
+        const formErrorMessages = (Array.isArray(json?.details?.formErrors) ? json.details.formErrors : [])
+          .filter((message): message is string => typeof message === 'string')
           .map((message) => message.trim())
           .filter(Boolean)
           .join('\n');
@@ -467,7 +482,12 @@ export default function RegisterPage() {
               : `Form has errors:\n${detailedMessage}`
           );
         } else {
-          setSubmitError(json?.error ?? (locale === 'bn' ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed'));
+          const fallbackFromBody = responseText.trim();
+          setSubmitError(
+            (typeof json?.error === 'string' && json.error.trim())
+            || fallbackFromBody
+            || (locale === 'bn' ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed')
+          );
         }
         return;
       }
