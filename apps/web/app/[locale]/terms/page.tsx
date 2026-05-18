@@ -1,13 +1,31 @@
-'use client';
-
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { useLocale } from 'next-intl';
+import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
+import { locales, type Locale } from '@/i18n';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default function TermsPage() {
-  const locale = useLocale();
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/terms',
+    title: activeLocale === 'bn' ? 'সেবার শর্তাবলী' : 'Terms of Service',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনার সেবা ব্যবহারের শর্তাবলী ও নীতিমালা পড়ুন।'
+        : 'Read the terms and conditions for using Hasnahena services.',
+  });
+}
+
+export default function TermsPage({ params: { locale } }: PageProps) {
+  if (!locales.includes(locale as Locale)) {
+    notFound();
+  }
 
   const content = {
     en: {
@@ -98,7 +116,7 @@ export default function TermsPage() {
     },
   };
 
-  const t = content[locale as keyof typeof content] || content.en;
+  const t = content[(locale as keyof typeof content)] || content.en;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
@@ -5,8 +6,24 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { HandHeart, HeartPulse, Building2, QrCode } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default async function DonatePage({ params: { locale } }: { params: { locale: string } }) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/donate',
+    title: activeLocale === 'bn' ? 'অনুদান করুন' : 'Donate',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনার সেবামূলক কার্যক্রমে অনুদান দিয়ে অংশ নিন।'
+        : 'Support Hasnahena welfare programs by making a donation.',
+  });
+}
+
+export default async function DonatePage({ params: { locale } }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   unstable_setRequestLocale(locale);
 

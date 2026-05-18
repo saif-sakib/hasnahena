@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
@@ -6,8 +7,24 @@ import { Footer } from '@/components/layout/footer';
 import { Mail, Phone, MapPin, Send } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { Button } from '@/components/ui/button';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default async function ContactPage({ params: { locale } }: { params: { locale: string } }) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/contact',
+    title: activeLocale === 'bn' ? 'যোগাযোগ' : 'Contact Us',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনার সাথে যোগাযোগের ঠিকানা, ফোন এবং ইমেইল তথ্য।'
+        : 'Reach Hasnahena through phone, email, and office address details.',
+  });
+}
+
+export default async function ContactPage({ params: { locale } }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   unstable_setRequestLocale(locale);
 

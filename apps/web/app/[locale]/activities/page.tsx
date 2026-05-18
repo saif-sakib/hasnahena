@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
@@ -5,8 +6,24 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Wallet, GraduationCap, HandHeart, Users } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default async function ActivitiesPage({ params: { locale } }: { params: { locale: string } }) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/activities',
+    title: activeLocale === 'bn' ? 'আমাদের কার্যক্রম' : 'Our Activities',
+    description:
+      activeLocale === 'bn'
+        ? 'সুদমুক্ত ঋণ, শিক্ষা সহায়তা ও সামাজিক উন্নয়নে হাসনাহেনার কার্যক্রম দেখুন।'
+        : 'Explore Hasnahena activities in interest-free finance, education support, and social welfare.',
+  });
+}
+
+export default async function ActivitiesPage({ params: { locale } }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   unstable_setRequestLocale(locale);
 

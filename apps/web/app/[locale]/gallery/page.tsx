@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { unstable_setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -7,8 +8,24 @@ import { Footer } from '@/components/layout/footer';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { prisma } from '@/lib/prisma';
 import { Image as ImageIcon } from 'lucide-react';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default async function GalleryPage({ params: { locale } }: { params: { locale: string } }) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/gallery',
+    title: activeLocale === 'bn' ? 'গ্যালারি' : 'Gallery',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনার কার্যক্রমের ছবি ও স্মৃতিচিত্র দেখুন।'
+        : 'Browse photos and highlights from Hasnahena activities.',
+  });
+}
+
+export default async function GalleryPage({ params: { locale } }: PageProps) {
   if (!locales.includes(locale as (typeof locales)[number])) {
     notFound();
   }
