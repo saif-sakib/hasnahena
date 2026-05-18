@@ -45,8 +45,12 @@ export default function LoansPage() {
   const locale = useLocale();
   const router = useRouter();
   const [currentDeposit, setCurrentDeposit] = useState(0);
-  const minDepositRequired = 8000;
-  const maxLoanMultiplier = 5;
+  const [loanPolicy, setLoanPolicy] = useState({
+    minDepositRequired: 8000,
+    maxLoanMultiplier: 5,
+  });
+  const minDepositRequired = loanPolicy.minDepositRequired;
+  const maxLoanMultiplier = loanPolicy.maxLoanMultiplier;
   const maxLoanAmount = currentDeposit * maxLoanMultiplier;
   const isEligible = currentDeposit >= minDepositRequired;
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
@@ -71,13 +75,16 @@ export default function LoansPage() {
     setIsLoading(true);
     setActionError(null);
     try {
-      const [loanData, transactionData] = await Promise.all([
+      const [loanData, transactionData, settingsData] = await Promise.all([
         apiGet<{
           currentDeposit?: number;
           activeLoan?: Loan | null;
           loanHistory?: Loan[];
         }>('/v1/dashboard/member/loans'),
         apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions'),
+        fetch('/api/v1/settings', { cache: 'no-store' })
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => null) as Promise<Record<string, unknown> | null>,
       ]);
 
       setCurrentDeposit(loanData?.currentDeposit ?? 0);
@@ -88,6 +95,20 @@ export default function LoansPage() {
           item.type === 'LOAN_REPAYMENT' && item.status === 'PENDING',
         ).length,
       );
+      setLoanPolicy((prev) => {
+        const parsedMinDeposit = Number(settingsData?.['loan.minDepositForLoan']);
+        const parsedMultiplier = Number(settingsData?.['loan.maxLoanMultiplier']);
+        return {
+          minDepositRequired:
+            Number.isFinite(parsedMinDeposit) && parsedMinDeposit > 0
+              ? parsedMinDeposit
+              : prev.minDepositRequired,
+          maxLoanMultiplier:
+            Number.isFinite(parsedMultiplier) && parsedMultiplier > 0
+              ? parsedMultiplier
+              : prev.maxLoanMultiplier,
+        };
+      });
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to load loans');
     } finally {

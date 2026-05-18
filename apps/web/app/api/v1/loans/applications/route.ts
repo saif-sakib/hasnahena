@@ -14,6 +14,30 @@ const bodySchema = z.object({
   guarantorId: z.string().min(1),
 });
 
+async function getLoanPolicySettings() {
+  const configs = await prisma.systemConfig.findMany({
+    where: {
+      key: {
+        in: ['loan.minDepositForLoan', 'loan.maxLoanMultiplier', 'loan.maxInstallmentMonths'],
+      },
+    },
+    select: { key: true, value: true },
+  });
+  const map = configs.reduce<Record<string, string>>((acc, row) => {
+    acc[row.key] = row.value;
+    return acc;
+  }, {});
+  const parsePositiveInt = (raw: string | undefined, fallback: number) => {
+    const parsed = Number.parseInt(raw ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+  return {
+    minDepositForLoan: parsePositiveInt(map['loan.minDepositForLoan'], 8000),
+    maxLoanMultiplier: parsePositiveInt(map['loan.maxLoanMultiplier'], 5),
+    maxInstallmentMonths: parsePositiveInt(map['loan.maxInstallmentMonths'], 24),
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const auth = requireAuth(req);
@@ -33,8 +57,16 @@ export async function POST(req: Request) {
     });
     if (!borrowerAccount) return NextResponse.json({ ok: false, error: 'Account not found' }, { status: 404 });
 
-    const minDepositRequired = BigInt(8000);
-    const maxLoanMultiplier = BigInt(5);
+    const loanPolicy = await getLoanPolicySettings();
+    if (payload.installments > loanPolicy.maxInstallmentMonths) {
+      return NextResponse.json(
+        { ok: false, error: 'INSTALLMENT_LIMIT_EXCEEDED' },
+        { status: 422 },
+      );
+    }
+
+    const minDepositRequired = BigInt(loanPolicy.minDepositForLoan);
+    const maxLoanMultiplier = BigInt(loanPolicy.maxLoanMultiplier);
     const amountBig = BigInt(Math.floor(payload.amount));
     const maxAllowed = borrowerAccount.savingsBalance * maxLoanMultiplier;
     if (borrowerAccount.savingsBalance < minDepositRequired || amountBig > maxAllowed) {

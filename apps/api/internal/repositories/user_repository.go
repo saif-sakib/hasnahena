@@ -438,6 +438,34 @@ func (r *UserRepository) MarkAllNotificationsRead(ctx context.Context, userID, r
 	return err
 }
 
+func (r *UserRepository) getSystemConfigInt64(ctx context.Context, key string, defaultValue int64) int64 {
+	const query = `
+		SELECT value
+		FROM system_config
+		WHERE key = $1
+		LIMIT 1
+	`
+	var raw string
+	if err := r.db.QueryRow(ctx, query, key).Scan(&raw); err != nil {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func (r *UserRepository) getLoanPolicy(ctx context.Context) (int64, int64, int) {
+	minDepositRequired := r.getSystemConfigInt64(ctx, "loan.minDepositForLoan", 8000)
+	maxLoanMultiplier := r.getSystemConfigInt64(ctx, "loan.maxLoanMultiplier", 5)
+	maxInstallmentMonths := int(r.getSystemConfigInt64(ctx, "loan.maxInstallmentMonths", 24))
+	if maxInstallmentMonths < 1 {
+		maxInstallmentMonths = 24
+	}
+	return minDepositRequired, maxLoanMultiplier, maxInstallmentMonths
+}
+
 func (r *UserRepository) GetSupportRetentionDays(ctx context.Context) (int, error) {
 	const query = `
 		SELECT value
@@ -949,15 +977,17 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map[string]interface{}, error) {
 	const eligibilityQuery = `
 		SELECT
-			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE(a."maxLoanAmount", 0)::bigint
+			COALESCE(a."savingsBalance", 0)::bigint
 		FROM accounts a
 		WHERE a."userId" = $1
 		ORDER BY a."createdAt" DESC
 		LIMIT 1
 	`
-	var currentDeposit, maxLoanAmount int64
-	_ = r.db.QueryRow(ctx, eligibilityQuery, userID).Scan(&currentDeposit, &maxLoanAmount)
+	var currentDeposit int64
+	_ = r.db.QueryRow(ctx, eligibilityQuery, userID).Scan(&currentDeposit)
+	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
+	currentDepositBDT := currentDeposit / 100
+	maxLoanAmountBDT := currentDepositBDT * maxLoanMultiplier
 
 	const loanQuery = `
 		SELECT
@@ -1091,11 +1121,11 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	}
 
 	return map[string]interface{}{
-		"currentDeposit":      currentDeposit / 100,
-		"minDepositRequired":  int64(8000),
-		"maxLoanMultiplier":   int64(5),
-		"maxLoanAmount":       maxLoanAmount / 100,
-		"isEligible":          (currentDeposit / 100) >= 8000,
+		"currentDeposit":      currentDepositBDT,
+		"minDepositRequired":  minDepositRequired,
+		"maxLoanMultiplier":   maxLoanMultiplier,
+		"maxLoanAmount":       maxLoanAmountBDT,
+		"isEligible":          currentDepositBDT >= minDepositRequired,
 		"activeLoan":          activeLoan,
 		"loanHistory":         loanHistory,
 		"guarantorRequests":   guarantorRequests,
@@ -4009,8 +4039,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 	}
 
 	// Calculate loan eligibility
-	minDeposit := int64(8000) // 80,000 paisa = 800 BDT
-	maxLoanMultiplier := int64(5)
+	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
+	minDeposit := minDepositRequired * 100
 	maxLoanAmount := savingsBalance * maxLoanMultiplier
 	eligible := savingsBalance >= minDeposit && activeLoan == 0
 	eligibilityReason := ""
@@ -4360,7 +4390,8 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 
 // CreateMemberLoan creates a loan for a member (worker action)
 func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
-	if installments < 1 || installments > 24 {
+	minDepositRequired, maxLoanMultiplier, maxInstallmentMonths := r.getLoanPolicy(ctx)
+	if installments < 1 || installments > maxInstallmentMonths {
 		return "", errors.New("invalid installments")
 	}
 
@@ -4394,12 +4425,12 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("has active loan")
 	}
 
-	minDeposit := int64(8000) // 80,000 paisa
+	minDeposit := minDepositRequired * 100
 	if currentBalance < minDeposit {
 		return "", errors.New("not eligible - insufficient deposit")
 	}
 
-	maxLoanAmount := currentBalance * 5
+	maxLoanAmount := currentBalance * maxLoanMultiplier
 	if amount > maxLoanAmount {
 		return "", errors.New("exceeds limit")
 	}
