@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
@@ -5,8 +6,24 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Users, Goal, Target, Heart } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default async function AboutPage({ params: { locale } }: { params: { locale: string } }) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/about',
+    title: activeLocale === 'bn' ? 'আমাদের সম্পর্কে' : 'About Hasnahena',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনার লক্ষ্য, উদ্দেশ্য ও মূল্যবোধ সম্পর্কে জানুন।'
+        : 'Learn about Hasnahena’s mission, vision, and community-driven values.',
+  });
+}
+
+export default async function AboutPage({ params: { locale } }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   unstable_setRequestLocale(locale);
 

@@ -1,13 +1,31 @@
-'use client';
-
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { useLocale } from 'next-intl';
+import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
+import { locales, type Locale } from '@/i18n';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-export default function PrivacyPage() {
-  const locale = useLocale();
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/privacy',
+    title: activeLocale === 'bn' ? 'গোপনীয়তা নীতি' : 'Privacy Policy',
+    description:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনা কীভাবে আপনার ব্যক্তিগত তথ্য সংগ্রহ, ব্যবহার ও সুরক্ষিত রাখে তা জানুন।'
+        : 'Learn how Hasnahena collects, uses, and protects your personal information.',
+  });
+}
+
+export default function PrivacyPage({ params: { locale } }: PageProps) {
+  if (!locales.includes(locale as Locale)) {
+    notFound();
+  }
 
   const content = {
     en: {
@@ -74,7 +92,7 @@ export default function PrivacyPage() {
     },
   };
 
-  const t = content[locale as keyof typeof content] || content.en;
+  const t = content[(locale as keyof typeof content)] || content.en;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">

@@ -49,19 +49,7 @@ const registrationBaseObject = z
       .refine((dob) => {
         const birthDate = new Date(dob);
         return birthDate <= new Date();
-      }, { message: 'Date of birth cannot be in the future' })
-      .refine((dob) => {
-        const birthDate = new Date(dob);
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const hasHadBirthday =
-          today.getMonth() > birthDate.getMonth() ||
-          (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
-        if (!hasHadBirthday) {
-          age -= 1;
-        }
-        return age >= 18;
-      }, { message: 'You must be at least 18 years old to register' }),
+      }, { message: 'Date of birth cannot be in the future' }),
 
     // Permanent Address
     permanentHouseNo: z.string().trim().min(1, 'Permanent house no is required').max(50, 'House no must be at most 50 characters'),

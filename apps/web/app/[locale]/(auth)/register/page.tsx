@@ -441,21 +441,30 @@ export default function RegisterPage() {
 
       const json = (await response.json().catch(() => ({}))) as {
         error?: string;
-        details?: { fieldErrors?: Record<string, string[]> }
+        details?: {
+          fieldErrors?: Record<string, string[]>;
+          formErrors?: string[];
+        }
       };
 
       if (!response.ok) {
         setSubmitStage('idle');
-        // Show detailed validation errors if available
-        if (json?.details?.fieldErrors) {
-          const fieldErrors = json.details.fieldErrors;
-          const errorMessages = Object.entries(fieldErrors)
+        const fieldErrorMessages = json?.details?.fieldErrors
+          ? Object.entries(json.details.fieldErrors)
             .map(([field, messages]) => `${getRegistrationFieldLabel(field, locale === 'bn' ? 'bn' : 'en')}: ${messages.join(', ')}`)
-            .join('\n');
+            .join('\n')
+          : '';
+        const formErrorMessages = (json?.details?.formErrors || [])
+          .map((message) => message.trim())
+          .filter(Boolean)
+          .join('\n');
+        const detailedMessage = [fieldErrorMessages, formErrorMessages].filter(Boolean).join('\n');
+
+        if (detailedMessage) {
           setSubmitError(
             locale === 'bn'
-              ? `ফর্মে ত্রুটি রয়েছে:\n${errorMessages}`
-              : `Form has errors:\n${errorMessages}`
+              ? `ফর্মে ত্রুটি রয়েছে:\n${detailedMessage}`
+              : `Form has errors:\n${detailedMessage}`
           );
         } else {
           setSubmitError(json?.error ?? (locale === 'bn' ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed'));

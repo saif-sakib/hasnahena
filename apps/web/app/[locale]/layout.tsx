@@ -3,8 +3,9 @@ import { Hind_Siliguri, Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { locales } from '@/i18n';
+import { locales, type Locale } from '@/i18n';
 import { Toaster } from '@/components/ui/toaster';
+import { SITE_NAME, SITE_DESCRIPTION, createLocalizedMetadata, normalizeLocale, siteBaseUrl } from '@/lib/seo';
 import '../globals.css';
 
 const inter = Inter({
@@ -19,37 +20,44 @@ const hindSiliguri = Hind_Siliguri({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: {
-    template: '%s | Hasnahena',
-    default: 'Hasnahena - Interest-Free Cooperative Finance',
-  },
-  description:
-    'Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest. A community-driven cooperative finance platform.',
-  keywords: [
-    'Qard al-Hasan',
-    'interest-free loan',
-    'Islamic finance',
-    'cooperative',
-    'Bangladesh',
-    'কর্জে হাসানা',
-    'সুদমুক্ত ঋণ',
-  ],
-  authors: [{ name: 'Md Saif Ahmed' }],
-  openGraph: {
-    title: 'Hasnahena - Interest-Free Cooperative Finance',
-    description:
-      'Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest.',
-    url: 'https://hasnahena.org',
-    siteName: 'Hasnahena',
-    locale: 'bn_BD',
-    type: 'website',
-  },
-};
-
 interface RootLayoutProps {
   children: React.ReactNode;
   params: { locale: string };
+}
+
+export function generateMetadata({ params: { locale } }: RootLayoutProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  const localizedMetadata = createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/',
+    title:
+      activeLocale === 'bn'
+        ? `${SITE_NAME} - সুদমুক্ত সমবায় অর্থায়ন`
+        : `${SITE_NAME} - Interest-Free Cooperative Finance`,
+    description: SITE_DESCRIPTION,
+  });
+
+  return {
+    ...localizedMetadata,
+    metadataBase: siteBaseUrl,
+    title: {
+      template: `%s | ${SITE_NAME}`,
+      default:
+        activeLocale === 'bn'
+          ? `${SITE_NAME} - সুদমুক্ত সমবায় অর্থায়ন`
+          : `${SITE_NAME} - Interest-Free Cooperative Finance`,
+    },
+    keywords: [
+      'Qard al-Hasan',
+      'interest-free loan',
+      'Islamic finance',
+      'cooperative',
+      'Bangladesh',
+      'কর্জে হাসানা',
+      'সুদমুক্ত ঋণ',
+    ],
+    authors: [{ name: 'Md Saif Ahmed' }],
+  };
 }
 
 export default async function RootLayout({
@@ -57,7 +65,7 @@ export default async function RootLayout({
   params: { locale },
 }: RootLayoutProps) {
   // Validate locale
-  if (!locales.includes(locale as any)) {
+  if (!locales.includes(locale as Locale)) {
     notFound();
   }
 

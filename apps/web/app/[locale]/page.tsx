@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { useTranslations } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
 import { unstable_setRequestLocale } from 'next-intl/server';
@@ -10,13 +11,32 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
-import { locales } from '@/i18n';
+import { locales, type Locale } from '@/i18n';
+import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
 import { prisma } from '@/lib/prisma';
 import { GalleryItem as DbGalleryItem } from '@prisma/client';
 
-export default async function HomePage({ params: { locale } }: { params: { locale: string } }) {
-  if (!locales.includes(locale as (typeof locales)[number])) {
+type PageProps = { params: { locale: string } };
+
+export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+  const activeLocale = normalizeLocale(locale);
+  return createLocalizedMetadata({
+    locale: activeLocale,
+    path: '/',
+    title:
+      activeLocale === 'bn'
+        ? 'হাসনাহেনা - সুদমুক্ত সমবায় অর্থায়ন'
+        : 'Hasnahena - Interest-Free Cooperative Finance',
+    description:
+      activeLocale === 'bn'
+        ? 'কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায় অর্থায়ন প্ল্যাটফর্মে যোগ দিন।'
+        : 'Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest.',
+  });
+}
+
+export default async function HomePage({ params: { locale } }: PageProps) {
+  if (!locales.includes(locale as Locale)) {
     notFound();
   }
 
