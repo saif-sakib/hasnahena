@@ -117,6 +117,18 @@ export default function AdminSettingsPage() {
   const getAuthToken = () =>
     typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
 
+  const parseIntegerInput = (rawValue: string, currentValue: number, min = 1) => {
+    const trimmed = rawValue.trim();
+    if (trimmed === '') {
+      return currentValue;
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed)) {
+      return currentValue;
+    }
+    return Math.max(min, parsed);
+  };
+
   const fetchSettings = async () => {
     try {
       const response = await fetch('/api/v1/settings');
@@ -315,24 +327,19 @@ export default function AdminSettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const normalizePositiveNumber = (value: number, fallback: number) => {
-        const parsed = Number(value);
-        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-        return Math.trunc(parsed);
-      };
       const normalizedLoanSettings = {
-        maxLoanMultiplier: normalizePositiveNumber(loanSettings.maxLoanMultiplier, 5),
-        minDepositForLoan: normalizePositiveNumber(loanSettings.minDepositForLoan, 8000),
-        maxInstallmentMonths: normalizePositiveNumber(loanSettings.maxInstallmentMonths, 24),
-        missedPaymentsForDefault: normalizePositiveNumber(loanSettings.missedPaymentsForDefault, 3),
-        noticePeriodMonths: normalizePositiveNumber(loanSettings.noticePeriodMonths, 3),
+        maxLoanMultiplier: Math.max(1, Math.trunc(loanSettings.maxLoanMultiplier)),
+        minDepositForLoan: Math.max(1, Math.trunc(loanSettings.minDepositForLoan)),
+        maxInstallmentMonths: Math.max(1, Math.trunc(loanSettings.maxInstallmentMonths)),
+        missedPaymentsForDefault: Math.max(1, Math.trunc(loanSettings.missedPaymentsForDefault)),
+        noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
       };
       const normalizedSecuritySettings = {
-        sessionTimeout: normalizePositiveNumber(securitySettings.sessionTimeout, 30),
-        passwordExpiry: normalizePositiveNumber(securitySettings.passwordExpiry, 90),
-        loginAttempts: normalizePositiveNumber(securitySettings.loginAttempts, 5),
+        sessionTimeout: Math.max(1, Math.trunc(securitySettings.sessionTimeout)),
+        passwordExpiry: Math.max(1, Math.trunc(securitySettings.passwordExpiry)),
+        loginAttempts: Math.max(1, Math.trunc(securitySettings.loginAttempts)),
       };
-      const normalizedSupportRetentionDays = normalizePositiveNumber(supportRetentionDays, 10);
+      const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
 
       // Flatten settings for saving
       const settingsToSave = {
@@ -752,8 +759,9 @@ export default function AdminSettingsPage() {
                     <Input
                       type="number"
                       min={1}
+                      step={1}
                       value={supportRetentionDays}
-                      onChange={(e) => setSupportRetentionDays(Number(e.target.value) || 1)}
+                      onChange={(e) => setSupportRetentionDays(parseIntegerInput(e.target.value, supportRetentionDays))}
                     />
                     <p className="text-xs text-muted-foreground">
                       {locale === 'bn'
@@ -937,8 +945,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={loanSettings.maxLoanMultiplier}
                         onChange={(e) =>
-                          setLoanSettings({ ...loanSettings, maxLoanMultiplier: Number(e.target.value) })
+                          setLoanSettings({
+                            ...loanSettings,
+                            maxLoanMultiplier: parseIntegerInput(e.target.value, loanSettings.maxLoanMultiplier),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">
@@ -963,8 +976,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={loanSettings.minDepositForLoan}
                         onChange={(e) =>
-                          setLoanSettings({ ...loanSettings, minDepositForLoan: Number(e.target.value) })
+                          setLoanSettings({
+                            ...loanSettings,
+                            minDepositForLoan: parseIntegerInput(e.target.value, loanSettings.minDepositForLoan),
+                          })
                         }
+                        min={1}
+                        step={1}
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -984,8 +1002,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={loanSettings.maxInstallmentMonths}
                         onChange={(e) =>
-                          setLoanSettings({ ...loanSettings, maxInstallmentMonths: Number(e.target.value) })
+                          setLoanSettings({
+                            ...loanSettings,
+                            maxInstallmentMonths: parseIntegerInput(e.target.value, loanSettings.maxInstallmentMonths),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
@@ -1002,8 +1025,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={loanSettings.missedPaymentsForDefault}
                         onChange={(e) =>
-                          setLoanSettings({ ...loanSettings, missedPaymentsForDefault: Number(e.target.value) })
+                          setLoanSettings({
+                            ...loanSettings,
+                            missedPaymentsForDefault: parseIntegerInput(e.target.value, loanSettings.missedPaymentsForDefault),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">
@@ -1022,8 +1050,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={loanSettings.noticePeriodMonths}
                         onChange={(e) =>
-                          setLoanSettings({ ...loanSettings, noticePeriodMonths: Number(e.target.value) })
+                          setLoanSettings({
+                            ...loanSettings,
+                            noticePeriodMonths: parseIntegerInput(e.target.value, loanSettings.noticePeriodMonths),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
@@ -1214,8 +1247,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={securitySettings.sessionTimeout}
                         onChange={(e) =>
-                          setSecuritySettings({ ...securitySettings, sessionTimeout: Number(e.target.value) })
+                          setSecuritySettings({
+                            ...securitySettings,
+                            sessionTimeout: parseIntegerInput(e.target.value, securitySettings.sessionTimeout),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মিনিট' : 'minutes'}</span>
@@ -1229,8 +1267,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={securitySettings.passwordExpiry}
                         onChange={(e) =>
-                          setSecuritySettings({ ...securitySettings, passwordExpiry: Number(e.target.value) })
+                          setSecuritySettings({
+                            ...securitySettings,
+                            passwordExpiry: parseIntegerInput(e.target.value, securitySettings.passwordExpiry),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'দিন' : 'days'}</span>
@@ -1244,8 +1287,13 @@ export default function AdminSettingsPage() {
                         type="number"
                         value={securitySettings.loginAttempts}
                         onChange={(e) =>
-                          setSecuritySettings({ ...securitySettings, loginAttempts: Number(e.target.value) })
+                          setSecuritySettings({
+                            ...securitySettings,
+                            loginAttempts: parseIntegerInput(e.target.value, securitySettings.loginAttempts),
+                          })
                         }
+                        min={1}
+                        step={1}
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">

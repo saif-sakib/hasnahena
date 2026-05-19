@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { UserRole, UserStatus } from '@prisma/client';
 import { bdPhoneRegex, registerApiSchema } from '@/lib/validation/registration';
 import { uploadImage, deleteImage } from '@/lib/cloudinary';
-import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
+import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -47,6 +47,8 @@ const REQUIRED_DOCUMENT_FIELDS = [
 ] as const;
 
 const REJECTED_REGISTRATION_PASSWORD_HASH = '__PENDING_APPROVAL_NO_LOGIN__';
+const REGISTRATION_MAX_FILE_SIZE_MB = 1;
+const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = Math.floor(3.5 * 1024 * 1024);
 const rejectedRegistrationFilter: Prisma.UserWhereInput = {
   role: UserRole.MEMBER,
   status: UserStatus.INACTIVE,
@@ -226,6 +228,7 @@ export async function POST(req: Request) {
       requirement: typeof REQUIRED_DOCUMENT_FIELDS[number];
       fileEntry: File;
     }> = [];
+    let totalUploadBytes = 0;
 
     for (const requirement of REQUIRED_DOCUMENT_FIELDS) {
       const fileEntry = formData.get(requirement.formKey);
@@ -238,7 +241,7 @@ export async function POST(req: Request) {
 
       const validation = validateImageFile(fileEntry, {
         acceptedTypes: UPLOAD_TYPES.avatar,
-        maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+        maxSizeMB: REGISTRATION_MAX_FILE_SIZE_MB,
       });
       if (!validation.valid) {
         return NextResponse.json(
@@ -247,7 +250,16 @@ export async function POST(req: Request) {
         );
       }
 
+      totalUploadBytes += fileEntry.size;
+
       validatedFiles.push({ requirement, fileEntry });
+    }
+
+    if (totalUploadBytes > REGISTRATION_MAX_TOTAL_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: 'Combined document size exceeds 3.5 MB limit' },
+        { status: 400 },
+      );
     }
 
     const uploadResults = await Promise.all(

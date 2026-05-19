@@ -1421,10 +1421,10 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE)), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month') AND "createdAt" < date_trunc('month', CURRENT_DATE)), 0)::bigint
 	`
-	var totalMembers, totalWorkers, totalDeposits, totalLoans, activeLoanCount, defaultedLoans, charityFund int64
+	var totalMembers, totalWorkers, totalDepositsPaisa, totalLoansPaisa, activeLoanCount, defaultedLoans, charityFundPaisa int64
 	var thisMonthMembers, lastMonthMembers int64
 	if err := r.db.QueryRow(ctx, query).Scan(
-		&totalMembers, &totalWorkers, &totalDeposits, &totalLoans, &activeLoanCount, &defaultedLoans, &charityFund,
+		&totalMembers, &totalWorkers, &totalDepositsPaisa, &totalLoansPaisa, &activeLoanCount, &defaultedLoans, &charityFundPaisa,
 		&thisMonthMembers, &lastMonthMembers,
 	); err != nil {
 		return nil, err
@@ -1529,11 +1529,11 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 		"stats": map[string]interface{}{
 			"totalMembers":    totalMembers,
 			"totalWorkers":    totalWorkers,
-			"totalDeposits":   totalDeposits / 100,
-			"totalLoans":      totalLoans / 100,
+			"totalDeposits":   totalDepositsPaisa / 100,
+			"totalLoans":      totalLoansPaisa / 100,
 			"activeLoanCount": activeLoanCount,
 			"defaultedLoans":  defaultedLoans,
-			"charityFund":     charityFund / 100,
+			"charityFund":     charityFundPaisa / 100,
 			"monthlyGrowth":   monthlyGrowth,
 			"recoveryRate":    recoveryRate,
 		},
@@ -3112,8 +3112,8 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 	}
 
 	return map[string]interface{}{
-		"totalDisbursed": totalDisbursed,
-		"totalRecovered": totalRecovered,
+		"totalDisbursed": totalDisbursed / 100,
+		"totalRecovered": totalRecovered / 100,
 		"recoveryRate":   recoveryRate,
 		"activeLoans":    activeLoans,
 		"defaultedLoans": defaultedLoans,
@@ -3565,11 +3565,11 @@ func (r *UserRepository) GetMonthlyReport(ctx context.Context, year, month int) 
 	return map[string]interface{}{
 		"year":             year,
 		"month":            month,
-		"totalDeposits":    totalDeposits,
-		"totalWithdrawals": totalWithdrawals,
-		"loansDisbursed":   loansDisbursed,
-		"loansRecovered":   loansRecovered,
-		"netSavings":       totalDeposits - totalWithdrawals,
+		"totalDeposits":    totalDeposits / 100,
+		"totalWithdrawals": totalWithdrawals / 100,
+		"loansDisbursed":   loansDisbursed / 100,
+		"loansRecovered":   loansRecovered / 100,
+		"netSavings":       (totalDeposits - totalWithdrawals) / 100,
 	}, nil
 }
 
@@ -3626,7 +3626,7 @@ func (r *UserRepository) GetLoanPerformanceReport(ctx context.Context) (map[stri
 
 	return map[string]interface{}{
 		"totalLoans":     totalLoans,
-		"avgLoanAmount":  avgLoanAmount,
+		"avgLoanAmount":  avgLoanAmount / 100,
 		"defaultedCount": defaultedCount,
 		"completedCount": completedCount,
 		"activeCount":    activeCount,
