@@ -219,7 +219,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			COALESCE((
 				SELECT SUM(t.amount)::bigint
 				FROM transactions t
-				WHERE t."userId" = $1 AND t.type = 'DEPOSIT'
+				WHERE t."userId" = $1 AND t.type = 'DEPOSIT' AND t.status IN ('CONFIRMED', 'PROCESSED')
 			), 0) as total_deposited,
 			COALESCE((
 				SELECT SUM(l."remainingAmount")::bigint
@@ -3044,12 +3044,12 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 			"id":                 id,
 			"loanNumber":         loanNumber,
 			"status":             status,
-			"amount":             principalAmount,
-			"paidAmount":         principalAmount - remainingAmount,
-			"remainingAmount":    remainingAmount,
+			"amount":             principalAmount / 100,
+			"paidAmount":         (principalAmount - remainingAmount) / 100,
+			"remainingAmount":    remainingAmount / 100,
 			"installmentsPaid":   paidInstallments,
 			"totalInstallments":  totalInstallments,
-			"monthlyInstallment": installmentAmount,
+			"monthlyInstallment": installmentAmount / 100,
 			"purpose":            purpose,
 			"member": map[string]interface{}{
 				"id":       borrowerID,
@@ -3065,13 +3065,13 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 				"id":   guarantorID,
 				"name": guarantorName,
 			},
-			"memberDeposit":  memberDeposit,
+			"memberDeposit":  memberDeposit / 100,
 			"missedPayments": 0,
 			"createdAt":      createdAt.Format(time.RFC3339),
 			"approvedBy":     approvedBy,
 
 			// Backward-compat fields
-			"principalAmount":         principalAmount,
+			"principalAmount":         principalAmount / 100,
 			"totalInstallmentsLegacy": totalInstallments,
 			"paidInstallments":        paidInstallments,
 			"borrowerName":            borrowerName,

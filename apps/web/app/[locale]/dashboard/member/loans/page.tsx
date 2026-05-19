@@ -100,7 +100,7 @@ export default function LoansPage() {
         const parsedMultiplier = Number(settingsData?.['loan.maxLoanMultiplier']);
         return {
           minDepositRequired:
-            Number.isFinite(parsedMinDeposit) && parsedMinDeposit > 0
+            Number.isFinite(parsedMinDeposit) && parsedMinDeposit >= 0
               ? parsedMinDeposit
               : prev.minDepositRequired,
           maxLoanMultiplier:
