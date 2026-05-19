@@ -138,6 +138,10 @@ export default function AdminSettingsPage() {
           const parsed = Number(value);
           return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
         };
+        const parseNonNegativeSetting = (value: unknown, fallback: number) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+        };
         const parseBooleanSetting = (value: unknown, fallback: boolean) => {
           if (typeof value === 'boolean') return value;
           if (typeof value === 'string') {
@@ -167,7 +171,7 @@ export default function AdminSettingsPage() {
         setLoanSettings((prev) => ({
           ...prev,
           maxLoanMultiplier: parseNumberSetting(data['loan.maxLoanMultiplier'], prev.maxLoanMultiplier),
-          minDepositForLoan: parseNumberSetting(data['loan.minDepositForLoan'], prev.minDepositForLoan),
+          minDepositForLoan: parseNonNegativeSetting(data['loan.minDepositForLoan'], prev.minDepositForLoan),
           maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], prev.maxInstallmentMonths),
           missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], prev.missedPaymentsForDefault),
           noticePeriodMonths: parseNumberSetting(data['loan.noticePeriodMonths'], prev.noticePeriodMonths),
@@ -329,7 +333,7 @@ export default function AdminSettingsPage() {
     try {
       const normalizedLoanSettings = {
         maxLoanMultiplier: Math.max(1, Math.trunc(loanSettings.maxLoanMultiplier)),
-        minDepositForLoan: Math.max(1, Math.trunc(loanSettings.minDepositForLoan)),
+        minDepositForLoan: Math.max(0, Math.trunc(loanSettings.minDepositForLoan)),
         maxInstallmentMonths: Math.max(1, Math.trunc(loanSettings.maxInstallmentMonths)),
         missedPaymentsForDefault: Math.max(1, Math.trunc(loanSettings.missedPaymentsForDefault)),
         noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
@@ -978,10 +982,10 @@ export default function AdminSettingsPage() {
                         onChange={(e) =>
                           setLoanSettings({
                             ...loanSettings,
-                            minDepositForLoan: parseIntegerInput(e.target.value, loanSettings.minDepositForLoan),
+                            minDepositForLoan: parseIntegerInput(e.target.value, loanSettings.minDepositForLoan, 0),
                           })
                         }
-                        min={1}
+                        min={0}
                         step={1}
                       />
                     </div>

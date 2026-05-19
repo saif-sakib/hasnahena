@@ -47,8 +47,8 @@ const REQUIRED_DOCUMENT_FIELDS = [
 ] as const;
 
 const REJECTED_REGISTRATION_PASSWORD_HASH = '__PENDING_APPROVAL_NO_LOGIN__';
-const REGISTRATION_MAX_FILE_SIZE_MB = 1;
-const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = Math.floor(3.5 * 1024 * 1024);
+const REGISTRATION_MAX_FILE_SIZE_MB = 10;
+const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 40 * 1024 * 1024;
 const rejectedRegistrationFilter: Prisma.UserWhereInput = {
   role: UserRole.MEMBER,
   status: UserStatus.INACTIVE,
