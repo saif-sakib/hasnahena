@@ -456,8 +456,26 @@ func (r *UserRepository) getSystemConfigInt64(ctx context.Context, key string, d
 	return parsed
 }
 
+func (r *UserRepository) getSystemConfigNonNegativeInt64(ctx context.Context, key string, defaultValue int64) int64 {
+	const query = `
+		SELECT value
+		FROM system_config
+		WHERE key = $1
+		LIMIT 1
+	`
+	var raw string
+	if err := r.db.QueryRow(ctx, query, key).Scan(&raw); err != nil {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || parsed < 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
 func (r *UserRepository) getLoanPolicy(ctx context.Context) (int64, int64, int) {
-	minDepositRequired := r.getSystemConfigInt64(ctx, "loan.minDepositForLoan", 8000)
+	minDepositRequired := r.getSystemConfigNonNegativeInt64(ctx, "loan.minDepositForLoan", 8000)
 	maxLoanMultiplier := r.getSystemConfigInt64(ctx, "loan.maxLoanMultiplier", 5)
 	maxInstallmentMonths := int(r.getSystemConfigInt64(ctx, "loan.maxInstallmentMonths", 24))
 	if maxInstallmentMonths < 1 {
@@ -2864,13 +2882,13 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 		item := map[string]interface{}{
 			"id":            id,
 			"type":          txType,
-			"amount":        amount,
+			"amount":        amount / 100,
 			"status":        txStatus,
 			"receiptNumber": receipt,
 			"notes":         description,
 			"processedBy":   processorName,
 			"processedDate": processedAt.Format(time.RFC3339),
-			"balanceAfter":  balanceAfter,
+			"balanceAfter":  balanceAfter / 100,
 			"member": map[string]interface{}{
 				"id":       memberUserID,
 				"memberId": memberId,
@@ -2926,9 +2944,9 @@ func (r *UserRepository) GetDepositStats(ctx context.Context) (map[string]interf
 	}
 
 	return map[string]interface{}{
-		"totalDeposits":    totalDeposits,
-		"totalWithdrawals": totalWithdrawals,
-		"netBalance":       netBalance,
+		"totalDeposits":    totalDeposits / 100,
+		"totalWithdrawals": totalWithdrawals / 100,
+		"netBalance":       netBalance / 100,
 	}, nil
 }
 

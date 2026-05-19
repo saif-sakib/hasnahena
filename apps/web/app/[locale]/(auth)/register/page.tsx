@@ -56,8 +56,8 @@ const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'signatureImage',
 ];
 
-const REGISTRATION_MAX_FILE_SIZE_MB = 1;
-const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const REGISTRATION_MAX_FILE_SIZE_MB = 10;
+const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 40 * 1024 * 1024;
 
 export default function RegisterPage() {
   const locale = useLocale();
