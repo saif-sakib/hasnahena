@@ -20,7 +20,7 @@ import {
   registerSchema,
   type RegisterFormData,
 } from '@/lib/validation/registration';
-import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
+import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -55,6 +55,9 @@ const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'memberPhotoImage',
   'signatureImage',
 ];
+
+const REGISTRATION_MAX_FILE_SIZE_MB = 1;
+const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 
 export default function RegisterPage() {
   const locale = useLocale();
@@ -384,6 +387,19 @@ export default function RegisterPage() {
       return;
     }
 
+    const totalUploadBytes = REQUIRED_DOCUMENT_KEYS.reduce((sum, key) => {
+      const file = documentFiles[key];
+      return sum + (file?.size ?? 0);
+    }, 0);
+    if (totalUploadBytes > REGISTRATION_MAX_TOTAL_UPLOAD_BYTES) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'নথির মোট সাইজ খুব বেশি। সর্বোচ্চ ৩.৫ MB এর মধ্যে রাখুন।'
+          : 'Total document upload size is too large. Keep all files within 3.5 MB.',
+      );
+      return;
+    }
+
     try {
       setSubmitStage('uploading');
       const registrationPayload = {
@@ -676,7 +692,7 @@ export default function RegisterPage() {
 
     const validation = validateImageFile(file, {
       acceptedTypes: UPLOAD_TYPES.avatar,
-      maxSizeMB: UPLOAD_SIZE_LIMITS.gallery,
+      maxSizeMB: REGISTRATION_MAX_FILE_SIZE_MB,
     });
     if (!validation.valid) {
       setDocumentFiles((prev) => ({ ...prev, [key]: null }));

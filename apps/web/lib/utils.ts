@@ -6,11 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number, locale: string = 'en') {
+  const normalizedAmount = Number.isFinite(amount) ? Math.trunc(amount) : 0;
   return new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', {
     style: 'currency',
     currency: 'BDT',
     minimumFractionDigits: 0,
-  }).format(amount);
+    maximumFractionDigits: 0,
+  }).format(normalizedAmount);
 }
 
 export function formatDate(date: string | Date, locale: string = 'en') {

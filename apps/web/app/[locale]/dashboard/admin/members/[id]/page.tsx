@@ -344,12 +344,12 @@ export default function MemberDetailPage() {
     const receiptData: ReceiptData = {
       receiptNumber: tx.receiptNumber,
       type: tx.type,
-      amount: tx.amount * 100,
+      amount: tx.amount,
       date: tx.createdAt,
       memberName: member.name,
       memberId: member.uid,
       memberPhone: member.phone,
-      balanceAfter: tx.balanceAfter * 100,
+      balanceAfter: tx.balanceAfter,
       notes: tx.notes,
     };
     
@@ -366,9 +366,9 @@ export default function MemberDetailPage() {
       memberId: member.uid,
       memberPhone: member.phone,
       memberAddress: member.address,
-      principalAmount: loan.principalAmount * 100,
+      principalAmount: loan.principalAmount,
       totalInstallments: loan.totalInstallments,
-      installmentAmount: loan.installmentAmount * 100,
+      installmentAmount: loan.installmentAmount,
       disbursementDate: loan.disbursementDate,
     };
     
@@ -385,15 +385,15 @@ export default function MemberDetailPage() {
       memberPhone: member.phone,
       periodStart: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString(),
       periodEnd: new Date().toISOString(),
-      openingBalance: Math.round((member.currentDeposit - member.totalDeposited + member.totalWithdrawn) * 100),
-      closingBalance: Math.round(member.currentDeposit * 100),
-      totalDeposits: Math.round(member.totalDeposited * 100),
-      totalWithdrawals: Math.round(member.totalWithdrawn * 100),
+      openingBalance: Math.round((member.currentDeposit - member.totalDeposited + member.totalWithdrawn)),
+      closingBalance: Math.round(member.currentDeposit),
+      totalDeposits: Math.round(member.totalDeposited),
+      totalWithdrawals: Math.round(member.totalWithdrawn),
       transactions: transactions.map(tx => ({
         date: tx.createdAt,
         type: tx.type,
-        amount: Math.round(tx.amount * 100),
-        balance: Math.round(tx.balanceAfter * 100),
+        amount: Math.round(tx.amount),
+        balance: Math.round(tx.balanceAfter),
         description: tx.notes,
         receiptNumber: tx.receiptNumber,
       })),
