@@ -13,7 +13,7 @@
 
 | Field (Bengali) | Field (English) | Type | Required | Validation |
 |-----------------|-----------------|------|----------|------------|
-| গ্রাহক আই.ডি | Member ID | Text | Auto-generated | System generated unique ID |
+| গ্রাহক আই.ডি | Member ID | Text | Auto-generated | System generated unique ID (`ACC-KH-33001`, `ACC-KH-33002`, …) |
 | ফরম নং | Form Number | Text | Auto-generated | Sequential form number |
 
 ### Section 2: Personal Information

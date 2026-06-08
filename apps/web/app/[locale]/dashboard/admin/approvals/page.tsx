@@ -21,6 +21,7 @@ type ApprovalTab = 'registration' | 'loan' | 'deposit';
 
 interface RegistrationRequest {
   id: string;
+  memberId?: string;
   name: string;
   nameBn?: string;
   email?: string;
@@ -186,6 +187,9 @@ function RegistrationRow({
         <td className="px-4 py-3">
           <div className="font-medium text-gray-900">{item.name}</div>
           <div className="text-xs text-gray-500">{item.nameBn}</div>
+          {item.memberId && (
+            <div className="text-xs text-gray-500 font-mono mt-0.5">{item.memberId}</div>
+          )}
         </td>
         <td className="px-4 py-3">{item.phone}</td>
         <td className="px-4 py-3 hidden sm:table-cell">{item.email || '-'}</td>

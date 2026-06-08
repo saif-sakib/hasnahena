@@ -13,8 +13,8 @@ type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
 interface Member {
   id: string;
-  uid: string;
-  memberId?: string;
+  memberId: string;
+  uid?: string;
   name: string;
   nameBn?: string;
   email: string;
@@ -49,7 +49,7 @@ export default function AdminMembersPage() {
             const normalized = member.status.toUpperCase();
             return {
               ...member,
-              uid: member.uid || member.id.slice(0, 8).toUpperCase(),
+              memberId: member.memberId || member.uid || '',
               status: normalized === 'ACTIVE'
                 ? 'ACTIVE'
                 : normalized === 'PENDING'
@@ -95,7 +95,7 @@ export default function AdminMembersPage() {
       member.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       member.phone.includes(searchQuery) ||
       member.nidNumber.includes(searchQuery) ||
-      member.uid.toLowerCase().includes(searchQuery.toLowerCase());
+      member.memberId.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || member.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -127,7 +127,7 @@ export default function AdminMembersPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
-            placeholder={locale === 'bn' ? 'UID, নাম, ইমেইল, ফোন...' : 'Search UID, name, email, phone...'}
+            placeholder={locale === 'bn' ? 'সদস্য ID, নাম, ইমেইল, ফোন...' : 'Search member ID, name, email, phone...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9 text-sm"
@@ -176,7 +176,7 @@ export default function AdminMembersPage() {
                   <td className="px-4 py-3">
                     <Link href={`/${locale}/dashboard/${roleSegment}/members/${member.id}`} className="block hover:text-blue-600">
                       <div className="font-medium text-gray-900">{member.name}</div>
-                      <div className="text-xs text-gray-500">#{member.uid} {member.memberId && `• ${member.memberId}`}</div>
+                      <div className="text-xs text-gray-500 font-mono">{member.memberId || '-'}</div>
                     </Link>
                   </td>
                   <td className="px-4 py-3 hidden sm:table-cell">
