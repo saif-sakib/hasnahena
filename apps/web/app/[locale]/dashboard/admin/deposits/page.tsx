@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import { Search, RefreshCw, Eye, Loader2 } from 'lucide-react';
+import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import {
+  generateReceiptHTML,
+  downloadAsPDF,
+  fetchOrgSettings,
+} from '@/lib/documents/receipt-generator';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 type DepositType = 'DEPOSIT' | 'WITHDRAWAL';
@@ -54,6 +59,26 @@ export default function AdminDepositsPage() {
   };
 
   useEffect(() => { void loadDeposits(); }, []);
+
+  const handleDownloadReceipt = async (d: Deposit) => {
+    try {
+      const orgSettings = await fetchOrgSettings();
+      const receiptHtml = generateReceiptHTML({
+        receiptNumber: d.receiptNumber || d.id,
+        type: d.type,
+        amount: d.amount,
+        date: d.processedDate,
+        memberName: d.member.name,
+        memberId: d.member.memberId || '',
+        memberPhone: '',
+        balanceAfter: d.balanceAfter || 0,
+        notes: d.notes || undefined,
+      }, locale, orgSettings);
+      await downloadAsPDF(receiptHtml, `Receipt-${d.receiptNumber || d.id}`);
+    } catch (error) {
+      console.error('Failed to download receipt:', error);
+    }
+  };
 
   const statusStyles: Record<DepositStatus, string> = {
     CONFIRMED: 'bg-green-100 text-green-700',
@@ -182,9 +207,14 @@ export default function AdminDepositsPage() {
                   {new Date(d.processedDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => { setSelectedDeposit(d); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
-                    <Eye className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button onClick={() => void handleDownloadReceipt(d)} className="text-blue-600 hover:text-blue-800" title={locale === 'bn' ? 'রশিদ ডাউনলোড' : 'Download Receipt'}>
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { setSelectedDeposit(d); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

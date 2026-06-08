@@ -80,7 +80,7 @@ export default async function ContactPage({ params: { locale } }: PageProps) {
                   <MapPin className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.address'] || 'Dhaka, Bangladesh'}</p>
+                <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.address'] || 'Vekutia, Jashore, Bangladesh'}</p>
               </div>
             </div>
 

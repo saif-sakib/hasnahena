@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import { Search, RefreshCw, Eye, Loader2 } from 'lucide-react';
+import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import {
+  generateLoanDocumentHTML,
+  downloadAsPDF,
+  fetchOrgSettings,
+} from '@/lib/documents/receipt-generator';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'SETTLED' | 'DEFAULTED' | 'REJECTED';
 
@@ -56,6 +61,26 @@ export default function AdminLoansPage() {
   };
 
   useEffect(() => { void loadLoans(); }, []);
+
+  const handleDownloadLoan = async (l: Loan) => {
+    try {
+      const orgSettings = await fetchOrgSettings();
+      const loanHtml = generateLoanDocumentHTML({
+        loanNumber: l.loanNumber,
+        memberName: l.member.name,
+        memberId: l.member.memberId || '',
+        memberPhone: '',
+        memberAddress: '',
+        principalAmount: l.amount,
+        totalInstallments: l.totalInstallments,
+        installmentAmount: l.monthlyInstallment,
+        disbursementDate: l.disbursedDate || l.approvedDate || undefined,
+      }, locale, orgSettings);
+      await downloadAsPDF(loanHtml, `Loan-${l.loanNumber}`);
+    } catch (error) {
+      console.error('Failed to download loan:', error);
+    }
+  };
 
   const statusStyles: Record<LoanStatus, string> = {
     PENDING_GUARANTOR: 'bg-amber-100 text-amber-700',
@@ -175,9 +200,14 @@ export default function AdminLoansPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => { setSelectedLoan(l); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
-                    <Eye className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button onClick={() => void handleDownloadLoan(l)} className="text-blue-600 hover:text-blue-800" title={locale === 'bn' ? 'ঋণ ডাউনলোড' : 'Download Loan'}>
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { setSelectedLoan(l); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

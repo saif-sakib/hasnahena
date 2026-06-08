@@ -3,6 +3,49 @@
  * Professional document generation with official Hasnahena branding
  */
 
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+export interface OrgSettings {
+  name?: string;
+  nameEn?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  regNumber?: string;
+}
+
+export const DEFAULT_ORG: OrgSettings = {
+  name: 'হাসনাহেনা সমিতি লিমিটেড',
+  nameEn: 'HASNAHENA',
+  address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
+  phone: '+880 1712-345678',
+  email: 'info@hasnahena.org',
+  website: 'hasnahena.org'
+};
+
+export async function fetchOrgSettings(): Promise<OrgSettings> {
+  try {
+    const res = await fetch('/api/v1/settings');
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        name: data['org.name'] || DEFAULT_ORG.name,
+        nameEn: data['org.nameEn'] || DEFAULT_ORG.nameEn,
+        address: data['org.address'] || DEFAULT_ORG.address,
+        phone: data['org.phone'] || DEFAULT_ORG.phone,
+        email: data['org.email'] || DEFAULT_ORG.email,
+        website: data['org.website'] || DEFAULT_ORG.website,
+        regNumber: data['org.regNumber'],
+      };
+    }
+  } catch (e) {
+    console.error('Failed to fetch org settings:', e);
+  }
+  return DEFAULT_ORG;
+}
+
 export interface ReceiptData {
   receiptNumber: string;
   type: 'DEPOSIT' | 'WITHDRAWAL' | string;
@@ -570,29 +613,29 @@ const getLogoSVG = (): string => `
   </svg>
 `;
 
-const getHeader = (): string => `
+const getHeader = (org: OrgSettings = DEFAULT_ORG): string => `
   <div class="header">
     <div class="logo-container">
       ${getLogoSVG()}
       <div>
-        <div class="org-name-en">HASNAHENA</div>
-        <div class="org-name-bn">হাসনাহেনা সমিতি লিমিটেড</div>
+        <div class="org-name-en">${org.nameEn || DEFAULT_ORG.nameEn}</div>
+        <div class="org-name-bn">${org.name || DEFAULT_ORG.name}</div>
       </div>
     </div>
     <div class="org-tagline">Hasnahena Multipurpose Cooperative Society Limited</div>
     <div class="org-info">
-      <span>📍 ত্রিশাল, ময়মনসিংহ</span>
-      <span>📞 +880 1700-000000</span>
-      <span>✉️ info@hasnahena.org</span>
-      <span>🌐 hasnahena.org</span>
+      <span>📍 ${org.address || DEFAULT_ORG.address}</span>
+      <span>📞 ${org.phone || DEFAULT_ORG.phone}</span>
+      <span>✉️ ${org.email || DEFAULT_ORG.email}</span>
+      <span>🌐 ${org.website || DEFAULT_ORG.website}</span>
     </div>
   </div>
 `;
 
-const getFooter = (documentId: string, locale: string): string => `
+const getFooter = (documentId: string, locale: string, org: OrgSettings = DEFAULT_ORG): string => `
   <div class="footer">
     <p>${locale === 'bn' ? 'এটি একটি কম্পিউটার জেনারেটেড ডকুমেন্ট। সিল ও স্বাক্ষর ছাড়াও বৈধ।' : 'This is a computer-generated document. Valid without seal and signature.'}</p>
-    <p>© ${new Date().getFullYear()} Hasnahena Cooperative Society Ltd. | Reg. No: XXXX-XXXX</p>
+    <p>© ${new Date().getFullYear()} ${org.nameEn || DEFAULT_ORG.nameEn} Cooperative Society Ltd.${org.regNumber ? ` | Reg. No: ${org.regNumber}` : ''}</p>
   </div>
   <div class="document-id">
     Doc ID: ${documentId}<br/>
@@ -600,7 +643,7 @@ const getFooter = (documentId: string, locale: string): string => `
   </div>
 `;
 
-export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): string {
+export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn', org: OrgSettings = DEFAULT_ORG): string {
   const isDeposit = data.type === 'DEPOSIT';
   const title = locale === 'bn' 
     ? (isDeposit ? 'জমা রশিদ' : 'উত্তোলন রশিদ')
@@ -621,7 +664,7 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
       
       <div class="document">
         <div class="border-frame"></div>
-        ${getHeader()}
+        ${getHeader(org)}
         
         <div class="doc-title">
           <h1>${title}</h1>
@@ -692,14 +735,14 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn'): s
           </div>
         </div>
         
-        ${getFooter(data.receiptNumber, locale)}
+        ${getFooter(data.receiptNumber, locale, org)}
       </div>
     </body>
     </html>
   `;
 }
 
-export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string = 'bn'): string {
+export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string = 'bn', org: OrgSettings = DEFAULT_ORG): string {
   const title = locale === 'bn' ? 'ঋণ চুক্তিপত্র' : 'LOAN AGREEMENT';
   
   return `
@@ -717,7 +760,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
       
       <div class="document">
         <div class="border-frame"></div>
-        ${getHeader()}
+        ${getHeader(org)}
         
         <div class="doc-title">
           <h1>${title}</h1>
@@ -837,14 +880,14 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
           </div>
         </div>
         
-        ${getFooter(data.loanNumber, locale)}
+        ${getFooter(data.loanNumber, locale, org)}
       </div>
     </body>
     </html>
   `;
 }
 
-export function generateStatementHTML(data: StatementData, locale: string = 'bn'): string {
+export function generateStatementHTML(data: StatementData, locale: string = 'bn', org: OrgSettings = DEFAULT_ORG): string {
   const title = locale === 'bn' ? 'অ্যাকাউন্ট স্টেটমেন্ট' : 'ACCOUNT STATEMENT';
   
   return `
@@ -862,7 +905,7 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
       
       <div class="document">
         <div class="border-frame"></div>
-        ${getHeader()}
+        ${getHeader(org)}
         
         <div class="doc-title">
           <h1>${title}</h1>
@@ -942,14 +985,14 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
           </div>
         </div>
         
-        ${getFooter(`STM-${data.memberId}-${Date.now()}`, locale)}
+        ${getFooter(`STMT-${data.memberId}-${new Date().getTime()}`, locale, org)}
       </div>
     </body>
     </html>
   `;
 }
 
-export function generateMembershipCertificateHTML(data: MembershipCertificateData, locale: string = 'bn'): string {
+export function generateMembershipCertificateHTML(data: MembershipCertificateData, locale: string = 'bn', org: OrgSettings = DEFAULT_ORG): string {
   const title = locale === 'bn' ? 'সদস্যপদ সনদ' : 'MEMBERSHIP CERTIFICATE';
 
   return `
@@ -991,7 +1034,7 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
 
       <div class="document">
         <div class="border-frame"></div>
-        ${getHeader()}
+        ${getHeader(org)}
 
         <div class="doc-title">
           <h1>${title}</h1>
@@ -1041,7 +1084,7 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
           </div>
         </div>
 
-        ${getFooter(`CERT-${data.memberId}-${Date.now()}`, locale)}
+        ${getFooter(`CERT-${data.memberId}-${Date.now()}`, locale, org)}
       </div>
     </body>
     </html>
@@ -1067,4 +1110,50 @@ export function downloadAsHTML(html: string, filename: string): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export async function downloadAsPDF(html: string, filename: string): Promise<void> {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  Object.assign(container.style, {
+    position: 'absolute',
+    top: '-9999px',
+    left: '-9999px',
+    width: '210mm',
+    background: 'white',
+    zIndex: '-1'
+  });
+  
+  const printBtn = container.querySelector('.print-btn');
+  if (printBtn) printBtn.remove();
+  
+  document.body.appendChild(container);
+  
+  try {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const docElement = container.querySelector('.document') as HTMLElement;
+    if (!docElement) throw new Error('Document container not found');
+    
+    const canvas = await html2canvas(docElement, {
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+    
+    const imgData = canvas.toDataURL('image/jpeg', 1.0);
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    
+    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+    pdf.save(`${filename}.pdf`);
+  } finally {
+    document.body.removeChild(container);
+  }
 }

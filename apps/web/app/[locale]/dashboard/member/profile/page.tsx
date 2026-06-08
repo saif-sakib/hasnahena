@@ -30,9 +30,10 @@ import { formatCurrency } from '@/lib/utils';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
 import { getValidatedClientToken } from '@/lib/client-auth';
 import {
-  downloadAsHTML,
+  downloadAsPDF,
   generateMembershipCertificateHTML,
   generateStatementHTML,
+  fetchOrgSettings,
 } from '@/lib/documents/receipt-generator';
 
 interface UserProfile {
@@ -244,6 +245,7 @@ export default function ProfilePage() {
     setIsDownloadingDocument(true);
     setActionError(null);
     try {
+      const orgSettings = await fetchOrgSettings();
       const transactions = await apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions');
       const statementTransactions = (transactions ?? [])
         .filter((tx) => tx.type === 'DEPOSIT' || tx.type === 'WITHDRAWAL')
@@ -284,9 +286,10 @@ export default function ProfilePage() {
           })),
         },
         locale,
+        orgSettings
       );
 
-      downloadAsHTML(html, `statement-${profile.memberId || 'member'}`);
+      await downloadAsPDF(html, `statement-${profile.memberId || 'member'}`);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to generate statement');
     } finally {
@@ -294,9 +297,10 @@ export default function ProfilePage() {
     }
   };
 
-  const handleDownloadCertificate = () => {
+  const handleDownloadCertificate = async () => {
     setActionError(null);
     try {
+      const orgSettings = await fetchOrgSettings();
       const html = generateMembershipCertificateHTML(
         {
           memberName: locale === 'bn' ? (profile.nameBn || profile.nameEn) : (profile.nameEn || profile.nameBn),
@@ -307,8 +311,9 @@ export default function ProfilePage() {
           address: formatAddress(profile.permanentAddress),
         },
         locale,
+        orgSettings
       );
-      downloadAsHTML(html, `membership-certificate-${profile.memberId || 'member'}`);
+      await downloadAsPDF(html, `membership-certificate-${profile.memberId || 'member'}`);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to generate certificate');
     }
@@ -615,7 +620,7 @@ export default function ProfilePage() {
             <Button
               variant="outline"
               className="gap-2"
-              onClick={handleDownloadStatement}
+              onClick={() => void handleDownloadStatement()}
               disabled={isDownloadingDocument}
             >
               <Download className="h-4 w-4" />
@@ -624,7 +629,7 @@ export default function ProfilePage() {
             <Button
               variant="outline"
               className="gap-2"
-              onClick={handleDownloadCertificate}
+              onClick={() => void handleDownloadCertificate()}
               disabled={isDownloadingDocument}
             >
               <Download className="h-4 w-4" />

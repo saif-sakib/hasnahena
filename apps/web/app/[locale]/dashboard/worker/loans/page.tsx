@@ -14,7 +14,13 @@ import {
   CreditCard,
   Eye,
   Receipt,
+  Download,
 } from 'lucide-react';
+import {
+  generateLoanDocumentHTML,
+  downloadAsPDF,
+  fetchOrgSettings,
+} from '@/lib/documents/receipt-generator';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -132,6 +138,26 @@ export default function WorkerLoansPage() {
     void loadLoans();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleDownloadLoan = async (loan: ActiveLoan) => {
+    try {
+      const orgSettings = await fetchOrgSettings();
+      const loanHtml = generateLoanDocumentHTML({
+        loanNumber: loan.loanNumber,
+        memberName: loan.memberName,
+        memberId: loan.memberId,
+        memberPhone: loan.memberPhone,
+        memberAddress: '',
+        principalAmount: loan.loanAmount,
+        totalInstallments: loan.totalInstallments,
+        installmentAmount: loan.monthlyInstallment,
+        disbursementDate: undefined,
+      }, locale, orgSettings);
+      await downloadAsPDF(loanHtml, `Loan-${loan.loanNumber}`);
+    } catch (error) {
+      console.error('Failed to download loan:', error);
+    }
+  };
 
 
   const getStatusBadge = (status: LoanStatus) => {
@@ -410,6 +436,14 @@ export default function WorkerLoansPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleDownloadLoan(loan)}
+                        title={locale === 'bn' ? 'ঋণ ডাউনলোড' : 'Download Loan'}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"

@@ -48,9 +48,10 @@ export default function AdminSettingsPage() {
     nameEn: 'Hasnahena',
     email: 'info@hasnahena.org',
     phone: '+880 1712-345678',
-    address: 'ঢাকা, বাংলাদেশ',
+    address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
     website: 'https://hasnahena.org',
     description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
+    regNumber: '',
   });
 
   // Loan Settings
@@ -167,6 +168,7 @@ export default function AdminSettingsPage() {
           address: typeof data['org.address'] === 'string' ? data['org.address'] : prev.address,
           website: typeof data['org.website'] === 'string' ? data['org.website'] : prev.website,
           description: typeof data['org.description'] === 'string' ? data['org.description'] : prev.description,
+          regNumber: typeof data['org.regNumber'] === 'string' ? data['org.regNumber'] : prev.regNumber,
         }));
         setLoanSettings((prev) => ({
           ...prev,
@@ -355,6 +357,7 @@ export default function AdminSettingsPage() {
         'org.address': orgSettings.address,
         'org.website': orgSettings.website,
         'org.description': orgSettings.description,
+        'org.regNumber': orgSettings.regNumber,
         'loan.maxLoanMultiplier': String(normalizedLoanSettings.maxLoanMultiplier),
         'loan.minDepositForLoan': String(normalizedLoanSettings.minDepositForLoan),
         'loan.maxInstallmentMonths': String(normalizedLoanSettings.maxInstallmentMonths),
@@ -541,6 +544,15 @@ export default function AdminSettingsPage() {
                   <Input
                     value={orgSettings.website}
                     onChange={(e) => setOrgSettings({ ...orgSettings, website: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>{locale === 'bn' ? 'রেজিস্ট্রেশন নম্বর' : 'Registration Number'}</Label>
+                  <Input
+                    value={orgSettings.regNumber}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, regNumber: e.target.value })}
+                    placeholder="e.g. 1234-5678"
                   />
                 </div>
 
