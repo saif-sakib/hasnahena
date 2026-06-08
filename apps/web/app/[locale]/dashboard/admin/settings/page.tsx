@@ -61,6 +61,7 @@ export default function AdminSettingsPage() {
     maxInstallmentMonths: 24,
     missedPaymentsForDefault: 3,
     noticePeriodMonths: 3,
+    allowActiveLoanWithdrawal: false,
   });
 
   // Notification Settings
@@ -177,6 +178,7 @@ export default function AdminSettingsPage() {
           maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], prev.maxInstallmentMonths),
           missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], prev.missedPaymentsForDefault),
           noticePeriodMonths: parseNumberSetting(data['loan.noticePeriodMonths'], prev.noticePeriodMonths),
+          allowActiveLoanWithdrawal: parseBooleanSetting(data['loan.allowActiveLoanWithdrawal'], prev.allowActiveLoanWithdrawal),
         }));
 
         setNotificationSettings((prev) => ({
@@ -339,6 +341,7 @@ export default function AdminSettingsPage() {
         maxInstallmentMonths: Math.max(1, Math.trunc(loanSettings.maxInstallmentMonths)),
         missedPaymentsForDefault: Math.max(1, Math.trunc(loanSettings.missedPaymentsForDefault)),
         noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
+        allowActiveLoanWithdrawal: loanSettings.allowActiveLoanWithdrawal,
       };
       const normalizedSecuritySettings = {
         sessionTimeout: Math.max(1, Math.trunc(securitySettings.sessionTimeout)),
@@ -363,6 +366,7 @@ export default function AdminSettingsPage() {
         'loan.maxInstallmentMonths': String(normalizedLoanSettings.maxInstallmentMonths),
         'loan.missedPaymentsForDefault': String(normalizedLoanSettings.missedPaymentsForDefault),
         'loan.noticePeriodMonths': String(normalizedLoanSettings.noticePeriodMonths),
+        'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
         'notification.emailNotifications': String(notificationSettings.emailNotifications),
         'notification.smsNotifications': String(notificationSettings.smsNotifications),
         'notification.loanApprovalNotify': String(notificationSettings.loanApprovalNotify),
@@ -1076,6 +1080,30 @@ export default function AdminSettingsPage() {
                         className="w-24"
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <div className="flex items-start justify-between gap-4 rounded-sm border border-gray-200 bg-white p-4">
+                      <div className="space-y-1">
+                        <Label className="flex items-center gap-2">
+                          <Lock className="h-4 w-4" />
+                          {locale === 'bn'
+                            ? 'সক্রিয় ঋণ থাকা সদস্যের উত্তোলন'
+                            : 'Withdrawals for members with active loans'}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {locale === 'bn'
+                            ? 'চালু করলে সক্রিয় ঋণ থাকা সদস্য নিজের জমা উত্তোলন করতে পারবে। জামিনদার লক থাকলে উত্তোলন এখনও বন্ধ থাকবে।'
+                            : 'When enabled, members with active loans may withdraw their own deposits. Guarantor locks will still block withdrawals.'}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={loanSettings.allowActiveLoanWithdrawal}
+                        onCheckedChange={(checked) =>
+                          setLoanSettings({ ...loanSettings, allowActiveLoanWithdrawal: checked })
+                        }
+                      />
                     </div>
                   </div>
                 </div>
