@@ -103,7 +103,7 @@ export function Footer({ settings }: FooterProps) {
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-primary" />
-                <span>{settings?.['org.address'] || 'Dhaka, Bangladesh'}</span>
+                <span>{settings?.['org.address'] || 'Vekutia, Jashore, Bangladesh'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Phone className="h-4 w-4 flex-shrink-0 text-primary" />

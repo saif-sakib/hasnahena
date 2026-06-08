@@ -15,7 +15,13 @@ import {
   AlertCircle,
   Eye,
   Phone,
+  Download,
 } from 'lucide-react';
+import {
+  generateReceiptHTML,
+  downloadAsPDF,
+  fetchOrgSettings,
+} from '@/lib/documents/receipt-generator';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,6 +98,26 @@ export default function WorkerTransactionsPage() {
 
     void loadTransactions();
   }, []);
+
+  const handleDownloadReceipt = async (tx: Transaction) => {
+    try {
+      const orgSettings = await fetchOrgSettings();
+      const receiptHtml = generateReceiptHTML({
+        receiptNumber: tx.reference || tx.id,
+        type: tx.type,
+        amount: tx.amount,
+        date: tx.date,
+        memberName: tx.memberName,
+        memberId: tx.memberId,
+        memberPhone: tx.memberPhone,
+        balanceAfter: tx.balanceAfter,
+        notes: tx.notes,
+      }, locale, orgSettings);
+      await downloadAsPDF(receiptHtml, `Receipt-${tx.reference || tx.id}`);
+    } catch (error) {
+      console.error('Failed to download receipt:', error);
+    }
+  };
 
 
   const formatDateTime = (dateString: string) => {
@@ -409,16 +435,26 @@ export default function WorkerTransactionsPage() {
                       {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'} {formatCurrency(transaction.balanceAfter, locale)}
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedTransaction(transaction);
-                      setShowDetailModal(true);
-                    }}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDownloadReceipt(transaction)}
+                      title={locale === 'bn' ? 'রশিদ ডাউনলোড' : 'Download Receipt'}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedTransaction(transaction);
+                        setShowDetailModal(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}

@@ -38,7 +38,7 @@ export default async function SupportPage({ params: { locale } }: PageProps) {
   const isBn = locale === 'bn';
   const supportEmail = settings['org.email'] || settings['contact.email'] || 'contact@hasnahena.org';
   const supportPhone = settings['org.phone'] || settings['contact.phone'] || '+880 1XXX-XXXXXX';
-  const supportAddress = settings['org.address'] || settings['contact.address'] || 'Dhaka, Bangladesh';
+  const supportAddress = settings['org.address'] || settings['contact.address'] || 'Vekutia, Jashore, Bangladesh';
 
   return (
     <>

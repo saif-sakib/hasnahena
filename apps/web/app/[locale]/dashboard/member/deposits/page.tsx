@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { generateStatementHTML, openPrintWindow, generateReceiptHTML } from '@/lib/documents/receipt-generator';
+import { generateStatementHTML, downloadAsPDF, generateReceiptHTML, fetchOrgSettings } from '@/lib/documents/receipt-generator';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -129,8 +129,9 @@ export default function DepositsPage() {
     );
   };
 
-  const handleDownloadStatement = () => {
+  const handleDownloadStatement = async () => {
     if (!memberProfile || deposits.length === 0) return;
+    const orgSettings = await fetchOrgSettings();
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
     const statementHtml = generateStatementHTML({
@@ -151,12 +152,13 @@ export default function DepositsPage() {
         description: d.notes || (locale === 'bn' ? 'আমানত' : 'Deposit'),
         receiptNumber: d.receiptNumber,
       })),
-    }, locale);
-    openPrintWindow(statementHtml, locale === 'bn' ? 'আমানত বিবরণী' : 'Deposit Statement');
+    }, locale, orgSettings);
+    await downloadAsPDF(statementHtml, `Statement_${memberProfile.userId}_${now.getTime()}`);
   };
 
-  const handlePrintReceipt = (deposit: Deposit) => {
+  const handlePrintReceipt = async (deposit: Deposit) => {
     if (!memberProfile) return;
+    const orgSettings = await fetchOrgSettings();
     const receiptHtml = generateReceiptHTML({
       receiptNumber: deposit.receiptNumber,
       type: 'DEPOSIT',
@@ -168,8 +170,8 @@ export default function DepositsPage() {
       balanceAfter: (deposit.balanceAfter || 0),
       processedBy: deposit.processedBy,
       notes: deposit.notes,
-    }, locale);
-    openPrintWindow(receiptHtml, locale === 'bn' ? 'রসিদ' : 'Receipt');
+    }, locale, orgSettings);
+    await downloadAsPDF(receiptHtml, `Receipt_${deposit.receiptNumber}`);
   };
 
   const handleSubmitDepositRequest = async () => {
@@ -370,11 +372,11 @@ export default function DepositsPage() {
                     <td className="py-3 px-4 text-right">
                       {canPrint ? (
                         <button
-                          onClick={() => handlePrintReceipt(deposit)}
+                          onClick={() => void handlePrintReceipt(deposit)}
                           className="text-gray-400 hover:text-gray-600"
-                          title={locale === 'bn' ? 'রসিদ প্রিন্ট' : 'Print receipt'}
+                          title={locale === 'bn' ? 'রসিদ পিডিএফ ডাউনলোড' : 'Download PDF receipt'}
                         >
-                          <Printer className="h-4 w-4" />
+                          <Download className="h-4 w-4" />
                         </button>
                       ) : (
                         <span className="text-xs text-gray-400">-</span>

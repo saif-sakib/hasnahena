@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
-import { generateStatementHTML, generateReceiptHTML, openPrintWindow } from '@/lib/documents/receipt-generator';
+import { generateStatementHTML, generateReceiptHTML, downloadAsPDF, fetchOrgSettings } from '@/lib/documents/receipt-generator';
 
 type KnownTransactionType =
   | 'DEPOSIT'
@@ -98,8 +98,9 @@ export default function TransactionsPage() {
   }, [locale]);
 
   // Download full statement
-  const handleDownloadStatement = () => {
+  const handleDownloadStatement = async () => {
     if (!memberProfile || transactions.length === 0) return;
+    const orgSettings = await fetchOrgSettings();
     
     const confirmedTxs = transactions.filter(tx => tx.status === 'CONFIRMED');
     const now = new Date();
@@ -130,14 +131,15 @@ export default function TransactionsPage() {
         description: tx.description,
         receiptNumber: tx.receiptNumber,
       })),
-    }, locale);
+    }, locale, orgSettings);
     
-    openPrintWindow(statementHtml, locale === 'bn' ? 'লেনদেন বিবরণী' : 'Transaction Statement');
+    await downloadAsPDF(statementHtml, `Statement_${memberProfile.userId}_${now.getTime()}`);
   };
 
   // Print individual receipt
-  const handlePrintReceipt = (tx: Transaction) => {
+  const handlePrintReceipt = async (tx: Transaction) => {
     if (!memberProfile) return;
+    const orgSettings = await fetchOrgSettings();
     
     const receiptHtml = generateReceiptHTML({
       receiptNumber: tx.receiptNumber,
@@ -150,9 +152,9 @@ export default function TransactionsPage() {
       balanceAfter: (tx.balanceAfter || 0),
       processedBy: tx.processedBy,
       notes: tx.description,
-    }, locale);
+    }, locale, orgSettings);
     
-    openPrintWindow(receiptHtml, locale === 'bn' ? 'রসিদ' : 'Receipt');
+    await downloadAsPDF(receiptHtml, `Receipt_${tx.receiptNumber}`);
   };
 
   const formatDateLocal = (dateStr: string) => {
@@ -316,7 +318,7 @@ export default function TransactionsPage() {
           size="sm"
           variant="outline"
           className="h-8 gap-1.5 text-xs"
-          onClick={handleDownloadStatement}
+          onClick={() => void handleDownloadStatement()}
           disabled={transactions.length === 0}
         >
           <Download className="h-3.5 w-3.5" />
@@ -444,10 +446,11 @@ export default function TransactionsPage() {
                     <td className="px-4 py-3 text-right">
                       {tx.status === 'CONFIRMED' && (
                         <button
-                          onClick={() => handlePrintReceipt(tx)}
+                          onClick={() => void handlePrintReceipt(tx)}
                           className="text-gray-400 hover:text-gray-600"
+                          title={locale === 'bn' ? 'রসিদ পিডিএফ ডাউনলোড' : 'Download PDF receipt'}
                         >
-                          <Printer className="h-4 w-4" />
+                          <Download className="h-4 w-4" />
                         </button>
                       )}
                     </td>

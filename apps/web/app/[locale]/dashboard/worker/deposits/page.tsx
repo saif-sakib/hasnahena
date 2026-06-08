@@ -9,7 +9,13 @@ import {
   ArrowUpRight,
   X,
   Check,
+  Download,
 } from 'lucide-react';
+import {
+  generateReceiptHTML,
+  downloadAsPDF,
+  fetchOrgSettings,
+} from '@/lib/documents/receipt-generator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
@@ -75,6 +81,26 @@ export default function WorkerDepositsPage() {
       setTransactions(items.filter((item) => item.type === 'DEPOSIT' || item.type === 'WITHDRAWAL'));
     } catch {
       setTransactions([]);
+    }
+  };
+
+  const handleDownloadReceipt = async (t: Transaction) => {
+    try {
+      const orgSettings = await fetchOrgSettings();
+      const receiptHtml = generateReceiptHTML({
+        receiptNumber: t.id,
+        type: t.type,
+        amount: t.amount,
+        date: t.date,
+        memberName: t.memberName,
+        memberId: t.memberId,
+        memberPhone: t.memberPhone,
+        balanceAfter: t.balanceAfter,
+        notes: t.notes,
+      }, locale, orgSettings);
+      await downloadAsPDF(receiptHtml, `Receipt-${t.id}`);
+    } catch (error) {
+      console.error('Failed to download receipt:', error);
     }
   };
 
@@ -245,6 +271,7 @@ export default function WorkerDepositsPage() {
               <th className="text-right py-2 px-3 font-medium text-gray-700">
                 {locale === 'bn' ? 'তারিখ' : 'Date'}
               </th>
+              <th className="py-2 px-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -292,11 +319,20 @@ export default function WorkerDepositsPage() {
                 <td className="py-2 px-3 text-right text-gray-500 text-xs">
                   {formatTime(t.date)}
                 </td>
+                <td className="py-2 px-3 text-right">
+                  <button
+                    onClick={() => void handleDownloadReceipt(t)}
+                    className="text-blue-600 hover:text-blue-800 inline-flex items-center justify-center p-1"
+                    title={locale === 'bn' ? 'রশিদ ডাউনলোড' : 'Download Receipt'}
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                </td>
               </tr>
             ))}
             {filteredTransactions.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-gray-500">
+                <td colSpan={6} className="py-8 text-center text-gray-500">
                   {locale === 'bn' ? 'কোনো লেনদেন পাওয়া যায়নি' : 'No transactions found'}
                 </td>
               </tr>

@@ -62,7 +62,8 @@ import {
   generateReceiptHTML,
   generateLoanDocumentHTML,
   generateStatementHTML,
-  openPrintWindow,
+  downloadAsPDF,
+  fetchOrgSettings,
   type ReceiptData,
   type LoanDocumentData,
   type StatementData,
@@ -338,8 +339,9 @@ export default function MemberDetailPage() {
     setShowLoanPaymentModal(true);
   };
 
-  const handlePrintReceipt = (tx: Transaction) => {
+  const handlePrintReceipt = async (tx: Transaction) => {
     if (!member) return;
+    const orgSettings = await fetchOrgSettings();
     
     const receiptData: ReceiptData = {
       receiptNumber: tx.receiptNumber,
@@ -353,12 +355,13 @@ export default function MemberDetailPage() {
       notes: tx.notes,
     };
     
-    const html = generateReceiptHTML(receiptData, locale);
-    openPrintWindow(html, `Receipt-${tx.receiptNumber}`);
+    const html = generateReceiptHTML(receiptData, locale, orgSettings);
+    await downloadAsPDF(html, `Receipt-${tx.receiptNumber}`);
   };
 
-  const handlePrintLoanDocument = (loan: Loan) => {
+  const handlePrintLoanDocument = async (loan: Loan) => {
     if (!member) return;
+    const orgSettings = await fetchOrgSettings();
     
     const loanData: LoanDocumentData = {
       loanNumber: loan.loanNumber,
@@ -372,12 +375,13 @@ export default function MemberDetailPage() {
       disbursementDate: loan.disbursementDate,
     };
     
-    const html = generateLoanDocumentHTML(loanData, locale);
-    openPrintWindow(html, `Loan-${loan.loanNumber}`);
+    const html = generateLoanDocumentHTML(loanData, locale, orgSettings);
+    await downloadAsPDF(html, `Loan-${loan.loanNumber}`);
   };
 
-  const handlePrintStatement = () => {
+  const handlePrintStatement = async () => {
     if (!member) return;
+    const orgSettings = await fetchOrgSettings();
     
     const statementData: StatementData = {
       memberName: member.name,
@@ -399,8 +403,8 @@ export default function MemberDetailPage() {
       })),
     };
     
-    const html = generateStatementHTML(statementData, locale);
-    openPrintWindow(html, `Statement-${member.uid}`);
+    const html = generateStatementHTML(statementData, locale, orgSettings);
+    await downloadAsPDF(html, `Statement-${member.uid}`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -862,9 +866,9 @@ export default function MemberDetailPage() {
               ) : (
                 <>
                   <div className="flex justify-end mb-4">
-                    <Button variant="outline" size="sm" onClick={handlePrintStatement}>
-                      <Printer className="h-4 w-4 mr-2" />
-                      {locale === 'bn' ? 'স্টেটমেন্ট প্রিন্ট' : 'Print Statement'}
+                    <Button variant="outline" size="sm" onClick={() => void handlePrintStatement()}>
+                      <Download className="h-4 w-4 mr-2" />
+                      {locale === 'bn' ? 'স্টেটমেন্ট ডাউনলোড' : 'Download Statement'}
                     </Button>
                   </div>
                   <div className="space-y-3">
@@ -891,8 +895,8 @@ export default function MemberDetailPage() {
                                   </p>
                                   {getStatusBadge(tx.status)}
                                 </div>
-                                <Button variant="ghost" size="icon" onClick={() => handlePrintReceipt(tx)} title={locale === 'bn' ? 'রশিদ প্রিন্ট' : 'Print Receipt'}>
-                                  <Printer className="h-4 w-4" />
+                                <Button variant="ghost" size="icon" onClick={() => void handlePrintReceipt(tx)} title={locale === 'bn' ? 'রশিদ ডাউনলোড' : 'Download Receipt'}>
+                                  <Download className="h-4 w-4" />
                                 </Button>
                               </div>
                             </>
@@ -940,8 +944,8 @@ export default function MemberDetailPage() {
                               {locale === 'bn' ? 'পরিশোধ' : 'Pay'}
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon" onClick={() => handlePrintLoanDocument(loan)} title={locale === 'bn' ? 'ঋণ দলিল প্রিন্ট' : 'Print Loan Document'}>
-                            <Printer className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" onClick={() => void handlePrintLoanDocument(loan)} title={locale === 'bn' ? 'ঋণ দলিল ডাউনলোড' : 'Download Loan Document'}>
+                            <Download className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
