@@ -43,7 +43,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import { apiGet, apiPost } from '@/lib/api';
 
 type LoanStatus = 'ACTIVE' | 'OVERDUE' | 'COMPLETED' | 'PENDING' | 'DEFAULTED' | string;
@@ -261,7 +261,8 @@ export default function WorkerLoansPage() {
 
   const openPaymentModal = (loan: ActiveLoan) => {
     setSelectedLoan(loan);
-    setPaymentAmount(String(Math.min(loan.monthlyInstallment, loan.remainingAmount)));
+    const presets = getLoanRepaymentPresets(loan.monthlyInstallment, loan.remainingAmount);
+    setPaymentAmount(String(presets.monthly));
     setPaymentError(null);
     setShowPaymentModal(true);
   };
@@ -542,6 +543,44 @@ export default function WorkerLoansPage() {
                   onChange={(e) => setPaymentAmount(e.target.value)}
                   className="mt-1"
                 />
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const presets = getLoanRepaymentPresets(
+                        selectedLoan.monthlyInstallment,
+                        selectedLoan.remainingAmount,
+                      );
+                      setPaymentAmount(String(presets.weekly));
+                    }}
+                  >
+                    {locale === 'bn' ? 'সাপ্তাহিক' : 'Weekly'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const presets = getLoanRepaymentPresets(
+                        selectedLoan.monthlyInstallment,
+                        selectedLoan.remainingAmount,
+                      );
+                      setPaymentAmount(String(presets.monthly));
+                    }}
+                  >
+                    {locale === 'bn' ? 'মাসিক' : 'Monthly'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPaymentAmount(String(selectedLoan.remainingAmount))}
+                  >
+                    {locale === 'bn' ? 'সম্পূর্ণ' : 'Full'}
+                  </Button>
+                </div>
                 {Number(paymentAmount) !== selectedLoan.monthlyInstallment && paymentAmount && (
                   <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" />

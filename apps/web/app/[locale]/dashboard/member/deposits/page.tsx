@@ -7,8 +7,8 @@ import {
   Wallet,
   ArrowUpRight,
   Download,
-  Printer,
   PlusCircle,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,9 +51,21 @@ export default function DepositsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isRequestSubmitting, setIsRequestSubmitting] = useState(false);
+  const [showDepositForm, setShowDepositForm] = useState(false);
   const [requestAmount, setRequestAmount] = useState('');
   const [requestReference, setRequestReference] = useState('');
   const [requestNotes, setRequestNotes] = useState('');
+
+  const resetDepositForm = () => {
+    setRequestAmount('');
+    setRequestReference('');
+    setRequestNotes('');
+  };
+
+  const closeDepositForm = () => {
+    setShowDepositForm(false);
+    resetDepositForm();
+  };
 
   const refresh = async () => {
     const token = localStorage.getItem('hn_access_token');
@@ -195,9 +207,8 @@ export default function DepositsPage() {
         bkashReference: requestReference.trim(),
         notes: requestNotes.trim(),
       });
-      setRequestAmount('');
-      setRequestReference('');
-      setRequestNotes('');
+      resetDepositForm();
+      setShowDepositForm(false);
       setActionSuccess(
         locale === 'bn'
           ? 'ডিপোজিট অনুরোধ জমা হয়েছে। অনুমোদনের পর ব্যালেন্সে যুক্ত হবে।'
@@ -242,62 +253,91 @@ export default function DepositsPage() {
 
       {/* Deposit Request */}
       <div className="border border-gray-200 bg-white">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h2 className="text-sm font-semibold">
-            {locale === 'bn' ? 'নতুন ডিপোজিট অনুরোধ' : 'New Deposit Request'}
-          </h2>
-          <p className="text-xs text-gray-500 mt-1">
-            {locale === 'bn'
-              ? 'bKash-এ টাকা পাঠানোর পর এখানে পরিমাণ ও রেফারেন্স দিন।'
-              : 'After sending money via bKash, submit amount and reference here.'}
-          </p>
-        </div>
-        <div className="p-4 grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-            <Input
-              type="number"
-              min="1"
-              step="0.01"
-              placeholder="0.00"
-              value={requestAmount}
-              onChange={(e) => setRequestAmount(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{locale === 'bn' ? 'bKash রেফারেন্স' : 'bKash Reference'}</Label>
-            <Input
-              placeholder={locale === 'bn' ? 'লেনদেন রেফারেন্স নম্বর' : 'Transaction reference number'}
-              value={requestReference}
-              onChange={(e) => setRequestReference(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2 md:col-span-3">
-            <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-            <Textarea
-              placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional details...'}
-              value={requestNotes}
-              onChange={(e) => setRequestNotes(e.target.value)}
-            />
-          </div>
-          <div className="md:col-span-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">
-              {pendingRequests > 0
-                ? locale === 'bn'
-                  ? `${pendingRequests} টি অনুরোধ অপেক্ষমাণ`
-                  : `${pendingRequests} request(s) pending`
-                : locale === 'bn'
-                  ? 'কোনো অপেক্ষমাণ ডিপোজিট অনুরোধ নেই'
-                  : 'No pending deposit requests'}
-            </p>
-            <Button onClick={handleSubmitDepositRequest} disabled={isRequestSubmitting} className="gap-2">
+        {!showDepositForm ? (
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">
+                {locale === 'bn' ? 'নতুন ডিপোজিট' : 'New Deposit'}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                {pendingRequests > 0
+                  ? locale === 'bn'
+                    ? `${pendingRequests} টি অনুরোধ অপেক্ষমাণ`
+                    : `${pendingRequests} request(s) pending`
+                  : locale === 'bn'
+                    ? 'bKash-এ টাকা পাঠানোর পর অনুরোধ জমা দিন।'
+                    : 'Submit a request after sending money via bKash.'}
+              </p>
+            </div>
+            <Button onClick={() => setShowDepositForm(true)} className="gap-2 shrink-0">
               <PlusCircle className="h-4 w-4" />
-              {isRequestSubmitting
-                ? (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')
-                : (locale === 'bn' ? 'অনুরোধ পাঠান' : 'Submit Request')}
+              {locale === 'bn' ? 'ডিপোজিট যোগ করুন' : 'Add Deposit'}
             </Button>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {locale === 'bn' ? 'নতুন ডিপোজিট অনুরোধ' : 'New Deposit Request'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {locale === 'bn'
+                    ? 'bKash-এ টাকা পাঠানোর পর এখানে পরিমাণ ও রেফারেন্স দিন।'
+                    : 'After sending money via bKash, submit amount and reference here.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeDepositForm}
+                className="text-gray-400 hover:text-gray-600 p-1"
+                aria-label={locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={requestAmount}
+                  onChange={(e) => setRequestAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{locale === 'bn' ? 'bKash রেফারেন্স' : 'bKash Reference'}</Label>
+                <Input
+                  placeholder={locale === 'bn' ? 'লেনদেন রেফারেন্স নম্বর' : 'Transaction reference number'}
+                  value={requestReference}
+                  onChange={(e) => setRequestReference(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-3">
+                <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
+                <Textarea
+                  placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional details...'}
+                  value={requestNotes}
+                  onChange={(e) => setRequestNotes(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-3 flex flex-wrap items-center justify-end gap-2">
+                <Button variant="outline" onClick={closeDepositForm} disabled={isRequestSubmitting}>
+                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+                </Button>
+                <Button onClick={handleSubmitDepositRequest} disabled={isRequestSubmitting} className="gap-2">
+                  <PlusCircle className="h-4 w-4" />
+                  {isRequestSubmitting
+                    ? (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')
+                    : (locale === 'bn' ? 'অনুরোধ পাঠান' : 'Submit Request')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Summary Stats */}

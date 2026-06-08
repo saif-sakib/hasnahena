@@ -23,6 +23,16 @@ export function formatDate(date: string | Date, locale: string = 'en') {
   });
 }
 
+/** Weekly/monthly/full quick-fill amounts for loan repayment (installmentAmount is per month). */
+export function getLoanRepaymentPresets(installmentAmount: number, remainingAmount: number) {
+  const weekly = Math.round((installmentAmount / 4) * 100) / 100;
+  return {
+    weekly: Math.min(Math.max(weekly, 0), remainingAmount),
+    monthly: Math.min(Math.max(installmentAmount, 0), remainingAmount),
+    full: Math.max(remainingAmount, 0),
+  };
+}
+
 /**
  * Decodes a base64url-encoded string (browser-compatible using atob)
  */
