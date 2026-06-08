@@ -6,6 +6,11 @@ import { UserRole, UserStatus } from '@prisma/client';
 import { bdPhoneRegex, registerApiSchema } from '@/lib/validation/registration';
 import { uploadImage, deleteImage } from '@/lib/cloudinary';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
+import {
+  formatMemberId,
+  MEMBER_ID_ADVISORY_LOCK_SQL,
+  NEXT_MEMBER_ID_SQL,
+} from '@/lib/member-id';
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -218,15 +223,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Generate unique IDs
-    const timestamp = Date.now();
-    const phoneDigits = payload.phone.replace(/\D/g, '');
-    const memberId = `MBR-${phoneDigits}-${timestamp.toString(36)}`;
-    const accountNumber = `ACC-${phoneDigits}-${timestamp.toString(36)}`;
-
     const validatedFiles: Array<{
       requirement: typeof REQUIRED_DOCUMENT_FIELDS[number];
       fileEntry: File;
+      buffer: Buffer;
     }> = [];
     let totalUploadBytes = 0;
 
@@ -251,8 +251,8 @@ export async function POST(req: Request) {
       }
 
       totalUploadBytes += fileEntry.size;
-
-      validatedFiles.push({ requirement, fileEntry });
+      const buffer = Buffer.from(await fileEntry.arrayBuffer());
+      validatedFiles.push({ requirement, fileEntry, buffer });
     }
 
     if (totalUploadBytes > REGISTRATION_MAX_TOTAL_UPLOAD_BYTES) {
@@ -261,35 +261,6 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-
-    const uploadResults = await Promise.all(
-      validatedFiles.map(async ({ requirement, fileEntry }) => {
-        const fileBuffer = Buffer.from(await fileEntry.arrayBuffer());
-        const uploadResult = await uploadImage(
-          fileBuffer,
-          `registrations/members/${memberId}/${requirement.folderSlug}`,
-          {
-            preserveOriginal: true,
-            useFilename: true,
-            uniqueFilename: true,
-          },
-        );
-
-        return {
-          publicId: uploadResult.publicId,
-          document: {
-            type: requirement.documentType,
-            url: uploadResult.url,
-            fileName: fileEntry.name,
-            mimeType: fileEntry.type,
-            size: fileEntry.size,
-          },
-        };
-      }),
-    );
-
-    uploadedPublicIds.push(...uploadResults.map((entry) => entry.publicId));
-    const uploadedDocuments = uploadResults.map((entry) => entry.document);
 
     const sameAsPermanent = payload.sameAsPermanent ?? true;
     const presentFallback = sameAsPermanent;
@@ -312,86 +283,129 @@ export async function POST(req: Request) {
       district: presentFallback ? permanentAddress.district : payload.presentDistrict!,
     };
 
-    const created = await prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        phone: payload.phone,
-        passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
-        role: UserRole.MEMBER,
-        status: UserStatus.PENDING,
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(MEMBER_ID_ADVISORY_LOCK_SQL);
+      const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_MEMBER_ID_SQL);
+      const memberId = formatMemberId(Number(nextSeq));
+      const accountNumber = memberId;
 
-        memberId,
-        formNumber: `FORM-${memberId}`,
+      return tx.user.create({
+        data: {
+          email: normalizedEmail,
+          phone: payload.phone,
+          passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
+          role: UserRole.MEMBER,
+          status: UserStatus.PENDING,
 
-        nameEn: payload.nameEn,
-        nameBn: normalizeOptionalString(payload.nameBn),
-        fatherName: payload.fatherName,
-        motherName: payload.motherName,
+          memberId,
+          formNumber: `FORM-${memberId}`,
 
-        gender: payload.gender,
-        bloodGroup: payload.bloodGroup,
-        profession: payload.profession,
-        dateOfBirth: parseOptionalDate(payload.dateOfBirth),
-        maritalStatus: payload.maritalStatus,
-        childrenCount: payload.childrenCount ?? 0,
+          nameEn: payload.nameEn,
+          nameBn: normalizeOptionalString(payload.nameBn),
+          fatherName: payload.fatherName,
+          motherName: payload.motherName,
 
-        nidNumber: normalizeOptionalString(payload.nidNumber) ?? payload.nidNumber,
+          gender: payload.gender,
+          bloodGroup: payload.bloodGroup,
+          profession: payload.profession,
+          dateOfBirth: parseOptionalDate(payload.dateOfBirth),
+          maritalStatus: payload.maritalStatus,
+          childrenCount: payload.childrenCount ?? 0,
 
-        permanentAddress: {
-          create: {
-            houseNo: permanentAddress.houseNo,
-            roadNo: permanentAddress.roadNo,
-            village: permanentAddress.village,
-            union: permanentAddress.union,
-            policeStation: permanentAddress.policeStation,
-            district: permanentAddress.district,
+          nidNumber: normalizeOptionalString(payload.nidNumber) ?? payload.nidNumber,
+
+          permanentAddress: {
+            create: {
+              houseNo: permanentAddress.houseNo,
+              roadNo: permanentAddress.roadNo,
+              village: permanentAddress.village,
+              union: permanentAddress.union,
+              policeStation: permanentAddress.policeStation,
+              district: permanentAddress.district,
+            },
+          },
+
+          presentAddress: {
+            create: {
+              houseNo: presentAddress.houseNo,
+              roadNo: presentAddress.roadNo,
+              village: presentAddress.village,
+              union: presentAddress.union,
+              policeStation: presentAddress.policeStation,
+              district: presentAddress.district,
+            },
+          },
+
+          nominee: {
+            create: {
+              name: payload.nomineeName,
+              relationship: payload.nomineeRelationship,
+              nidNumber: payload.nomineeNid,
+              phone: normalizeOptionalString(payload.nomineePhone) ?? undefined,
+            },
+          },
+
+          accounts: {
+            create: {
+              accountNumber,
+              isLoanEligible: false,
+              maxLoanAmount: BigInt(0),
+              savingsBalance: BigInt(0),
+              loanBalance: BigInt(0),
+            },
           },
         },
-
-        presentAddress: {
-          create: {
-            houseNo: presentAddress.houseNo,
-            roadNo: presentAddress.roadNo,
-            village: presentAddress.village,
-            union: presentAddress.union,
-            policeStation: presentAddress.policeStation,
-            district: presentAddress.district,
-          },
+        select: {
+          id: true,
+          memberId: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          nameEn: true,
         },
-
-        nominee: {
-          create: {
-            name: payload.nomineeName,
-            relationship: payload.nomineeRelationship,
-            nidNumber: payload.nomineeNid,
-            phone: normalizeOptionalString(payload.nomineePhone) ?? undefined,
-          },
-        },
-
-        documents: {
-          create: uploadedDocuments,
-        },
-
-        accounts: {
-          create: {
-            accountNumber,
-            isLoanEligible: false,
-            maxLoanAmount: BigInt(0),
-            savingsBalance: BigInt(0),
-            loanBalance: BigInt(0),
-          },
-        },
-      },
-      select: {
-        id: true,
-        memberId: true,
-        email: true,
-        phone: true,
-        role: true,
-        status: true,
-        nameEn: true,
-      },
+      });
     });
+
+    const uploadResults = await Promise.all(
+      validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
+        const uploadResult = await uploadImage(
+          buffer,
+          `registrations/members/${created.memberId}/${requirement.folderSlug}`,
+          {
+            preserveOriginal: true,
+            useFilename: true,
+            uniqueFilename: true,
+          },
+        );
+
+        return {
+          publicId: uploadResult.publicId,
+          document: {
+            userId: created.id,
+            type: requirement.documentType,
+            url: uploadResult.url,
+            fileName: fileEntry.name,
+            mimeType: fileEntry.type,
+            size: fileEntry.size,
+          },
+        };
+      }),
+    );
+
+    uploadedPublicIds.push(...uploadResults.map((entry) => entry.publicId));
+
+    try {
+      await prisma.document.createMany({
+        data: uploadResults.map((entry) => entry.document),
+      });
+    } catch (documentError) {
+      await cleanupUploadedAssets();
+      await prisma.user.delete({ where: { id: created.id } }).catch((deleteErr) => {
+        console.error('Failed to rollback registration after document upload failure:', deleteErr);
+      });
+      throw documentError;
+    }
 
     // Create notification for admins (non-blocking)
     prisma.notification.create({

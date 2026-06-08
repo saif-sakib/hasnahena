@@ -43,13 +43,27 @@ interface Transaction {
   processedBy?: string;
 }
 
-interface MemberProfile {
-  name?: string;
-  userId?: string;
-  phone?: string;
+interface MemberProfileResponse {
+  profile?: {
+    memberId?: string;
+    nameEn?: string;
+    phone?: string;
+  };
   accountSummary?: {
     currentBalance?: number;
   };
+}
+
+function getMemberDisplayId(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.memberId?.trim() || 'N/A';
+}
+
+function getMemberDisplayName(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.nameEn?.trim() || 'N/A';
+}
+
+function getMemberDisplayPhone(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.phone?.trim() || 'N/A';
 }
 
 export default function TransactionsPage() {
@@ -65,7 +79,7 @@ export default function TransactionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [memberProfile, setMemberProfile] = useState<MemberProfile | null>(null);
+  const [memberProfile, setMemberProfile] = useState<MemberProfileResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -81,7 +95,7 @@ export default function TransactionsPage() {
     try {
       const [txData, profileData] = await Promise.all([
         apiGet<Transaction[]>('/v1/dashboard/member/transactions'),
-        apiGet<MemberProfile>('/v1/dashboard/member/profile'),
+        apiGet<MemberProfileResponse>('/v1/dashboard/member/profile'),
       ]);
       setTransactions(txData ?? []);
       setMemberProfile(profileData);
@@ -114,9 +128,9 @@ export default function TransactionsPage() {
       .reduce((sum, tx) => sum + tx.amount, 0);
     
     const statementHtml = generateStatementHTML({
-      memberName: memberProfile.name || 'N/A',
-      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
-      memberPhone: memberProfile.phone || 'N/A',
+      memberName: getMemberDisplayName(memberProfile),
+      memberId: getMemberDisplayId(memberProfile),
+      memberPhone: getMemberDisplayPhone(memberProfile),
       periodStart: oneYearAgo.toISOString(),
       periodEnd: now.toISOString(),
       openingBalance: 0,
@@ -133,7 +147,7 @@ export default function TransactionsPage() {
       })),
     }, locale, orgSettings);
     
-    await downloadAsPDF(statementHtml, `Statement_${memberProfile.userId}_${now.getTime()}`);
+    await downloadAsPDF(statementHtml, `Statement_${getMemberDisplayId(memberProfile)}_${now.getTime()}`);
   };
 
   // Print individual receipt
@@ -146,9 +160,9 @@ export default function TransactionsPage() {
       type: tx.type,
       amount: tx.amount,
       date: tx.date,
-      memberName: memberProfile.name || 'N/A',
-      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
-      memberPhone: memberProfile.phone || 'N/A',
+      memberName: getMemberDisplayName(memberProfile),
+      memberId: getMemberDisplayId(memberProfile),
+      memberPhone: getMemberDisplayPhone(memberProfile),
       balanceAfter: (tx.balanceAfter || 0),
       processedBy: tx.processedBy,
       notes: tx.description,

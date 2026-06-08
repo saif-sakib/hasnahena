@@ -31,13 +31,27 @@ interface Deposit {
   notes?: string;
 }
 
-interface MemberProfile {
-  name?: string;
-  userId?: string;
-  phone?: string;
+interface MemberProfileResponse {
+  profile?: {
+    memberId?: string;
+    nameEn?: string;
+    phone?: string;
+  };
   accountSummary?: {
     currentBalance?: number;
   };
+}
+
+function getMemberDisplayId(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.memberId?.trim() || 'N/A';
+}
+
+function getMemberDisplayName(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.nameEn?.trim() || 'N/A';
+}
+
+function getMemberDisplayPhone(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.phone?.trim() || 'N/A';
 }
 
 export default function DepositsPage() {
@@ -46,7 +60,7 @@ export default function DepositsPage() {
   const router = useRouter();
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [currentBalance, setCurrentBalance] = useState(0);
-  const [memberProfile, setMemberProfile] = useState<MemberProfile | null>(null);
+  const [memberProfile, setMemberProfile] = useState<MemberProfileResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -82,7 +96,7 @@ export default function DepositsPage() {
           deposits: Deposit[];
           currentBalance: number;
         }>('/v1/dashboard/member/deposits'),
-        apiGet<MemberProfile>('/v1/dashboard/member/profile'),
+        apiGet<MemberProfileResponse>('/v1/dashboard/member/profile'),
       ]);
       setDeposits(depositsData?.deposits ?? []);
       setMemberProfile(profileData);
@@ -147,9 +161,9 @@ export default function DepositsPage() {
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
     const statementHtml = generateStatementHTML({
-      memberName: memberProfile.name || 'N/A',
-      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
-      memberPhone: memberProfile.phone || 'N/A',
+      memberName: getMemberDisplayName(memberProfile),
+      memberId: getMemberDisplayId(memberProfile),
+      memberPhone: getMemberDisplayPhone(memberProfile),
       periodStart: oneYearAgo.toISOString(),
       periodEnd: now.toISOString(),
       openingBalance: 0,
@@ -165,7 +179,7 @@ export default function DepositsPage() {
         receiptNumber: d.receiptNumber,
       })),
     }, locale, orgSettings);
-    await downloadAsPDF(statementHtml, `Statement_${memberProfile.userId}_${now.getTime()}`);
+    await downloadAsPDF(statementHtml, `Statement_${memberProfile.profile?.memberId || 'Unknown'}_${now.getTime()}`);
   };
 
   const handlePrintReceipt = async (deposit: Deposit) => {
@@ -176,9 +190,9 @@ export default function DepositsPage() {
       type: 'DEPOSIT',
       amount: deposit.amount,
       date: deposit.date,
-      memberName: memberProfile.name || 'N/A',
-      memberId: memberProfile.userId?.slice(0, 8).toUpperCase() || 'N/A',
-      memberPhone: memberProfile.phone || 'N/A',
+      memberName: getMemberDisplayName(memberProfile),
+      memberId: getMemberDisplayId(memberProfile),
+      memberPhone: getMemberDisplayPhone(memberProfile),
       balanceAfter: (deposit.balanceAfter || 0),
       processedBy: deposit.processedBy,
       notes: deposit.notes,

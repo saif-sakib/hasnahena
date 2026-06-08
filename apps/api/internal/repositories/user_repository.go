@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"hasnahena/apps/api/internal/models"
+	"hasnahena/apps/api/internal/utils"
 )
 
 type UserRepository struct {
@@ -436,6 +437,22 @@ func (r *UserRepository) MarkAllNotificationsRead(ctx context.Context, userID, r
 	`
 	_, err := r.db.Exec(ctx, query, userID, strings.ToUpper(strings.TrimSpace(role)))
 	return err
+}
+
+func (r *UserRepository) generateNextMemberID(ctx context.Context, tx pgx.Tx) (string, error) {
+	if _, err := tx.Exec(ctx, utils.MemberIDAdvisoryLockQuery); err != nil {
+		return "", fmt.Errorf("failed to acquire member id lock: %w", err)
+	}
+
+	var nextSequence int64
+	if err := tx.QueryRow(ctx, utils.NextMemberIDQuery).Scan(&nextSequence); err != nil {
+		return "", fmt.Errorf("failed to compute next member id: %w", err)
+	}
+	if nextSequence < 1 {
+		nextSequence = 1
+	}
+
+	return utils.FormatMemberID(nextSequence), nil
 }
 
 func (r *UserRepository) getSystemConfigInt64(ctx context.Context, key string, defaultValue int64) int64 {
@@ -1373,7 +1390,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 	query := `
 		SELECT
 			u.id::text,
-			COALESCE(UPPER(SUBSTRING(u.id::text, 1, 8)), '') AS uid,
+			COALESCE(u."memberId", '') AS member_id,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u.email, ''),
 			u.phone,
@@ -1398,15 +1415,16 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 
 	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, uid, name, email, phone, nid, status, area, role string
+		var id, memberIDValue, name, email, phone, nid, status, area, role string
 		var createdAt time.Time
 		var savingsBalance, activeLoan int64
-		if scanErr := rows.Scan(&id, &uid, &name, &email, &phone, &nid, &status, &createdAt, &savingsBalance, &activeLoan, &area, &role); scanErr != nil {
+		if scanErr := rows.Scan(&id, &memberIDValue, &name, &email, &phone, &nid, &status, &createdAt, &savingsBalance, &activeLoan, &area, &role); scanErr != nil {
 			continue
 		}
 		result = append(result, map[string]interface{}{
 			"id":              id,
-			"uid":             uid,
+			"uid":             memberIDValue,
+			"memberId":        memberIDValue,
 			"name":            name,
 			"email":           email,
 			"phone":           phone,
@@ -1615,6 +1633,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 		const regQuery = `
 		SELECT
 			u.id,
+			COALESCE(u."memberId", ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u.email, ''),
@@ -1673,7 +1692,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			defer regRows.Close()
 			registrations := []map[string]interface{}{}
 			for regRows.Next() {
-				var id, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
+				var id, regMemberID, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
 				var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
 				var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
 				var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
@@ -1682,7 +1701,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				var createdAt time.Time
 				var documentsJSON []byte
 				if err := regRows.Scan(
-					&id, &name, &nameBn, &email, &phone, &nid,
+					&id, &regMemberID, &name, &nameBn, &email, &phone, &nid,
 					&fatherName, &motherName, &gender, &maritalStatus, &bloodGroup, &profession, &childrenCount, &dateOfBirth,
 					&area,
 					&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
@@ -1704,6 +1723,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				}
 				registrations = append(registrations, map[string]interface{}{
 					"id":            id,
+					"memberId":      regMemberID,
 					"name":          name,
 					"nameBn":        nameBn,
 					"email":         email,
@@ -1958,8 +1978,12 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	}
 
 	if strings.TrimSpace(memberID) == "" {
-		memberID = fmt.Sprintf("MBR-%d", time.Now().Unix())
-		if _, err := tx.Exec(ctx, `UPDATE users SET "memberId" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, memberID); err != nil {
+		generatedMemberID, err := r.generateNextMemberID(ctx, tx)
+		if err != nil {
+			return err
+		}
+		memberID = generatedMemberID
+		if _, err := tx.Exec(ctx, `UPDATE users SET "memberId" = $2, "formNumber" = $3, "updatedAt" = NOW() WHERE id = $1`, userID, memberID, fmt.Sprintf("FORM-%s", memberID)); err != nil {
 			return err
 		}
 	}
@@ -1989,9 +2013,13 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	if !accountExists {
 		const createAccountQuery = `
 			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES (gen_random_uuid()::text, CONCAT('HN-ACC-', $2), 0, 0, true, 0, NOW(), NOW(), $1)
+			VALUES (gen_random_uuid()::text, $2, 0, 0, true, 0, NOW(), NOW(), $1)
 		`
 		if _, err := tx.Exec(ctx, createAccountQuery, userID, memberID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `UPDATE accounts SET "accountNumber" = $2, "updatedAt" = NOW() WHERE "userId" = $1`, userID, memberID); err != nil {
 			return err
 		}
 	}
@@ -4025,7 +4053,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 	const memberQuery = `
 		SELECT
 			u.id::text,
-			COALESCE(SUBSTRING(u.id::text, 1, 8), '') AS uid,
+			COALESCE(u."memberId", '') AS member_id,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u.email, ''),
 			u.phone,
@@ -4043,13 +4071,13 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 	`
-	var id, uid, name, email, phone, nid, status, address string
+	var id, memberPublicID, name, email, phone, nid, status, address string
 	var createdAt time.Time
 	var savingsBalance, activeLoan, totalDeposited, totalWithdrawn int64
 	var isGuarantor bool
 
 	err := r.db.QueryRow(ctx, memberQuery, memberID).Scan(
-		&id, &uid, &name, &email, &phone, &nid, &status, &createdAt,
+		&id, &memberPublicID, &name, &email, &phone, &nid, &status, &createdAt,
 		&savingsBalance, &activeLoan, &totalDeposited, &totalWithdrawn, &address, &isGuarantor,
 	)
 	if err != nil {
@@ -4070,7 +4098,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	member := map[string]interface{}{
 		"id":                       id,
-		"uid":                      strings.ToUpper(uid),
+		"uid":                      memberPublicID,
+		"memberId":                 memberPublicID,
 		"name":                     name,
 		"email":                    email,
 		"phone":                    phone,

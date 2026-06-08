@@ -71,7 +71,8 @@ import {
 
 interface MemberDetails {
   id: string;
-  uid: string;
+  memberId: string;
+  uid?: string;
   name: string;
   phone: string;
   email?: string;
@@ -350,7 +351,7 @@ export default function MemberDetailPage() {
       amount: tx.amount,
       date: tx.createdAt,
       memberName: member.name,
-      memberId: member.uid,
+      memberId: member.memberId || member.uid || 'N/A',
       memberPhone: member.phone,
       balanceAfter: tx.balanceAfter,
       notes: tx.notes,
@@ -367,7 +368,7 @@ export default function MemberDetailPage() {
     const loanData: LoanDocumentData = {
       loanNumber: loan.loanNumber,
       memberName: member.name,
-      memberId: member.uid,
+      memberId: member.memberId || member.uid || 'N/A',
       memberPhone: member.phone,
       memberAddress: member.address,
       principalAmount: loan.principalAmount,
@@ -386,7 +387,7 @@ export default function MemberDetailPage() {
     
     const statementData: StatementData = {
       memberName: member.name,
-      memberId: member.uid,
+      memberId: member.memberId || member.uid || 'N/A',
       memberPhone: member.phone,
       periodStart: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString(),
       periodEnd: new Date().toISOString(),
@@ -405,7 +406,7 @@ export default function MemberDetailPage() {
     };
     
     const html = generateStatementHTML(statementData, locale, orgSettings);
-    await downloadAsPDF(html, `Statement-${member.uid}`);
+    await downloadAsPDF(html, `Statement-${member.memberId || member.uid || 'member'}`);
   };
 
   const getStatusBadge = (status: string) => {
@@ -574,7 +575,7 @@ export default function MemberDetailPage() {
             <div className="flex items-center gap-4 text-muted-foreground mt-1">
               <span className="flex items-center gap-1">
                 <Hash className="h-4 w-4" />
-                <span className="font-mono">{member.uid}</span>
+                <span className="font-mono">{member.memberId || member.uid || '-'}</span>
               </span>
               <span className="flex items-center gap-1">
                 <Phone className="h-4 w-4" />
