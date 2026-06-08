@@ -35,18 +35,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });
     }
 
-    // Business checks (basic): prevent withdrawal if active loan or guarantor lock.
-    const activeLoan = await prisma.loan.findFirst({
-      where: { borrowerId: auth.id, status: LoanStatus.ACTIVE },
-      select: { id: true },
-    });
-    const guarantorActive = await prisma.loan.findFirst({
-      where: {
-        guarantorId: auth.id,
-        status: { in: [LoanStatus.PENDING_GUARANTOR, LoanStatus.PENDING_APPROVAL, LoanStatus.APPROVED, LoanStatus.ACTIVE] },
-      },
-      select: { id: true },
-    });
+    const allowActiveLoanWithdrawal = await prisma.systemConfig.findUnique({
+      where: { key: 'loan.allowActiveLoanWithdrawal' },
+      select: { value: true },
+    }).then((config) => config?.value.trim().toLowerCase() === 'true');
+
+    // Business checks: active-loan withdrawal is policy controlled; guarantor lock always remains protected.
+    const [activeLoan, guarantorActive] = await Promise.all([
+      allowActiveLoanWithdrawal
+        ? null
+        : prisma.loan.findFirst({
+            where: { borrowerId: auth.id, status: LoanStatus.ACTIVE },
+            select: { id: true },
+          }),
+      prisma.loan.findFirst({
+        where: {
+          guarantorId: auth.id,
+          status: { in: [LoanStatus.PENDING_GUARANTOR, LoanStatus.PENDING_APPROVAL, LoanStatus.APPROVED, LoanStatus.ACTIVE] },
+        },
+        select: { id: true },
+      }),
+    ]);
     if (activeLoan || guarantorActive) {
       return NextResponse.json({ ok: false, error: 'WITHDRAWAL_BLOCKED' }, { status: 422 });
     }
@@ -97,4 +106,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Server error' }, { status: 500 });
   }
 }
-

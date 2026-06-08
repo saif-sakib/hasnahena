@@ -1876,8 +1876,8 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.Installments < 1 || req.Installments > 24 {
-		utils.Error(w, http.StatusBadRequest, "INVALID_INSTALLMENTS", "Installments must be between 1 and 24")
+	if req.Installments < 1 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_INSTALLMENTS", "Installments must be at least 1")
 		return
 	}
 

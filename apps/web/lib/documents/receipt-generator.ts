@@ -16,13 +16,19 @@ export interface OrgSettings {
   regNumber?: string;
 }
 
+const BRAND_NAME_EN = 'Hasnahena Foundation';
+const BRAND_NAME_BN = 'হাসনাহেনা ফাউন্ডেশন';
+const BRAND_LOGO_PATH = '/images/logo.png';
+const LEDGER_NOTICE_EN = 'Official ledger book entries are the final record. Online documents are generated for service convenience and must be reconciled with the physical ledger.';
+const LEDGER_NOTICE_BN = 'অফিসিয়াল লেজার বইয়ের এন্ট্রিই চূড়ান্ত রেকর্ড। অনলাইন ডকুমেন্ট শুধু সেবার সুবিধার জন্য তৈরি এবং ফিজিক্যাল লেজারের সাথে মিলিয়ে দেখতে হবে।';
+
 export const DEFAULT_ORG: OrgSettings = {
-  name: 'হাসনাহেনা সমিতি লিমিটেড',
-  nameEn: 'HASNAHENA',
+  name: BRAND_NAME_BN,
+  nameEn: BRAND_NAME_EN,
   address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
   phone: '+880 1712-345678',
-  email: 'info@hasnahena.org',
-  website: 'hasnahena.org'
+  email: 'info@hasnahenafoundation.com',
+  website: 'hasnahenafoundation.com'
 };
 
 export async function fetchOrgSettings(): Promise<OrgSettings> {
@@ -120,9 +126,25 @@ const formatDate = (dateStr: string, locale: string = 'bn'): string => {
   });
 };
 
+const getOrgNameEn = (org: OrgSettings = DEFAULT_ORG): string => {
+  const configuredName = org.nameEn?.trim();
+  if (!configuredName || configuredName.toLowerCase() === 'hasnahena') {
+    return BRAND_NAME_EN;
+  }
+  return configuredName;
+};
+
+const getOrgNameBn = (org: OrgSettings = DEFAULT_ORG): string => {
+  const configuredName = org.name?.trim();
+  if (!configuredName || configuredName === 'হাসনাহেনা' || configuredName.includes('সমিতি')) {
+    return BRAND_NAME_BN;
+  }
+  return configuredName;
+};
+
 const getCommonStyles = (): string => `
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
     
     * {
       margin: 0;
@@ -131,21 +153,22 @@ const getCommonStyles = (): string => `
     }
     
     body {
-      font-family: 'Noto Sans Bengali', 'Segoe UI', sans-serif;
+      font-family: 'Noto Sans Bengali', 'Inter', 'Segoe UI', Arial, sans-serif;
       font-size: 13px;
       line-height: 1.6;
-      color: #1a1a1a;
-      background: #f5f5f5;
+      color: #17201d;
+      background: #f3f6f5;
     }
     
     .document {
       max-width: 210mm;
       min-height: 297mm;
       margin: 20px auto;
-      padding: 25mm 20mm;
-      background: white;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      padding: 18mm 18mm 16mm;
+      background: #ffffff;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
       position: relative;
+      overflow: hidden;
     }
     
     .border-frame {
@@ -154,12 +177,12 @@ const getCommonStyles = (): string => `
       left: 10mm;
       right: 10mm;
       bottom: 10mm;
-      border: 2px solid #0f766e;
+      border: 1px solid #d8e3df;
       pointer-events: none;
     }
     
     .border-frame::before {
-      content: '';
+      content: none;
       position: absolute;
       top: 2px;
       left: 2px;
@@ -169,56 +192,67 @@ const getCommonStyles = (): string => `
     }
     
     .header {
-      text-align: center;
-      padding-bottom: 20px;
-      margin-bottom: 25px;
-      border-bottom: 3px double #0f766e;
+      display: grid;
+      grid-template-columns: minmax(230px, 44%) 1fr;
+      align-items: end;
+      gap: 22px;
+      padding-bottom: 18px;
+      margin-bottom: 22px;
+      border-bottom: 2px solid #0f766e;
       position: relative;
     }
     
     .logo-container {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 20px;
-      margin-bottom: 10px;
+      justify-content: flex-start;
+      margin-bottom: 0;
+      min-width: 0;
     }
     
-    .logo-svg {
-      width: 70px;
-      height: 70px;
+    .brand-logo {
+      height: 104px;
+      width: auto;
+      max-width: 260px;
+      display: block;
     }
     
     .org-name-en {
-      font-family: 'Playfair Display', serif;
-      font-size: 32px;
+      font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+      font-size: 27px;
       font-weight: 700;
-      color: #0f766e;
-      letter-spacing: 3px;
-      text-transform: uppercase;
+      color: #12332d;
+      letter-spacing: 0;
+      text-transform: none;
+      line-height: 1.1;
+    }
+
+    .header-details {
+      text-align: right;
+      min-width: 0;
     }
     
     .org-name-bn {
-      font-size: 22px;
+      font-size: 17px;
       font-weight: 700;
       color: #0f766e;
-      margin-top: 5px;
+      margin-top: 4px;
     }
     
     .org-tagline {
       font-size: 12px;
-      color: #666;
-      font-style: italic;
-      margin-top: 8px;
+      color: #52645f;
+      margin-top: 6px;
     }
     
     .org-info {
       display: flex;
-      justify-content: center;
-      gap: 25px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 5px 14px;
       margin-top: 12px;
       font-size: 11px;
-      color: #555;
+      color: #52645f;
     }
     
     .org-info span {
@@ -226,50 +260,65 @@ const getCommonStyles = (): string => `
       align-items: center;
       gap: 5px;
     }
+
+    .ledger-notice {
+      margin: 16px 0 24px;
+      padding: 11px 14px;
+      border: 1px solid #cfded9;
+      border-left: 3px solid #0f766e;
+      background: #f8fbfa;
+      color: #31413d;
+      font-size: 11.5px;
+      line-height: 1.55;
+      border-radius: 4px;
+    }
     
     .doc-title {
       text-align: center;
-      margin: 25px 0;
+      margin: 20px 0 22px;
       position: relative;
     }
     
     .doc-title h1 {
       display: inline-block;
-      padding: 12px 40px;
-      background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
-      color: white;
-      font-size: 20px;
+      padding: 9px 28px;
+      background: #f4fbf8;
+      color: #0f5f56;
+      font-size: 18px;
       font-weight: 700;
-      letter-spacing: 2px;
+      letter-spacing: 0.8px;
       border-radius: 4px;
-      box-shadow: 0 3px 10px rgba(15, 118, 110, 0.3);
+      border: 1px solid #bddbd3;
+      box-shadow: none;
     }
     
     .doc-meta {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 25px;
-      padding: 15px;
-      background: #f8faf9;
-      border-radius: 8px;
-      border: 1px solid #e0e7e5;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding: 12px 14px;
+      background: #f8fbfa;
+      border-radius: 6px;
+      border: 1px solid #dce8e4;
     }
     
     .meta-item {
-      text-align: center;
+      text-align: left;
+      flex: 1;
     }
     
     .meta-label {
       font-size: 10px;
-      color: #666;
+      color: #677772;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
     }
     
     .meta-value {
       font-size: 14px;
       font-weight: 600;
-      color: #0f766e;
+      color: #12332d;
       margin-top: 3px;
     }
     
@@ -280,10 +329,10 @@ const getCommonStyles = (): string => `
     .section-title {
       font-size: 14px;
       font-weight: 600;
-      color: #0f766e;
+      color: #12332d;
       margin-bottom: 12px;
       padding-bottom: 5px;
-      border-bottom: 1px solid #e0e7e5;
+      border-bottom: 1px solid #dce8e4;
     }
     
     .info-grid {
@@ -295,10 +344,11 @@ const getCommonStyles = (): string => `
     .info-item {
       display: flex;
       justify-content: space-between;
+      gap: 12px;
       padding: 10px 12px;
-      background: #fafafa;
-      border-radius: 6px;
-      border-left: 3px solid #0f766e;
+      background: #fbfcfc;
+      border-radius: 4px;
+      border: 1px solid #e2e8e5;
     }
     
     .info-item.full-width {
@@ -307,39 +357,40 @@ const getCommonStyles = (): string => `
     
     .info-label {
       font-size: 11px;
-      color: #666;
+      color: #62716c;
     }
     
     .info-value {
       font-size: 13px;
       font-weight: 600;
-      color: #1a1a1a;
+      color: #17201d;
+      text-align: right;
     }
     
     .amount-highlight {
       text-align: center;
-      padding: 25px;
+      padding: 22px;
       margin: 25px 0;
-      border-radius: 12px;
+      border-radius: 6px;
       position: relative;
       overflow: hidden;
     }
     
     .amount-highlight.deposit {
-      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-      border: 2px solid #10b981;
+      background: #f0f9f5;
+      border: 1px solid #9bd4bd;
     }
     
     .amount-highlight.withdrawal {
-      background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
-      border: 2px solid #ef4444;
+      background: #fff5f5;
+      border: 1px solid #efb6b6;
     }
     
     .amount-label {
       font-size: 12px;
-      color: #666;
+      color: #62716c;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.6px;
       margin-bottom: 8px;
     }
     
@@ -362,9 +413,10 @@ const getCommonStyles = (): string => `
       display: inline-block;
       margin-top: 12px;
       padding: 8px 20px;
-      background: rgba(255,255,255,0.8);
-      border-radius: 20px;
+      background: rgba(255,255,255,0.85);
+      border-radius: 999px;
       font-size: 12px;
+      border: 1px solid rgba(15, 118, 110, 0.14);
     }
     
     .balance-after strong {
@@ -381,16 +433,17 @@ const getCommonStyles = (): string => `
     th, td {
       padding: 12px 10px;
       text-align: left;
-      border-bottom: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e4ebe8;
     }
     
     th {
-      background: #0f766e;
-      color: white;
+      background: #f1f7f5;
+      color: #12332d;
       font-weight: 600;
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.3px;
+      border-top: 1px solid #dce8e4;
     }
     
     tr:nth-child(even) {
@@ -398,7 +451,7 @@ const getCommonStyles = (): string => `
     }
     
     tr:hover {
-      background: #f0fdfa;
+      background: #f6fbf9;
     }
     
     .signature-section {
@@ -414,7 +467,7 @@ const getCommonStyles = (): string => `
     }
     
     .signature-line {
-      border-top: 2px solid #333;
+      border-top: 1px solid #17201d;
       width: 180px;
       margin: 0 auto 10px;
       padding-top: 8px;
@@ -422,22 +475,22 @@ const getCommonStyles = (): string => `
     
     .signature-label {
       font-size: 12px;
-      color: #666;
+      color: #52645f;
     }
     
     .signature-name {
       font-size: 11px;
-      color: #999;
+      color: #7d8c87;
       margin-top: 5px;
     }
     
     .footer {
       margin-top: 40px;
       padding-top: 20px;
-      border-top: 1px solid #e5e7eb;
+      border-top: 1px solid #dce8e4;
       text-align: center;
       font-size: 10px;
-      color: #888;
+      color: #73817d;
     }
     
     .footer p {
@@ -449,7 +502,7 @@ const getCommonStyles = (): string => `
       bottom: 15mm;
       right: 15mm;
       font-size: 9px;
-      color: #aaa;
+      color: #8c9995;
     }
     
     .watermark {
@@ -457,22 +510,22 @@ const getCommonStyles = (): string => `
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%) rotate(-30deg);
-      font-size: 120px;
+      font-size: 70px;
       font-weight: 700;
-      color: rgba(15, 118, 110, 0.04);
+      color: rgba(15, 118, 110, 0.035);
       pointer-events: none;
       z-index: 0;
       white-space: nowrap;
-      font-family: 'Playfair Display', serif;
-      letter-spacing: 10px;
+      font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+      letter-spacing: 0;
     }
     
     .terms-section {
       margin: 25px 0;
       padding: 20px;
-      background: #f8faf9;
-      border-radius: 8px;
-      border-left: 4px solid #0f766e;
+      background: #f8fbfa;
+      border-radius: 6px;
+      border: 1px solid #dce8e4;
     }
     
     .terms-title {
@@ -496,9 +549,14 @@ const getCommonStyles = (): string => `
     }
     
     .terms-list li::before {
-      content: '✓';
+      content: '';
       position: absolute;
       left: 0;
+      top: 9px;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #0f766e;
       color: #0f766e;
       font-weight: bold;
     }
@@ -513,16 +571,16 @@ const getCommonStyles = (): string => `
     .summary-card {
       text-align: center;
       padding: 20px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
-      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      background: #f4fbf8;
+      border: 1px solid #cfe3dc;
     }
     
     .summary-card .label {
       font-size: 10px;
       text-transform: uppercase;
       color: #666;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
     }
     
     .summary-card .value {
@@ -545,10 +603,10 @@ const getCommonStyles = (): string => `
       border-radius: 8px;
     }
     
-    .stat-card.opening { background: #f1f5f9; border: 1px solid #cbd5e1; }
-    .stat-card.deposits { background: #ecfdf5; border: 1px solid #a7f3d0; }
-    .stat-card.withdrawals { background: #fef2f2; border: 1px solid #fecaca; }
-    .stat-card.closing { background: #f0fdfa; border: 2px solid #0f766e; }
+    .stat-card.opening { background: #f8fafc; border: 1px solid #d8e0e7; }
+    .stat-card.deposits { background: #f0f9f5; border: 1px solid #b8ddcc; }
+    .stat-card.withdrawals { background: #fff5f5; border: 1px solid #efc1c1; }
+    .stat-card.closing { background: #f4fbf8; border: 1px solid #0f766e; }
     
     .stat-card .label {
       font-size: 9px;
@@ -595,7 +653,7 @@ const getCommonStyles = (): string => `
       .document { 
         box-shadow: none; 
         margin: 0; 
-        padding: 15mm;
+        padding: 14mm;
         min-height: auto;
       }
       .print-btn { display: none; }
@@ -604,38 +662,37 @@ const getCommonStyles = (): string => `
   </style>
 `;
 
-const getLogoSVG = (): string => `
-  <svg class="logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="48" stroke="#0f766e" stroke-width="3" fill="#f0fdfa"/>
-    <path d="M30 65 L50 25 L70 65 Z" fill="#0f766e" opacity="0.8"/>
-    <circle cx="50" cy="55" r="12" fill="#14b8a6"/>
-    <path d="M44 55 L48 59 L56 51" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-`;
-
 const getHeader = (org: OrgSettings = DEFAULT_ORG): string => `
   <div class="header">
     <div class="logo-container">
-      ${getLogoSVG()}
-      <div>
-        <div class="org-name-en">${org.nameEn || DEFAULT_ORG.nameEn}</div>
-        <div class="org-name-bn">${org.name || DEFAULT_ORG.name}</div>
+      <img class="brand-logo" src="${BRAND_LOGO_PATH}" alt="${BRAND_NAME_EN} logo" crossorigin="anonymous" />
+    </div>
+    <div class="header-details">
+      <div class="org-name-en">${getOrgNameEn(org)}</div>
+      <div class="org-name-bn">${getOrgNameBn(org)}</div>
+      <div class="org-tagline">${localeSafeTagline()}</div>
+      <div class="org-info">
+        <span>Address: ${org.address || DEFAULT_ORG.address}</span>
+        <span>Phone: ${org.phone || DEFAULT_ORG.phone}</span>
+        <span>Email: ${org.email || DEFAULT_ORG.email}</span>
+        <span>Web: ${org.website || DEFAULT_ORG.website}</span>
       </div>
     </div>
-    <div class="org-tagline">Hasnahena Multipurpose Cooperative Society Limited</div>
-    <div class="org-info">
-      <span>📍 ${org.address || DEFAULT_ORG.address}</span>
-      <span>📞 ${org.phone || DEFAULT_ORG.phone}</span>
-      <span>✉️ ${org.email || DEFAULT_ORG.email}</span>
-      <span>🌐 ${org.website || DEFAULT_ORG.website}</span>
-    </div>
+  </div>
+`;
+
+const localeSafeTagline = (): string => 'Interest-free member services and community welfare';
+
+const getLedgerNotice = (locale: string): string => `
+  <div class="ledger-notice">
+    ${locale === 'bn' ? LEDGER_NOTICE_BN : LEDGER_NOTICE_EN}
   </div>
 `;
 
 const getFooter = (documentId: string, locale: string, org: OrgSettings = DEFAULT_ORG): string => `
   <div class="footer">
     <p>${locale === 'bn' ? 'এটি একটি কম্পিউটার জেনারেটেড ডকুমেন্ট। সিল ও স্বাক্ষর ছাড়াও বৈধ।' : 'This is a computer-generated document. Valid without seal and signature.'}</p>
-    <p>© ${new Date().getFullYear()} ${org.nameEn || DEFAULT_ORG.nameEn} Cooperative Society Ltd.${org.regNumber ? ` | Reg. No: ${org.regNumber}` : ''}</p>
+    <p>© ${new Date().getFullYear()} ${getOrgNameEn(org)}${org.regNumber ? ` | Reg. No: ${org.regNumber}` : ''}</p>
   </div>
   <div class="document-id">
     Doc ID: ${documentId}<br/>
@@ -659,8 +716,8 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn', or
       ${getCommonStyles()}
     </head>
     <body>
-      <div class="watermark">HASNAHENA</div>
-      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      <div class="watermark">${BRAND_NAME_EN}</div>
+      <button class="print-btn" onclick="window.print()">${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
       
       <div class="document">
         <div class="border-frame"></div>
@@ -669,6 +726,8 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn', or
         <div class="doc-title">
           <h1>${title}</h1>
         </div>
+
+        ${getLedgerNotice(locale)}
         
         <div class="doc-meta">
           <div class="meta-item">
@@ -686,7 +745,7 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn', or
         </div>
         
         <div class="info-section">
-          <div class="section-title">${locale === 'bn' ? '📋 সদস্য তথ্য' : '📋 Member Information'}</div>
+          <div class="section-title">${locale === 'bn' ? 'সদস্য তথ্য' : 'Member Information'}</div>
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
@@ -731,7 +790,7 @@ export function generateReceiptHTML(data: ReceiptData, locale: string = 'bn', or
           <div class="signature-box">
             <div class="signature-line"></div>
             <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
-            <div class="signature-name">Hasnahena Cooperative</div>
+            <div class="signature-name">${BRAND_NAME_EN}</div>
           </div>
         </div>
         
@@ -755,8 +814,8 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
       ${getCommonStyles()}
     </head>
     <body>
-      <div class="watermark">HASNAHENA</div>
-      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      <div class="watermark">${BRAND_NAME_EN}</div>
+      <button class="print-btn" onclick="window.print()">${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
       
       <div class="document">
         <div class="border-frame"></div>
@@ -765,6 +824,8 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         <div class="doc-title">
           <h1>${title}</h1>
         </div>
+
+        ${getLedgerNotice(locale)}
         
         <div class="doc-meta">
           <div class="meta-item">
@@ -778,7 +839,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         </div>
         
         <div class="info-section">
-          <div class="section-title">${locale === 'bn' ? '👤 ঋণগ্রহীতার তথ্য' : '👤 Borrower Information'}</div>
+          <div class="section-title">${locale === 'bn' ? 'ঋণগ্রহীতার তথ্য' : 'Borrower Information'}</div>
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
@@ -803,7 +864,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         
         ${data.guarantorName ? `
         <div class="info-section">
-          <div class="section-title">${locale === 'bn' ? '🤝 জামিনদারের তথ্য' : '🤝 Guarantor Information'}</div>
+          <div class="section-title">${locale === 'bn' ? 'জামিনদারের তথ্য' : 'Guarantor Information'}</div>
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">${locale === 'bn' ? 'নাম' : 'Name'}</span>
@@ -818,7 +879,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         ` : ''}
         
         <div class="info-section">
-          <div class="section-title">${locale === 'bn' ? '💰 ঋণের বিবরণ' : '💰 Loan Details'}</div>
+          <div class="section-title">${locale === 'bn' ? 'ঋণের বিবরণ' : 'Loan Details'}</div>
           <div class="loan-summary">
             <div class="summary-card">
               <div class="label">${locale === 'bn' ? 'মূল ঋণ' : 'Principal'}</div>
@@ -847,13 +908,13 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
         ` : ''}
         
         <div class="terms-section">
-          <div class="terms-title">${locale === 'bn' ? '📜 শর্তাবলী' : '📜 Terms & Conditions'}</div>
+          <div class="terms-title">${locale === 'bn' ? 'শর্তাবলী' : 'Terms & Conditions'}</div>
           <ul class="terms-list">
             <li>${locale === 'bn' ? 'ঋণগ্রহীতা প্রতি মাসে নির্ধারিত তারিখে কিস্তি পরিশোধ করতে বাধ্য থাকবেন।' : 'The borrower shall pay the monthly installment on the due date.'}</li>
             <li>${locale === 'bn' ? 'কিস্তি পরিশোধে ১৫ দিনের বেশি বিলম্ব হলে জরিমানা প্রযোজ্য হবে।' : 'Late payment beyond 15 days will attract penalty charges.'}</li>
             <li>${locale === 'bn' ? 'ঋণ খেলাপি হলে জামিনদারের জমা থেকে আদায় করা হবে।' : 'In case of default, the amount will be recovered from guarantor\'s deposit.'}</li>
             <li>${locale === 'bn' ? 'আংশিক বা সম্পূর্ণ অগ্রিম পরিশোধ করা যাবে।' : 'Partial or full prepayment is allowed.'}</li>
-            <li>${locale === 'bn' ? 'সকল বিরোধ সমিতির নিয়ম অনুযায়ী নিষ্পত্তি হবে।' : 'All disputes shall be resolved as per society by-laws.'}</li>
+            <li>${locale === 'bn' ? 'সকল বিরোধ ফাউন্ডেশনের নীতিমালা অনুযায়ী নিষ্পত্তি হবে।' : 'All disputes shall be resolved according to Hasnahena Foundation policies.'}</li>
           </ul>
         </div>
         
@@ -876,7 +937,7 @@ export function generateLoanDocumentHTML(data: LoanDocumentData, locale: string 
           <div class="signature-box">
             <div class="signature-line"></div>
             <div class="signature-label">${locale === 'bn' ? 'অনুমোদনকারী কর্মকর্তা' : 'Authorizing Officer'}</div>
-            <div class="signature-name">Hasnahena Cooperative</div>
+            <div class="signature-name">${BRAND_NAME_EN}</div>
           </div>
         </div>
         
@@ -900,8 +961,8 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
       ${getCommonStyles()}
     </head>
     <body>
-      <div class="watermark">HASNAHENA</div>
-      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      <div class="watermark">${BRAND_NAME_EN}</div>
+      <button class="print-btn" onclick="window.print()">${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
       
       <div class="document">
         <div class="border-frame"></div>
@@ -910,6 +971,8 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
         <div class="doc-title">
           <h1>${title}</h1>
         </div>
+
+        ${getLedgerNotice(locale)}
         
         <div class="doc-meta">
           <div class="meta-item">
@@ -946,7 +1009,7 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
         </div>
         
         <div class="info-section">
-          <div class="section-title">${locale === 'bn' ? '📊 লেনদেনের বিবরণ' : '📊 Transaction Details'}</div>
+          <div class="section-title">${locale === 'bn' ? 'লেনদেনের বিবরণ' : 'Transaction Details'}</div>
           <table>
             <thead>
               <tr>
@@ -981,7 +1044,7 @@ export function generateStatementHTML(data: StatementData, locale: string = 'bn'
           <div class="signature-box">
             <div class="signature-line"></div>
             <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
-            <div class="signature-name">Hasnahena Cooperative</div>
+            <div class="signature-name">${BRAND_NAME_EN}</div>
           </div>
         </div>
         
@@ -1029,8 +1092,8 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
       </style>
     </head>
     <body>
-      <div class="watermark">HASNAHENA</div>
-      <button class="print-btn" onclick="window.print()">🖨️ ${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
+      <div class="watermark">${BRAND_NAME_EN}</div>
+      <button class="print-btn" onclick="window.print()">${locale === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</button>
 
       <div class="document">
         <div class="border-frame"></div>
@@ -1039,6 +1102,8 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
         <div class="doc-title">
           <h1>${title}</h1>
         </div>
+
+        ${getLedgerNotice(locale)}
 
         <div class="doc-meta">
           <div class="meta-item">
@@ -1062,8 +1127,8 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
           <p class="certificate-text">
             <strong>${data.memberName}</strong>
             ${locale === 'bn'
-              ? `, সদস্য আইডি <strong>${data.memberId}</strong>, হাসনাহেনা সমিতি লিমিটেড-এর একজন বৈধ সদস্য। সদস্য হিসেবে তিনি সংগঠনের সঞ্চয়, ঋণ ও সদস্যসেবামূলক কার্যক্রমে অংশগ্রহণের অধিকারী।`
-              : `, Member ID <strong>${data.memberId}</strong>, is a valid member of Hasnahena Samiti Limited and is entitled to participate in its savings, loan, and member service activities.`}
+              ? `, সদস্য আইডি <strong>${data.memberId}</strong>, হাসনাহেনা ফাউন্ডেশন-এর একজন বৈধ সদস্য। সদস্য হিসেবে তিনি সংগঠনের সঞ্চয়, ঋণ ও সদস্যসেবামূলক কার্যক্রমে অংশগ্রহণের অধিকারী।`
+              : `, Member ID <strong>${data.memberId}</strong>, is a valid member of Hasnahena Foundation and is entitled to participate in its savings, loan, and member service activities.`}
           </p>
           <p class="certificate-text">
             ${locale === 'bn'
@@ -1080,7 +1145,7 @@ export function generateMembershipCertificateHTML(data: MembershipCertificateDat
           <div class="signature-box">
             <div class="signature-line"></div>
             <div class="signature-label">${locale === 'bn' ? 'অনুমোদিত স্বাক্ষর' : 'Authorized Signature'}</div>
-            <div class="signature-name">Hasnahena Cooperative</div>
+            <div class="signature-name">${BRAND_NAME_EN}</div>
           </div>
         </div>
 

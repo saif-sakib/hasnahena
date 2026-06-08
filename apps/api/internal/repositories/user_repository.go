@@ -288,6 +288,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	const guarantorQuery = `
 		SELECT
 			l.id::text,
+			u.id::text,
 			COALESCE(u."nameEn", ''),
 			l."principalAmount"::bigint,
 			l."createdAt"
@@ -486,6 +487,24 @@ func (r *UserRepository) getSystemConfigNonNegativeInt64(ctx context.Context, ke
 	}
 	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || parsed < 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func (r *UserRepository) getSystemConfigBool(ctx context.Context, key string, defaultValue bool) bool {
+	const query = `
+		SELECT value
+		FROM system_config
+		WHERE key = $1
+		LIMIT 1
+	`
+	var raw string
+	if err := r.db.QueryRow(ctx, query, key).Scan(&raw); err != nil {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
 		return defaultValue
 	}
 	return parsed
@@ -3971,7 +3990,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 
 	transactions := []map[string]interface{}{}
 	for rows.Next() {
-		var id, txType, receipt, description, status, memberName, memberNameBn, memberID, memberPhone string
+		var id, txType, receipt, description, status, memberUserID, memberName, memberNameBn, memberID, memberPhone string
 		var amount, balanceAfter int64
 		var createdAt time.Time
 
@@ -3984,6 +4003,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			&status,
 			&balanceAfter,
 			&createdAt,
+			&memberUserID,
 			&memberName,
 			&memberNameBn,
 			&memberID,
@@ -4004,6 +4024,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			"date":          createdAt.Format(time.RFC3339),
 			"memberName":    memberName,
 			"memberNameBn":  memberNameBn,
+			"memberUserId":  memberUserID,
 			"memberId":      memberID,
 			"memberPhone":   memberPhone,
 		})
@@ -4366,7 +4387,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	if amount > currentBalance {
 		return "", errors.New("insufficient balance")
 	}
-	if activeLoan > 0 {
+	if activeLoan > 0 && !r.getSystemConfigBool(ctx, "loan.allowActiveLoanWithdrawal", false) {
 		return "", errors.New("has active loan")
 	}
 	if isGuarantor {

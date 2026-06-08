@@ -136,6 +136,7 @@ export default function MemberDetailPage() {
   const [member, setMember] = useState<MemberDetails | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
+  const [allowActiveLoanWithdrawal, setAllowActiveLoanWithdrawal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -159,6 +160,7 @@ export default function MemberDetailPage() {
   const [loanAmount, setLoanAmount] = useState('');
   const [loanPurpose, setLoanPurpose] = useState('');
   const [loanInstallments, setLoanInstallments] = useState('12');
+  const [maxInstallmentMonths, setMaxInstallmentMonths] = useState(24);
   const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
   const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
@@ -174,15 +176,28 @@ export default function MemberDetailPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiGet<{
+      const [data, settingsResponse] = await Promise.all([
+        apiGet<{
         member: MemberDetails;
         transactions: Transaction[];
         loans: Loan[];
-      }>(`/v1/dashboard/worker/members/${memberId}`);
+        }>(`/v1/dashboard/worker/members/${memberId}`),
+        fetch('/api/v1/settings', { cache: 'no-store' }),
+      ]);
       
       setMember(data.member);
       setTransactions(data.transactions || []);
       setLoans(data.loans || []);
+
+      if (settingsResponse.ok) {
+        const settings = (await settingsResponse.json()) as Record<string, unknown>;
+        setAllowActiveLoanWithdrawal(
+          typeof settings['loan.allowActiveLoanWithdrawal'] === 'string' &&
+            settings['loan.allowActiveLoanWithdrawal'].trim().toLowerCase() === 'true'
+        );
+        const parsedMaxInstallments = Number(settings['loan.maxInstallmentMonths']);
+        setMaxInstallmentMonths(Number.isFinite(parsedMaxInstallments) && parsedMaxInstallments > 0 ? Math.trunc(parsedMaxInstallments) : 24);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load member details');
     } finally {
@@ -255,8 +270,18 @@ export default function MemberDetailPage() {
 
   const handleLoanApplication = async () => {
     const amountPaisa = parseAmountToPaisa(loanAmount);
+    const requestedInstallments = Number.parseInt(loanInstallments, 10);
     if (!amountPaisa) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      return;
+    }
+
+    if (!Number.isFinite(requestedInstallments) || requestedInstallments < 1 || requestedInstallments > maxInstallmentMonths) {
+      setActionError(
+        locale === 'bn'
+          ? `কিস্তি সংখ্যা ১ থেকে ${maxInstallmentMonths} এর মধ্যে দিন`
+          : `Enter installments between 1 and ${maxInstallmentMonths}`
+      );
       return;
     }
 
@@ -276,7 +301,7 @@ export default function MemberDetailPage() {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/loan`, {
         amount: amountPaisa,
         purpose: loanPurpose,
-        installments: Number.parseInt(loanInstallments, 10),
+        installments: requestedInstallments,
       });
       setActionSuccess(locale === 'bn' ? 'ঋণ আবেদন সফল হয়েছে' : 'Loan application submitted');
       setShowLoanModal(false);
@@ -543,7 +568,7 @@ export default function MemberDetailPage() {
 
   const canWithdraw = member.status === 'ACTIVE' && 
                       member.currentDeposit > 0 && 
-                      member.activeLoan === 0 && 
+                      (allowActiveLoanWithdrawal || member.activeLoan === 0) && 
                       !member.isGuarantorForActiveLoan;
 
   const canGetLoan = member.status === 'ACTIVE' && 
@@ -672,10 +697,10 @@ export default function MemberDetailPage() {
             <div className="rounded-sm bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
-                {member.activeLoan > 0
-                  ? (locale === 'bn' ? 'সক্রিয় ঋণ থাকায় উত্তোলন করা যাবে না।' : 'Withdrawal blocked due to active loan.')
-                  : member.isGuarantorForActiveLoan
+                {member.isGuarantorForActiveLoan
                   ? (locale === 'bn' ? 'অন্যের ঋণের জামিনদার থাকায় উত্তোলন করা যাবে না।' : 'Withdrawal blocked because member is a guarantor.')
+                  : member.activeLoan > 0
+                  ? (locale === 'bn' ? 'সক্রিয় ঋণ থাকায় উত্তোলন করা যাবে না।' : 'Withdrawal blocked due to active loan.')
                   : ''}
               </p>
             </div>
@@ -1164,17 +1189,15 @@ export default function MemberDetailPage() {
             </div>
             <div className="space-y-2">
               <Label>{locale === 'bn' ? 'কিস্তি সংখ্যা' : 'Number of Installments'}</Label>
-              <Select value={loanInstallments} onValueChange={setLoanInstallments}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="6">6 {locale === 'bn' ? 'মাস' : 'months'}</SelectItem>
-                  <SelectItem value="12">12 {locale === 'bn' ? 'মাস' : 'months'}</SelectItem>
-                  <SelectItem value="18">18 {locale === 'bn' ? 'মাস' : 'months'}</SelectItem>
-                  <SelectItem value="24">24 {locale === 'bn' ? 'মাস' : 'months'}</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                type="number"
+                min={1}
+                max={maxInstallmentMonths}
+                step={1}
+                value={loanInstallments}
+                onChange={(e) => setLoanInstallments(e.target.value)}
+                placeholder={locale === 'bn' ? `১-${maxInstallmentMonths} মাস` : `1-${maxInstallmentMonths} months`}
+              />
             </div>
           </div>
           <DialogFooter>
