@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiGet, apiPost } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -200,11 +200,9 @@ export default function LoansPage() {
     }
   };
 
-  const applyRepaymentPreset = (loan: Loan, ratio: number) => {
-    const rawAmount = loan.remainingAmount * ratio;
-    const normalizedAmount = Math.min(Math.max(rawAmount, 0), loan.remainingAmount);
-    const rounded = Math.round(normalizedAmount * 100) / 100;
-    setRepaymentAmount(rounded.toString());
+  const applyRepaymentPreset = (loan: Loan, preset: 'weekly' | 'monthly' | 'full') => {
+    const presets = getLoanRepaymentPresets(loan.installmentAmount, loan.remainingAmount);
+    setRepaymentAmount(presets[preset].toString());
   };
 
   const repaymentAmountValue = Number.parseFloat(repaymentAmount);
@@ -531,21 +529,21 @@ export default function LoansPage() {
                           <button
                             type="button"
                             className="rounded-sm border px-2 py-1.5 text-xs font-medium hover:bg-white"
-                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 0.25)}
+                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 'weekly')}
                           >
-                            25%
+                            {locale === 'bn' ? 'সাপ্তাহিক' : 'Weekly'}
                           </button>
                           <button
                             type="button"
                             className="rounded-sm border px-2 py-1.5 text-xs font-medium hover:bg-white"
-                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 0.5)}
+                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 'monthly')}
                           >
-                            50%
+                            {locale === 'bn' ? 'মাসিক' : 'Monthly'}
                           </button>
                           <button
                             type="button"
                             className="rounded-sm border px-2 py-1.5 text-xs font-medium hover:bg-white"
-                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 1)}
+                            onClick={() => applyRepaymentPreset(selectedHistoryLoan, 'full')}
                           >
                             {locale === 'bn' ? 'সম্পূর্ণ' : 'Full'}
                           </button>
@@ -567,7 +565,7 @@ export default function LoansPage() {
                               type="button"
                               variant="outline"
                               className="shrink-0"
-                              onClick={() => applyRepaymentPreset(selectedHistoryLoan, 1)}
+                              onClick={() => applyRepaymentPreset(selectedHistoryLoan, 'full')}
                             >
                               {locale === 'bn' ? 'সর্বোচ্চ' : 'Max'}
                             </Button>

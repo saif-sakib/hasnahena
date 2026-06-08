@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/tabs';
 import { apiGet, apiPost } from '@/lib/api';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import {
   generateReceiptHTML,
   generateLoanDocumentHTML,
@@ -333,7 +333,8 @@ export default function MemberDetailPage() {
   // Open loan payment modal
   const openLoanPaymentModal = (loan: Loan) => {
     setSelectedLoanForPayment(loan);
-    setLoanPaymentAmount('');
+    const presets = getLoanRepaymentPresets(loan.installmentAmount, loan.remainingAmount);
+    setLoanPaymentAmount(presets.monthly.toString());
     setLoanPaymentNotes('');
     setActionError(null);
     setShowLoanPaymentModal(true);
@@ -1241,18 +1242,38 @@ export default function MemberDetailPage() {
                 onChange={(e) => setLoanPaymentAmount(e.target.value)}
               />
               {selectedLoanForPayment && (
-                <div className="flex gap-2 mt-1">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
                     size="sm"
-                    onClick={() => setLoanPaymentAmount(selectedLoanForPayment.installmentAmount.toString())}
+                    onClick={() => {
+                      const presets = getLoanRepaymentPresets(
+                        selectedLoanForPayment.installmentAmount,
+                        selectedLoanForPayment.remainingAmount,
+                      );
+                      setLoanPaymentAmount(presets.weekly.toString());
+                    }}
+                  >
+                    {locale === 'bn' ? 'সাপ্তাহিক' : 'Weekly'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const presets = getLoanRepaymentPresets(
+                        selectedLoanForPayment.installmentAmount,
+                        selectedLoanForPayment.remainingAmount,
+                      );
+                      setLoanPaymentAmount(presets.monthly.toString());
+                    }}
                   >
                     {locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly'}
                   </Button>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    variant="outline"
                     size="sm"
                     onClick={() => setLoanPaymentAmount(selectedLoanForPayment.remainingAmount.toString())}
                   >
