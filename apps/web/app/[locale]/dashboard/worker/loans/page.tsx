@@ -225,7 +225,7 @@ export default function WorkerLoansPage() {
     if (!l.nextDueDate || l.status === 'COMPLETED') return false;
     const dueDate = new Date(l.nextDueDate);
     const today = new Date();
-    const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 600);
     return dueDate <= weekFromNow && dueDate >= today;
   }).length;
 
@@ -246,7 +246,7 @@ export default function WorkerLoansPage() {
     try {
       await apiPost(`/v1/dashboard/worker/members/${selectedLoan.memberUserId}/loan-payment`, {
         loanId: selectedLoan.id,
-        amount: Math.round(parsedAmount * 100),
+        amount: Math.round(parsedAmount ),
         notes: paymentNotes.trim(),
       });
       setShowPaymentModal(false);

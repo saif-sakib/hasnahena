@@ -164,12 +164,12 @@ export default function MemberDetailPage() {
   const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
   const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
-  const parseAmountToPaisa = (value: string): number | null => {
+  const parseAmount = (value: string): number | null => {
     const parsed = Number.parseFloat(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return null;
     }
-    return Math.round(parsed * 100);
+    return Math.round(parsed);
   };
 
   const loadMemberDetails = useCallback(async () => {
@@ -212,8 +212,8 @@ export default function MemberDetailPage() {
   }, [memberId, loadMemberDetails]);
 
   const handleDeposit = async () => {
-    const amountPaisa = parseAmountToPaisa(depositAmount);
-    if (!amountPaisa) {
+    const amountVal = parseAmount(depositAmount);
+    if (!amountVal) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
@@ -222,7 +222,7 @@ export default function MemberDetailPage() {
     setActionError(null);
     try {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/deposit`, {
-        amount: amountPaisa,
+        amount: amountVal,
         notes: depositNotes,
       });
       setActionSuccess(locale === 'bn' ? 'জমা সফল হয়েছে' : 'Deposit successful');
@@ -238,13 +238,13 @@ export default function MemberDetailPage() {
   };
 
   const handleWithdrawal = async () => {
-    const amountPaisa = parseAmountToPaisa(withdrawalAmount);
-    if (!amountPaisa) {
+    const amountVal = parseAmount(withdrawalAmount);
+    if (!amountVal) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
 
-    if (member && amountPaisa > member.currentDeposit * 100) {
+    if (member && amountVal > member.currentDeposit) {
       setActionError(locale === 'bn' ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient balance');
       return;
     }
@@ -253,7 +253,7 @@ export default function MemberDetailPage() {
     setActionError(null);
     try {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/withdrawal`, {
-        amount: amountPaisa,
+        amount: amountVal,
         notes: withdrawalNotes,
       });
       setActionSuccess(locale === 'bn' ? 'উত্তোলন সফল হয়েছে' : 'Withdrawal successful');
@@ -269,9 +269,9 @@ export default function MemberDetailPage() {
   };
 
   const handleLoanApplication = async () => {
-    const amountPaisa = parseAmountToPaisa(loanAmount);
+    const amountVal = parseAmount(loanAmount);
     const requestedInstallments = Number.parseInt(loanInstallments, 10);
-    if (!amountPaisa) {
+    if (!amountVal) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
@@ -290,7 +290,7 @@ export default function MemberDetailPage() {
       return;
     }
 
-    if (member && amountPaisa > member.loanEligibility.maxLoanAmount * 100) {
+    if (member && amountVal > member.loanEligibility.maxLoanAmount) {
       setActionError(locale === 'bn' ? 'সর্বোচ্চ ঋণ সীমা অতিক্রম করেছে' : 'Exceeds maximum loan limit');
       return;
     }
@@ -299,7 +299,7 @@ export default function MemberDetailPage() {
     setActionError(null);
     try {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/loan`, {
-        amount: amountPaisa,
+        amount: amountVal,
         purpose: loanPurpose,
         installments: requestedInstallments,
       });
@@ -320,15 +320,15 @@ export default function MemberDetailPage() {
   const handleLoanPayment = async () => {
     if (!selectedLoanForPayment) return;
 
-    const amountPaisa = parseAmountToPaisa(loanPaymentAmount);
-    if (!amountPaisa) {
+    const amountVal = parseAmount(loanPaymentAmount);
+    if (!amountVal) {
       setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
       return;
     }
 
-    const maxPaymentPaisa = Math.round(selectedLoanForPayment.remainingAmount * 100);
+    const maxPaymentVal = Math.round(selectedLoanForPayment.remainingAmount);
 
-    if (amountPaisa > maxPaymentPaisa) {
+    if (amountVal > maxPaymentVal) {
       setActionError(locale === 'bn'
         ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
         : `Maximum payable: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`);
@@ -340,7 +340,7 @@ export default function MemberDetailPage() {
     try {
       await apiPost(`/v1/dashboard/worker/members/${memberId}/loan-payment`, {
         loanId: selectedLoanForPayment.id,
-        amount: amountPaisa,
+        amount: amountVal,
         notes: loanPaymentNotes,
       });
       setActionSuccess(locale === 'bn' ? 'ঋণ পরিশোধ সফল হয়েছে' : 'Loan payment recorded successfully');

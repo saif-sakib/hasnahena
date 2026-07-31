@@ -86,7 +86,7 @@ export default function AdminDonationsPage() {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost('/v1/dashboard/admin/donations', { amount: Math.round(amountBdt * 100), donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
+      await apiPost('/v1/dashboard/admin/donations', { amount: Math.round(amountBdt ), donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
       setShowAddDonationModal(false);
       setNewDonation({ donorName: '', amount: '', notes: '' });
       await loadDonations();

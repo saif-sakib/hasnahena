@@ -1,23 +1,23 @@
 package utils
 
 // Validation constants for financial operations
-// Amounts are in paisa (smallest unit, 100 paisa = 1 BDT)
+// Amounts are in Taka
 
 const (
 	// MaxDepositAmount - Maximum single deposit (10 crore BDT = 100 million BDT)
-	MaxDepositAmount int64 = 10_00_00_00_000 // 10 crore in paisa
+	MaxDepositAmount int64 = 10_00_00_000 // 10 crore in Taka
 
 	// MaxWithdrawalAmount - Maximum single withdrawal (10 crore BDT)
-	MaxWithdrawalAmount int64 = 10_00_00_00_000
+	MaxWithdrawalAmount int64 = 10_00_00_000
 
 	// MaxLoanAmount - Maximum loan amount (1 crore BDT)
-	MaxLoanAmount int64 = 1_00_00_00_000
+	MaxLoanAmount int64 = 1_00_00_000
 
 	// MaxDonationAmount - Maximum single donation (10 crore BDT)
-	MaxDonationAmount int64 = 10_00_00_00_000
+	MaxDonationAmount int64 = 10_00_00_000
 
 	// MaxLoanPaymentAmount - Maximum single loan payment (1 crore BDT)
-	MaxLoanPaymentAmount int64 = 1_00_00_00_000
+	MaxLoanPaymentAmount int64 = 1_00_00_000
 
 	// MinPasswordLength - Minimum password length
 	MinPasswordLength = 8

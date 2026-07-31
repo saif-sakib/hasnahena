@@ -217,7 +217,7 @@ export default function DepositsPage() {
     try {
       setIsRequestSubmitting(true);
       await apiPost('/v1/dashboard/member/requests/deposit', {
-        amount: Math.round(amountValue * 100),
+        amount: Math.round(amountValue ),
         bkashReference: requestReference.trim(),
         notes: requestNotes.trim(),
       });

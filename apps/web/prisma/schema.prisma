@@ -206,7 +206,7 @@ model Account {
   id            String   @id @default(cuid())
   accountNumber String   @unique // হিসাব নং
   
-  // Balances (stored in paisa for precision)
+  // Balances (stored in Taka for precision)
   savingsBalance   BigInt @default(0) // সঞ্চয় স্থিতি
   loanBalance      BigInt @default(0) // ঋণ স্থিতি
   
@@ -230,7 +230,7 @@ model Account {
 model Transaction {
   id            String          @id @default(cuid())
   type          TransactionType
-  amount        BigInt          // Amount in paisa
+  amount        BigInt          // Amount in Taka
   receiptNumber String?         // রশিদ নম্বর
   description   String?
   
@@ -278,8 +278,8 @@ model Loan {
   loanNumber      String     @unique // ঋণ নম্বর
   
   // Loan Details
-  principalAmount BigInt     // ঋণের পরিমাণ (paisa)
-  remainingAmount BigInt     // ঋণ স্থিতি (paisa)
+  principalAmount BigInt     // ঋণের পরিমাণ (Taka)
+  remainingAmount BigInt     // ঋণ স্থিতি (Taka)
   
   // Installments
   totalInstallments Int      // কিস্তির সংখ্যা

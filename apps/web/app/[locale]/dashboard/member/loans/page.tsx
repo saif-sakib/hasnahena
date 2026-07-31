@@ -179,7 +179,7 @@ export default function LoansPage() {
       setActionSuccess(null);
       await apiPost('/v1/dashboard/member/requests/loan-repayment', {
         loanId: loan.id,
-        amount: Math.round(amountValue * 100),
+        amount: Math.round(amountValue ),
         bkashReference: repaymentReference.trim(),
         notes: repaymentNotes.trim(),
       });
