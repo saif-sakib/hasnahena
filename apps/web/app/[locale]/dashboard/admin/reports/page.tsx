@@ -253,7 +253,7 @@ export default function AdminReportsPage() {
         defaulted: loanPerformanceReport.defaultedCount,
         defaultRate: loanPerformanceReport.defaultRate,
         recoveryRate: loanPerformanceReport.recoveryRate,
-        avgLoanAmount: (loanPerformanceReport.avgLoanAmount || 0) / 100,
+        avgLoanAmount: (loanPerformanceReport.avgLoanAmount || 0),
       };
     }
 
@@ -302,10 +302,10 @@ export default function AdminReportsPage() {
   const trendRows = useMemo(() => {
     const rows = (yearlyReport?.monthlyBreakdown || []).map((row) => ({
       month: row.month,
-      deposits: (row.totalDeposits || 0) / 100,
-      withdrawals: (row.totalWithdrawals || 0) / 100,
-      loansDisbursed: (row.loansDisbursed || 0) / 100,
-      loansRecovered: (row.loansRecovered || 0) / 100,
+      deposits: (row.totalDeposits || 0),
+      withdrawals: (row.totalWithdrawals || 0),
+      loansDisbursed: (row.loansDisbursed || 0),
+      loansRecovered: (row.loansRecovered || 0),
     }));
 
     if (period === 'month') {
