@@ -111,7 +111,7 @@ export interface MembershipCertificateData {
 }
 
 const formatCurrency = (amount: number, locale: string = 'bn'): string => {
-  const value = amount / 100;
+  const value = amount;
   return locale === 'bn' 
     ? `৳${value.toLocaleString('bn-BD', { minimumFractionDigits: 2 })}`
     : `৳${value.toLocaleString('en-BD', { minimumFractionDigits: 2 })}`;
