@@ -250,10 +250,10 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	if err != nil {
 		stats = DashboardStats{}
 	}
-	stats.CurrentBalance = stats.CurrentBalance / 100
-	stats.TotalDeposited = stats.TotalDeposited / 100
-	stats.LoanBalance = stats.LoanBalance / 100
-	stats.LoanEligibility = stats.LoanEligibility / 100
+	stats.CurrentBalance = stats.CurrentBalance
+	stats.TotalDeposited = stats.TotalDeposited
+	stats.LoanBalance = stats.LoanBalance
+	stats.LoanEligibility = stats.LoanEligibility
 	data.Stats = stats
 
 	const pendingQuery = `
@@ -279,7 +279,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := pendingRows.Scan(&item.ID, &item.Type, &item.Amount, &createdAt, &item.Receipt); scanErr != nil {
 				continue
 			}
-			item.Amount = item.Amount / 100
+			item.Amount = item.Amount
 			item.Date = createdAt.Format(time.RFC3339)
 			data.PendingConfirmations = append(data.PendingConfirmations, item)
 		}
@@ -308,7 +308,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := guarantorRows.Scan(&item.ID, &item.BorrowerName, &item.LoanAmount, &createdAt); scanErr != nil {
 				continue
 			}
-			item.LoanAmount = item.LoanAmount / 100
+			item.LoanAmount = item.LoanAmount
 			item.RequestDate = createdAt.Format(time.RFC3339)
 			data.GuarantorRequests = append(data.GuarantorRequests, item)
 		}
@@ -338,8 +338,8 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		&activeLoan.PaidInstallments,
 		&activeLoan.TotalInstallments,
 	); err == nil {
-		activeLoan.RemainingAmount = activeLoan.RemainingAmount / 100
-		activeLoan.NextInstallment = activeLoan.NextInstallment / 100
+		activeLoan.RemainingAmount = activeLoan.RemainingAmount
+		activeLoan.NextInstallment = activeLoan.NextInstallment
 		if nextDueDate != nil {
 			activeLoan.NextDueDate = nextDueDate.Format(time.RFC3339)
 		}
@@ -367,7 +367,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := recentRows.Scan(&tx.ID, &tx.Type, &tx.Amount, &createdAt, &tx.Receipt); scanErr != nil {
 				continue
 			}
-			tx.Amount = tx.Amount / 100
+			tx.Amount = tx.Amount
 			tx.Date = createdAt.Format(time.RFC3339)
 			data.RecentTransactions = append(data.RecentTransactions, tx)
 		}
@@ -952,14 +952,14 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 
 		deposit := map[string]interface{}{
 			"id":            id,
-			"amount":        amount / 100,
+			"amount":        amount,
 			"date":          createdAt.Format(time.RFC3339),
 			"receiptNumber": receiptNumber,
 			"status":        upperStatus,
 			"processedBy":   processedBy,
 		}
 		if upperStatus == "CONFIRMED" || upperStatus == "PROCESSED" {
-			deposit["balanceAfter"] = balanceAfter / 100
+			deposit["balanceAfter"] = balanceAfter
 		}
 		deposits = append(deposits, deposit)
 	}
@@ -975,9 +975,9 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 
 	return map[string]interface{}{
 		"deposits":       deposits,
-		"totalDeposited": totalDeposited / 100,
-		"pendingAmount":  pendingAmount / 100,
-		"currentBalance": currentBalance / 100,
+		"totalDeposited": totalDeposited,
+		"pendingAmount":  pendingAmount,
+		"currentBalance": currentBalance,
 	}, nil
 }
 
@@ -1016,12 +1016,12 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 		transactions = append(transactions, map[string]interface{}{
 			"id":            id,
 			"type":          strings.ToUpper(strings.TrimSpace(txType)),
-			"amount":        amount / 100,
+			"amount":        amount,
 			"date":          createdAt.Format(time.RFC3339),
 			"receiptNumber": receipt,
 			"description":   description,
 			"status":        strings.ToUpper(strings.TrimSpace(status)),
-			"balanceAfter":  balanceAfter / 100,
+			"balanceAfter":  balanceAfter,
 			"processedBy":   processedBy,
 		})
 	}
@@ -1040,7 +1040,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	var currentDeposit int64
 	_ = r.db.QueryRow(ctx, eligibilityQuery, userID).Scan(&currentDeposit)
 	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
-	currentDepositBDT := currentDeposit / 100
+	currentDepositBDT := currentDeposit
 	maxLoanAmountBDT := currentDepositBDT * maxLoanMultiplier
 
 	const loanQuery = `
@@ -1086,11 +1086,11 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 		item := map[string]interface{}{
 			"id":                id,
 			"loanNumber":        loanNumber,
-			"principalAmount":   principalAmount / 100,
-			"remainingAmount":   remainingAmount / 100,
+			"principalAmount":   principalAmount,
+			"remainingAmount":   remainingAmount,
 			"totalInstallments": totalInstallments,
 			"paidInstallments":  paidInstallments,
-			"installmentAmount": installmentAmount / 100,
+			"installmentAmount": installmentAmount,
 			"purpose":           purpose,
 			"status":            strings.ToUpper(status),
 			"guarantor":         guarantor,
@@ -1137,7 +1137,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			guarantorRequests = append(guarantorRequests, map[string]interface{}{
 				"id":           id,
 				"borrowerName": borrowerName,
-				"loanAmount":   amount / 100,
+				"loanAmount":   amount,
 				"requestDate":  requestDate.Format(time.RFC3339),
 			})
 		}
@@ -1169,7 +1169,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			availableGuarantors = append(availableGuarantors, map[string]interface{}{
 				"id":      id,
 				"name":    name,
-				"deposit": deposit / 100,
+				"deposit": deposit,
 			})
 		}
 	}
@@ -1332,7 +1332,7 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 		"profile": profile,
 		"nominee": nominee,
 		"accountSummary": map[string]interface{}{
-			"currentBalance": currentBalance / 100,
+			"currentBalance": currentBalance,
 			"hasActiveLoan":  hasActiveLoan,
 			"isGuarantor":    isGuarantor,
 		},
@@ -1384,7 +1384,7 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 			"id":     id,
 			"type":   reqType,
 			"member": member,
-			"amount": amount / 100,
+			"amount": amount,
 			"time":   createdAt.Format(time.RFC3339),
 		})
 	}
@@ -1393,9 +1393,9 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 		"stats": map[string]interface{}{
 			"totalMembers":     totalMembers,
 			"pendingRequests":  pendingRequests,
-			"todayDeposits":    todayDeposits / 100,
-			"todayWithdrawals": todayWithdrawals / 100,
-			"todayLoans":       todayLoans / 100,
+			"todayDeposits":    todayDeposits,
+			"todayWithdrawals": todayWithdrawals,
+			"todayLoans":       todayLoans,
 		},
 		"pendingRequests": pending,
 	}, nil
@@ -1450,8 +1450,8 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 			"nidNumber":       nid,
 			"status":          strings.ToUpper(status),
 			"joinDate":        createdAt.Format(time.RFC3339),
-			"currentDeposit":  savingsBalance / 100,
-			"activeLoan":      activeLoan / 100,
+			"currentDeposit":  savingsBalance,
+			"activeLoan":      activeLoan,
 			"area":            area,
 			"role":            strings.ToUpper(role),
 			"assignedArea":    area,
@@ -1584,11 +1584,11 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 		"stats": map[string]interface{}{
 			"totalMembers":    totalMembers,
 			"totalWorkers":    totalWorkers,
-			"totalDeposits":   totalDepositsPaisa / 100,
-			"totalLoans":      totalLoansPaisa / 100,
+			"totalDeposits":   totalDepositsPaisa,
+			"totalLoans":      totalLoansPaisa,
 			"activeLoanCount": activeLoanCount,
 			"defaultedLoans":  defaultedLoans,
-			"charityFund":     charityFundPaisa / 100,
+			"charityFund":     charityFundPaisa,
 			"monthlyGrowth":   monthlyGrowth,
 			"recoveryRate":    recoveryRate,
 		},
@@ -1837,9 +1837,9 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				"memberId":          memberId,
 				"memberName":        memberName,
 				"memberNameBn":      memberNameBn,
-				"requestedAmount":   amount / 100,
-				"currentDeposit":    currentDeposit / 100,
-				"maxEligible":       maxEligible / 100,
+				"requestedAmount":   amount,
+				"currentDeposit":    currentDeposit,
+				"maxEligible":       maxEligible,
 				"guarantorId":       guarantorId,
 				"guarantorName":     guarantorName,
 				"guarantorApproved": guarantorId != "",
@@ -1885,7 +1885,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			requests = append(requests, map[string]interface{}{
 				"id":            id,
 				"type":          strings.ToUpper(strings.TrimSpace(txType)),
-				"amount":        amount / 100,
+				"amount":        amount,
 				"status":        strings.ToUpper(strings.TrimSpace(status)),
 				"member":        map[string]interface{}{"name": memberName, "memberId": memberID},
 				"requestDate":   createdAt.Format(time.RFC3339),
@@ -2385,7 +2385,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 		`, requestID, approverID, newSavings, loanBalance); err != nil {
 			return err
 		}
-		amountTaka := float64(amount) / 100
+		amountTaka := float64(amount)
 		if err := r.insertNotificationTx(
 			ctx,
 			tx,
@@ -2470,7 +2470,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			return err
 		}
 
-		amountTaka := float64(amount) / 100
+		amountTaka := float64(amount)
 		memberTitle := "Loan repayment approved"
 		memberMessage := fmt.Sprintf("Your loan repayment request for BDT %.2f has been approved.", amountTaka)
 		if loanUpdateStatus == "COMPLETED" {
@@ -2649,7 +2649,7 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 		return "", err
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
@@ -2797,7 +2797,7 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		return "", err
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	requestSummary := fmt.Sprintf("%s submitted a loan repayment request for BDT %.2f (Loan %s, bKash ref: %s).", memberName, amountTaka, loanNumber, reference)
 	if err := r.insertNotificationTx(
 		ctx,
@@ -2929,13 +2929,13 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 		item := map[string]interface{}{
 			"id":            id,
 			"type":          txType,
-			"amount":        amount / 100,
+			"amount":        amount,
 			"status":        txStatus,
 			"receiptNumber": receipt,
 			"notes":         description,
 			"processedBy":   processorName,
 			"processedDate": processedAt.Format(time.RFC3339),
-			"balanceAfter":  balanceAfter / 100,
+			"balanceAfter":  balanceAfter,
 			"member": map[string]interface{}{
 				"id":       memberUserID,
 				"memberId": memberId,
@@ -2991,9 +2991,9 @@ func (r *UserRepository) GetDepositStats(ctx context.Context) (map[string]interf
 	}
 
 	return map[string]interface{}{
-		"totalDeposits":    totalDeposits / 100,
-		"totalWithdrawals": totalWithdrawals / 100,
-		"netBalance":       netBalance / 100,
+		"totalDeposits":    totalDeposits,
+		"totalWithdrawals": totalWithdrawals,
+		"netBalance":       netBalance,
 	}, nil
 }
 
@@ -3091,12 +3091,12 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 			"id":                 id,
 			"loanNumber":         loanNumber,
 			"status":             status,
-			"amount":             principalAmount / 100,
-			"paidAmount":         (principalAmount - remainingAmount) / 100,
-			"remainingAmount":    remainingAmount / 100,
+			"amount":             principalAmount,
+			"paidAmount":         (principalAmount - remainingAmount),
+			"remainingAmount":    remainingAmount,
 			"installmentsPaid":   paidInstallments,
 			"totalInstallments":  totalInstallments,
-			"monthlyInstallment": installmentAmount / 100,
+			"monthlyInstallment": installmentAmount,
 			"purpose":            purpose,
 			"member": map[string]interface{}{
 				"id":       borrowerID,
@@ -3112,13 +3112,13 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 				"id":   guarantorID,
 				"name": guarantorName,
 			},
-			"memberDeposit":  memberDeposit / 100,
+			"memberDeposit":  memberDeposit,
 			"missedPayments": 0,
 			"createdAt":      createdAt.Format(time.RFC3339),
 			"approvedBy":     approvedBy,
 
 			// Backward-compat fields
-			"principalAmount":         principalAmount / 100,
+			"principalAmount":         principalAmount,
 			"totalInstallmentsLegacy": totalInstallments,
 			"paidInstallments":        paidInstallments,
 			"borrowerName":            borrowerName,
@@ -3177,8 +3177,8 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 	}
 
 	return map[string]interface{}{
-		"totalDisbursed": totalDisbursed / 100,
-		"totalRecovered": totalRecovered / 100,
+		"totalDisbursed": totalDisbursed,
+		"totalRecovered": totalRecovered,
 		"recoveryRate":   recoveryRate,
 		"activeLoans":    activeLoans,
 		"defaultedLoans": defaultedLoans,
@@ -3526,7 +3526,7 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 
 		donations = append(donations, map[string]interface{}{
 			"id":          id,
-			"amount":      amount / 100,
+			"amount":      amount,
 			"receipt":     receipt,
 			"description": displayDescription,
 			"date":        createdAt.Format(time.RFC3339),
@@ -3630,11 +3630,11 @@ func (r *UserRepository) GetMonthlyReport(ctx context.Context, year, month int) 
 	return map[string]interface{}{
 		"year":             year,
 		"month":            month,
-		"totalDeposits":    totalDeposits / 100,
-		"totalWithdrawals": totalWithdrawals / 100,
-		"loansDisbursed":   loansDisbursed / 100,
-		"loansRecovered":   loansRecovered / 100,
-		"netSavings":       (totalDeposits - totalWithdrawals) / 100,
+		"totalDeposits":    totalDeposits,
+		"totalWithdrawals": totalWithdrawals,
+		"loansDisbursed":   loansDisbursed,
+		"loansRecovered":   loansRecovered,
+		"netSavings":       (totalDeposits - totalWithdrawals),
 	}, nil
 }
 
@@ -3682,7 +3682,7 @@ func (r *UserRepository) GetLoanPerformanceReport(ctx context.Context) (map[stri
 
 	var defaultRate float64 = 0
 	if totalLoans > 0 {
-		defaultRate = float64(defaultedCount) / float64(totalLoans) * 100
+		defaultRate = float64(defaultedCount) / float64(totalLoans)
 		defaultRate = float64(int(defaultRate*10)) / 10
 	}
 
@@ -3691,7 +3691,7 @@ func (r *UserRepository) GetLoanPerformanceReport(ctx context.Context) (map[stri
 
 	return map[string]interface{}{
 		"totalLoans":     totalLoans,
-		"avgLoanAmount":  avgLoanAmount / 100,
+		"avgLoanAmount":  avgLoanAmount,
 		"defaultedCount": defaultedCount,
 		"completedCount": completedCount,
 		"activeCount":    activeCount,
@@ -3937,11 +3937,11 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 		loan := map[string]interface{}{
 			"id":                id,
 			"loanNumber":        loanNumber,
-			"principalAmount":   principalAmount / 100,
-			"remainingAmount":   remainingAmount / 100,
+			"principalAmount":   principalAmount,
+			"remainingAmount":   remainingAmount,
 			"paidInstallments":  paidInstallments,
 			"totalInstallments": totalInstallments,
-			"installmentAmount": installmentAmount / 100,
+			"installmentAmount": installmentAmount,
 			"status":            strings.ToUpper(status),
 			"memberUserId":      memberUserID,
 			"memberName":        memberName,
@@ -4015,12 +4015,12 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 		transactions = append(transactions, map[string]interface{}{
 			"id":            id,
 			"type":          strings.ToUpper(txType),
-			"amount":        amount / 100,
+			"amount":        amount,
 			"receipt":       receipt,
 			"receiptNumber": receipt,
 			"description":   description,
 			"status":        strings.ToUpper(status),
-			"balanceAfter":  balanceAfter / 100,
+			"balanceAfter":  balanceAfter,
 			"date":          createdAt.Format(time.RFC3339),
 			"memberName":    memberName,
 			"memberNameBn":  memberNameBn,
@@ -4107,7 +4107,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	// Calculate loan eligibility
 	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
-	minDeposit := minDepositRequired * 100
+	minDeposit := minDepositRequired
 	maxLoanAmount := savingsBalance * maxLoanMultiplier
 	eligible := savingsBalance >= minDeposit && activeLoan == 0
 	eligibilityReason := ""
@@ -4127,15 +4127,15 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		"nidNumber":                nid,
 		"status":                   strings.ToUpper(status),
 		"joinDate":                 createdAt.Format(time.RFC3339),
-		"currentDeposit":           savingsBalance / 100,
-		"activeLoan":               activeLoan / 100,
-		"totalDeposited":           totalDeposited / 100,
-		"totalWithdrawn":           totalWithdrawn / 100,
+		"currentDeposit":           savingsBalance,
+		"activeLoan":               activeLoan,
+		"totalDeposited":           totalDeposited,
+		"totalWithdrawn":           totalWithdrawn,
 		"address":                  strings.TrimSuffix(strings.TrimPrefix(address, ", "), ", "),
 		"isGuarantorForActiveLoan": isGuarantor,
 		"loanEligibility": map[string]interface{}{
 			"eligible":      eligible,
-			"maxLoanAmount": maxLoanAmount / 100,
+			"maxLoanAmount": maxLoanAmount,
 			"reason":        eligibilityReason,
 		},
 	}
@@ -4173,8 +4173,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		transactions = append(transactions, map[string]interface{}{
 			"id":            txnID,
 			"type":          strings.ToUpper(txnType),
-			"amount":        amount / 100,
-			"balanceAfter":  balanceAfter / 100,
+			"amount":        amount,
+			"balanceAfter":  balanceAfter,
 			"receiptNumber": receipt,
 			"status":        strings.ToUpper(txnStatus),
 			"createdAt":     txnCreatedAt.Format(time.RFC3339),
@@ -4218,11 +4218,11 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		loan := map[string]interface{}{
 			"id":                loanID,
 			"loanNumber":        loanNumber,
-			"principalAmount":   principal / 100,
-			"remainingAmount":   remaining / 100,
+			"principalAmount":   principal,
+			"remainingAmount":   remaining,
 			"totalInstallments": totalInst,
 			"paidInstallments":  paidInst,
-			"installmentAmount": installmentAmt / 100,
+			"installmentAmount": installmentAmt,
 			"status":            strings.ToUpper(loanStatus),
 		}
 		if disbursementDate != nil {
@@ -4300,7 +4300,7 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 	}
 
 	// Generate receipt number
-	receipt := fmt.Sprintf("RCP%d%s", time.Now().Unix(), memberID[:4])
+	receipt := utils.GenerateReceipt("RCP")
 
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
@@ -4329,7 +4329,7 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", err
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
@@ -4395,7 +4395,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	}
 
 	// Generate receipt number
-	receipt := fmt.Sprintf("WDR%d%s", time.Now().Unix(), memberID[:4])
+	receipt := utils.GenerateReceipt("WDR")
 
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
@@ -4424,7 +4424,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		return "", err
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
@@ -4493,7 +4493,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("has active loan")
 	}
 
-	minDeposit := minDepositRequired * 100
+	minDeposit := minDepositRequired
 	if currentBalance < minDeposit {
 		return "", errors.New("not eligible - insufficient deposit")
 	}
@@ -4503,7 +4503,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("exceeds limit")
 	}
 
-	loanNumber := fmt.Sprintf("LN%d%s", time.Now().Unix(), memberID[:4])
+	loanNumber := utils.GenerateReceipt("LN")
 	installmentAmount := amount / int64(installments)
 
 	var loanID string
@@ -4553,7 +4553,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
@@ -4622,7 +4622,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	}
 
 	// Generate receipt number
-	receiptNumber := fmt.Sprintf("LRP-%s-%s", time.Now().Format("20060102150405"), memberID[:4])
+	receiptNumber := utils.GenerateReceipt("LPM")
 
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
@@ -4691,7 +4691,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		return "", fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	amountTaka := float64(amount) / 100
+	amountTaka := float64(amount)
 	memberTitle := "Loan repayment received"
 	memberMessage := fmt.Sprintf("A loan repayment of BDT %.2f has been recorded.", amountTaka)
 	if loanUpdateStatus == "COMPLETED" {

@@ -162,14 +162,14 @@ export default function WorkerDepositsPage() {
     setIsSubmitting(true);
     setFormError(null);
     try {
-      const amountPaisa = Math.round(parsedAmount * 100);
+      const amountVal = Math.round(parsedAmount );
       const endpoint =
         formType === 'DEPOSIT'
           ? `/v1/dashboard/worker/members/${selectedMember.id}/deposit`
           : `/v1/dashboard/worker/members/${selectedMember.id}/withdrawal`;
 
       await apiPost(endpoint, {
-        amount: amountPaisa,
+        amount: amountVal,
         notes: notes.trim(),
       });
       setShowForm(false);
