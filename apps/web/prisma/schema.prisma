@@ -84,63 +84,63 @@ enum RequestStatus {
 // ============================================================
 
 model User {
-  id            String     @id @default(cuid())
-  email         String?    @unique
-  phone         String     @unique
-  passwordHash  String
-  role          UserRole   @default(MEMBER)
-  status        UserStatus @default(PENDING)
-  
+  id           String     @id @default(cuid())
+  email        String?    @unique
+  phone        String     @unique
+  passwordHash String
+  role         UserRole   @default(MEMBER)
+  status       UserStatus @default(PENDING)
+
   // Profile
-  memberId      String?    @unique // গ্রাহক আই.ডি
-  formNumber    String?    // ফরম নং
-  
+  memberId   String? @unique // গ্রাহক আই.ডি
+  formNumber String? // ফরম নং
+
   // Personal Info
-  nameEn        String     // Name in English
-  nameBn        String?    // নাম (Bengali)
-  fatherName    String     // পিতার নাম
-  motherName    String     // মাতার নাম
-  gender        Gender     @default(MALE)
-  bloodGroup    String?    // রক্তের গ্রুপ
-  profession    String?    // পেশা
+  nameEn        String // Name in English
+  nameBn        String? // নাম (Bengali)
+  fatherName    String // পিতার নাম
+  motherName    String // মাতার নাম
+  gender        Gender        @default(MALE)
+  bloodGroup    String? // রক্তের গ্রুপ
+  profession    String? // পেশা
   dateOfBirth   DateTime?
   maritalStatus MaritalStatus @default(UNMARRIED)
-  childrenCount Int        @default(0) // সন্তানের সংখ্যা
-  
+  childrenCount Int           @default(0) // সন্তানের সংখ্যা
+
   // NID Information
-  nidNumber     String?    // এন.আই.ডি নং
-  
+  nidNumber String? // এন.আই.ডি নং
+
   // Profile Picture
-  avatarUrl     String?
-  
+  avatarUrl String?
+
   // Timestamps
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  approvedAt    DateTime?
-  approvedBy    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  approvedAt     DateTime?
+  approvedBy     String?
   approvedByUser User?     @relation("UserApprovals", fields: [approvedBy], references: [id])
   approvedUsers  User[]    @relation("UserApprovals")
-  
+
   // Relations
   permanentAddress Address? @relation("PermanentAddress")
   presentAddress   Address? @relation("PresentAddress", fields: [presentAddressId], references: [id])
   presentAddressId String?  @unique
-  
-  nominee       Nominee?
-  accounts      Account[]
-  transactions  Transaction[] @relation("UserTransactions")
-  processedTransactions Transaction[] @relation("ProcessedTransactions")
-  loans         Loan[]         @relation("Borrower")
-  guaranteedLoans Loan[]       @relation("Guarantor")
-  approvedLoans Loan[]         @relation("ApprovedLoans")
-  documents     Document[]
-  supportThreads SupportThread[] @relation("MemberSupportThreads")
-  processedSupportThreads SupportThread[] @relation("ProcessedSupportThreads")
-  supportMessages SupportMessage[] @relation("SentSupportMessages")
-  
+
+  nominee                 Nominee?
+  accounts                Account[]
+  transactions            Transaction[]    @relation("UserTransactions")
+  processedTransactions   Transaction[]    @relation("ProcessedTransactions")
+  loans                   Loan[]           @relation("Borrower")
+  guaranteedLoans         Loan[]           @relation("Guarantor")
+  approvedLoans           Loan[]           @relation("ApprovedLoans")
+  documents               Document[]
+  supportThreads          SupportThread[]  @relation("MemberSupportThreads")
+  processedSupportThreads SupportThread[]  @relation("ProcessedSupportThreads")
+  supportMessages         SupportMessage[] @relation("SentSupportMessages")
+
   // Worker-specific
   assignedBranch String?
-  
+
   @@index([status, createdAt])
   @@index([role, status])
   @@index([approvedBy, approvedAt])
@@ -149,52 +149,52 @@ model User {
 }
 
 model Address {
-  id          String  @id @default(cuid())
-  houseNo     String  // বাড়ী নং
-  roadNo      String? // রোড নং
-  village     String  // গ্রাম
-  union       String  // ইউনিয়ন
+  id            String  @id @default(cuid())
+  houseNo       String // বাড়ী নং
+  roadNo        String? // রোড নং
+  village       String // গ্রাম
+  union         String // ইউনিয়ন
   policeStation String // থানা
-  district    String  // জেলা
-  country     String  @default("বাংলাদেশ")
-  
+  district      String // জেলা
+  country       String  @default("বাংলাদেশ")
+
   // Relations
-  userPermanent User?  @relation("PermanentAddress", fields: [userPermanentId], references: [id])
+  userPermanent   User?   @relation("PermanentAddress", fields: [userPermanentId], references: [id])
   userPermanentId String? @unique
-  
-  userPresent   User?  @relation("PresentAddress")
-  
+
+  userPresent User? @relation("PresentAddress")
+
   @@map("addresses")
 }
 
 model Nominee {
-  id          String @id @default(cuid())
-  name        String // নমিনীর নাম
+  id           String  @id @default(cuid())
+  name         String // নমিনীর নাম
   relationship String // সম্পর্ক
-  nidNumber   String // নমিনীর NID
-  phone       String?
-  photoUrl    String?
-  
+  nidNumber    String // নমিনীর NID
+  phone        String?
+  photoUrl     String?
+
   // Relation
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String @unique
-  
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
   @@map("nominees")
 }
 
 model Document {
-  id          String   @id @default(cuid())
-  type        String   // passport_photo, nid_front, nid_back, nominee_photo
-  url         String
-  fileName    String
-  mimeType    String
-  size        Int
-  
-  uploadedAt  DateTime @default(now())
-  
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String
-  
+  id       String @id @default(cuid())
+  type     String // passport_photo, nid_front, nid_back, nominee_photo
+  url      String
+  fileName String
+  mimeType String
+  size     Int
+
+  uploadedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
   @@map("documents")
 }
 
@@ -203,67 +203,68 @@ model Document {
 // ============================================================
 
 model Account {
-  id            String   @id @default(cuid())
-  accountNumber String   @unique // হিসাব নং
-  
+  id            String @id @default(cuid())
+  accountNumber String @unique // হিসাব নং
+
   // Balances (stored in Taka for precision)
-  savingsBalance   BigInt @default(0) // সঞ্চয় স্থিতি
-  loanBalance      BigInt @default(0) // ঋণ স্থিতি
-  
+  savingsBalance BigInt @default(0) // সঞ্চয় স্থিতি
+  loanBalance    BigInt @default(0) // ঋণ স্থিতি
+
   // Eligibility
-  isLoanEligible   Boolean @default(false)
-  maxLoanAmount    BigInt  @default(0)
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  isLoanEligible Boolean @default(false)
+  maxLoanAmount  BigInt  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId        String
-  
-  transactions  Transaction[]
-  loans         Loan[]
-  
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  transactions Transaction[]
+  loans        Loan[]
+
   @@map("accounts")
 }
 
 model Transaction {
   id            String          @id @default(cuid())
   type          TransactionType
-  amount        BigInt          // Amount in Taka
-  receiptNumber String?         // রশিদ নম্বর
+  amount        BigInt // Amount in Taka
+  receiptNumber String? // রশিদ নম্বর
   description   String?
-  
-  status        TransactionStatus @default(PENDING)
-  processedAt   DateTime?
-  confirmedAt   DateTime?
+
+  status      TransactionStatus @default(PENDING)
+  processedAt DateTime?
+  confirmedAt DateTime?
 
   // Used for incorrect amount disputes.
-  disputeReason       String?
+  disputeReason        String?
   disputeCorrectAmount BigInt?
 
   // Balance snapshots after transaction
-  savingsAfter  BigInt?
-  loanAfter     BigInt?
-  
-  createdAt     DateTime        @default(now())
-  
+  savingsAfter BigInt?
+  loanAfter    BigInt?
+
+  createdAt DateTime @default(now())
+
   // Relations
-  account       Account         @relation(fields: [accountId], references: [id])
-  accountId     String
-  
-  user          User            @relation("UserTransactions", fields: [userId], references: [id])
-  userId        String
-  
-  loan          Loan?           @relation(fields: [loanId], references: [id])
-  loanId        String?
-  
-  processedBy   String?         // Worker ID who processed this transaction
-  processedByUser User?         @relation("ProcessedTransactions", fields: [processedBy], references: [id])
-  
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String
+
+  user   User   @relation("UserTransactions", fields: [userId], references: [id])
+  userId String
+
+  loan   Loan?   @relation(fields: [loanId], references: [id])
+  loanId String?
+
+  processedBy     String? // Worker ID who processed this transaction
+  processedByUser User?   @relation("ProcessedTransactions", fields: [processedBy], references: [id])
+
   @@index([type, status, createdAt])
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([accountId, createdAt(sort: Desc)])
   @@index([receiptNumber])
   @@index([processedBy, processedAt])
   @@map("transactions")
@@ -274,48 +275,48 @@ model Transaction {
 // ============================================================
 
 model Loan {
-  id              String     @id @default(cuid())
-  loanNumber      String     @unique // ঋণ নম্বর
-  
+  id         String @id @default(cuid())
+  loanNumber String @unique // ঋণ নম্বর
+
   // Loan Details
-  principalAmount BigInt     // ঋণের পরিমাণ (Taka)
-  remainingAmount BigInt     // ঋণ স্থিতি (Taka)
-  
+  principalAmount BigInt // ঋণের পরিমাণ (Taka)
+  remainingAmount BigInt // ঋণ স্থিতি (Taka)
+
   // Installments
-  totalInstallments Int      // কিস্তির সংখ্যা
-  installmentAmount BigInt   // প্রতি কিস্তির পরিমাণ
-  paidInstallments  Int      @default(0)
-  
+  totalInstallments Int // কিস্তির সংখ্যা
+  installmentAmount BigInt // প্রতি কিস্তির পরিমাণ
+  paidInstallments  Int    @default(0)
+
   // Dates
-  disbursementDate DateTime? // বিতরণের তারিখ
+  disbursementDate     DateTime? // বিতরণের তারিখ
   installmentStartDate DateTime? // কিস্তি শুরুর তারিখ
-  expectedEndDate  DateTime? // ঋণ পরিশোধের সম্ভাব্য তারিখ
-  
-  purpose         String?    // গ্রহণের উদ্দেশ্য
-  applicationFee  BigInt     @default(0) // আবেদন ফি
-  
-  status          LoanStatus @default(PENDING)
-  
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  approvedAt      DateTime?
-  completedAt     DateTime?
-  
+  expectedEndDate      DateTime? // ঋণ পরিশোধের সম্ভাব্য তারিখ
+
+  purpose        String? // গ্রহণের উদ্দেশ্য
+  applicationFee BigInt  @default(0) // আবেদন ফি
+
+  status LoanStatus @default(PENDING)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  approvedAt  DateTime?
+  completedAt DateTime?
+
   // Relations
-  account         Account    @relation(fields: [accountId], references: [id])
-  accountId       String
-  
-  borrower        User       @relation("Borrower", fields: [borrowerId], references: [id])
-  borrowerId      String
-  
-  guarantor       User?      @relation("Guarantor", fields: [guarantorId], references: [id])
-  guarantorId     String?
-  
-  transactions    Transaction[]
-  
-  approvedBy      String?
-  approvedByUser  User?      @relation("ApprovedLoans", fields: [approvedBy], references: [id])
-  
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String
+
+  borrower   User   @relation("Borrower", fields: [borrowerId], references: [id])
+  borrowerId String
+
+  guarantor   User?   @relation("Guarantor", fields: [guarantorId], references: [id])
+  guarantorId String?
+
+  transactions Transaction[]
+
+  approvedBy     String?
+  approvedByUser User?   @relation("ApprovedLoans", fields: [approvedBy], references: [id])
+
   @@index([status, createdAt])
   @@index([borrowerId, status])
   @@index([approvedBy, approvedAt])
@@ -327,43 +328,43 @@ model Loan {
 // ============================================================
 
 model Branch {
-  id          String   @id @default(cuid())
-  name        String
-  code        String   @unique
-  address     String?
-  phone       String?
-  
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  
+  id      String  @id @default(cuid())
+  name    String
+  code    String  @unique
+  address String?
+  phone   String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
   @@map("branches")
 }
 
 model SystemConfig {
-  id          String   @id @default(cuid())
-  key         String   @unique
+  id          String  @id @default(cuid())
+  key         String  @unique
   value       String
   description String?
-  
-  updatedAt   DateTime @updatedAt
-  
+
+  updatedAt DateTime @updatedAt
+
   @@map("system_config")
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  action      String
-  entityType  String
-  entityId    String
-  oldValue    Json?
-  newValue    Json?
-  details     String?  // Additional details/notes
+  id         String  @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  details    String? // Additional details/notes
 
-  userId      String?  @map("performedBy") // Who performed the action
-  userIp      String?
-  userAgent   String?
+  userId    String? @map("performedBy") // Who performed the action
+  userIp    String?
+  userAgent String?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([action, entityType, createdAt])
@@ -376,18 +377,18 @@ model AuditLog {
 // ============================================================
 
 model SupportThread {
-  id                String   @id
-  memberUserId      String   @map("memberUserId")
-  member            User     @relation("MemberSupportThreads", fields: [memberUserId], references: [id], onDelete: Cascade)
-  status            String   @default("OPEN")
-  processedByUserId String?  @map("processedByUserId")
-  processedByUser   User?    @relation("ProcessedSupportThreads", fields: [processedByUserId], references: [id])
+  id                String    @id
+  memberUserId      String    @map("memberUserId")
+  member            User      @relation("MemberSupportThreads", fields: [memberUserId], references: [id], onDelete: Cascade)
+  status            String    @default("OPEN")
+  processedByUserId String?   @map("processedByUserId")
+  processedByUser   User?     @relation("ProcessedSupportThreads", fields: [processedByUserId], references: [id])
   processedAt       DateTime? @map("processedAt")
-  deleteAt          DateTime @map("deleteAt")
-  createdAt         DateTime @default(now()) @map("createdAt")
-  updatedAt         DateTime @updatedAt @map("updatedAt")
+  deleteAt          DateTime  @map("deleteAt")
+  createdAt         DateTime  @default(now()) @map("createdAt")
+  updatedAt         DateTime  @updatedAt @map("updatedAt")
 
-  messages          SupportMessage[]
+  messages SupportMessage[]
 
   @@index([memberUserId], map: "idx_support_threads_member")
   @@index([status, updatedAt(sort: Desc)], map: "idx_support_threads_status_updated")
@@ -396,13 +397,13 @@ model SupportThread {
 }
 
 model SupportMessage {
-  id           String   @id
-  threadId     String   @map("threadId")
+  id           String        @id
+  threadId     String        @map("threadId")
   thread       SupportThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  senderUserId String   @map("senderUserId")
-  sender       User     @relation("SentSupportMessages", fields: [senderUserId], references: [id], onDelete: Cascade)
+  senderUserId String        @map("senderUserId")
+  sender       User          @relation("SentSupportMessages", fields: [senderUserId], references: [id], onDelete: Cascade)
   message      String
-  createdAt    DateTime @default(now()) @map("createdAt")
+  createdAt    DateTime      @default(now()) @map("createdAt")
 
   @@index([threadId, createdAt], map: "idx_support_messages_thread_created")
   @@index([threadId, createdAt(sort: Desc)], map: "idx_support_messages_thread_created_desc")
@@ -426,21 +427,21 @@ enum NotificationType {
 }
 
 model Notification {
-  id          String           @id @default(cuid())
-  type        NotificationType
-  title       String
-  message     String
-  data        Json?            // Additional data for the notification
+  id      String           @id @default(cuid())
+  type    NotificationType
+  title   String
+  message String
+  data    Json? // Additional data for the notification
 
   // Target (who should see this)
-  targetRole  UserRole?        // If set, all users with this role see it
-  targetUserId String?         // If set, specific user sees it
+  targetRole   UserRole? // If set, all users with this role see it
+  targetUserId String? // If set, specific user sees it
 
   // Status
-  isRead      Boolean          @default(false)
-  readAt      DateTime?
+  isRead Boolean   @default(false)
+  readAt DateTime?
 
-  createdAt   DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   @@index([targetRole, isRead])
   @@index([targetUserId, isRead])
@@ -453,15 +454,15 @@ model Notification {
 // ============================================================
 
 model GalleryItem {
-  id          String   @id @default(cuid())
-  imageUrl    String
-  captionEn   String?
-  captionBn   String?
-  date        DateTime @default(now())
-  likes       Int      @default(0)
+  id        String   @id @default(cuid())
+  imageUrl  String
+  captionEn String?
+  captionBn String?
+  date      DateTime @default(now())
+  likes     Int      @default(0)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("gallery_items")
 }
@@ -471,15 +472,15 @@ model GalleryItem {
 // ============================================================
 
 model PasswordResetToken {
-  id          String   @id @default(cuid())
-  token       String   @unique
-  email       String?
-  phone       String?
+  id    String  @id @default(cuid())
+  token String  @unique
+  email String?
+  phone String?
 
-  expiresAt   DateTime
-  usedAt      DateTime?
+  expiresAt DateTime
+  usedAt    DateTime?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([email])
   @@index([phone])
@@ -491,12 +492,12 @@ model PasswordResetToken {
 // ============================================================
 
 model TokenBlacklist {
-  id          String   @id @default(cuid())
-  tokenHash   String   @unique // SHA-256 hash of JWT (not the full token)
-  userId      String
-  reason      String   @default("logout") // logout, password_change, admin_revoke
-  expiresAt   DateTime // Same as JWT exp - for cleanup
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // SHA-256 hash of JWT (not the full token)
+  userId    String
+  reason    String   @default("logout") // logout, password_change, admin_revoke
+  expiresAt DateTime // Same as JWT exp - for cleanup
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -504,11 +505,11 @@ model TokenBlacklist {
 }
 
 model RateLimit {
-  id          String   @id // Format: "action:identifier" e.g., "login:user@example.com"
-  attempts    Int      @default(1)
+  id          String    @id // Format: "action:identifier" e.g., "login:user@example.com"
+  attempts    Int       @default(1)
   lockedUntil DateTime?
   expiresAt   DateTime // For cleanup - TTL based
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime  @updatedAt
 
   @@index([expiresAt])
   @@map("rate_limits")
