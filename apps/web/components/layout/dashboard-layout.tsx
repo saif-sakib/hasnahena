@@ -658,7 +658,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Logo Section - Compact */}
           <div className="flex items-center justify-between h-14 px-5 border-b border-[#E5E7EB]/60">
             <Link href={`/${locale}`} className="flex items-center gap-2">
-              <Logo size="sm" showTagline={false} />
+              <Logo size="sm" />
             </Link>
             <Button
               variant="ghost"

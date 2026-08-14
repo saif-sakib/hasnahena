@@ -67,7 +67,7 @@ import {
   type ReceiptData,
   type LoanDocumentData,
   type StatementData,
-} from '@/lib/documents/receipt-generator';
+} from '@/lib/documents';
 
 interface MemberDetails {
   id: string;

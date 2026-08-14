@@ -11,7 +11,7 @@ import {
   generateReceiptHTML,
   downloadAsPDF,
   fetchOrgSettings,
-} from '@/lib/documents/receipt-generator';
+} from '@/lib/documents';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 type DepositType = 'DEPOSIT' | 'WITHDRAWAL';

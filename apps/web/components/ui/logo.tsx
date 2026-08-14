@@ -2,43 +2,53 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
+/** Full lockup: leaf mark + হাসনাহেনা wordmark + tagline. Transparent PNG. */
+export const LOGO_LOCKUP_SRC = '/images/logo/logo.png';
+/** Square leaf mark only — favicons, avatars, tight spaces. */
+export const LOGO_MARK_SRC = '/images/logo/logo-mark.png';
+
+/** Intrinsic aspect ratios of the shipped assets (787x442 and 512x512). */
+const LOCKUP_RATIO = 442 / 787;
+const MARK_RATIO = 1;
+
 interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** `light` renders a white silhouette for dark backgrounds. */
   variant?: 'default' | 'light';
-  showTagline?: boolean;
+  /** Show the square leaf mark instead of the full lockup. */
+  mark?: boolean;
   className?: string;
+  /** Override the asset, e.g. an uploaded `branding.logo` URL. */
   src?: string;
+  priority?: boolean;
 }
 
-const sizeMap = {
-  sm: { width: 140, height: 50 },
-  md: { width: 180, height: 65 },
-  lg: { width: 240, height: 85 },
-  xl: { width: 320, height: 115 },
-};
+const widthMap = { sm: 140, md: 180, lg: 240, xl: 320 } as const;
 
-// Use the actual PNG logo since it has the proper design
-export function Logo({ 
-  size = 'md', 
+export function Logo({
+  size = 'md',
   variant = 'default',
-  showTagline = true, 
+  mark = false,
   className,
-  src = '/images/logo.png',
+  src,
+  priority = false,
 }: LogoProps) {
-  const { width, height } = sizeMap[size];
-  
+  const source = src ?? (mark ? LOGO_MARK_SRC : LOGO_LOCKUP_SRC);
+  const width = mark ? Math.round(widthMap[size] * 0.42) : widthMap[size];
+  const height = Math.round(width * (mark ? MARK_RATIO : LOCKUP_RATIO));
+
   return (
     <Image
-      src={src}
-      alt="হাসনাহেনা - Hasnahena"
+      src={source}
+      alt="হাসনাহেনা — Hasnahena"
       width={width}
-      height={showTagline ? height : Math.round(height * 0.7)}
+      height={height}
       className={cn(
-        'object-contain',
+        'h-auto w-auto object-contain',
         variant === 'light' && 'brightness-0 invert',
         className
       )}
-      priority
+      priority={priority}
     />
   );
 }

@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
-import { generateStatementHTML, generateReceiptHTML, downloadAsPDF, fetchOrgSettings } from '@/lib/documents/receipt-generator';
+import { generateStatementHTML, generateReceiptHTML, downloadAsPDF, fetchOrgSettings } from '@/lib/documents';
 
 type KnownTransactionType =
   | 'DEPOSIT'

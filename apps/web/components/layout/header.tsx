@@ -92,9 +92,9 @@ export function Header({ settings }: HeaderProps) {
         <Link href={`/${locale}`} className="flex items-center z-50 relative">
           <Logo
             size="md"
-            showTagline={false}
+            priority
             variant={mobileMenuOpen ? 'light' : 'default'}
-            src={settings?.['branding.logo'] || '/images/logo.png'}
+            src={settings?.['branding.logo'] || undefined}
           />
         </Link>
 

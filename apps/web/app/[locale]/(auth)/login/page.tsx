@@ -321,12 +321,8 @@ export default function LoginPage() {
             {/* Form Header */}
             <div className="text-center mb-4 flex flex-col items-center">
               <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
-                <span className="inline-flex h-12 w-44 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-                  <Logo
-                    size="lg"
-                    showTagline={false}
-                    className="h-20 w-[220px] max-w-none object-cover object-center"
-                  />
+                <span className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-black/5">
+                  <Logo size="lg" priority />
                 </span>
               </Link>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
