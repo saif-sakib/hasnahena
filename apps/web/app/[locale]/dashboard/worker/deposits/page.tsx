@@ -15,7 +15,7 @@ import {
   generateReceiptHTML,
   downloadAsPDF,
   fetchOrgSettings,
-} from '@/lib/documents/receipt-generator';
+} from '@/lib/documents';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';

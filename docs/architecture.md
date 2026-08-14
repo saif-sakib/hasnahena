@@ -55,6 +55,10 @@ lib/                       api client, auth, prisma, validation, receipt PDF, cl
 messages/{en,bn}.json      all copy — next-intl, locale prefix always present
 ```
 
+### Documents
+
+`lib/documents/` generates the member-facing paperwork — account statement, deposit/withdrawal receipt, loan agreement, membership certificate. `types` → `format` (escaping, currency, amount-in-words) → `theme` (shared A4 shell and styles) → `templates/*` → `export` (print window, HTML, paginated PDF). Import from `@/lib/documents`; add a new document as a template plus one export line. Why it rasterises rather than drawing PDF text: [ADR-010](decisions.md).
+
 ### UI tokens
 
 Tailwind + CSS variables in `app/globals.css`, light and `.dark`. Brand primary is emerald `hsl(160 84% 39%)` (dark: `45%`), radius `0.625rem`. Use semantic classes (`bg-primary`, `text-muted-foreground`, `border-border`) — never hardcoded hex. Status colours are centralised in `lib/status-styles.ts`; extend that file rather than inlining badge colours.

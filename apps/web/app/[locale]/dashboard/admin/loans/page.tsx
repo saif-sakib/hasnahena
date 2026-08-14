@@ -11,7 +11,7 @@ import {
   generateLoanDocumentHTML,
   downloadAsPDF,
   fetchOrgSettings,
-} from '@/lib/documents/receipt-generator';
+} from '@/lib/documents';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'SETTLED' | 'DEFAULTED' | 'REJECTED';
 

@@ -115,9 +115,9 @@ export function createLocalizedMetadata({
       locale: localeToOpenGraphLocale[resolvedLocale],
       images: [
         {
-          url: `${siteOrigin}/images/logo.png`,
-          width: 512,
-          height: 512,
+          url: `${siteOrigin}/images/logo/logo-og.png`,
+          width: 1200,
+          height: 630,
           alt: SITE_NAME,
         },
       ],
@@ -126,7 +126,7 @@ export function createLocalizedMetadata({
       card: 'summary_large_image',
       title: resolvedTitle,
       description,
-      images: [`${siteOrigin}/images/logo.png`],
+      images: [`${siteOrigin}/images/logo/logo-og.png`],
     },
   };
 }

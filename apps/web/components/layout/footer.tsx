@@ -21,8 +21,7 @@ export function Footer({ settings }: FooterProps) {
             <Link href={`/${locale}`} className="inline-block">
               <Logo
                 size="md"
-                showTagline={false}
-                src={settings?.['branding.logo'] || '/images/logo.png'}
+                src={settings?.['branding.logo'] || undefined}
               />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">

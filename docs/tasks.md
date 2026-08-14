@@ -2,6 +2,11 @@
 
 Live status of the platform. Verified against the code on **2026-08-14**. Update this file in the same commit as the work it describes.
 
+## Recently done
+
+- [x] Document generation rebuilt — `lib/documents/` split into types/format/theme/templates/export; **multi-page PDFs no longer truncate** (the old exporter put one full-height image on a single A4 page), HTML escaping added, amount-in-words (EN + BN), statements now reconcile and classify loan/donation rows instead of leaving credit and debit blank. See [ADR-010](decisions.md).
+- [x] New logo rolled out — black-background video frame keyed to transparency and trimmed; header, footer, auth pages, favicon, apple-icon and OG card all repointed to `images/logo/`. See [ADR-011](decisions.md).
+
 Legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 ## Requirements

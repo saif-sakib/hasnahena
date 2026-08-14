@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { generateStatementHTML, downloadAsPDF, generateReceiptHTML, fetchOrgSettings } from '@/lib/documents/receipt-generator';
+import { generateStatementHTML, downloadAsPDF, generateReceiptHTML, fetchOrgSettings } from '@/lib/documents';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 

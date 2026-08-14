@@ -82,6 +82,32 @@ Account and member identifiers are human-readable and branch-prefixed (`ACC-KH-3
 
 ---
 
+### ADR-010 — Documents are rendered in the browser, then rasterised
+
+**Status:** accepted · `apps/web/lib/documents/`.
+
+jsPDF cannot shape complex scripts: Bengali conjuncts and matras come out reordered, so drawing statements with PDF text primitives is not an option, and `jspdf-autotable` is unusable for the same reason. Documents are therefore built as standalone HTML, rendered by the browser, and captured with html2canvas.
+
+Two output paths, deliberately:
+- **Print** (`openPrintWindow`) — native pagination and real selectable text. The better output; prefer it when the user just wants a file.
+- **Download** (`downloadAsPDF`) — the canvas is sliced into A4 pages at blank pixel rows so a page break never cuts through a line, then each slice is placed with uniform margins and a page counter. Non-selectable text is the accepted cost of correct Bengali.
+
+Do not "improve" this by switching to jsPDF text output without solving Bengali shaping first.
+
+---
+
+### ADR-011 — One trimmed, transparent logo asset set
+
+**Status:** accepted · 2026-08-14.
+
+The delivered logo was a 1366×768 video frame on an opaque black background, which renders as a black box on the site header and in white documents. Shipping it directly was not viable, so the source is keyed (alpha from the max channel, unpremultiplied to keep edges clean), trimmed to content, and published as three derived assets in `apps/web/public/images/logo/`:
+
+`logo.png` (transparent lockup — UI and documents) · `logo-mark.png` (square leaf mark — favicon, avatars, tight spaces) · `logo-og.png` (1200×630 on white — social cards, because transparent PNGs render black in most social clients). `logo-source.png` is the untouched original; `logo.mp4` is the animated version, currently unused.
+
+Regenerate derived assets from `logo-source.png` rather than editing them by hand.
+
+---
+
 ### ADR-009 — Formal specification PDFs retired
 
 **Status:** accepted · 2026-08-14.

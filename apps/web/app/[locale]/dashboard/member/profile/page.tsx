@@ -34,7 +34,7 @@ import {
   generateMembershipCertificateHTML,
   generateStatementHTML,
   fetchOrgSettings,
-} from '@/lib/documents/receipt-generator';
+} from '@/lib/documents';
 
 interface UserProfile {
   memberId: string;

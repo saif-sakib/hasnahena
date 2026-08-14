@@ -123,7 +123,7 @@ export default function TermsPage({ params: { locale } }: PageProps) {
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-4">
         <div className="container mx-auto px-4 flex items-center justify-between">
           <Link href={`/${locale}`}>
-            <Logo size="sm" showTagline={false} />
+            <Logo size="sm" />
           </Link>
           <Link href={`/${locale}`}>
             <Button variant="ghost" size="sm" className="gap-2">
