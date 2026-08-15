@@ -47,6 +47,24 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Replaces the Dependabot version-update PR stream (see dependabot.yml).
+      # A new advisory becomes a failed check instead of a pull request nobody
+      # reads. `|| true` on purpose: an advisory in a transitive dependency is
+      # not a reason to block a deploy at 2am, but it must be visible.
+      - name: Audit
+        run: |
+          pnpm audit --audit-level=high || true
+          {
+            echo "### Dependency audit"
+            echo
+            echo '```'
+            pnpm audit 2>/dev/null | tail -3 || echo "audit unavailable"
+            echo '```'
+            echo
+            echo "Known and accepted: the Next.js and next-intl advisories need"
+            echo "a framework migration — Batch G in docs/work-orders.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   go:
     name: Go — vet, build, unit tests
     runs-on: ubuntu-latest
