@@ -31,7 +31,9 @@ The authoritative list is `apps/api/cmd/server/main.go` — one file, read it wh
 
 `GET /v1/dashboard/user` · `GET|PATCH /v1/dashboard/notifications` · `PUT /v1/dashboard/password`
 Password change with email code: `POST /v1/dashboard/password/change/{request-code,verify-code,confirm}`
-Support chat: `GET|PUT /v1/dashboard/support/config` · `GET /v1/dashboard/support/threads` · `GET|POST /v1/dashboard/support/messages` · `POST /v1/dashboard/support/threads/processed` · `GET /v1/dashboard/support/stream` (SSE)
+Support chat: `GET|PUT /v1/dashboard/support/config` · `GET /v1/dashboard/support/threads` · `GET|POST /v1/dashboard/support/messages` · `POST /v1/dashboard/support/threads/processed` · `GET /v1/dashboard/support/stream` (SSE) · `POST /v1/dashboard/support/stream/ticket`
+
+The SSE stream takes an `Authorization` header when the caller can set one. A browser `EventSource` cannot, so it first calls the ticket endpoint (authenticated normally) and passes the returned value as `?ticket=`. Tickets last 60 s, are good only for this stream, and are not access tokens — fetch a fresh one before every connect, including reconnects. `?access_token=` is **not** accepted anywhere.
 
 ### Member
 

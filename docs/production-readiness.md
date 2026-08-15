@@ -19,15 +19,15 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Product features | `[~]` | 13 of 22 FRs complete, 7 partial — see [tasks.md](tasks.md) |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, request→process→confirm, append-only audit |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
-| **Authorization** | `[!]` | **4 admin handlers check login but not role — see SEC-02** |
-| **Session revocation** | `[!]` | **Blacklist table written but never read — see SEC-01** |
+| Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
+| Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
 | Automated tests | `[ ]` | None that run. One Playwright spec, no dependency, no config |
 | CI/CD | `[ ]` | No `.github/`. Lint, typecheck and `go build` are manual |
 | Containerisation | `[ ]` | No Dockerfile. Cannot run anywhere but Vercel + Render |
 | Observability | `[ ]` | `log.Printf` to stdout. No metrics, traces, error tracking, alerts |
 | Backups | `[ ]` | Documented as an intention; nothing scheduled, never restore-tested |
-| Runtime hardening | `[ ]` | No server timeouts, no graceful shutdown, no body limit |
+| Runtime hardening | `[~]` | Request bodies bounded (SEC-07); still no server timeouts or graceful shutdown |
 | Secrets management | `[~]` | Env vars per host, no rotation record, no central store |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops |
 
@@ -50,7 +50,7 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 These are live. Everything else on this page can wait behind them.
 
-### SEC-01 · Token revocation does not work `[ ]` — **critical**
+### SEC-01 · Token revocation does not work `[x]` — **critical**
 
 `AuthService.ValidateToken` ([auth_service.go:196](../apps/api/internal/services/auth_service.go#L196))
 is the only function that consults `token_blacklist`, and it has **zero
@@ -64,13 +64,24 @@ evict other sessions; a leaked token stays valid for the full
 `BlacklistToken` calls on logout, and `BlacklistAllUserTokens` on password change
 are all writing rows nobody reads.
 
-**Fix.** Point `authFromRequest` at `ValidateToken` and give it the request
-context. Two follow-ons: it adds a DB round-trip per request, so cache negative
-lookups briefly or check only the `all:<userID>` marker; and `ValidateToken`
-currently swallows the `IsUserTokensRevoked` error (`if err == nil && revoked`) —
-fail closed instead.
+**Done.** `authFromRequest` now calls `ValidateToken(r.Context(), …)`, and both
+revocation checks in `ValidateToken` fail closed — a database error rejects the
+request instead of reading as "not revoked". `auth_handler.go` keeps
+`ParseAccessToken` on the logout path, where checking the blacklist for the token
+being blacklisted would be circular.
 
-### SEC-02 · Four admin endpoints do not check role `[ ]` — **critical**
+Two things found while wiring it. `BlacklistAllUserTokens` inserted its
+`all:<userID>` marker with no `ON CONFLICT`, so a *second* password change inside
+24 h hit the unique index on `tokenHash` and silently failed to revoke; it now
+upserts the marker forward. And the redundant `userIDFromRequest` +
+`requireRoles` double-authentication in `AdminLoans`/`AdminLoanDetail` was
+collapsed to one call, since each authentication is now a DB round-trip.
+
+**Still open:** one extra DB round-trip per authenticated request. Acceptable at
+this scale. If it shows up in latency, cache the `all:<userID>` marker lookup —
+not the per-token one.
+
+### SEC-02 · Four admin endpoints do not check role `[x]` — **critical**
 
 They call `userIDFromRequest`, which proves *someone is logged in* and stops
 there. Any member's token opens them.
@@ -86,13 +97,17 @@ there. Any member's token opens them.
 and `AdminLoanDetail` show the correct shape — `requireRoles(w, r, "ADMIN",
 "SUPER_ADMIN")`.
 
-**Fix.** Add `requireRoles` to all four. Then remove the trap: make the router
-enforce it. Group admin routes under a `chi` middleware that requires the role,
-so a new handler is protected by where it is mounted rather than by the author
-remembering. `userIDFromRequest` should not remain available as the easy default
-for admin paths.
+**Done.** All four call `requireRoles(w, r, "ADMIN", "SUPER_ADMIN")`, and the
+trap is closed: `/v1/dashboard/admin` is now a `chi.Route` group whose routes sit
+behind `dashboardHandler.RequireRoles(…)`, so a handler added there is protected
+by where it is mounted. The per-handler checks stay as defence in depth.
 
-### SEC-03 · Gallery writes are unauthenticated and world-CORS `[ ]` — **high**
+One exception is deliberate and marked in `main.go`: `/admin/donations` is
+recorded by field workers too, so it sits in a second group gated
+ADMIN/SUPER_ADMIN/WORKER rather than in the admin-only one. It keeps the
+`/admin` path only for URL compatibility.
+
+### SEC-03 · Gallery writes are unauthenticated and world-CORS `[x]` — **high**
 
 [gallery/route.ts](../apps/web/app/api/v1/gallery/route.ts) exports `POST`,
 `PUT` and `DELETE` with no auth check at all, under
@@ -100,24 +115,37 @@ for admin paths.
 delete the foundation's public gallery — a defacement and phishing-image vector
 on a charity's front page.
 
-**Fix.** `requireAuth` plus an ADMIN/SUPER_ADMIN check on all three writes; drop
-the wildcard to the configured origin list. `GET` stays public.
+**Done.** `POST`, `PUT` and `DELETE` go through a `requireAdmin` helper
+(`authenticateRequest` + ADMIN/SUPER_ADMIN); `GET` stays public. The wildcard is
+gone — see SEC-04 for the shared helper that replaced it. The admin gallery UI
+was already writing through server actions, not these routes, so nothing in the
+app broke.
 
-### SEC-04 · Wildcard CORS on `/api/v1/settings` `[ ]` — **medium**
+### SEC-04 · Wildcard CORS on `/api/v1/settings` `[x]` — **medium**
 
-Already noted in tasks.md. `PUT` is authenticated, so this is defence-in-depth
-rather than an open door — fix it with SEC-03 in one pass and share one CORS
-helper between the two.
+`PUT` was authenticated, so this was defence-in-depth rather than an open door.
 
-### SEC-05 · Bearer token accepted in the query string `[ ]` — **medium**
+**Done.** [lib/cors.ts](../apps/web/lib/cors.ts) is now the one CORS helper for
+Next route handlers, used by both `/api/v1/gallery` and `/api/v1/settings`. It
+reads the same `CORS_ORIGINS` list the Go API reads (falling back to
+`NEXT_PUBLIC_APP_URL`, then localhost), echoes the request's `Origin` only when
+it is on the list, and sends `Vary: Origin`. An unrecognised origin now gets no
+`Access-Control-Allow-Origin` header at all.
+
+### SEC-05 · Bearer token accepted in the query string `[x]` — **medium**
 
 [dashboard_handler.go:467](../apps/api/internal/handlers/dashboard_handler.go#L467)
 falls back to `?access_token=` because `EventSource` cannot set headers. Query
 strings land in proxy logs, CDN logs, browser history and `Referer` headers.
 
-**Fix.** Issue a short-lived (≈60 s), single-purpose SSE ticket for the stream
-endpoint instead of accepting the full-power access token, or move support
-messaging to a `fetch`-based stream that can carry a header.
+**Done.** The `?access_token=` fallback is deleted from `authFromRequest`, which
+now reads the Authorization header and nothing else. `GET /v1/dashboard/support/stream`
+authenticates through `streamAuthFromRequest`: Authorization header when the
+caller can set one (the Next proxy can), otherwise a `?ticket=` value issued by
+`POST /v1/dashboard/support/stream/ticket`. A ticket is 32 random bytes, stored
+SHA-256-hashed in `sse_tickets`, valid 60 s, and scoped to one purpose — a
+captured ticket cannot be replayed against any other endpoint. Clients fetch a
+fresh ticket immediately before each connect, including reconnects.
 
 ### SEC-06 · A 17 MB compiled binary is committed `[x]` — **medium**
 
@@ -133,14 +161,15 @@ clone pays for it. Purging with `git filter-repo` shrinks clones by ~70% but
 rewrites every commit — worth doing while the repo is solo and only
 `origin/main` exists. The cost only rises.
 
-### SEC-07 · No request body size limit `[ ]` — **medium**
+### SEC-07 · No request body size limit `[x]` — **medium**
 
-`utils.MaxRequestBodySize` is defined and **never referenced**. `ParseJSON`
-([response.go:56](../apps/api/internal/utils/response.go#L56)) decodes straight
-from `r.Body`, so a single request can stream unbounded JSON into the process.
+`utils.MaxRequestBodySize` was defined and **never referenced**.
 
-**Fix.** Wrap with `http.MaxBytesReader(w, r.Body, MaxRequestBodySize)` inside
-`ParseJSON`. One line, covers every handler.
+**Done.** `ParseJSON` wraps `r.Body` in `io.LimitReader(r.Body, MaxRequestBodySize)`,
+which covers all 27 call sites without touching the signature. An oversized body
+now fails as a decode error, which every call site already surfaces as
+400 `INVALID_REQUEST`. `http.MaxBytesReader` would have been the tidier wrapper
+but needs the `ResponseWriter`, which `ParseJSON` does not take.
 
 ### SEC-08 · Unauthenticated registration enumeration `[ ]` — **low**
 
@@ -320,7 +349,7 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 
 | # | Block | Tasks | Rough effort |
 |---|---|---|---|
-| 1 | **Security defects** | SEC-01 → SEC-09 | 1–2 days |
+| 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
 | 2 | **Safety net** | CI-01 → CI-09 | 1 week |
 | 3 | **Runtime hardening** | RUN-01 → RUN-08 | 3–4 days |
 | 4 | **Backups that work** | DATA-01, DATA-02, DATA-03 | 1 day |
@@ -345,10 +374,11 @@ page. Deleting them deletes the fix. Each is marked with a comment in the source
 
 | Symbol | File | Unused because |
 |---|---|---|
-| `AuthService.ValidateToken` | `internal/services/auth_service.go` | SEC-01 — handlers call `ParseAccessToken` instead, so the blacklist is never read |
 | `SecurityService.CleanupExpiredTokens` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
 | `SecurityService.CleanupExpiredRateLimits` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
-| `utils.MaxRequestBodySize` | `internal/utils/validation.go` | SEC-07 — `ParseJSON` never applies it |
+
+`AuthService.ValidateToken` and `utils.MaxRequestBodySize` were on this list
+until SEC-01 and SEC-07 wired them up. Both are now on live code paths.
 
 ---
 

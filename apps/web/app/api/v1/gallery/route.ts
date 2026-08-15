@@ -1,46 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { corsHeaders } from '@/lib/cors';
+import { authenticateRequest } from '@/lib/server-auth';
 
 const isDev = process.env.NODE_ENV === 'development';
 
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
 // Safe error response (hides details in production)
-function errorResponse(message: string, details: string, status: number) {
+function errorResponse(request: Request | null, message: string, details: string, status: number) {
   console.error(`[Gallery] ${message}:`, details);
   return NextResponse.json(
     { error: message, ...(isDev && { details }) },
-    { status, headers: corsHeaders }
+    { status, headers: corsHeaders(request) }
   );
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+/**
+ * Writing to the gallery is an admin action. Without this the public gallery of
+ * a charity's site was rewritable by anyone who could reach the URL (SEC-03).
+ */
+async function requireAdmin(request: Request) {
+  const auth = await authenticateRequest(request);
+  if (!auth.ok) {
+    return errorResponse(request, 'Unauthorized', auth.error, 401);
+  }
+  if (auth.user.role !== UserRole.ADMIN && auth.user.role !== UserRole.SUPER_ADMIN) {
+    return errorResponse(request, 'Forbidden', 'Insufficient permissions', 403);
+  }
+  return null;
 }
 
-export async function GET() {
+export async function OPTIONS(request: NextRequest) {
+  return NextResponse.json({}, { headers: corsHeaders(request) });
+}
+
+// The gallery is public content — GET stays unauthenticated.
+export async function GET(request: NextRequest) {
   try {
     const items = await prisma.galleryItem.findMany({
       orderBy: { date: 'desc' },
     });
-    return NextResponse.json(items, { headers: corsHeaders });
+    return NextResponse.json(items, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse('Failed to fetch gallery', msg, 500);
+    return errorResponse(request, 'Failed to fetch gallery', msg, 500);
   }
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
 
     if (!body.imageUrl) {
-      return errorResponse('Image URL required', 'Missing imageUrl field', 400);
+      return errorResponse(request, 'Image URL required', 'Missing imageUrl field', 400);
     }
 
     const item = await prisma.galleryItem.create({
@@ -51,20 +66,23 @@ export async function POST(request: NextRequest) {
         date: body.date ? new Date(body.date) : new Date(),
       },
     });
-    return NextResponse.json(item, { headers: corsHeaders });
+    return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse('Failed to create gallery item', msg, 500);
+    return errorResponse(request, 'Failed to create gallery item', msg, 500);
   }
 }
 
 export async function PUT(request: NextRequest) {
+  const denied = await requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const { id, ...data } = body;
 
     if (!id) {
-      return errorResponse('ID required', 'Missing id field', 400);
+      return errorResponse(request, 'ID required', 'Missing id field', 400);
     }
 
     const item = await prisma.galleryItem.update({
@@ -76,26 +94,29 @@ export async function PUT(request: NextRequest) {
         date: data.date ? new Date(data.date) : undefined,
       },
     });
-    return NextResponse.json(item, { headers: corsHeaders });
+    return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse('Failed to update gallery item', msg, 500);
+    return errorResponse(request, 'Failed to update gallery item', msg, 500);
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  const denied = await requireAdmin(request);
+  if (denied) return denied;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
     if (!id) {
-      return errorResponse('ID required', 'Missing id parameter', 400);
+      return errorResponse(request, 'ID required', 'Missing id parameter', 400);
     }
 
     await prisma.galleryItem.delete({ where: { id } });
-    return NextResponse.json({ success: true }, { headers: corsHeaders });
+    return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return errorResponse('Failed to delete gallery item', msg, 500);
+    return errorResponse(request, 'Failed to delete gallery item', msg, 500);
   }
 }

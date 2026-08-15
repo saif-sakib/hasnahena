@@ -192,13 +192,13 @@ func (s *AuthService) ParseAccessToken(tokenString string) (jwt.MapClaims, error
 	return claims, nil
 }
 
-// ValidateToken checks if token is valid AND not blacklisted.
+// ValidateToken checks if token is valid AND not blacklisted. This is the entry
+// point every authenticated handler uses (via authFromRequest); ParseAccessToken
+// alone skips revocation and is only correct on the logout path, which is
+// blacklisting the very token it is parsing.
 //
-// NOT WIRED UP. Every handler authenticates through authFromRequest ->
-// ParseAccessToken, which skips the blacklist entirely, so logout and
-// password-change do not actually revoke a session — see SEC-01 in
-// docs/production-readiness.md. This function is the fix, not dead code:
-// do not delete it, call it.
+// Both revocation checks fail closed: a database error rejects the request
+// rather than letting a revoked token through.
 func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (jwt.MapClaims, error) {
 	claims, err := s.ParseAccessToken(tokenString)
 	if err != nil {
@@ -220,7 +220,10 @@ func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (jw
 	if userID != "" && iat > 0 {
 		issuedAt := time.Unix(int64(iat), 0)
 		revoked, err := s.security.IsUserTokensRevoked(ctx, userID, issuedAt)
-		if err == nil && revoked {
+		if err != nil {
+			return nil, err
+		}
+		if revoked {
 			return nil, ErrTokenRevoked
 		}
 	}

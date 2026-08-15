@@ -623,6 +623,17 @@ func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_support_threads_member ON support_threads("memberUserId")`,
 		`CREATE INDEX IF NOT EXISTS idx_support_threads_status_updated ON support_threads(status, "updatedAt" DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_support_threads_delete_at ON support_threads("deleteAt")`,
+		// Short-lived single-purpose credentials for EventSource connections,
+		// which cannot send an Authorization header (SEC-05). Only the SHA-256
+		// hash is stored, as with token_blacklist.
+		`CREATE TABLE IF NOT EXISTS sse_tickets (
+			"ticketHash" TEXT PRIMARY KEY,
+			"userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			purpose TEXT NOT NULL,
+			"expiresAt" TIMESTAMP NOT NULL,
+			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sse_tickets_expires_at ON sse_tickets("expiresAt")`,
 		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created ON support_messages("threadId", "createdAt" ASC)`,
 		// Additional index for faster latest message lookups (covering index)
 		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created_desc ON support_messages("threadId", "createdAt" DESC) INCLUDE (message, "senderUserId")`,
@@ -636,6 +647,35 @@ func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// CreateSSETicket stores a hashed stream ticket. Expired rows are swept on the
+// way in, so the table stays bounded without needing a scheduled job.
+func (r *UserRepository) CreateSSETicket(ctx context.Context, ticketHash string, userID string, purpose string, expiresAt time.Time) error {
+	if _, err := r.db.Exec(ctx, `DELETE FROM sse_tickets WHERE "expiresAt" < NOW()`); err != nil {
+		return err
+	}
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO sse_tickets ("ticketHash", "userId", purpose, "expiresAt", "createdAt")
+		VALUES ($1, $2, $3, $4, NOW())
+	`, ticketHash, userID, purpose, expiresAt)
+	return err
+}
+
+// ConsumeSSETicket resolves an unexpired ticket to its owner. The ticket is not
+// deleted: EventSource reconnects re-send the same URL, and the TTL is short
+// enough that reuse inside the window is not a meaningful widening.
+func (r *UserRepository) ConsumeSSETicket(ctx context.Context, ticketHash string, purpose string) (string, error) {
+	var userID string
+	err := r.db.QueryRow(ctx, `
+		SELECT "userId"
+		FROM sse_tickets
+		WHERE "ticketHash" = $1 AND purpose = $2 AND "expiresAt" > NOW()
+	`, ticketHash, purpose).Scan(&userID)
+	if err != nil {
+		return "", errors.New("invalid stream ticket")
+	}
+	return userID, nil
 }
 
 func (r *UserRepository) PurgeExpiredSupportData(ctx context.Context) error {

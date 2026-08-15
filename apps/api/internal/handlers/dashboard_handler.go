@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"log"
@@ -461,19 +463,21 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 	})
 }
 
+// authFromRequest resolves the caller from the Authorization header, and only
+// from there — an access token is never accepted in the query string, because
+// query strings leak into proxy logs, CDN logs and Referer headers (SEC-05).
+// EventSource cannot set headers, so the SSE stream uses a short-lived
+// single-purpose ticket instead; see streamAuthFromRequest.
 func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-	if authHeader == "" {
-		if tokenQuery := strings.TrimSpace(r.URL.Query().Get("access_token")); tokenQuery != "" {
-			authHeader = "Bearer " + tokenQuery
-		}
-	}
 	if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
 		return nil, errors.New("missing bearer token")
 	}
 
 	tokenString := strings.TrimSpace(authHeader[7:])
-	claims, err := h.authService.ParseAccessToken(tokenString)
+	// ValidateToken, not ParseAccessToken: this is the choke point where a
+	// logged-out or password-changed token has to stop being accepted (SEC-01).
+	claims, err := h.authService.ValidateToken(r.Context(), tokenString)
 	if err != nil {
 		return nil, err
 	}
@@ -498,20 +502,26 @@ func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error
 	}
 	role = strings.ToUpper(strings.TrimSpace(role))
 
-	dbRole, dbStatus, err := h.userRepo.GetUserRoleStatus(r.Context(), userID)
+	return h.verifyActiveRole(r.Context(), userID, role)
+}
+
+// verifyActiveRole confirms the account is still ACTIVE and, when the caller
+// carried a role claim, that the claim still matches the database.
+func (h *DashboardHandler) verifyActiveRole(ctx context.Context, userID string, claimedRole string) (*authContext, error) {
+	dbRole, dbStatus, err := h.userRepo.GetUserRoleStatus(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	if dbStatus != "ACTIVE" {
 		return nil, errors.New("user not active")
 	}
-	if dbRole != role {
+	if claimedRole != "" && dbRole != claimedRole {
 		return nil, errors.New("role mismatch")
 	}
 
 	return &authContext{
 		UserID: userID,
-		Role:   role,
+		Role:   dbRole,
 	}, nil
 }
 
@@ -547,6 +557,21 @@ func (h *DashboardHandler) requireRoles(w http.ResponseWriter, r *http.Request, 
 		return nil, false
 	}
 	return auth, true
+}
+
+// RequireRoles is the router-level form of requireRoles. Mounting a route group
+// behind it means a handler is protected by where it is mounted rather than by
+// the author remembering to add a check (SEC-02). Handlers keep their own
+// requireRoles call as defence in depth.
+func (h *DashboardHandler) RequireRoles(roles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := h.requireRoles(w, r, roles...); !ok {
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func (h *DashboardHandler) UserInfo(w http.ResponseWriter, r *http.Request) {
@@ -899,10 +924,6 @@ func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request)
 // ==================== ADMIN LOANS HANDLERS ====================
 
 func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
-		return
-	}
 	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
@@ -924,10 +945,6 @@ func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) AdminLoanDetail(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
-		return
-	}
 	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
@@ -948,11 +965,11 @@ func (h *DashboardHandler) AdminLoanDetail(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *DashboardHandler) MarkLoanDefaulted(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.userIDFromRequest(r)
-	if err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	auth, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN")
+	if !ok {
 		return
 	}
+	userID := auth.UserID
 
 	var req struct {
 		LoanID string `json:"loanId"`
@@ -1023,8 +1040,7 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 // ==================== ADMIN REPORTS HANDLERS ====================
 
 func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1053,8 +1069,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) YearlyReport(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1076,8 +1091,7 @@ func (h *DashboardHandler) YearlyReport(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *DashboardHandler) LoanPerformanceReport(w http.ResponseWriter, r *http.Request) {
-	if _, err := h.userIDFromRequest(r); err != nil {
-		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing token")
+	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1534,8 +1548,82 @@ func (h *DashboardHandler) SupportMarkProcessed(w http.ResponseWriter, r *http.R
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Support thread marked processed"})
 }
 
-func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request) {
+// sseTicketTTL is how long an issued stream ticket stays usable. Short enough
+// that a ticket captured from a log or Referer header is already dead, long
+// enough for the browser to open the EventSource it was issued for.
+const sseTicketTTL = 60 * time.Second
+
+// SupportStreamTicket issues a single-purpose credential for the SSE stream.
+//
+// EventSource cannot send an Authorization header, so the stream needs a
+// credential that survives being in the URL. This is that credential: it is
+// good for one purpose, for sseTicketTTL, and it is not an access token — a
+// leaked ticket cannot be replayed against any other endpoint (SEC-05).
+// Clients fetch a fresh ticket immediately before each connect, including
+// reconnects.
+func (h *DashboardHandler) SupportStreamTicket(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireAuthenticated(w, r)
+	if !ok {
+		return
+	}
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "TICKET_ISSUE_FAILED", "Failed to issue stream ticket")
+		return
+	}
+	ticket := hex.EncodeToString(raw)
+	expiresAt := time.Now().UTC().Add(sseTicketTTL)
+
+	if err := h.userRepo.CreateSSETicket(r.Context(), hashSSETicket(ticket), auth.UserID, sseTicketPurposeSupport, expiresAt); err != nil {
+		utils.Error(w, http.StatusInternalServerError, "TICKET_ISSUE_FAILED", "Failed to issue stream ticket")
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"ticket":           ticket,
+		"expiresInSeconds": int(sseTicketTTL / time.Second),
+	})
+}
+
+const sseTicketPurposeSupport = "support_stream"
+
+func hashSSETicket(ticket string) string {
+	sum := sha256.Sum256([]byte(ticket))
+	return hex.EncodeToString(sum[:])
+}
+
+// streamAuthFromRequest authenticates an SSE connection: an Authorization
+// header when the caller can set one (the Next proxy can), otherwise a stream
+// ticket from the query string. A full access token in the query string is
+// never accepted.
+func (h *DashboardHandler) streamAuthFromRequest(w http.ResponseWriter, r *http.Request) (*authContext, bool) {
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return h.requireAuthenticated(w, r)
+	}
+
+	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
+	if ticket == "" {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing stream ticket")
+		return nil, false
+	}
+
+	userID, err := h.userRepo.ConsumeSSETicket(r.Context(), hashSSETicket(ticket), sseTicketPurposeSupport)
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing stream ticket")
+		return nil, false
+	}
+
+	auth, err := h.verifyActiveRole(r.Context(), userID, "")
+	if err != nil {
+		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid or missing stream ticket")
+		return nil, false
+	}
+	return auth, true
+}
+
+func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.streamAuthFromRequest(w, r)
 	if !ok {
 		return
 	}

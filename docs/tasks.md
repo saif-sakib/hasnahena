@@ -4,10 +4,13 @@ Live status of the platform. Verified against the code on **2026-08-15**. Update
 
 This file tracks **product** work. Operational readiness lives in [production-readiness.md](production-readiness.md) (the *why*) and [work-orders.md](work-orders.md) (the *what to change* — prompt with `do WO-01`).
 
-> **Four security defects are live in production.** Any logged-in member can mark any loan defaulted and read foundation-wide financial reports; logout does not actually end a session; the public gallery accepts unauthenticated writes. See [SEC-01…SEC-03](production-readiness.md#phase-0--security-defects-do-these-first). Fix these before starting anything below.
+> **Batch A is done — SEC-01 → SEC-05 and SEC-07 are closed.** Sessions now actually revoke, the four unprotected admin endpoints are role-gated (and the whole `/admin` group sits behind a router-level gate), gallery writes require an admin, wildcard CORS is gone from both Next routes, access tokens are no longer accepted in the query string, and request bodies are bounded. `SEC-08` (registration enumeration) and `SEC-09` remain open — see [production-readiness.md](production-readiness.md).
+>
+> **Run `pnpm db:push` before deploying** — Batch A adds an `sse_tickets` table. (The Go API also creates it on boot via `EnsureSupportSchema`, so a deploy that skips the push still works.)
 
 ## Recently done
 
+- [x] **Batch A — security defects (WO-01 → WO-05).** Six fixes in one pass. `authFromRequest` now goes through `ValidateToken`, so `token_blacklist` is finally read and logout / password-change end a session (SEC-01) — note this means **changing a password now signs the user out of the current tab too**, which is the intended behaviour but new. `MarkLoanDefaulted`, `MonthlyReport`, `YearlyReport` and `LoanPerformanceReport` gained `requireRoles`, and `/v1/dashboard/admin/*` is now a `chi` group behind a role middleware so the next handler added there is protected by where it is mounted (SEC-02). Gallery `POST`/`PUT`/`DELETE` require ADMIN/SUPER_ADMIN (SEC-03) and both gallery and settings share one origin-checked CORS helper in `lib/cors.ts` (SEC-04). `?access_token=` is deleted; the SSE stream takes a 60-second single-purpose ticket from the new `sse_tickets` table instead (SEC-05). `ParseJSON` bounds every request body at 1 MB (SEC-07). Also fixed on the way past: `BlacklistAllUserTokens` had no `ON CONFLICT`, so a second password change within 24 h silently failed to revoke anything.
 - [x] Dead-code cleanup — removed a 17 MB committed Go binary, 27 empty route folders, 2 unused UI components, 4 unused npm dependencies, 2 unused repository methods and 7 unused helper exports; moved 2.3 MB of unreferenced brand masters out of `public/` into `apps/web/assets/brand/` so they are no longer served. Four "unused" Go symbols were **kept and annotated** — they are unused only because SEC-01/SEC-07/RUN-06 were never wired up, so deleting them would delete the fix. Behaviour unchanged; `clearOrgSettingsCache` was wired into the admin settings save instead of deleted, which also fixes stale letterhead on generated documents.
 - [x] Documents are English only and drawn as real PDF text — statements/receipts/loan agreements/certificates now produce **selectable, searchable, vector-sharp** PDFs that paginate properly (the previous rasteriser clipped the last line and the footer). One document model, two renderers; `html2canvas` and `jspdf-autotable` dropped. See [ADR-012](decisions.md).
 - [x] Reference numbers are sequential and readable — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…` from the `document_sequences` table, allocated inside the posting transaction. Replaces random hex suffixes that could collide on the unique `loanNumber`. See [ADR-013](decisions.md). **Run `pnpm db:push` before deploying.**
@@ -22,7 +25,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started
 |---|---|---|---|
 | FR-01 | Login by phone or email | `[x]` | Go `/v1/auth/login` |
 | FR-02 | Forced password change on first login | `[x]` | `mustChangePassword` + first-login token |
-| FR-03 | RBAC on sensitive actions | `[~]` | Go handlers + `lib/server-auth.ts`, but **4 admin routes check login without role** ([SEC-02](production-readiness.md#sec-02--four-admin-endpoints-do-not-check-role--)) |
+| FR-03 | RBAC on sensitive actions | `[x]` | Go handlers + `lib/server-auth.ts`; `/admin` routes also gated at the router (SEC-02) |
 | FR-04 | Registration captures biodata, NID, address, nominee | `[x]` | `/api/v1/registrations` |
 | FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
@@ -47,15 +50,17 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started
 
 Security defects are tracked with `SEC-` ids in [production-readiness.md](production-readiness.md) and are listed here only so this page stays honest.
 
-- [ ] **[SEC-01] Logout and password-change do not revoke sessions.** `AuthService.ValidateToken` is the only code that reads `token_blacklist` and it has zero callers — every route uses `ParseAccessToken`, which checks signature and expiry only. A leaked token stays valid for its full 24-hour life.
-- [ ] **[SEC-02] Four admin endpoints authenticate but do not authorise.** `MarkLoanDefaulted`, `MonthlyReport`, `YearlyReport`, `LoanPerformanceReport` call `userIDFromRequest` without `requireRoles`. Any member's token can default any loan — which moves money through guarantor recovery — or read foundation-wide financials.
-- [ ] **[SEC-03] Gallery `POST`/`PUT`/`DELETE` have no auth check** and run under `Access-Control-Allow-Origin: *`. The public gallery is writable by anyone.
-- [ ] **[SEC-07] `utils.MaxRequestBodySize` is never used** — `ParseJSON` decodes unbounded request bodies.
+- [x] **[SEC-01] Logout and password-change do not revoke sessions.** Fixed in Batch A.
+- [x] **[SEC-02] Four admin endpoints authenticate but do not authorise.** Fixed in Batch A.
+- [x] **[SEC-03] Gallery `POST`/`PUT`/`DELETE` have no auth check.** Fixed in Batch A.
+- [x] **[SEC-05] Access token accepted in `?access_token=`.** Fixed in Batch A.
+- [x] **[SEC-07] `utils.MaxRequestBodySize` is never used.** Fixed in Batch A.
 - [ ] `RUN-06`: `CleanupExpiredTokens` and `CleanupExpiredRateLimits` are written but never called — `token_blacklist` and `rate_limits` grow without bound.
 - [ ] `app/api/v1/loans/[id]/guarantor-approval/route.ts` validates the loan id against a **UUID regex**, but Prisma ids are `cuid()` — every request 400s, so FR-11 is dead in practice.
 - [ ] `LoanStatus` still carries legacy `PENDING` / `APPROVED` beside the spec states; two vocabularies for one concept.
 - [ ] `/api/v1/settings` upserts any key it receives, so a typo silently creates dead config.
-- [ ] `/api/v1/settings` sets `Access-Control-Allow-Origin: *` while the Go API uses an allow-list ([SEC-04](production-readiness.md)).
+- [x] `/api/v1/settings` sets `Access-Control-Allow-Origin: *` while the Go API uses an allow-list ([SEC-04](production-readiness.md)). Fixed in Batch A — both Next routes now share `lib/cors.ts`, which reads the same `CORS_ORIGINS` list.
+- [ ] The support chat has **no SSE client yet**. `GET /v1/dashboard/support/stream` and its ticket endpoint are live and authenticated, but nothing in the web app opens an `EventSource` — the UI still polls. A client must `POST /v1/dashboard/support/stream/ticket` and pass `?ticket=` on every connect.
 
 ## Gaps
 
