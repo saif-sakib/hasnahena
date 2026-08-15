@@ -76,6 +76,22 @@ Signed uploads through a `hasnahena-docs` preset: formats `jpg,jpeg,png,pdf`, ma
 
 Remove conflicting old records, add both apex and www in Vercel, add `api.hasnahenafoundation.com` in Render, wait for SSL, then confirm `NEXT_PUBLIC_API_URL` points at the custom API domain and redeploy.
 
+## Environment
+
+Render and Vercel are **separate stores that share nothing automatically**. Copy
+values from the templates, one per host:
+
+| Host | Runs | Template |
+|---|---|---|
+| Render | Go API (`apps/api`) | [.env.render.example](../.env.render.example) |
+| Vercel | Next web app (`apps/web`) | [.env.vercel.example](../.env.vercel.example) |
+
+Only `DATABASE_URL` and `JWT_SECRET` exist on both, and they must be
+byte-identical. A mismatched `JWT_SECRET` makes every login succeed and every
+subsequent request 401 — it presents as a session bug, not a config bug.
+
+Full reference, including which variables are optional: [setup.md](setup.md#environment).
+
 ## Release checklist
 
 1. `https://hasnahenafoundation.com` loads; `www` resolves.

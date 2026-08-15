@@ -20,9 +20,17 @@ const (
 // year. The upsert is atomic: concurrent callers serialise on the row, so two
 // transactions can never be handed the same number. Rolling back a failed
 // transaction also rolls back the allocation, which keeps the series gapless.
+//
+// "createdAt" and "updatedAt" are written explicitly and must stay that way.
+// Prisma models them with @default(now()) and @updatedAt — and @updatedAt is
+// applied by the Prisma client, not by the database, so `prisma db push`
+// actively *strips* any DEFAULT from that column. Relying on the default meant
+// the first allocation of a series failed a NOT NULL check the moment anyone
+// ran a db push, taking every deposit, withdrawal, loan and repayment with it,
+// since all four allocate a number inside their transaction.
 const NextDocumentNumberQuery = `
-	INSERT INTO document_sequences (series, year, counter)
-	VALUES ($1, $2, 1)
+	INSERT INTO document_sequences (series, year, counter, "createdAt", "updatedAt")
+	VALUES ($1, $2, 1, NOW(), NOW())
 	ON CONFLICT (series, year)
 	DO UPDATE SET counter = document_sequences.counter + 1, "updatedAt" = NOW()
 	RETURNING counter
