@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
     "db:clear": "node scripts/db-clear-preserve-core.mjs",
     "postinstall": "prisma generate"
   },
@@ -40,6 +41,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",

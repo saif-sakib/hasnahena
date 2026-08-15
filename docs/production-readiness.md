@@ -22,7 +22,7 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[ ]` | Effectively none. One Go middleware test; one Playwright spec with no dependency and no config |
+| Automated tests | `[~]` | Go unit tests on money maths, IDs, logging and revocation timing (`pnpm test:go`). Playwright wired up but needs a seed. No integration tests (CI-03) and no CI to run any of it (CI-05) |
 | CI/CD | `[ ]` | No `.github/`. Lint, typecheck and `go build` are manual |
 | Containerisation | `[ ]` | No Dockerfile. Cannot run anywhere but Vercel + Render |
 | Observability | `[~]` | Structured JSON access logs with request + user IDs (RUN-04/05). Still no metrics, traces, error tracking or alerts |
@@ -198,8 +198,8 @@ every later phase safe.
 
 | ID | Task | Notes |
 |---|---|---|
-| CI-01 | Make one test command exist | Add `@playwright/test` + config + script, or delete the orphan spec. Right now `pnpm typecheck` reports 2 errors purely because the dependency is missing |
-| CI-02 | Go unit tests on money maths | `nextDocumentNumber`, waterfall recovery, loan caps, balance arithmetic. Table-driven, no DB |
+| CI-01 `[x]` | Make one test command exist | **Done.** `pnpm test:go` (Go unit tests, no DB) and `pnpm test:e2e` (Playwright, wired up with config + script). `pnpm typecheck` now exits clean with zero errors, so it is finally a usable signal |
+| CI-02 `[x]` | Go unit tests on money maths | **Done.** The arithmetic was inline in `user_repository.go` and duplicated, so it was extracted to `internal/money` and the repository rewired to call it. Table-driven tests plus a property test that every installment schedule repays the principal exactly. This caught a live rounding defect — see the note under "Where the platform actually stands" |
 | CI-03 | Go integration tests against a real Postgres | `docker-compose` already provides one. Cover the five priority scenarios in tasks.md — dispute→correct, loan caps, default waterfall, withdrawal blocking, audit immutability |
 | CI-04 | Web unit tests | Vitest for `lib/documents/*`, `lib/validation/*`, `lib/document-numbers.ts` |
 | CI-05 | GitHub Actions: PR pipeline | `pnpm typecheck`, `pnpm lint`, `go vet ./...`, `go build ./...`, both test suites. Required check on `main` |
@@ -350,7 +350,7 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 | # | Block | Tasks | Rough effort |
 |---|---|---|---|
 | 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
-| 2 | **Safety net** | CI-01 → CI-09 | 1 week |
+| 2 | **Safety net** | CI-03 → CI-09 (CI-01, CI-02 done) | 4–5 days |
 | 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
 | 4 | **Backups that work** | DATA-01, DATA-02, DATA-03 | 1 day |
 | 5 | **Can see it** | OBS-01 → OBS-06 | 2–3 days |

@@ -24,7 +24,7 @@ on the quoted code, not the number.
 |---|---|---|---|
 | ~~**A**~~ | WO-01 → WO-05 | Security defects — **done** | — |
 | ~~**B**~~ | WO-06 → WO-09 | Runtime hardening — **done** | — |
-| **C** | WO-10 → WO-13 | Test harness + CI | ~2 sessions |
+| **C** | WO-10 → WO-13 | Test harness + CI — WO-10, WO-11 **done**; WO-12, WO-13 open | ~1 session left |
 | **D** | WO-14 → WO-16 | Backups, migrations, seed | ~1 session |
 | **E** | WO-17 → WO-19 | Observability | ~1 session |
 | **F** | WO-20 → WO-22 | Containerise | ~1 session |
@@ -325,7 +325,7 @@ stderr. That is RUN-08's job, not this one.
 
 # Batch C — Tests and CI
 
-## WO-10 · Decide the e2e story `[ ]`
+## WO-10 · Decide the e2e story `[x]`
 
 **Why:** CI-01. The orphan spec is the *only* reason `pnpm typecheck` reports
 errors.
@@ -339,7 +339,26 @@ because scenario 1 below needs it.
 **Verify:** `pnpm typecheck` exits clean with **zero** errors. Update the CLAUDE.md
 note that currently says 2 errors are expected.
 
-## WO-11 · Go unit tests on money maths `[ ]`
+**Done — wired up, per the stated default.** `@playwright/test` added as a web
+devDependency, `apps/web/playwright.config.ts` created, `pnpm test:e2e` added at
+both the root and web package. `pnpm typecheck` now exits **clean with zero
+errors** and CLAUDE.md says so.
+
+Two changes to the spec itself. It took `http://localhost:3000` and a hardcoded
+password; it now uses `baseURL` from the config and reads
+`E2E_ADMIN_IDENTIFIER` / `E2E_ADMIN_PASSWORD` from the environment — a real
+password does not belong in the repo. And it **skips** rather than fails when
+those are unset, so a developer without a local seed does not see a red suite
+they cannot fix.
+
+`workers: 1` in the config is deliberate: the specs share one database and one
+set of seeded accounts, so parallel runs would fight over the same balances.
+
+**Not run here** — needs a seeded local database, and the only `DATABASE_URL` on
+this machine is production. Browsers also need `playwright install chromium`
+once.
+
+## WO-11 · Go unit tests on money maths `[x]`
 
 **Why:** CI-02. Table-driven, no DB.
 
@@ -349,6 +368,28 @@ adjustment in `lib/documents/builders/loan-agreement.ts` has a Go counterpart),
 balance arithmetic.
 
 **Verify:** `go test ./...` passes.
+
+**Done.** The arithmetic was inline in `user_repository.go` and duplicated, so
+testing it meant extracting it first: **[apps/api/internal/money](../apps/api/internal/money)**
+is a new package of pure `int64`-taka functions — `InstallmentPlan`,
+`MaxLoanAmount`, `EvaluateEligibility`, `RecoverFrom`, `Waterfall`. The
+repository now calls them at all six sites, so the tests guard production code
+rather than a parallel copy. Behaviour is unchanged.
+
+Coverage: `internal/money` (table-driven, including a property test asserting
+every schedule repays the principal **exactly** — over-collecting is riba,
+under-collecting means the loan never closes), `FormatDocumentNumber` and the
+series constants, `FormatMemberID`/`ParseMemberSequence` round trips and
+malformed input, and token-revocation timing.
+
+Sequence *allocation* is not covered — it is a SQL upsert and belongs to WO-12.
+
+**Found and fixed while writing these:** `installmentAmount := amount / int64(installments)`
+silently dropped the remainder, so a 10,000 taka loan over 3 months recorded
+3,333 × 3 = 9,999. The PDF already compensated with an adjusted final
+installment; the Go side did not, so the stored schedule and the signed contract
+disagreed. `money.InstallmentPlan` now returns both figures and the invariant is
+a test.
 
 ## WO-12 · Integration tests against real Postgres `[ ]`
 

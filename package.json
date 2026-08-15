@@ -18,6 +18,8 @@
     "db:studio": "pnpm --filter @hasnahena/web prisma studio",
     "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
     "typecheck": "pnpm --filter @hasnahena/web typecheck",
+    "test:e2e": "pnpm --filter @hasnahena/web test:e2e",
+    "test:go": "cd apps/api && go test ./...",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"
   },
   "devDependencies": {

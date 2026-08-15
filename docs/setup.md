@@ -49,8 +49,25 @@ One `.env.local` at the repo root serves both apps — the Go config loader walk
 | `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
 | `SERVER_SHUTDOWN_TIMEOUT` | 30s. How long a `SIGTERM` waits for in-flight requests. Must be **shorter** than the host's stop grace period |
 | `CLEANUP_INTERVAL` | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables the sweep |
+| `E2E_BASE_URL`, `E2E_ADMIN_IDENTIFIER`, `E2E_ADMIN_PASSWORD` | `pnpm test:e2e` skips every spec unless the last two are set. Point them at a seeded **local** database — the specs sign in and move money |
 
 Skip Cloudinary locally unless you are testing uploads; if you do use it, use a separate dev account or a `hasnahena-dev/` folder prefix — never production credentials.
+
+## Tests
+
+```bash
+pnpm test:go     # Go unit tests. Pure arithmetic, no database, fast
+pnpm test:e2e    # Playwright. Needs the stack running and a seeded local DB
+```
+
+`pnpm test:go` covers `internal/money` (installment splitting, loan caps,
+default waterfall), document and member ID formatting, and token-revocation
+timing. It is the suite to run after touching anything in
+`apps/api/internal/money` — a failure there means money is being miscounted.
+
+`pnpm test:e2e` skips itself unless `E2E_ADMIN_IDENTIFIER` and
+`E2E_ADMIN_PASSWORD` are set, so a missing local seed is not a failure. Install
+browsers once with `pnpm --filter @hasnahena/web exec playwright install chromium`.
 
 ## Database work
 

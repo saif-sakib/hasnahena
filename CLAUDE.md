@@ -11,10 +11,13 @@ No Java ledger, Redis, Clerk/Keycloak, SMS, `packages/`, or `services/` — desp
 pnpm dev        # api :8081 + web :3000        pnpm db:push    # apply schema.prisma
 pnpm typecheck  # run before saying "done"     pnpm db:clear   # keep admin+gallery+config only
 pnpm lint                                      pnpm db:studio
+pnpm test:go    # Go unit tests, no DB needed  pnpm test:e2e   # Playwright; needs a running stack + seed
 cd apps/api && go build ./...                  # Go check
 ```
 
-`pnpm typecheck` reports 2 pre-existing errors in `e2e/admin-dashboard.spec.ts` (Playwright not installed). Anything else is yours.
+`pnpm typecheck` must exit **clean, zero errors**. Any error is yours.
+
+No Go toolchain on this machine. Unpack a pinned Go 1.22 tarball into the session scratchpad and put it on `PATH` — `go build`, `go vet` and `go test` then all work.
 
 ## Rules
 
@@ -25,12 +28,20 @@ cd apps/api && go build ./...                  # Go check
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
 6. `audit_logs` is append-only. Corrections append.
 7. Never commit `.env*` or credentials.
+8. **End every task with an "Action required from you" section** — or the single line `**Action required from you:** none.` Never leave it out, and never bury a required step in prose. It lists what *I* cannot do and the user must, each with where to do it and what breaks if it is skipped:
+   - env vars to add, change, or delete — **name the host** (Render for the Go API, Vercel for the web app, and the local `.env.local`), since they are separate stores and a var added in one is missing in the others
+   - `pnpm db:push` when `schema.prisma` changed
+   - dashboard/console settings (Render stop-grace period, GitHub branch protection, Neon, Brevo, Cloudinary)
+   - anything needing a credential, a paid plan, or an approval I do not have
+   - manual verification I could not run here, and why
+   Say "none" loudly when it is none. A missed env var is a production outage the user finds out about from a member.
 
 ## Map
 
 ```
 apps/api/cmd/server/main.go       every Go route — read first
-apps/api/internal/repositories/   user_repository.go: all SQL + calculations (~4.8k lines)
+apps/api/internal/repositories/   user_repository.go: all SQL (~4.8k lines)
+apps/api/internal/money/          pure loan/installment/waterfall arithmetic — tested, no DB. Put new money maths HERE, not inline in SQL
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, confirm/dispute
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
