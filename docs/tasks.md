@@ -2,12 +2,13 @@
 
 Live status of the platform. Verified against the code on **2026-08-15**. Update this file in the same commit as the work it describes.
 
-This file tracks **product** work. Operational readiness — security defects, tests, CI, containers, backups, observability, and the eventual move off Vercel/Render — lives in [production-readiness.md](production-readiness.md).
+This file tracks **product** work. Operational readiness lives in [production-readiness.md](production-readiness.md) (the *why*) and [work-orders.md](work-orders.md) (the *what to change* — prompt with `do WO-01`).
 
 > **Four security defects are live in production.** Any logged-in member can mark any loan defaulted and read foundation-wide financial reports; logout does not actually end a session; the public gallery accepts unauthenticated writes. See [SEC-01…SEC-03](production-readiness.md#phase-0--security-defects-do-these-first). Fix these before starting anything below.
 
 ## Recently done
 
+- [x] Dead-code cleanup — removed a 17 MB committed Go binary, 27 empty route folders, 2 unused UI components, 4 unused npm dependencies, 2 unused repository methods and 7 unused helper exports; moved 2.3 MB of unreferenced brand masters out of `public/` into `apps/web/assets/brand/` so they are no longer served. Four "unused" Go symbols were **kept and annotated** — they are unused only because SEC-01/SEC-07/RUN-06 were never wired up, so deleting them would delete the fix. Behaviour unchanged; `clearOrgSettingsCache` was wired into the admin settings save instead of deleted, which also fixes stale letterhead on generated documents.
 - [x] Documents are English only and drawn as real PDF text — statements/receipts/loan agreements/certificates now produce **selectable, searchable, vector-sharp** PDFs that paginate properly (the previous rasteriser clipped the last line and the footer). One document model, two renderers; `html2canvas` and `jspdf-autotable` dropped. See [ADR-012](decisions.md).
 - [x] Reference numbers are sequential and readable — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…` from the `document_sequences` table, allocated inside the posting transaction. Replaces random hex suffixes that could collide on the unique `loanNumber`. See [ADR-013](decisions.md). **Run `pnpm db:push` before deploying.**
 - [x] Document generation rebuilt — `lib/documents/` split into types/format/theme/templates/export; **multi-page PDFs no longer truncate** (the old exporter put one full-height image on a single A4 page), HTML escaping added, amount-in-words (EN + BN), statements now reconcile and classify loan/donation rows instead of leaving credit and debit blank. See [ADR-010](decisions.md).
@@ -50,11 +51,9 @@ Security defects are tracked with `SEC-` ids in [production-readiness.md](produc
 - [ ] **[SEC-02] Four admin endpoints authenticate but do not authorise.** `MarkLoanDefaulted`, `MonthlyReport`, `YearlyReport`, `LoanPerformanceReport` call `userIDFromRequest` without `requireRoles`. Any member's token can default any loan — which moves money through guarantor recovery — or read foundation-wide financials.
 - [ ] **[SEC-03] Gallery `POST`/`PUT`/`DELETE` have no auth check** and run under `Access-Control-Allow-Origin: *`. The public gallery is writable by anyone.
 - [ ] **[SEC-07] `utils.MaxRequestBodySize` is never used** — `ParseJSON` decodes unbounded request bodies.
-- [ ] **[SEC-06] A 17 MB compiled `apps/api/server` binary is committed** and is not gitignored; it is most of the repo's 59 MB history.
 - [ ] `RUN-06`: `CleanupExpiredTokens` and `CleanupExpiredRateLimits` are written but never called — `token_blacklist` and `rate_limits` grow without bound.
 - [ ] `app/api/v1/loans/[id]/guarantor-approval/route.ts` validates the loan id against a **UUID regex**, but Prisma ids are `cuid()` — every request 400s, so FR-11 is dead in practice.
 - [ ] `LoanStatus` still carries legacy `PENDING` / `APPROVED` beside the spec states; two vocabularies for one concept.
-- [ ] 16 empty route folders under `apps/web/app/api` (`v1/me/*`, `v1/auth/*`, `v1/debug`, `auth/*`, several `[id]` stubs) — dead scaffolding that misleads readers about the API surface.
 - [ ] `/api/v1/settings` upserts any key it receives, so a typo silently creates dead config.
 - [ ] `/api/v1/settings` sets `Access-Control-Allow-Origin: *` while the Go API uses an allow-list ([SEC-04](production-readiness.md)).
 

@@ -192,7 +192,13 @@ func (s *AuthService) ParseAccessToken(tokenString string) (jwt.MapClaims, error
 	return claims, nil
 }
 
-// ValidateToken checks if token is valid AND not blacklisted
+// ValidateToken checks if token is valid AND not blacklisted.
+//
+// NOT WIRED UP. Every handler authenticates through authFromRequest ->
+// ParseAccessToken, which skips the blacklist entirely, so logout and
+// password-change do not actually revoke a session — see SEC-01 in
+// docs/production-readiness.md. This function is the fix, not dead code:
+// do not delete it, call it.
 func (s *AuthService) ValidateToken(ctx context.Context, tokenString string) (jwt.MapClaims, error) {
 	claims, err := s.ParseAccessToken(tokenString)
 	if err != nil {

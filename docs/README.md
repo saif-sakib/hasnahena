@@ -10,7 +10,8 @@
 | [deployment.md](deployment.md) | Vercel + Render + Neon + Cloudinary + DNS |
 | [decisions.md](decisions.md) | Why the code contradicts an older assumption |
 | [tasks.md](tasks.md) | What is done, what is partial, what is broken |
-| [production-readiness.md](production-readiness.md) | Operational backlog: security defects, tests, CI, containers, backups, observability, and the path to a VPS/AWS |
+| [production-readiness.md](production-readiness.md) | Operational backlog: security defects, tests, CI, containers, backups, observability, and the path to a VPS/AWS — the *why* |
+| [work-orders.md](work-orders.md) | The same backlog as execution specs — exact files, changes and verification. Prompt with `do WO-01` |
 
 New to the project: [product.md](product.md) → [architecture.md](architecture.md) → [setup.md](setup.md).
 

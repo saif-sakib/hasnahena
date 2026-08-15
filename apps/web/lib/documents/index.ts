@@ -63,4 +63,4 @@ export {
   renderPDF,
 } from './export';
 
-export { fetchOrgSettings } from './org-settings';
+export { fetchOrgSettings, clearOrgSettingsCache } from './org-settings';

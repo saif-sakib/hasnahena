@@ -2095,59 +2095,6 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	return nil
 }
 
-func (r *UserRepository) RevertRegistrationApproval(ctx context.Context, userID, approverID, reason string) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	var email, phone string
-	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(email, ''), phone
-		FROM users
-		WHERE id = $1
-		FOR UPDATE
-	`, userID).Scan(&email, &phone)
-	if err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE users
-		SET
-			status = 'PENDING',
-			"approvedAt" = NULL,
-			"approvedBy" = NULL,
-			"passwordHash" = '__PENDING_APPROVAL_NO_LOGIN__',
-			"updatedAt" = NOW()
-		WHERE id = $1
-	`, userID); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM password_reset_tokens
-		WHERE token LIKE 'first-login-%'
-		  AND "usedAt" IS NULL
-		  AND (("email" = $1 AND $1 <> '') OR "phone" = $2)
-	`, email, phone); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-
-	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION_ROLLBACK', 'USER', $1, $2, NOW(), $3)
-	`
-	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, reason)
-
-	return nil
-}
-
 func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reason string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -4838,12 +4785,6 @@ func (r *UserRepository) GetResetToken(ctx context.Context, token string) (*Pass
 		return nil, err
 	}
 	return &t, nil
-}
-
-func (r *UserRepository) DeleteResetTokenByID(ctx context.Context, id string) error {
-	query := `DELETE FROM password_reset_tokens WHERE id = $1`
-	_, err := r.db.Exec(ctx, query, id)
-	return err
 }
 
 func (r *UserRepository) MarkResetTokenUsed(ctx context.Context, id string) error {

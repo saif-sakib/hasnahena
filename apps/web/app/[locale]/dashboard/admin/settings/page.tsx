@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { clearOrgSettingsCache } from '@/lib/documents';
 import { uploadSettingsImageAction, deleteSettingsImageAction } from '@/app/actions/upload-settings-image';
 import { uploadGalleryAction, deleteGalleryAction } from '@/app/actions/upload-gallery';
 
@@ -405,6 +406,11 @@ export default function AdminSettingsPage() {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || 'Failed to save settings');
       }
+
+      // Letterhead values are cached for the session, so documents generated
+      // after this save would otherwise keep printing the old organisation
+      // details until a full reload.
+      clearOrgSettingsCache();
 
       toast({
         title: 'Success',

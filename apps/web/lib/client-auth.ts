@@ -83,11 +83,3 @@ export function getClientRoleFromToken(): string {
   const payload = parseJwtPayload<JwtPayload>(token);
   return payload?.role?.toLowerCase() || 'member';
 }
-
-/**
- * Checks if the user needs to change their password
- */
-export function isForcePasswordChangeRequired(): boolean {
-  if (typeof window === 'undefined') return false;
-  return localStorage.getItem(FORCE_PASSWORD_CHANGE_KEY) === '1';
-}
