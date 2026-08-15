@@ -32,6 +32,20 @@ fail() {
   exit 1
 }
 
+# Vercel installs with a frozen lockfile and refuses to build if pnpm-lock.yaml
+# does not match package.json. That is exactly what happens after merging two
+# dependency PRs in a row: each rewrote the lockfile, and the merge of the two
+# re-resolves neither. Catching it here costs seconds; catching it on Vercel
+# costs a failed deploy and a confusing error.
+echo "pre-push: lockfile…"
+if ! pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1; then
+  echo
+  echo "  ✗ pnpm-lock.yaml does not match package.json."
+  echo "    Fix with:  pnpm install && git add pnpm-lock.yaml && git commit --amend --no-edit"
+  echo
+  exit 1
+fi
+
 echo "pre-push: typecheck…"
 pnpm typecheck >/dev/null 2>&1 || fail "pnpm typecheck"
 

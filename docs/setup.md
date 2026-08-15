@@ -246,21 +246,38 @@ three, or logins fail with a valid password.
 
 Run `pnpm audit` before a release. The policy behind the numbers it prints:
 
-**Patch and minor updates are taken automatically.** Dependabot opens one
-grouped PR a month per ecosystem. These are the ones that carry security fixes
-without asking anything of you.
+**Dependabot does not track application dependencies.** It tracks GitHub
+Actions and nothing else. The reasoning is in `.github/dependabot.yml`: one
+month of automated npm and Go PRs produced two production incidents and zero
+fixed vulnerabilities. What replaces it:
 
-**Major updates are ignored by Dependabot, deliberately** — for npm and Go, not
-for Actions. A major version is a migration, and merging one unread is how
-`tailwindcss` 3→4 landed in a repository configured for v3 and broke the Vercel
-build ([ADR-014](decisions.md) neighbours; the incident is in
-[tasks.md](tasks.md)). Take a major on a branch, read its migration guide, and
-run `pnpm build` before merging.
+- **GitHub's Dependabot _security_ updates stay on.** That is a repository
+  setting (Settings → Advanced Security), not the config file, and it only opens
+  a PR when there is a real advisory.
+- **CI runs `pnpm audit` on every push**, so a new advisory is a visible check
+  rather than a PR in a list.
+- **Routine updates are done by hand**, below.
 
-GitHub Actions are the exception and **do** take majors, weekly. An action major
-is a tag rewrite rather than a code change, and GitHub retires the Node runtime
-under old action majors on its own schedule — pinning them is how you end up
-with a hard failure you did not choose the timing of.
+**After merging any dependency PR, run `pnpm install` and commit the
+regenerated `pnpm-lock.yaml`.** Every such PR rewrites the lockfile, and merging
+two in a row leaves a lockfile that resolves neither. Vercel installs frozen and
+fails with `ERR_PNPM_LOCKFILE_MISSING_DEPENDENCY`. The pre-push hook checks this
+for you; `git push --no-verify` skips the check and the protection with it.
+
+To update deliberately:
+
+```bash
+pnpm outdated              # what has moved
+pnpm update --latest       # minors and patches only, by default
+pnpm install               # regenerate the lockfile
+pnpm typecheck && pnpm build && pnpm test:go
+```
+
+**Never take a major version this way.** A major is a migration: read its guide,
+do it on a branch, and check it by hand. That is how `tailwindcss` 3→4 broke the
+Vercel build — v4 moves configuration into CSS and needs a different PostCSS
+plugin, which no version bump can do for you. The outstanding majors are scoped
+as Batch G in [work-orders.md](work-orders.md).
 
 **Transitive vulnerabilities are pinned in `pnpm.overrides`** in the root
 `package.json`. When a dependency-of-a-dependency has an advisory and its parent
