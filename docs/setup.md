@@ -124,9 +124,34 @@ of settings that were never wired up (`SESSION_SECRET`, `SESSION_MAX_AGE`,
 ## Tests
 
 ```bash
-pnpm test:go     # Go unit tests. Pure arithmetic, no database, fast
-pnpm test:e2e    # Playwright. Needs the stack running and a seeded local DB
+pnpm test:go           # Go unit tests. Pure arithmetic, no database, fast
+pnpm test:integration  # Go against a real Postgres. Needs TEST_DATABASE_URL
+pnpm test:e2e          # Playwright. Needs the stack running and a seeded local DB
 ```
+
+### Integration tests
+
+These are the financial-integrity tests: the money lifecycle, loan caps, the
+default waterfall, withdrawal blocking, and the append-only audit trail. They
+need their own database — they truncate every table between tests, so **never
+point `TEST_DATABASE_URL` at a database you care about**.
+
+```bash
+docker compose up -d db
+createdb hasnahena_test    # or: psql -c 'CREATE DATABASE hasnahena_test'
+
+export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_test
+DATABASE_URL=$TEST_DATABASE_URL pnpm --filter @hasnahena/web exec prisma db push --skip-generate
+pnpm test:integration
+```
+
+The `db push` step is not optional and not incidental: these tests run against
+the schema that actually deploys, including the column defaults Prisma strips.
+That is what makes them catch the class of bug described in
+[data-model.md](data-model.md#writing-sql-by-hand--two-traps).
+
+With `TEST_DATABASE_URL` unset the suite exits cleanly rather than failing, so
+`go test ./...` stays green for anyone without a database.
 
 `pnpm test:go` covers `internal/money` (installment splitting, loan caps,
 default waterfall), document and member ID formatting, and token-revocation

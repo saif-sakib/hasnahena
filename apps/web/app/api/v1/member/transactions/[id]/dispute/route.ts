@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
+import { createAuditLog } from '@/lib/audit';
 import { TransactionStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
@@ -41,6 +42,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         disputeReason: payload.reason.trim(),
         disputeCorrectAmount: correctAmountBig ?? null,
       },
+    });
+
+    // A dispute is the first step of a correction, and a correction has to be
+    // traceable end to end. Without this the trail jumps from the wrong posting
+    // straight to the reversal, with nothing recording who objected or why.
+    await createAuditLog({
+      action: 'TRANSACTION_DISPUTED',
+      entityType: 'TRANSACTION',
+      entityId: tx.id,
+      userId: auth.id,
+      details: payload.correctAmount != null
+        ? `Disputed: ${payload.reason.trim()} (member states the correct amount is ${payload.correctAmount})`
+        : `Disputed: ${payload.reason.trim()}`,
     });
 
     return NextResponse.json({ ok: true, data: updated }, { status: 200 });
