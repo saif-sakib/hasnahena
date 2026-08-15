@@ -137,6 +137,7 @@ model User {
   supportThreads          SupportThread[]  @relation("MemberSupportThreads")
   processedSupportThreads SupportThread[]  @relation("ProcessedSupportThreads")
   supportMessages         SupportMessage[] @relation("SentSupportMessages")
+  sseTickets              SseTicket[]      @relation("UserSseTickets")
 
   // Worker-specific
   assignedBranch String?
@@ -518,6 +519,22 @@ model TokenBlacklist {
   @@index([userId])
   @@index([expiresAt])
   @@map("token_blacklist")
+}
+
+// Short-lived single-purpose credential for SSE connections. EventSource cannot
+// send an Authorization header, so the stream takes one of these in the query
+// string instead of an access token (SEC-05). Created here as well as in
+// EnsureSupportSchema so a deploy that has not run `db push` still works.
+model SseTicket {
+  ticketHash String   @id // SHA-256 hash of the ticket (not the ticket itself)
+  userId     String
+  user       User     @relation("UserSseTickets", fields: [userId], references: [id], onDelete: Cascade)
+  purpose    String // e.g. "support_stream"
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([expiresAt], map: "idx_sse_tickets_expires_at")
+  @@map("sse_tickets")
 }
 
 model RateLimit {

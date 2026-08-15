@@ -52,10 +52,16 @@ func (s *SecurityService) IsTokenBlacklisted(ctx context.Context, token string) 
 
 // BlacklistAllUserTokens revokes all tokens for a user (called on password change)
 func (s *SecurityService) BlacklistAllUserTokens(ctx context.Context, userID string, reason string) error {
-	// Insert a special marker that means "all tokens issued before this time are invalid"
+	// Insert a special marker that means "all tokens issued before this time are invalid".
+	// "tokenHash" is unique, so a repeat revocation for the same user has to move
+	// the existing marker forward rather than insert a second one.
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO token_blacklist (id, "tokenHash", "userId", reason, "expiresAt", "createdAt")
 		VALUES (gen_random_uuid()::text, $1, $2, $3, NOW() + INTERVAL '24 hours', NOW())
+		ON CONFLICT ("tokenHash") DO UPDATE SET
+			reason = EXCLUDED.reason,
+			"expiresAt" = EXCLUDED."expiresAt",
+			"createdAt" = EXCLUDED."createdAt"
 	`, "all:"+userID, userID, reason)
 	return err
 }

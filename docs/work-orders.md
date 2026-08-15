@@ -22,7 +22,7 @@ on the quoted code, not the number.
 
 | Batch | Orders | Theme | Session size |
 |---|---|---|---|
-| **A** | WO-01 → WO-05 | Security defects — do first, ship together | ~1 session |
+| ~~**A**~~ | WO-01 → WO-05 | Security defects — **done** | — |
 | **B** | WO-06 → WO-09 | Runtime hardening | ~1 session |
 | **C** | WO-10 → WO-13 | Test harness + CI | ~2 sessions |
 | **D** | WO-14 → WO-16 | Backups, migrations, seed | ~1 session |
@@ -39,11 +39,22 @@ on the quoted code, not the number.
 
 ---
 
-# Batch A — Security defects
+# Batch A — Security defects `[x]`
 
-Ship these together. They are the four things that are wrong *right now*.
+**Done.** All five shipped together. Outcomes and anything that changed from the
+spec below are recorded per-order; the *why* is in
+[production-readiness.md](production-readiness.md) under SEC-01 → SEC-05, SEC-07.
 
-## WO-01 · Enforce token revocation `[ ]`
+Two notes for whoever picks up Batch B:
+
+- **`pnpm db:push` is needed before the next deploy** — WO-05 adds an
+  `sse_tickets` table. The Go API also creates it on boot in
+  `EnsureSupportSchema`, so a missed push is not fatal.
+- Password change now signs the user out of the tab that made the change, since
+  revocation is finally enforced. The web UI does not yet handle that — it will
+  start 401ing rather than redirecting to login. Worth a follow-up.
+
+## WO-01 · Enforce token revocation `[x]`
 
 **Why:** SEC-01. Logout and password-change revoke nothing; the `token_blacklist`
 table is written and never read. A leaked token lives its full 24 hours.
@@ -74,7 +85,14 @@ per-token one.
 **Verify:** log in → copy the token → log out → reuse the token → expect 401.
 Then `go build ./...`.
 
-## WO-02 · Add the missing role checks `[ ]`
+**Done, with one extra.** `BlacklistAllUserTokens` inserted its `all:<userID>`
+marker with no `ON CONFLICT`, so a second password change inside 24 h hit the
+unique index on `tokenHash` and revoked nothing — it now upserts the marker
+forward. The redundant `userIDFromRequest` + `requireRoles` double-auth in
+`AdminLoans`/`AdminLoanDetail` was also collapsed to one call, since each
+authentication is now a DB round-trip.
+
+## WO-02 · Add the missing role checks `[x]`
 
 **Why:** SEC-02. Any member's token can default any loan (which moves money via
 guarantor recovery) and read foundation-wide financials.
@@ -99,7 +117,14 @@ defence-in-depth.
 
 **Verify:** call each of the four with a MEMBER token → expect 403. Then `go build ./...`.
 
-## WO-03 · Lock down the gallery write endpoints `[ ]`
+**Done.** The trap is closed with `dashboard.Route("/admin", …)` +
+`dashboardHandler.RequireRoles(…)`. One deliberate exception, commented in
+`main.go`: `/admin/donations` (GET and POST) is recorded by field workers too, so
+it sits in a second `admin.Group` gated ADMIN/SUPER_ADMIN/WORKER. It keeps the
+`/admin` path only for URL compatibility — do not move it into the admin-only
+group without changing the worker donation flow.
+
+## WO-03 · Lock down the gallery write endpoints `[x]`
 
 **Why:** SEC-03. `POST`/`PUT`/`DELETE` have no auth at all under
 `Access-Control-Allow-Origin: *`. Anyone on the internet can rewrite the public
@@ -118,7 +143,13 @@ gallery of a charity's site.
 **Verify:** `curl -X DELETE .../api/v1/gallery?id=x` with no token → 401.
 `pnpm typecheck && npx next build`.
 
-## WO-04 · Bound request bodies `[ ]`
+**Done.** The shared helper is [lib/cors.ts](../apps/web/lib/cors.ts): it reads
+the same `CORS_ORIGINS` list the Go API reads, echoes the request `Origin` only
+when allow-listed, and sends `Vary: Origin`. Nothing in the app used the gallery
+write routes — the admin gallery UI goes through server actions — so locking
+them broke no flow.
+
+## WO-04 · Bound request bodies `[x]`
 
 **Why:** SEC-07. `utils.MaxRequestBodySize` is defined and never applied.
 
@@ -137,7 +168,11 @@ Add the `io` import. Update the "NOT YET ENFORCED" comment in `validation.go`.
 
 **Verify:** POST a >1 MB body → decode error, not OOM. `go build ./...`.
 
-## WO-05 · Stop accepting tokens in the query string `[ ]`
+**Done** exactly as specified. `io.LimitReader` rather than
+`http.MaxBytesReader` because the latter needs the `ResponseWriter` that
+`ParseJSON` deliberately does not take.
+
+## WO-05 · Stop accepting tokens in the query string `[x]`
 
 **Why:** SEC-05. Query strings leak into proxy logs, CDN logs and `Referer`.
 
@@ -153,6 +188,22 @@ path but reject any token whose remaining lifetime exceeds 5 minutes. Say which
 you want; default is the ticket.
 
 **Verify:** SSE still streams; a full access token in `?access_token=` is rejected.
+
+**Done — the ticket, per the stated default.** `POST /v1/dashboard/support/stream/ticket`
+issues 32 random bytes, stored SHA-256-hashed in a new `sse_tickets` table
+(created in `EnsureSupportSchema` and declared in `schema.prisma`), valid 60 s
+and scoped to `purpose = 'support_stream'`. `SupportStream` takes an
+`Authorization` header when present, otherwise `?ticket=`. The `?access_token=`
+fallback is deleted from `authFromRequest` entirely.
+
+Two decisions worth knowing: a ticket is **not** consumed on use, because
+`EventSource` reconnects re-send the same URL and the 60 s TTL already bounds
+replay; and expired rows are swept on the issue path, so this needs no scheduled
+job from WO-08.
+
+**Not done, and it is the loose end:** nothing in the web app opens an
+`EventSource` yet — the support UI polls. Whoever writes that client must fetch a
+ticket before every connect.
 
 ---
 
@@ -334,7 +385,7 @@ any VPS/AWS work and the thing that makes a migration boring.
 
 # Recommended order
 
-1. **Batch A** — the live defects. Nothing else is worth doing first.
+1. ~~**Batch A** — the live defects.~~ Done.
 2. **WO-10** — makes `pnpm typecheck` a clean signal, which every later order relies on.
 3. **WO-14 + WO-15** — backups. Cheap, and the only protection against the unrecoverable failure.
 4. **Batch B** — hardening.

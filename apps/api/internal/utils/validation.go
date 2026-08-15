@@ -27,8 +27,7 @@ const (
 
 	// MaxRequestBodySize - Maximum request body size (1 MB).
 	//
-	// NOT YET ENFORCED. ParseJSON decodes straight from r.Body, so request
-	// bodies are currently unbounded — see SEC-07 in docs/production-readiness.md.
-	// Kept because it is the intended limit, not because it is dead code.
+	// Enforced inside utils.ParseJSON, which wraps r.Body in an io.LimitReader,
+	// so every JSON handler is bounded without changing its call site.
 	MaxRequestBodySize int64 = 1 * 1024 * 1024
 )

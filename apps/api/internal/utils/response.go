@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 )
@@ -53,6 +54,9 @@ func Error(w http.ResponseWriter, status int, code string, message string) {
 	})
 }
 
+// ParseJSON decodes a JSON request body, bounded by MaxRequestBodySize so a
+// large or endless body cannot exhaust memory. A body over the limit fails as a
+// decode error, which every call site already surfaces as 400 INVALID_REQUEST.
 func ParseJSON(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	return json.NewDecoder(io.LimitReader(r.Body, MaxRequestBodySize)).Decode(v)
 }

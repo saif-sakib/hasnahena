@@ -117,6 +117,7 @@ func main() {
 			dashboard.Post("/support/messages", dashboardHandler.SupportSendMessage)
 			dashboard.Post("/support/threads/processed", dashboardHandler.SupportMarkProcessed)
 			dashboard.Get("/support/stream", dashboardHandler.SupportStream)
+			dashboard.Post("/support/stream/ticket", dashboardHandler.SupportStreamTicket)
 			dashboard.Get("/member/deposits", dashboardHandler.MemberDeposits)
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
@@ -140,42 +141,57 @@ func main() {
 			dashboard.Post("/worker/deposit", dashboardHandler.ProcessDeposit)
 			dashboard.Post("/worker/withdrawal", dashboardHandler.ProcessWithdrawal)
 
-			// Admin dashboard
-			dashboard.Get("/admin", dashboardHandler.AdminDashboard)
-			dashboard.Get("/admin/members", dashboardHandler.AdminMembers)
-			dashboard.Get("/admin/workers", dashboardHandler.AdminWorkers)
-			dashboard.Post("/admin/workers/welcome-email", dashboardHandler.SendWorkerWelcomeEmail)
-			dashboard.Post("/admin/members/status", dashboardHandler.UpdateMemberStatus)
+			// Everything under /admin is gated by the middleware below, so a
+			// handler added here is protected by where it is mounted rather
+			// than by the author remembering a check (SEC-02). Handlers keep
+			// their own requireRoles call as defence in depth.
+			dashboard.Route("/admin", func(admin chi.Router) {
+				admin.Group(func(adminOnly chi.Router) {
+					adminOnly.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN"))
 
-			// Admin approvals
-			dashboard.Get("/admin/approvals", dashboardHandler.AdminApprovals)
-			dashboard.Post("/admin/approvals/registration", dashboardHandler.ApproveRegistration)
-			dashboard.Post("/admin/approvals/registration/reject", dashboardHandler.RejectRegistration)
-			dashboard.Post("/admin/approvals/loan", dashboardHandler.ApproveLoan)
-			dashboard.Post("/admin/approvals/loan/reject", dashboardHandler.RejectLoan)
-			dashboard.Post("/admin/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
-			dashboard.Post("/admin/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
+					// Admin dashboard
+					adminOnly.Get("/", dashboardHandler.AdminDashboard)
+					adminOnly.Get("/members", dashboardHandler.AdminMembers)
+					adminOnly.Get("/workers", dashboardHandler.AdminWorkers)
+					adminOnly.Post("/workers/welcome-email", dashboardHandler.SendWorkerWelcomeEmail)
+					adminOnly.Post("/members/status", dashboardHandler.UpdateMemberStatus)
 
-			// Admin deposits
-			dashboard.Get("/admin/deposits", dashboardHandler.AdminDeposits)
+					// Admin approvals
+					adminOnly.Get("/approvals", dashboardHandler.AdminApprovals)
+					adminOnly.Post("/approvals/registration", dashboardHandler.ApproveRegistration)
+					adminOnly.Post("/approvals/registration/reject", dashboardHandler.RejectRegistration)
+					adminOnly.Post("/approvals/loan", dashboardHandler.ApproveLoan)
+					adminOnly.Post("/approvals/loan/reject", dashboardHandler.RejectLoan)
+					adminOnly.Post("/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
+					adminOnly.Post("/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
 
-			// Admin loans
-			dashboard.Get("/admin/loans", dashboardHandler.AdminLoans)
-			dashboard.Get("/admin/loans/detail", dashboardHandler.AdminLoanDetail)
-			dashboard.Post("/admin/loans/default", dashboardHandler.MarkLoanDefaulted)
+					// Admin deposits
+					adminOnly.Get("/deposits", dashboardHandler.AdminDeposits)
 
-			// Admin donations
-			dashboard.Get("/admin/donations", dashboardHandler.AdminDonations)
-			dashboard.Post("/admin/donations", dashboardHandler.RecordDonation)
+					// Admin loans
+					adminOnly.Get("/loans", dashboardHandler.AdminLoans)
+					adminOnly.Get("/loans/detail", dashboardHandler.AdminLoanDetail)
+					adminOnly.Post("/loans/default", dashboardHandler.MarkLoanDefaulted)
 
-			// Admin reports
-			dashboard.Get("/admin/reports/monthly", dashboardHandler.MonthlyReport)
-			dashboard.Get("/admin/reports/yearly", dashboardHandler.YearlyReport)
-			dashboard.Get("/admin/reports/loans", dashboardHandler.LoanPerformanceReport)
+					// Admin reports
+					adminOnly.Get("/reports/monthly", dashboardHandler.MonthlyReport)
+					adminOnly.Get("/reports/yearly", dashboardHandler.YearlyReport)
+					adminOnly.Get("/reports/loans", dashboardHandler.LoanPerformanceReport)
 
-			// Admin profile
-			dashboard.Get("/admin/profile", dashboardHandler.AdminProfile)
-			dashboard.Put("/admin/profile", dashboardHandler.UpdateProfile)
+					// Admin profile
+					adminOnly.Get("/profile", dashboardHandler.AdminProfile)
+					adminOnly.Put("/profile", dashboardHandler.UpdateProfile)
+				})
+
+				// Donations sit under /admin for historical URL reasons but are
+				// recorded by field workers too, so they get the wider gate.
+				admin.Group(func(staff chi.Router) {
+					staff.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN", "WORKER"))
+
+					staff.Get("/donations", dashboardHandler.AdminDonations)
+					staff.Post("/donations", dashboardHandler.RecordDonation)
+				})
+			})
 		})
 	})
 
