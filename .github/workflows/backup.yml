@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fail fast on missing secrets
         env:
@@ -46,19 +46,56 @@ jobs:
           [ -n "$DB" ]   || { echo 'BACKUP_DATABASE_URL secret is not set' >&2; exit 1; }
           [ -n "$PASS" ] || { echo 'BACKUP_PASSPHRASE secret is not set' >&2; exit 1; }
 
-      # The runner's bundled client may be older than the Neon server, and
-      # pg_dump refuses to dump a server newer than itself. Pin it explicitly.
-      - name: Install PostgreSQL 17 client
+      # pg_dump refuses to dump a server newer than itself, so the runner's
+      # bundled client is not good enough — Neon upgrades its Postgres on its
+      # own schedule. Install the newest client PGDG offers.
+      #
+      # The fallback chain matters: `ubuntu-latest` moves to a new release
+      # before PGDG publishes a matching suite, and a bare `apt-get update`
+      # against a missing suite fails the whole job. When that happens, fall
+      # back to the previous Ubuntu LTS codename, which PGDG always carries.
+      - name: Install the PostgreSQL client
         run: |
+          set -x
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
             https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
-            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-17
+
+          add_repo() {
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
+                 "https://apt.postgresql.org/pub/repos/apt $1-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+            sudo apt-get update -qq
+          }
+
+          if ! add_repo "$(lsb_release -cs)"; then
+            echo "PGDG has no suite for $(lsb_release -cs); falling back to noble"
+            add_repo noble
+          fi
+
+          # Newest first. Whichever lands, pg_dump can dump any older server.
+          installed=
+          for v in 19 18 17; do
+            if sudo apt-get install -y -qq "postgresql-client-$v"; then installed=$v; break; fi
+          done
+          if [ -z "$installed" ]; then
+            echo "falling back to the distro client"
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
           pg_dump --version
+
+      # Printed before the dump so that if this job ever fails again, the log
+      # says which side was wrong instead of only "exit code 1".
+      - name: Diagnostics
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          echo "runner:   $(lsb_release -ds)"
+          echo "client:   $(pg_dump --version)"
+          echo "gpg:      $(gpg --version | head -1)"
+          URL="${DIRECT_DATABASE_URL//-pooler/}"
+          echo "server:   $(psql "$URL" -tAc 'SHOW server_version;' 2>&1 | head -1)"
 
       - name: Dump and encrypt
         env:
