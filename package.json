@@ -24,8 +24,8 @@
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next"
   },
   "devDependencies": {
-    "prettier": "^3.2.5",
-    "prettier-plugin-tailwindcss": "^0.5.11"
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1"
   },
   "engines": {
     "node": ">=20.0.0",
