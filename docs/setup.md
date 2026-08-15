@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Node 20+, pnpm 8+, Go 1.25+ (pgx v5.10 requires it), and either Docker or a local PostgreSQL 15+. Nothing else — no Java, no Redis.
+Node 24+, pnpm 8+, Go 1.25+ (pgx v5.10 requires it), and either Docker or a local PostgreSQL 15+. Nothing else — no Java, no Redis.
 
 ## Run it
 
@@ -241,3 +241,30 @@ files are checklists for what to type into each dashboard, nothing more.
 The three stores are independent: a variable added to one is missing from the
 other two. `DATABASE_URL` and `JWT_SECRET` must match byte for byte across all
 three, or logins fail with a valid password.
+
+## Keeping dependencies current
+
+Run `pnpm audit` before a release. The policy behind the numbers it prints:
+
+**Patch and minor updates are taken automatically.** Dependabot opens one
+grouped PR a month per ecosystem. These are the ones that carry security fixes
+without asking anything of you.
+
+**Major updates are ignored by Dependabot, deliberately** — for npm and Go, not
+for Actions. A major version is a migration, and merging one unread is how
+`tailwindcss` 3→4 landed in a repository configured for v3 and broke the Vercel
+build ([ADR-014](decisions.md) neighbours; the incident is in
+[tasks.md](tasks.md)). Take a major on a branch, read its migration guide, and
+run `pnpm build` before merging.
+
+GitHub Actions are the exception and **do** take majors, weekly. An action major
+is a tag rewrite rather than a code change, and GitHub retires the Node runtime
+under old action majors on its own schedule — pinning them is how you end up
+with a hard failure you did not choose the timing of.
+
+**Transitive vulnerabilities are pinned in `pnpm.overrides`** in the root
+`package.json`. When a dependency-of-a-dependency has an advisory and its parent
+has not updated, an override forces the patched version without waiting. Check
+whether an override is still needed when its parent updates; a stale one silently
+holds a package back.
+
