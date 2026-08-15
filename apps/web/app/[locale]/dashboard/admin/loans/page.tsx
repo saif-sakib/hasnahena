@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import {
-  generateLoanDocumentHTML,
-  downloadAsPDF,
+  buildLoanAgreement,
+  downloadDocumentPDF,
   fetchOrgSettings,
 } from '@/lib/documents';
 
@@ -65,7 +65,7 @@ export default function AdminLoansPage() {
   const handleDownloadLoan = async (l: Loan) => {
     try {
       const orgSettings = await fetchOrgSettings();
-      const loanHtml = generateLoanDocumentHTML({
+      const loanDoc = buildLoanAgreement({
         loanNumber: l.loanNumber,
         memberName: l.member.name,
         memberId: l.member.memberId || '',
@@ -75,8 +75,8 @@ export default function AdminLoansPage() {
         totalInstallments: l.totalInstallments,
         installmentAmount: l.monthlyInstallment,
         disbursementDate: l.disbursedDate || l.approvedDate || undefined,
-      }, locale, orgSettings);
-      await downloadAsPDF(loanHtml, `Loan-${l.loanNumber}`);
+      }, orgSettings);
+      await downloadDocumentPDF(loanDoc);
     } catch (error) {
       console.error('Failed to download loan:', error);
     }

@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
-import { makeReceipt, serializeLoan } from '@/lib/api-utils';
+import { serializeLoan } from '@/lib/api-utils';
+import { SERIES, nextDocumentNumber } from '@/lib/document-numbers';
 import { LoanStatus, UserRole } from '@prisma/client';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -122,7 +123,7 @@ export async function POST(req: Request) {
 
     const loan = await prisma.loan.create({
       data: {
-        loanNumber: makeReceipt('LN'),
+        loanNumber: await nextDocumentNumber(SERIES.loan),
         principalAmount: amountBig,
         remainingAmount: amountBig,
         totalInstallments: installments,

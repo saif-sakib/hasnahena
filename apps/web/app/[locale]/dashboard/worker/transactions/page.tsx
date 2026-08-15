@@ -18,8 +18,8 @@ import {
   Download,
 } from 'lucide-react';
 import {
-  generateReceiptHTML,
-  downloadAsPDF,
+  buildReceipt,
+  downloadDocumentPDF,
   fetchOrgSettings,
 } from '@/lib/documents';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -102,7 +102,7 @@ export default function WorkerTransactionsPage() {
   const handleDownloadReceipt = async (tx: Transaction) => {
     try {
       const orgSettings = await fetchOrgSettings();
-      const receiptHtml = generateReceiptHTML({
+      const receiptDoc = buildReceipt({
         receiptNumber: tx.reference || tx.id,
         type: tx.type,
         amount: tx.amount,
@@ -112,8 +112,8 @@ export default function WorkerTransactionsPage() {
         memberPhone: tx.memberPhone,
         balanceAfter: tx.balanceAfter,
         notes: tx.notes,
-      }, locale, orgSettings);
-      await downloadAsPDF(receiptHtml, `Receipt-${tx.reference || tx.id}`);
+      }, orgSettings);
+      await downloadDocumentPDF(receiptDoc);
     } catch (error) {
       console.error('Failed to download receipt:', error);
     }

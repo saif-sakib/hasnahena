@@ -4,16 +4,6 @@
 import crypto from 'crypto';
 
 /**
- * Generate a receipt/loan number with prefix and timestamp
- */
-export function makeReceipt(prefix: string): string {
-  const d = new Date();
-  const date = d.toISOString().slice(0, 10).replace(/-/g, '');
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${prefix}-${date}-${suffix}`;
-}
-
-/**
  * Convert BigInt fields to numbers for JSON serialization
  */
 export function serializeTransaction(tx: any) {

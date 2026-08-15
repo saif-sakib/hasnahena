@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import {
-  generateReceiptHTML,
-  downloadAsPDF,
+  buildReceipt,
+  downloadDocumentPDF,
   fetchOrgSettings,
 } from '@/lib/documents';
 
@@ -63,7 +63,7 @@ export default function AdminDepositsPage() {
   const handleDownloadReceipt = async (d: Deposit) => {
     try {
       const orgSettings = await fetchOrgSettings();
-      const receiptHtml = generateReceiptHTML({
+      const receiptDoc = buildReceipt({
         receiptNumber: d.receiptNumber || d.id,
         type: d.type,
         amount: d.amount,
@@ -73,8 +73,8 @@ export default function AdminDepositsPage() {
         memberPhone: '',
         balanceAfter: d.balanceAfter || 0,
         notes: d.notes || undefined,
-      }, locale, orgSettings);
-      await downloadAsPDF(receiptHtml, `Receipt-${d.receiptNumber || d.id}`);
+      }, orgSettings);
+      await downloadDocumentPDF(receiptDoc);
     } catch (error) {
       console.error('Failed to download receipt:', error);
     }

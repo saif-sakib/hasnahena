@@ -1,27 +1,39 @@
 /**
  * Hasnahena official document generation.
  *
- *   generate*HTML(data, locale, org) -> standalone, print-ready HTML
- *   downloadAsPDF(html, filename)    -> paginated A4 PDF
- *   openPrintWindow(html, title)     -> browser print (real text, best quality)
+ *   build*(data, org)          -> a renderer-independent DocumentModel
+ *   downloadDocumentPDF(model) -> paginated, text-selectable A4 PDF
+ *   printDocument(model)       -> browser print dialog
+ *   downloadDocumentHTML(model)-> standalone HTML copy
  *
- * Amounts are whole taka everywhere; all interpolated data is HTML-escaped.
+ * Documents are English only (ADR-012). Amounts are whole taka, printed with
+ * the ISO code `BDT`. All interpolated data is HTML-escaped by the HTML renderer.
  */
 
 export type {
-  DocumentLocale,
+  Block,
+  Cell,
+  Column,
+  DocumentModel,
+  Field,
   LoanDocumentData,
   MembershipCertificateData,
   OrgSettings,
   ReceiptData,
+  Row,
+  Signature,
   StatementData,
   StatementTransaction,
   StatementTxType,
+  Tile,
+  Tone,
 } from './types';
 
 export {
+  CURRENCY_CODE,
   amountInWords,
   esc,
+  formatAmount,
   formatCurrency,
   formatDate,
   formatDateTime,
@@ -35,15 +47,20 @@ export {
   BRAND_NAME_BN,
   BRAND_NAME_EN,
   DEFAULT_ORG,
-  getOrgNameBn,
   getOrgNameEn,
 } from './theme';
 
-export { generateReceiptHTML } from './templates/receipt';
-export { generateLoanDocumentHTML } from './templates/loan-agreement';
-export { generateStatementHTML } from './templates/statement';
-export { generateMembershipCertificateHTML } from './templates/membership-certificate';
+export { buildReceipt } from './builders/receipt';
+export { buildLoanAgreement } from './builders/loan-agreement';
+export { buildStatement } from './builders/statement';
+export { buildMembershipCertificate } from './builders/membership-certificate';
 
-export { downloadAsHTML, downloadAsPDF, openPrintWindow } from './export';
+export {
+  downloadDocumentHTML,
+  downloadDocumentPDF,
+  printDocument,
+  renderHTML,
+  renderPDF,
+} from './export';
 
 export { fetchOrgSettings } from './org-settings';

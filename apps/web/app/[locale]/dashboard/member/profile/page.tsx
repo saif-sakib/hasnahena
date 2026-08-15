@@ -30,9 +30,9 @@ import { formatCurrency } from '@/lib/utils';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
 import { getValidatedClientToken } from '@/lib/client-auth';
 import {
-  downloadAsPDF,
-  generateMembershipCertificateHTML,
-  generateStatementHTML,
+  downloadDocumentPDF,
+  buildMembershipCertificate,
+  buildStatement,
   fetchOrgSettings,
 } from '@/lib/documents';
 
@@ -265,9 +265,9 @@ export default function ProfilePage() {
         .reduce((sum, tx) => sum + tx.amount, 0);
 
       const now = new Date().toISOString();
-      const html = generateStatementHTML(
+      const statementDoc = buildStatement(
         {
-          memberName: locale === 'bn' ? (profile.nameBn || profile.nameEn) : (profile.nameEn || profile.nameBn),
+          memberName: profile.nameEn || profile.nameBn,
           memberId: profile.memberId || 'N/A',
           memberPhone: profile.phone || 'N/A',
           periodStart: statementTransactions[0]?.date || now,
@@ -285,11 +285,10 @@ export default function ProfilePage() {
             receiptNumber: tx.receiptNumber,
           })),
         },
-        locale,
         orgSettings
       );
 
-      await downloadAsPDF(html, `statement-${profile.memberId || 'member'}`);
+      await downloadDocumentPDF(statementDoc);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to generate statement');
     } finally {
@@ -301,19 +300,18 @@ export default function ProfilePage() {
     setActionError(null);
     try {
       const orgSettings = await fetchOrgSettings();
-      const html = generateMembershipCertificateHTML(
+      const certificateDoc = buildMembershipCertificate(
         {
-          memberName: locale === 'bn' ? (profile.nameBn || profile.nameEn) : (profile.nameEn || profile.nameBn),
+          memberName: profile.nameEn || profile.nameBn,
           memberId: profile.memberId || 'N/A',
           accountNumber: profile.accountNumber || undefined,
           memberSince: profile.memberSince || new Date().toISOString(),
           phone: profile.phone || undefined,
           address: formatAddress(profile.permanentAddress),
         },
-        locale,
         orgSettings
       );
-      await downloadAsPDF(html, `membership-certificate-${profile.memberId || 'member'}`);
+      await downloadDocumentPDF(certificateDoc);
     } catch (e: any) {
       setActionError(e?.message ?? 'Failed to generate certificate');
     }

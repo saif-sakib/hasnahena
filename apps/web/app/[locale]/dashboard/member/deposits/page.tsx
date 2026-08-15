@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { generateStatementHTML, downloadAsPDF, generateReceiptHTML, fetchOrgSettings } from '@/lib/documents';
+import { buildStatement, downloadDocumentPDF, buildReceipt, fetchOrgSettings } from '@/lib/documents';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
@@ -160,7 +160,7 @@ export default function DepositsPage() {
     const orgSettings = await fetchOrgSettings();
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-    const statementHtml = generateStatementHTML({
+    const statementDoc = buildStatement({
       memberName: getMemberDisplayName(memberProfile),
       memberId: getMemberDisplayId(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
@@ -175,17 +175,17 @@ export default function DepositsPage() {
         type: 'DEPOSIT',
         amount: d.amount,
         balance: (d.balanceAfter || 0),
-        description: d.notes || (locale === 'bn' ? 'আমানত' : 'Deposit'),
+        description: d.notes || 'Deposit',
         receiptNumber: d.receiptNumber,
       })),
-    }, locale, orgSettings);
-    await downloadAsPDF(statementHtml, `Statement_${memberProfile.profile?.memberId || 'Unknown'}_${now.getTime()}`);
+    }, orgSettings);
+    await downloadDocumentPDF(statementDoc);
   };
 
   const handlePrintReceipt = async (deposit: Deposit) => {
     if (!memberProfile) return;
     const orgSettings = await fetchOrgSettings();
-    const receiptHtml = generateReceiptHTML({
+    const receiptDoc = buildReceipt({
       receiptNumber: deposit.receiptNumber,
       type: 'DEPOSIT',
       amount: deposit.amount,
@@ -196,8 +196,8 @@ export default function DepositsPage() {
       balanceAfter: (deposit.balanceAfter || 0),
       processedBy: deposit.processedBy,
       notes: deposit.notes,
-    }, locale, orgSettings);
-    await downloadAsPDF(receiptHtml, `Receipt_${deposit.receiptNumber}`);
+    }, orgSettings);
+    await downloadDocumentPDF(receiptDoc);
   };
 
   const handleSubmitDepositRequest = async () => {

@@ -1,19 +1,40 @@
 package utils
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 )
 
-// GenerateReceipt creates a standardized receipt or loan number
-// Format: [PREFIX]-[YYYYMMDD]-[RANDOM(6)]
-func GenerateReceipt(prefix string) string {
-	dateStr := time.Now().Format("20060102")
-	b := make([]byte, 3)
-	rand.Read(b)
-	suffix := strings.ToUpper(hex.EncodeToString(b))
-	return fmt.Sprintf("%s-%s-%s", prefix, dateStr, suffix)
+// Document number series. These strings are printed on receipts, passbooks and
+// PDFs, so they are spelled out rather than abbreviated to initials — a member
+// reading "LOAN-2026-000012" aloud at the counter needs no decoding, which is
+// the same reasoning that gave member IDs their ACC-KH-##### shape (ADR-008).
+const (
+	SeriesDeposit       = "DEP"  // deposit receipt
+	SeriesWithdrawal    = "WDR"  // withdrawal receipt
+	SeriesLoan          = "LOAN" // loan agreement
+	SeriesLoanRepayment = "REP"  // loan repayment receipt
+)
+
+// NextDocumentNumberQuery allocates the next number in a series for the current
+// year. The upsert is atomic: concurrent callers serialise on the row, so two
+// transactions can never be handed the same number. Rolling back a failed
+// transaction also rolls back the allocation, which keeps the series gapless.
+const NextDocumentNumberQuery = `
+	INSERT INTO document_sequences (series, year, counter)
+	VALUES ($1, $2, 1)
+	ON CONFLICT (series, year)
+	DO UPDATE SET counter = document_sequences.counter + 1, "updatedAt" = NOW()
+	RETURNING counter
+`
+
+// CurrentSequenceYear is the year new document numbers are filed under.
+func CurrentSequenceYear() int {
+	return time.Now().Year()
+}
+
+// FormatDocumentNumber renders a series, year and counter as, e.g.,
+// "DEP-2026-000123".
+func FormatDocumentNumber(series string, year int, counter int64) string {
+	return fmt.Sprintf("%s-%d-%06d", series, year, counter)
 }

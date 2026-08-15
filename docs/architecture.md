@@ -57,7 +57,17 @@ messages/{en,bn}.json      all copy — next-intl, locale prefix always present
 
 ### Documents
 
-`lib/documents/` generates the member-facing paperwork — account statement, deposit/withdrawal receipt, loan agreement, membership certificate. `types` → `format` (escaping, currency, amount-in-words) → `theme` (shared A4 shell and styles) → `templates/*` → `export` (print window, HTML, paginated PDF). Import from `@/lib/documents`; add a new document as a template plus one export line. Why it rasterises rather than drawing PDF text: [ADR-010](decisions.md).
+`lib/documents/` generates the member-facing paperwork — account statement, deposit/withdrawal receipt, loan agreement, membership certificate. Documents are **English only** ([ADR-012](decisions.md)).
+
+A builder turns caller data into a renderer-independent `DocumentModel` (a list of blocks: fields, tiles, table, terms, signatures…), and two renderers consume it, so print and download can never drift apart:
+
+```
+types → format → theme → builders/*  →  render/html.ts   (preview + print, real text)
+                                     →  render/pdf.ts    (download, vector text, paginated)
+                         export.ts   →  printDocument / downloadDocumentPDF / downloadDocumentHTML
+```
+
+Import from `@/lib/documents`. Add a document as one builder plus one export line; add a *kind of* content as a new `Block` variant handled in both renderers. Amounts print as `BDT 1,25,000` — the `৳` sign cannot be encoded by the PDF's standard fonts.
 
 ### UI tokens
 

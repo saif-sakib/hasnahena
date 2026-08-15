@@ -22,7 +22,7 @@ cd apps/api && go build ./...                  # Go check
 2. **Balance changes go in the Go API** — `internal/repositories/user_repository.go`, one DB transaction, plus an `audit_logs` row. Never from a Next route handler.
 3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
-5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component.
+5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
 6. `audit_logs` is append-only. Corrections append.
 7. Never commit `.env*` or credentials.
 
@@ -35,9 +35,9 @@ apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,wo
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, confirm/dispute
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
-apps/web/lib/documents/           PDF/print docs: statement, receipt, loan, certificate
+apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
 apps/web/prisma/schema.prisma     the data model
-apps/web/public/images/logo/      logo.png lockup · logo-mark.png square · logo-og.png social
+apps/web/public/images/logo/      logo.png lockup · -mark square · -og social · -print PDF
 ```
 
 ## Docs — read only what the task needs

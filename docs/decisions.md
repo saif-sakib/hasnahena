@@ -84,7 +84,7 @@ Account and member identifiers are human-readable and branch-prefixed (`ACC-KH-3
 
 ### ADR-010 — Documents are rendered in the browser, then rasterised
 
-**Status:** accepted · `apps/web/lib/documents/`.
+**Status:** superseded by [ADR-012](#adr-012--official-documents-are-english-only-and-drawn-as-pdf-text) · `apps/web/lib/documents/`.
 
 jsPDF cannot shape complex scripts: Bengali conjuncts and matras come out reordered, so drawing statements with PDF text primitives is not an option, and `jspdf-autotable` is unusable for the same reason. Documents are therefore built as standalone HTML, rendered by the browser, and captured with html2canvas.
 
@@ -105,6 +105,70 @@ The delivered logo was a 1366×768 video frame on an opaque black background, wh
 `logo.png` (transparent lockup — UI and documents) · `logo-mark.png` (square leaf mark — favicon, avatars, tight spaces) · `logo-og.png` (1200×630 on white — social cards, because transparent PNGs render black in most social clients). `logo-source.png` is the untouched original; `logo.mp4` is the animated version, currently unused.
 
 Regenerate derived assets from `logo-source.png` rather than editing them by hand.
+
+---
+
+### ADR-012 — Official documents are English only, and drawn as PDF text
+
+**Status:** accepted · 2026-08-15 · supersedes [ADR-010](#adr-010--documents-are-rendered-in-the-browser-then-rasterised).
+
+Statements, receipts, loan agreements and certificates were generated in both
+Bengali and English. Official and financial paperwork is now English only: it is
+the language the records are audited, filed and presented in, and one version
+means one thing to review when the layout changes. The UI stays bilingual —
+this applies to generated documents, not to the app.
+
+That removes the constraint ADR-010 was built around. Bengali conjuncts and
+matras cannot be shaped by jsPDF's standard fonts, which is why documents used
+to be rendered as HTML and captured with html2canvas. With no Bengali to shape,
+the PDF is drawn with real text primitives instead, which fixes what
+rasterisation cost us:
+
+- **Text is selectable, searchable and copyable.** A raster PDF is a picture.
+- **Output is vector-sharp** at any zoom, instead of fixed-resolution JPEG.
+- **Pagination is explicit** — a block that will not fit before the content
+  bottom starts a new page, and the footer is painted per page once the page
+  count is known. Slicing a tall bitmap could and did cut the last line in half.
+- **Files are ~6× smaller** (a 3-page statement is ~33 kB, not ~200 kB).
+
+`html2canvas` and `jspdf-autotable` were dropped as dependencies.
+
+One document model now feeds two renderers — `render/html.ts` for preview and
+print, `render/pdf.ts` for download — so the two outputs cannot drift apart.
+Amounts print as `BDT 1,25,000`: the `৳` sign lives in the Bengali Unicode block
+and cannot be encoded by the PDF's standard fonts. Values that arrive in Bengali
+anyway (letterhead from `system_config`, member-typed notes) are stripped before
+drawing, so an unrenderable string shows as a dash rather than mojibake.
+
+If Bengali documents are ever required again, the fix is an embedded Unicode
+font with shaping — not a return to screenshotting the page.
+
+---
+
+### ADR-013 — Document numbers are sequential and named
+
+**Status:** accepted · 2026-08-15.
+
+Receipts, withdrawals, loans and repayments were numbered
+`RCP-20260815-A3F2B1` — a cryptic prefix plus six random hex characters. That is
+hard to read aloud at the counter or copy into a paper passbook, carries no
+ordering, and offered no uniqueness guarantee for `loans.loanNumber`, which is
+`@unique`: a collision would have failed a money-moving transaction.
+
+Numbers are now `SERIES-YYYY-NNNNNN` with a spelled-out series —
+`DEP-2026-000123`, `WDR-2026-000045`, `LOAN-2026-000012`, `REP-2026-000234` —
+matching the readability rationale of the `ACC-KH-#####` member IDs (ADR-008).
+
+The counter comes from the `document_sequences` table, one row per series per
+year, incremented by an atomic upsert. The Go API allocates inside the same
+transaction as the posting, so concurrent postings can never share a number and
+a rolled-back posting releases its number instead of leaving a gap. Next.js
+route handlers that create request-stage records (loan applications, deposit and
+withdrawal requests) allocate from the same table, so a document type has one
+series regardless of which backend created the record.
+
+Existing records keep their old numbers; both formats are readable and the
+document layer treats a value that already looks like a reference as-is.
 
 ---
 

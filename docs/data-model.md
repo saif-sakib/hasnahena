@@ -9,6 +9,7 @@
 3. **`audit_logs` is append-only.** Corrections append; nothing updates or deletes.
 4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
+6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)).
 
 ## Entities
 
@@ -25,6 +26,7 @@
 | `Notification` → `notifications` | typed alert targeted at a role or a user | — |
 | `AuditLog` → `audit_logs` | action, entityType/Id, old/new JSON, actor (`performedBy`), IP, UA | — |
 | `SystemConfig` → `system_config` | key/value policy store | — |
+| `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
 | `GalleryItem`, `Branch` | public content, branch registry | — |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 

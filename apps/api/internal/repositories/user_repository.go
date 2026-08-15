@@ -440,6 +440,21 @@ func (r *UserRepository) MarkAllNotificationsRead(ctx context.Context, userID, r
 	return err
 }
 
+// nextDocumentNumber allocates the next receipt, withdrawal, loan or repayment
+// number in its series. It must be called with the same transaction as the
+// posting it identifies: the number is then only consumed if the money actually
+// moves, and concurrent postings can never share a number.
+func (r *UserRepository) nextDocumentNumber(ctx context.Context, tx pgx.Tx, series string) (string, error) {
+	year := utils.CurrentSequenceYear()
+
+	var counter int64
+	if err := tx.QueryRow(ctx, utils.NextDocumentNumberQuery, series, year).Scan(&counter); err != nil {
+		return "", fmt.Errorf("failed to allocate %s number: %w", series, err)
+	}
+
+	return utils.FormatDocumentNumber(series, year, counter), nil
+}
+
 func (r *UserRepository) generateNextMemberID(ctx context.Context, tx pgx.Tx) (string, error) {
 	if _, err := tx.Exec(ctx, utils.MemberIDAdvisoryLockQuery); err != nil {
 		return "", fmt.Errorf("failed to acquire member id lock: %w", err)
@@ -577,6 +592,17 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 
 func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
 	statements := []string{
+		// Document number series (receipts, withdrawals, loans, repayments).
+		// Created here as well as in schema.prisma so a deploy that has not yet
+		// run `db push` cannot break a money-moving transaction.
+		`CREATE TABLE IF NOT EXISTS document_sequences (
+			series TEXT NOT NULL,
+			year INTEGER NOT NULL,
+			counter BIGINT NOT NULL DEFAULT 0,
+			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+			"updatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (series, year)
+		)`,
 		`CREATE TABLE IF NOT EXISTS support_threads (
 			id TEXT PRIMARY KEY,
 			"memberUserId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -4299,15 +4325,19 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", errors.New("member not active")
 	}
 
-	// Generate receipt number
-	receipt := utils.GenerateReceipt("RCP")
-
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+
+	// Allocated inside the transaction so an abandoned deposit does not burn a
+	// receipt number.
+	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDeposit)
+	if err != nil {
+		return "", err
+	}
 
 	// Update account balance
 	newBalance := currentBalance + amount
@@ -4394,15 +4424,17 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		return "", errors.New("is guarantor for active loan")
 	}
 
-	// Generate receipt number
-	receipt := utils.GenerateReceipt("WDR")
-
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+
+	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
+	if err != nil {
+		return "", err
+	}
 
 	// Update account balance
 	newBalance := currentBalance - amount
@@ -4503,7 +4535,10 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("exceeds limit")
 	}
 
-	loanNumber := utils.GenerateReceipt("LN")
+	loanNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoan)
+	if err != nil {
+		return "", err
+	}
 	installmentAmount := amount / int64(installments)
 
 	var loanID string
@@ -4621,15 +4656,17 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		return "", fmt.Errorf("payment amount exceeds remaining balance")
 	}
 
-	// Generate receipt number
-	receiptNumber := utils.GenerateReceipt("LPM")
-
 	// Start transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)
+	if err != nil {
+		return "", err
+	}
 
 	// Update loan remaining amount and paid installments
 	newRemaining := remainingAmount - amount
