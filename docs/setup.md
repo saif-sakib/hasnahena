@@ -10,7 +10,8 @@ Node 20+, pnpm 8+, Go 1.22+, and either Docker or a local PostgreSQL 15+. Nothin
 pnpm install                      # postinstall runs prisma generate
 cp .env.example .env.local        # then fill in the values below
 docker compose up -d postgres     # or point DATABASE_URL at your own instance
-pnpm db:push                      # creates the schema
+pnpm db:migrate                   # creates the schema
+pnpm db:seed                      # first admin — see "First admin" below
 pnpm dev                          # web :3000 + api :8081
 ```
 
@@ -141,11 +142,11 @@ docker compose up -d db
 createdb hasnahena_test    # or: psql -c 'CREATE DATABASE hasnahena_test'
 
 export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_test
-DATABASE_URL=$TEST_DATABASE_URL pnpm --filter @hasnahena/web exec prisma db push --skip-generate
+DATABASE_URL=$TEST_DATABASE_URL pnpm db:migrate
 pnpm test:integration
 ```
 
-The `db push` step is not optional and not incidental: these tests run against
+The migrate step is not optional and not incidental: these tests run against
 the schema that actually deploys, including the column defaults Prisma strips.
 That is what makes them catch the class of bug described in
 [data-model.md](data-model.md#writing-sql-by-hand--two-traps).
@@ -165,14 +166,39 @@ browsers once with `pnpm --filter @hasnahena/web exec playwright install chromiu
 ## Database work
 
 ```bash
-pnpm db:push      # apply schema.prisma  (use the DIRECT Neon URL, not -pooler)
-pnpm db:studio    # browse data
-pnpm db:clear     # delete everything except admin + gallery + system config
+pnpm db:migrate           # apply pending migrations
+pnpm db:migrate:dev       # after editing schema.prisma: generate a migration
+pnpm db:migrate:status    # what is applied and what is not
+pnpm db:seed              # first SUPER_ADMIN + system_config defaults
+pnpm db:studio            # browse data
+pnpm db:clear             # delete everything except admin + gallery + system config
 ```
 
-There are no migration files by design ([ADR-004](decisions.md)). Editing `schema.prisma` and pushing is the whole workflow.
+Schema changes ship as migration files ([ADR-014](decisions.md)). `pnpm db:push`
+still exists for a throwaway database, but do not point it at anything shared —
+it writes schema without recording history, and the next `db:migrate` then sees
+drift it cannot reconcile. A database created before migrations existed needs
+`pnpm db:migrate:baseline` once; see [deployment.md](deployment.md#schema-changes).
 
-The first admin user is not seeded. Create one with `pnpm db:studio` (role `ADMIN`, status `ACTIVE`, a bcrypt `passwordHash`) or preserve the existing one across `db:clear` runs.
+Migrations need a direct (non-pooled) connection. `pnpm db:migrate` strips
+`-pooler` from a Neon URL automatically and logs that it did; set
+`DIRECT_DATABASE_URL` to be explicit.
+
+### First admin
+
+```bash
+SEED_ADMIN_EMAIL=admin@hasnahena.local \
+SEED_ADMIN_PASSWORD='choose-something-long' \
+pnpm db:seed
+```
+
+Creates one `SUPER_ADMIN` and the `system_config` rows the loan rules read
+(`loan.minDepositForLoan`, `loan.maxLoanMultiplier`, …). It is idempotent: run
+it again and it changes nothing, and in particular it will **not** reset an
+existing admin's password. It refuses to invent a password, and rejects one
+under 12 characters.
+
+Optional: `SEED_ADMIN_PHONE` (default `01700000000`), `SEED_ADMIN_NAME`.
 
 ## Checks before you call something done
 
@@ -188,8 +214,11 @@ cd apps/api && go build ./...
 |---|---|
 | API exits: `JWT_SECRET must be at least 32 characters` | set a longer secret in `.env.local` |
 | `port 8081 already in use` | `API_PORT=8082 pnpm dev` and update `NEXT_PUBLIC_API_URL` |
-| `relation "users" does not exist` | run `pnpm db:push` |
+| `relation "users" does not exist` | run `pnpm db:migrate` |
 | Browser "Failed to fetch" | API down, or the origin is missing from `CORS_ORIGINS` |
 | 401 on every dashboard call | `JWT_SECRET` differs between web and api |
 | `prepared statement already exists` | Neon pooler — keep `QueryExecModeSimpleProtocol` in `main.go` |
+| `db:clear` fails with "Transaction already closed … 5000 ms" | pre-existing: it deletes everything in one interactive transaction, which exceeds Prisma's 5 s limit on a large database. Fine at real member volume; only bites on a load-test dataset |
+| `migrate` hangs or fails P1002 | it reached the Neon *pooler*; set `DIRECT_DATABASE_URL` to the host without `-pooler` |
+| `Following migration have not yet been applied` on an existing database | it predates migrations — run `pnpm db:migrate:baseline` once |
 | Prisma "could not find your schema" during install | expected in this monorepo; `prisma generate` runs from `apps/web` |

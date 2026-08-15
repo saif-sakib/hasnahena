@@ -1,0 +1,110 @@
+name: Backup
+
+# Neon's own history is not a backup: point-in-time restore is bounded by the
+# plan's retention window, and every branch dies with the account. This job puts
+# an encrypted copy somewhere Neon does not control.
+#
+# Required repository secrets:
+#   BACKUP_DATABASE_URL  direct (NOT -pooler) Neon connection string
+#   BACKUP_PASSPHRASE    symmetric key for the dump — losing it loses the backup
+#
+# Optional, to also copy off GitHub (recommended once there is real member data):
+#   BACKUP_S3_BUCKET     e.g. s3://hasnahena-backups
+#   BACKUP_S3_ENDPOINT   set for Backblaze B2 / Cloudflare R2; omit for AWS S3
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION
+
+on:
+  schedule:
+    # 19:00 UTC = 01:00 Asia/Dhaka — after the working day, before the morning.
+    - cron: '0 19 * * *'
+    # Monthly copy, kept three times as long.
+    - cron: '0 20 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    name: Dump, encrypt, retain
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail fast on missing secrets
+        env:
+          DB: ${{ secrets.BACKUP_DATABASE_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          # Without this the job "succeeds" at producing nothing, which is the
+          # single worst outcome for a backup pipeline.
+          [ -n "$DB" ]   || { echo 'BACKUP_DATABASE_URL secret is not set' >&2; exit 1; }
+          [ -n "$PASS" ] || { echo 'BACKUP_PASSPHRASE secret is not set' >&2; exit 1; }
+
+      # The runner's bundled client may be older than the Neon server, and
+      # pg_dump refuses to dump a server newer than itself. Pin it explicitly.
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Dump and encrypt
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: scripts/backup.sh backups
+
+      - name: Name the artifact
+        id: meta
+        env:
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          echo "name=hasnahena-backup-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          # The `secrets` context is not available in `if:` conditions, so the
+          # off-GitHub copy is gated on an output instead.
+          echo "s3=${BUCKET:+yes}" >> "$GITHUB_OUTPUT"
+
+      # Only the .gpg files are ever uploaded. backup.sh deletes the plaintext
+      # dump, but the glob is explicit so a future edit cannot leak one.
+      - name: Retain on GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: backups/*.dump.gpg
+          if-no-files-found: error
+          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 30 }}
+
+      - name: Copy off GitHub
+        if: steps.meta.outputs.s3 == 'yes'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+        run: |
+          args=()
+          [ -n "$ENDPOINT" ] && args+=(--endpoint-url "$ENDPOINT")
+          aws "${args[@]}" s3 cp backups/ "$BUCKET/" --recursive --exclude '*' --include '*.dump.gpg'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Backup complete"
+            echo
+            ls -lh backups/*.dump.gpg | awk '{print "- `" $9 "` — " $5}'
+            echo
+            echo "Restore with \`scripts/restore-check.sh\` — see docs/deployment.md."
+          } >> "$GITHUB_STEP_SUMMARY"

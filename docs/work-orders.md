@@ -25,7 +25,7 @@ on the quoted code, not the number.
 | ~~**A**~~ | WO-01 → WO-05 | Security defects — **done** | — |
 | ~~**B**~~ | WO-06 → WO-09 | Runtime hardening — **done** | — |
 | ~~**C**~~ | WO-10 → WO-13 | Test harness + CI — **done** | — |
-| **D** | WO-14 → WO-16 | Backups, migrations, seed | ~1 session |
+| ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | **E** | WO-17 → WO-19 | Observability | ~1 session |
 | **F** | WO-20 → WO-22 | Containerise | ~1 session |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
@@ -475,9 +475,13 @@ change I cannot make.
 
 ---
 
-# Batch D — Data safety
+# Batch D — Data safety `[x]`
 
-## WO-14 · Automated backups `[ ]`
+**Done.** All three shipped together. The backup and the restore are one
+pipeline: `scripts/backup.sh` and `scripts/restore-check.sh`, both run by CI on
+every push so neither can rot unnoticed.
+
+## WO-14 · Automated backups `[x]`
 
 **Why:** DATA-01. **Highest-value item in this file.** Neon branches die with the
 account; nothing is scheduled today.
@@ -489,7 +493,26 @@ secret for the direct (non-pooled) Neon URL.
 **Verify:** a dump lands; restore it into a scratch DB and diff row counts (that
 is WO-15).
 
-## WO-15 · Restore drill + RPO/RTO `[ ]`
+**Done, and encrypted.** `.github/workflows/backup.yml` runs at 19:00 UTC
+(01:00 Dhaka) nightly plus monthly, calling `scripts/backup.sh`: `pg_dump -Fc`
+→ AES256 → GitHub artifact, 30-day retention nightly and 90-day monthly, with an
+optional S3/B2/R2 copy when `BACKUP_S3_BUCKET` is set.
+
+Encryption was not in the spec and is not optional. The dump carries every
+member's name, phone, NID number and bcrypt hash; an unencrypted copy sitting in
+an artifact store is a breach waiting for someone to notice. `backup.sh` refuses
+to run without `BACKUP_PASSPHRASE` rather than falling back to plaintext.
+
+Three other guards, each of which turns a silently-useless backup into a failed
+job: the workflow fails fast if either secret is missing; `backup.sh` rejects a
+`-pooler` host (PgBouncer drops the session state `pg_dump` needs); and it fails
+if the dump comes out implausibly small.
+
+**Two ways this stops running quietly** — GitHub disables scheduled workflows
+after 60 days without a commit, and artifacts expire on their retention window.
+Both are in [deployment.md](deployment.md#backups).
+
+## WO-15 · Restore drill + RPO/RTO `[x]`
 
 **Why:** DATA-02 + DATA-03. An untested backup is a rumour.
 
@@ -497,7 +520,32 @@ is WO-15).
 [deployment.md](deployment.md); run it once; record the actual RTO achieved and
 the accepted RPO. For member savings, "24 h data loss" must be a stated decision.
 
-## WO-16 · Prisma migrations + seed `[ ]`
+**Done, as a script rather than a procedure.** A restore written down as prose
+is verified once and then decays. `scripts/restore-check.sh` performs it —
+decrypt, drop and recreate `public`, `pg_restore`, print every table's row
+count, then assert what a silently-corrupt restore would break: required tables
+present, no negative savings or loan balance, no transaction pointing at a
+missing account, no loan pointing at a missing borrower. It prints total savings
+and total loan balance, which are the numbers to compare against what the
+application last reported.
+
+**CI runs the full drill on every push** — migrate, seed, dump, restore, verify.
+That is the part that keeps it true.
+
+Drilled here on 2026-08-16 against a 58 MB database (20,041 users, 200,008
+transactions — well beyond the real member count): **dump 1 s, restore and
+verify 2 s** on local disk; network transfer to Neon dominates in practice.
+**RPO 24 h, RTO under 1 h**, with the reasoning — and the fact that a 24 h RPO
+means a member's deposit can be lost, which is only acceptable because the paper
+passbook can reconstruct it — in [deployment.md](deployment.md#rpo-and-rto).
+
+It refuses to restore onto a `neon.tech` host without `ALLOW_NEON_TARGET=yes`,
+so a copy-pasted command cannot overwrite production.
+
+**Not covered:** Cloudinary assets (NID and member photos). The database dump
+does not include them — that is DATA-06, still open.
+
+## WO-16 · Prisma migrations + seed `[x]`
 
 **Why:** DATA-04 + DATA-05. `db push` has no history and no rollback; there is no
 way to create the first admin except by hand.
@@ -511,6 +559,29 @@ from env vars, plus `system_config` defaults.
 `prisma migrate resolve --applied`. Do it on a Neon branch first.
 
 **Verify:** fresh database + `pnpm db:migrate && pnpm db:seed` → working admin login.
+
+**Done, verified both ways.** `0_init` is generated with
+`migrate diff --from-empty --to-schema-datamodel`, so it is byte-identical to
+what `db push` produced — nothing changed shape at the cutover.
+[ADR-014](decisions.md) supersedes ADR-004; CI now applies migrations instead of
+pushing.
+
+Verified on a fresh database: `pnpm db:migrate` → `pnpm db:seed` → real login
+against the Go API returning a `SUPER_ADMIN` token. And separately on a database
+built by `db push` (production's exact situation): `db:migrate:status` reported
+the migration unapplied, `pnpm db:migrate:baseline` recorded it without
+executing it, and status went to "up to date".
+
+**One thing migrations do not fix.** The generated `0_init` emits
+`"updatedAt" TIMESTAMP(3) NOT NULL` with **no default**, exactly like `db push`
+— Prisma applies `@updatedAt` client-side either way. Hand-written SQL in the Go
+API must still set both timestamps itself. Migrations make that reviewable in a
+file instead of discoverable in production; they do not remove the trap.
+
+**Watch out:** `prisma migrate` needs a direct (non-pooled) connection —
+PgBouncer cannot hold the session advisory lock, and the failure looks like a
+hang, not a wrong-host error. `pnpm db:migrate` derives the direct host from a
+Neon URL and logs that it did.
 
 ---
 
@@ -542,12 +613,14 @@ any VPS/AWS work and the thing that makes a migration boring.
 1. ~~**Batch A** — the live defects.~~ Done.
 2. ~~**Batch B** — hardening.~~ Done (taken early; it was one session and it stops deploys landing mid-transaction).
 3. **WO-10** — makes `pnpm typecheck` a clean signal, which every later order relies on.
-4. **WO-14 + WO-15** — backups. Cheap, and the only protection against the unrecoverable failure.
+4. ~~**WO-14 + WO-15** — backups.~~ Done.
 5. **WO-11 → WO-13** — tests and CI, so regressions stop being silent.
-6. **WO-16** — migrations, before a second environment exists.
+6. ~~**WO-16** — migrations.~~ Done.
 7. **Batch E**, then **Batch F**.
 8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws), only after all of the above.
 
 If you only ever do part of this list: **A, B, WO-14, WO-15**. That is the
 difference between "it works" and "it works, and if it breaks the members' money
-is still there."
+is still there." All four are done. What remains — Batch E and F — is about
+knowing something broke and being able to move hosts, not about losing the
+ledger.

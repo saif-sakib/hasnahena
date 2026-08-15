@@ -171,3 +171,8 @@ docker-compose.override.yml
 *.pid.lock
 .npm/
 .yarn/
+
+# Local database dumps — never commit one, they contain member PII.
+backups/
+*.dump
+*.dump.gpg
