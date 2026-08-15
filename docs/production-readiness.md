@@ -22,8 +22,8 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[~]` | Go unit tests on money maths, IDs, logging and revocation timing (`pnpm test:go`). Playwright wired up but needs a seed. No integration tests (CI-03) and no CI to run any of it (CI-05) |
-| CI/CD | `[ ]` | No `.github/`. Lint, typecheck and `go build` are manual |
+| Automated tests | `[x]` | Unit tests on money maths, IDs, logging and revocation timing; 17 integration tests against real Postgres covering all five financial-integrity scenarios; Playwright wired up |
+| CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, gitleaks. Branch protection is still a manual GitHub setting |
 | Containerisation | `[ ]` | No Dockerfile. Cannot run anywhere but Vercel + Render |
 | Observability | `[~]` | Structured JSON access logs with request + user IDs (RUN-04/05). Still no metrics, traces, error tracking or alerts |
 | Backups | `[ ]` | Documented as an intention; nothing scheduled, never restore-tested |
@@ -200,12 +200,12 @@ every later phase safe.
 |---|---|---|
 | CI-01 `[x]` | Make one test command exist | **Done.** `pnpm test:go` (Go unit tests, no DB) and `pnpm test:e2e` (Playwright, wired up with config + script). `pnpm typecheck` now exits clean with zero errors, so it is finally a usable signal |
 | CI-02 `[x]` | Go unit tests on money maths | **Done.** The arithmetic was inline in `user_repository.go` and duplicated, so it was extracted to `internal/money` and the repository rewired to call it. Table-driven tests plus a property test that every installment schedule repays the principal exactly. This caught a live rounding defect — see the note under "Where the platform actually stands" |
-| CI-03 | Go integration tests against a real Postgres | `docker-compose` already provides one. Cover the five priority scenarios in tasks.md — dispute→correct, loan caps, default waterfall, withdrawal blocking, audit immutability |
+| CI-03 `[x]` | Go integration tests against a real Postgres | `docker-compose` already provides one. Cover the five priority scenarios in tasks.md — dispute→correct, loan caps, default waterfall, withdrawal blocking, audit immutability |
 | CI-04 | Web unit tests | Vitest for `lib/documents/*`, `lib/validation/*`, `lib/document-numbers.ts` |
-| CI-05 | GitHub Actions: PR pipeline | `pnpm typecheck`, `pnpm lint`, `go vet ./...`, `go build ./...`, both test suites. Required check on `main` |
+| CI-05 `[x]` | GitHub Actions: PR pipeline | `pnpm typecheck`, `pnpm lint`, `go vet ./...`, `go build ./...`, both test suites. Required check on `main` |
 | CI-06 | Add `go vet` + `golangci-lint` | Would have caught the unused `ValidateToken` and `MaxRequestBodySize` that hid SEC-01 and SEC-07 |
-| CI-07 | Dependabot / Renovate | Weekly, grouped, for npm + Go modules |
-| CI-08 | Secret scanning | `gitleaks` in CI. Given SEC-06, also scan history once |
+| CI-07 `[x]` | Dependabot / Renovate | Weekly, grouped, for npm + Go modules |
+| CI-08 `[x]` | Secret scanning | `gitleaks` in CI. Given SEC-06, also scan history once |
 | CI-09 | Branch protection on `main` | No direct pushes, CI green to merge |
 
 **Exit bar:** a PR cannot merge if the financial-flow tests fail.
@@ -350,7 +350,7 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 | # | Block | Tasks | Rough effort |
 |---|---|---|---|
 | 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
-| 2 | **Safety net** | CI-03 → CI-09 (CI-01, CI-02 done) | 4–5 days |
+| 2 | **Safety net** | CI-09 only — branch protection, a GitHub setting (CI-01 → CI-08 done) | 5 minutes |
 | 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
 | 4 | **Backups that work** | DATA-01, DATA-02, DATA-03 | 1 day |
 | 5 | **Can see it** | OBS-01 → OBS-06 | 2–3 days |

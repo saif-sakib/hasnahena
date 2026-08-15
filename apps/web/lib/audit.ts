@@ -16,7 +16,8 @@ export type AuditAction =
   | 'USER_STATUS_CHANGED'
   | 'WORKER_CREATED'
   | 'WORKER_UPDATED'
-  | 'SETTINGS_UPDATED';
+  | 'SETTINGS_UPDATED'
+  | 'TRANSACTION_DISPUTED';
 
 export type AuditEntityType =
   | 'USER'

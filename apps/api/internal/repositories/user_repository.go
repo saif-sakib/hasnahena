@@ -132,6 +132,28 @@ func normalizedRolePtr(role string) *string {
 	return &normalized
 }
 
+// insertAuditLogTx appends an audit row inside the caller's transaction.
+//
+// Every balance change must leave one (CLAUDE.md rule 2), and it must share the
+// posting's transaction: an audit row written separately can survive a rollback
+// and describe money that never moved. audit_logs is append-only — a correction
+// appends a second row, it never edits the first (rule 6).
+func (r *UserRepository) insertAuditLogTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	action string,
+	entityType string,
+	entityID string,
+	performedBy string,
+	details string,
+) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", details, "createdAt")
+		VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, NOW())
+	`, action, entityType, entityID, performedBy, details)
+	return err
+}
+
 func (r *UserRepository) insertNotificationTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -3394,10 +3416,12 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, borrowerAccountID)
 			if err == nil {
 				// Create transaction record
-				tx.Exec(ctx, `
+				if _, err := tx.Exec(ctx, `
 					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
 					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - ঋণগ্রহীতা', NOW(), $2, $3, $4)
-				`, deduction, borrowerAccountID, borrowerID, loanID)
+				`, deduction, borrowerAccountID, borrowerID, loanID); err != nil {
+					return err
+				}
 
 				amountToRecover -= deduction
 				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from borrower", deduction))
@@ -3417,10 +3441,12 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, guarantorAccountID)
 			if err == nil {
 				// Create transaction record
-				tx.Exec(ctx, `
+				if _, err := tx.Exec(ctx, `
 					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
 					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - জামিনদাতা', NOW(), $2, $3, $4)
-				`, deduction, guarantorAccountID, guarantorID, loanID)
+				`, deduction, guarantorAccountID, guarantorID, loanID); err != nil {
+					return err
+				}
 
 				amountToRecover -= deduction
 				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from guarantor", deduction))
@@ -3430,21 +3456,35 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 
 	// Step 3: Use donation pool
 	if amountToRecover > 0 {
+		// The pool is what has been donated MINUS what earlier defaults already
+		// drew from it. Summing donations alone let the same taka settle an
+		// unlimited number of defaults, because nothing ever depleted the pool.
 		var donationBalance int64
-		err := tx.QueryRow(ctx, `
-			SELECT COALESCE(SUM(amount)::bigint, 0)
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(SUM(
+				CASE WHEN type = 'DONATION' THEN amount ELSE -amount END
+			)::bigint, 0)
 			FROM transactions
 			WHERE type = 'DONATION'
-		`).Scan(&donationBalance)
+			   OR (type = 'FEE' AND "loanId" IS NOT NULL)
+		`).Scan(&donationBalance); err != nil {
+			return err
+		}
 
-		if err == nil && donationBalance > 0 {
+		if donationBalance > 0 {
 			deduction := money.RecoverFrom(amountToRecover, donationBalance)
 
-			// Record donation usage
-			tx.Exec(ctx, `
-				INSERT INTO transactions (id, type, amount, description, "createdAt", "loanId")
-				VALUES (gen_random_uuid()::text, 'FEE', $1, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', NOW(), $2)
-			`, deduction, loanID)
+			// "accountId" is NOT NULL, and this insert used to omit it — the row
+			// silently failed while the loan was still written down, so the debt
+			// vanished with no ledger entry behind it. The loan's own account
+			// carries the entry, which keeps the draw traceable from the loan it
+			// settled. The error is checked for the same reason.
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+				VALUES (gen_random_uuid()::text, 'FEE', $1, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', NOW(), $2, $3, $4)
+			`, deduction, accountID, borrowerID, loanID); err != nil {
+				return err
+			}
 
 			amountToRecover -= deduction
 			recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from donation pool", deduction))
@@ -4358,6 +4398,12 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", fmt.Errorf("failed to create staff notification: %w", err)
 	}
 
+	if err := r.insertAuditLogTx(ctx, tx, "DEPOSIT_POSTED", "ACCOUNT", accountID, workerID,
+		fmt.Sprintf("Deposit %d BDT for member %s, receipt %s, balance %d -> %d", amount, memberID, receipt, currentBalance, newBalance),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
+	}
+
 	err = tx.Commit(ctx)
 	if err != nil {
 		return "", err
@@ -4453,6 +4499,12 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		normalizedRolePtr("WORKER"),
 	); err != nil {
 		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "WITHDRAWAL_POSTED", "ACCOUNT", accountID, workerID,
+		fmt.Sprintf("Withdrawal %d BDT for member %s, receipt %s, balance %d -> %d", amount, memberID, receipt, currentBalance, newBalance),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
 	}
 
 	err = tx.Commit(ctx)
@@ -4587,6 +4639,12 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		normalizedRolePtr("WORKER"),
 	); err != nil {
 		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "LOAN_DISBURSED", "LOAN", loanID, workerID,
+		fmt.Sprintf("Loan %s of %d BDT disbursed to member %s over %d installments of %d", loanNumber, amount, memberID, installments, installmentAmount),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -4733,6 +4791,12 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		normalizedRolePtr("WORKER"),
 	); err != nil {
 		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "LOAN_REPAYMENT_POSTED", "LOAN", loanID, processedByID,
+		fmt.Sprintf("Repayment %d BDT on loan %s by member %s, receipt %s", amount, loanID, memberID, receiptNumber),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
 	}
 
 	// Commit transaction

@@ -24,7 +24,7 @@ on the quoted code, not the number.
 |---|---|---|---|
 | ~~**A**~~ | WO-01 → WO-05 | Security defects — **done** | — |
 | ~~**B**~~ | WO-06 → WO-09 | Runtime hardening — **done** | — |
-| **C** | WO-10 → WO-13 | Test harness + CI — WO-10, WO-11 **done**; WO-12, WO-13 open | ~1 session left |
+| ~~**C**~~ | WO-10 → WO-13 | Test harness + CI — **done** | — |
 | **D** | WO-14 → WO-16 | Backups, migrations, seed | ~1 session |
 | **E** | WO-17 → WO-19 | Observability | ~1 session |
 | **F** | WO-20 → WO-22 | Containerise | ~1 session |
@@ -391,7 +391,7 @@ installment; the Go side did not, so the stored schedule and the signed contract
 disagreed. `money.InstallmentPlan` now returns both figures and the invariant is
 a test.
 
-## WO-12 · Integration tests against real Postgres `[ ]`
+## WO-12 · Integration tests against real Postgres `[x]`
 
 **Why:** CI-03. `docker-compose.yml` already provides the database.
 
@@ -401,7 +401,37 @@ first — it exercises the whole lifecycle.
 
 **Verify:** `go test ./... -tags=integration` green against a fresh container.
 
-## WO-13 · GitHub Actions pipeline `[ ]`
+**Done.** 17 tests in `internal/repositories/integration_test.go`, behind the
+`integration` build tag so `go test ./...` stays fast and DB-free. Run with
+`pnpm test:integration`; with `TEST_DATABASE_URL` unset the suite exits cleanly
+rather than failing.
+
+The schema under test comes from `prisma db push`, deliberately — that is what
+makes these tests catch defects the unit tests structurally cannot.
+
+Scenario coverage against the five in tasks.md:
+
+| # | Scenario | State |
+|---|---|---|
+| 1 | wrong amount → dispute → correction → audit trail | **Covered**, and it required fixing the code first: **none of the four money methods wrote an `audit_logs` row**, in plain violation of CLAUDE.md rule 2. They now write one inside the posting transaction. The dispute step (a Next route) wrote none either; it does now |
+| 2 | loan cap enforcement + recalculation after a deposit | Covered — at the cap, one taka over, below minimum deposit, one-loan-at-a-time, and the cap moving after a deposit |
+| 3 | default waterfall | Covered — borrower first, fall-through to guarantor, donation pool, residual debt, no balance driven negative, **and pool depletion** |
+| 4 | withdrawal blocking | Covered for active loan, active guarantee, insufficient balance, and the `allowActiveLoanWithdrawal` policy branch. **The notice period is not covered because it is not implemented** (FR-08) |
+| 5 | audit immutability | Covered behaviourally: a correction appends and the original row is byte-identical afterwards. **Not enforced at the database level** — no trigger or grant stops an UPDATE, so this proves the code appends, not that the table cannot be rewritten |
+
+**Two live defects found by writing these**, both in the donation-pool leg of the
+waterfall, both silent:
+
+1. The `INSERT` recording the draw omitted `"accountId"` and `"userId"`, which
+   are NOT NULL — so it always failed. Its error was discarded while the loan was
+   still written down, so **debt vanished with no ledger row behind it**.
+2. The pool balance summed `DONATION` rows only and never subtracted prior
+   draws, so **the same donation could settle an unlimited number of defaults**.
+
+Both fixed, both now pinned by tests. The swallowed `tx.Exec` errors in the
+borrower and guarantor steps are checked now too.
+
+## WO-13 · GitHub Actions pipeline `[x]`
 
 **Why:** CI-05 → CI-09. No CI exists at all.
 
@@ -417,6 +447,31 @@ you make).
 `MaxRequestBodySize` that hid SEC-01 and SEC-07.
 
 **Verify:** open a PR, all checks green.
+
+**Done.** [.github/workflows/ci.yml](../.github/workflows/ci.yml) with four jobs
+on PR and push to `main`:
+
+| Job | Does |
+|---|---|
+| `web` | `pnpm typecheck`, `pnpm lint` |
+| `go` | `gofmt` check, `go vet`, `go build`, `go test` |
+| `integration` | Postgres 16 service container → `prisma db push` → `go test -tags=integration` |
+| `secrets` | `gitleaks` over full history (CI-08) |
+
+Plus [dependabot.yml](../.github/dependabot.yml) (CI-07), grouped and monthly:
+a daily stream of individual PRs gets ignored by a solo maintainer, and an
+ignored update stream hides the security ones in noise. Next/React/Prisma majors
+are excluded because those are migrations, not updates.
+
+The `gofmt` step excludes three files that were already unformatted before this
+pipeline existed, so nobody has to reformat them as a drive-by in an unrelated
+PR.
+
+I ran the `integration` job's exact sequence locally against a fresh database
+and it passes. The workflow itself has not run on GitHub — that needs a push.
+
+**CI-09 (branch protection on `main`) is yours** — it is a GitHub settings
+change I cannot make.
 
 ---
 

@@ -12,6 +12,7 @@ pnpm dev        # api :8081 + web :3000        pnpm db:push    # apply schema.pr
 pnpm typecheck  # run before saying "done"     pnpm db:clear   # keep admin+gallery+config only
 pnpm lint                                      pnpm db:studio
 pnpm test:go    # Go unit tests, no DB needed  pnpm test:e2e   # Playwright; needs a running stack + seed
+pnpm test:integration   # Go + real Postgres; needs TEST_DATABASE_URL and a pushed schema
 cd apps/api && go build ./...                  # Go check
 ```
 
