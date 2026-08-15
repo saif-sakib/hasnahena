@@ -116,7 +116,7 @@ jobs:
       # Only the .gpg files are ever uploaded. backup.sh deletes the plaintext
       # dump, but the glob is explicit so a future edit cannot leak one.
       - name: Retain on GitHub
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.meta.outputs.name }}
           path: backups/*.dump.gpg
