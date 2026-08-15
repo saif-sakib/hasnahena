@@ -3,6 +3,17 @@ version: 2
 # Grouped and monthly on purpose. This is a one-maintainer project; a daily
 # stream of individual PRs gets ignored, and an ignored update stream is worse
 # than none — it hides the security ones in noise.
+#
+# MAJOR VERSIONS ARE IGNORED EVERYWHERE. This is the important rule and it was
+# learned the hard way: an earlier version of this file ignored majors only for
+# a named list, so Dependabot opened separate PRs for tailwindcss 3→4,
+# lucide-react 0→1 and @types/node 20→26. Merged together, they broke the
+# Vercel build — Tailwind v4 is a rewrite that moves configuration into CSS and
+# needs a different PostCSS plugin, which no dependency bump can do for you.
+#
+# A major version is a migration. It gets planned, done on a branch, and tested.
+# It does not arrive as a green PR on a Sunday. To take one deliberately, bump
+# it by hand in package.json / go.mod.
 updates:
   - package-ecosystem: npm
     directory: /
@@ -17,17 +28,7 @@ updates:
         dependency-type: development
         update-types: [minor, patch]
     ignore:
-      # Next and React majors are migrations, not updates. Do them deliberately.
-      - dependency-name: next
-        update-types: [version-update:semver-major]
-      - dependency-name: react
-        update-types: [version-update:semver-major]
-      - dependency-name: react-dom
-        update-types: [version-update:semver-major]
-      # Prisma client and CLI must move together; a lone bump breaks generate.
-      - dependency-name: prisma
-        update-types: [version-update:semver-major]
-      - dependency-name: '@prisma/client'
+      - dependency-name: '*'
         update-types: [version-update:semver-major]
 
   - package-ecosystem: gomod
@@ -39,7 +40,13 @@ updates:
       go-dependencies:
         patterns: ['*']
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
 
+  # Actions are pinned by major tag (`@v4`), so a major bump here rewrites the
+  # tag rather than the code. Still a migration — `actions/checkout@v4` → `@v7`
+  # changed under us once already.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -47,3 +54,7 @@ updates:
     groups:
       actions:
         patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]

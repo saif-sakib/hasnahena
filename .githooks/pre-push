@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Runs the checks that would otherwise only fail on Vercel or in CI.
+#
+# Why this exists: branch protection — the thing that stops a broken commit
+# reaching `main` — needs a paid plan on a private repository. This hook buys
+# most of the same safety for nothing. It is not as strong (anyone can bypass it
+# with --no-verify, and it only runs on the machine that has it installed), but
+# for a one-maintainer project it catches the failure that actually happens:
+# something merged, pushed, and only discovered when the deploy went red.
+#
+# Install once:
+#     git config core.hooksPath .githooks
+#
+# Skip deliberately (docs-only change, mid-rebase, in a hurry):
+#     git push --no-verify
+
+set -uo pipefail
+
+# Nothing to check if only docs or config text changed. Keeps the common case fast.
+CHANGED="$(git diff --name-only @{u}..HEAD 2>/dev/null || git diff --name-only HEAD~1..HEAD 2>/dev/null || echo '')"
+if [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -qvE '^(docs/|README|CLAUDE\.md|\.env\..*example|.*\.md$)'; then
+  echo "pre-push: documentation only — skipping build checks"
+  exit 0
+fi
+
+fail() {
+  echo
+  echo "  ✗ pre-push: $1 failed."
+  echo "    Fix it, or push anyway with:  git push --no-verify"
+  echo
+  exit 1
+}
+
+echo "pre-push: typecheck…"
+pnpm typecheck >/dev/null 2>&1 || fail "pnpm typecheck"
+
+# The build is the slow one, and the only one that catches a broken PostCSS or
+# Tailwind config — the exact class of breakage a dependency bump introduces and
+# a typecheck sails straight past.
+echo "pre-push: build…"
+BUILD_LOG="$(mktemp)"
+if ! DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/placeholder}" \
+     pnpm build >"$BUILD_LOG" 2>&1; then
+  tail -25 "$BUILD_LOG"
+  rm -f "$BUILD_LOG"
+  fail "pnpm build"
+fi
+rm -f "$BUILD_LOG"
+
+if command -v go >/dev/null 2>&1; then
+  echo "pre-push: go build…"
+  (cd apps/api && go build ./...) || fail "go build"
+else
+  echo "pre-push: go not installed — skipping Go build (CI still checks it)"
+fi
+
+echo "pre-push: OK"
