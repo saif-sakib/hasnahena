@@ -45,10 +45,10 @@
     "@types/node": "^26.2.0",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",
-    "autoprefixer": "^10.4.19",
+    "autoprefixer": "^10.5.4",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.3",
-    "postcss": "^8.4.38",
+    "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.4.2"
   }
