@@ -25,33 +25,101 @@ Verify: `curl localhost:8081/v1/health` → `{"success":true,"data":{"status":"o
 
 ## Environment
 
-One `.env.local` at the repo root serves both apps — the Go config loader walks up from `apps/api` looking for `.env` / `.env.local`, and Next reads the root file too. Values already present in the real environment always win.
+**Three places, and they share almost nothing.** This is the single most common
+source of "it works locally but not in production".
+
+| Where | File / store | Who reads it |
+|---|---|---|
+| Local dev | `.env.local` at the repo root | **both** apps — the Go loader walks up from `apps/api`, and `apps/web/.env` is a **symlink** to it |
+| Go API in production | Render → Environment tab | Go API only |
+| Web app in production | Vercel → Environment Variables | Next app only |
+
+Templates, one per destination — copy the values, never the file:
+
+- [.env.example](../.env.example) → copy to `.env.local` for local work
+- [.env.render.example](../.env.render.example) → paste into Render
+- [.env.vercel.example](../.env.vercel.example) → paste into Vercel
+
+### The two that must match
+
+Render and Vercel are isolated stores. Exactly **two** values exist in both and
+must be byte-identical:
+
+| Variable | Why a mismatch hurts |
+|---|---|
+| `JWT_SECRET` | The Next route handlers verify tokens the Go API signed. Mismatched, every login *succeeds* and then every following request 401s — which looks like a session bug, not a config bug |
+| `DATABASE_URL` | Otherwise the two halves of the app are looking at different data |
+
+Everything else belongs to one host only. Setting a Render variable on Vercel
+does nothing, and vice versa.
+
+### Local: one file, one symlink
+
+`apps/web/.env` is a symlink to the root `.env.local`, so there is one file to
+edit and no chance of the two drifting apart. If it goes missing — fresh clone,
+or a filesystem without symlinks — recreate it:
+
+```bash
+ln -s ../../.env.local apps/web/.env
+```
 
 ### Required
 
-| Variable | Used by | Notes |
+| Variable | Local | Render | Vercel |
+|---|:--:|:--:|:--:|
+| `DATABASE_URL` | ✅ | ✅ | ✅ |
+| `JWT_SECRET` (min 32 chars) | ✅ | ✅ | ✅ |
+| `NEXT_PUBLIC_API_URL` | ✅ | — | ✅ |
+| `NEXT_PUBLIC_APP_URL` | ✅ | ✅ | ✅ |
+| `CORS_ORIGINS` | ✅ | ✅ | ✅ |
+| `API_PORT` | ✅ | — (Render injects `PORT`) | — |
+
+`CORS_ORIGINS` is on **both** hosts: the Go API checks it, and so do the Next
+handlers `/api/v1/gallery` and `/api/v1/settings` since the wildcard was
+removed.
+
+### Optional — all have working defaults
+
+| Variable | Host | Effect when unset |
 |---|---|---|
-| `DATABASE_URL` | web + api | local: `postgresql://postgres:postgres@localhost:5432/hasnahena_dev` |
-| `JWT_SECRET` | web + api | **min 32 chars**, identical in both — the API refuses to boot otherwise |
-| `NEXT_PUBLIC_API_URL` | web | `http://localhost:8081` locally |
-| `API_PORT` | api | defaults to `8081`; `PORT` also accepted |
-| `CORS_ORIGINS` | api | comma-separated, no spaces |
+| `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Render | email disabled — approval and reset mails silently skipped (`/v1/health` reports `emailConfigured:false`) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Vercel | document/avatar upload fails; every other flow works |
+| `NEXT_PUBLIC_SITE_URL` | Vercel | falls back to `NEXT_PUBLIC_APP_URL` for SEO metadata |
+| `JWT_EXPIRY_SECONDS` | Render | 86400 |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | Render | pgx pool defaults (25/2/5m/30m/1m) |
+| `LOG_LEVEL` | Render | `info`. Accepts `debug`, `info`, `warn`, `error`. The API logs JSON to stdout |
+| `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | Render | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
+| `SERVER_SHUTDOWN_TIMEOUT` | Render | 30s. Must be **shorter** than Render's stop grace period (also 30s by default) or Render `SIGKILL`s mid-drain |
+| `CLEANUP_INTERVAL` | Render | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables |
+| `KEEP_ADMIN_EMAIL` | local | which admin `pnpm db:clear` preserves |
+| `E2E_BASE_URL`, `E2E_ADMIN_IDENTIFIER`, `E2E_ADMIN_PASSWORD` | local | `pnpm test:e2e` skips every spec unless the last two are set. Seeded **local** database only — the specs move money |
 
-### Optional
+### The public-URL aliases
 
-| Variable | Effect when unset |
-|---|---|
-| `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | email disabled — approval and reset mails silently skipped (`/v1/health` reports `emailConfigured:false`) |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | document/avatar upload fails; every other flow works |
-| `JWT_EXPIRY_SECONDS` | 86400 |
-| `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | pgx pool defaults (25/2/5m/30m/1m) |
-| `LOG_LEVEL` | `info`. Accepts `debug`, `info`, `warn`, `error`. The API logs JSON to stdout |
-| `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
-| `SERVER_SHUTDOWN_TIMEOUT` | 30s. How long a `SIGTERM` waits for in-flight requests. Must be **shorter** than the host's stop grace period |
-| `CLEANUP_INTERVAL` | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables the sweep |
-| `E2E_BASE_URL`, `E2E_ADMIN_IDENTIFIER`, `E2E_ADMIN_PASSWORD` | `pnpm test:e2e` skips every spec unless the last two are set. Point them at a seeded **local** database — the specs sign in and move money |
+The Go API accepts about fourteen different variable names for the public site
+URL (`APP_URL`, `FRONTEND_URL`, `SITE_URL`, `WEB_URL`, `PUBLIC_URL`, …). They
+are a fallback chain, not separate settings.
 
-Skip Cloudinary locally unless you are testing uploads; if you do use it, use a separate dev account or a `hasnahena-dev/` folder prefix — never production credentials.
+**Set `NEXT_PUBLIC_APP_URL` and ignore the rest.** Setting several is worse than
+setting one: the resolver takes the first non-empty name in its own order, which
+is not the order you would guess. With none set it falls back to
+`https://www.hasnahenafoundation.com`.
+
+The same applies to email: `BREVO_SENDER_EMAIL`, `EMAIL_SENDER` and `FROM_EMAIL`
+are aliases for `EMAIL_FROM`; `SENDINBLUE_API_KEY` is an alias for
+`BREVO_API_KEY`.
+
+### Things that are not variables any more
+
+If you see these in an old `.env`, delete them — no code reads them. They are
+left over from an architecture this project does not have (see CLAUDE.md):
+Clerk (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`), Redis
+(`REDIS_URL`, `REDIS_PASSWORD`), the Java ledger (`SPRING_DATASOURCE_*`,
+`LEDGER_SERVICE_*`), SMS (`SMS_*`), NID verification (`PORICHOY_*`), and a set
+of settings that were never wired up (`SESSION_SECRET`, `SESSION_MAX_AGE`,
+`JWT_EXPIRY`, `JWT_REFRESH_EXPIRY`, `RATE_LIMIT_*`, `FEATURE_*`, `LOG_FORMAT`,
+`APP_NAME`, `DATABASE_POOL_SIZE`, `SEED_DATABASE`, `DISABLE_HTTPS_REDIRECT`,
+`ENABLE_DEBUG_ENDPOINTS`).
 
 ## Tests
 

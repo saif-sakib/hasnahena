@@ -73,3 +73,27 @@ func TestCurrentSequenceYearIsPlausible(t *testing.T) {
 		t.Errorf("CurrentSequenceYear() = %d, which is not a plausible year", year)
 	}
 }
+
+// Guards the regression described on NextDocumentNumberQuery: the timestamps
+// must be written by the query, never left to a database default. Prisma's
+// `db push` strips the DEFAULT from "updatedAt" (it models it as @updatedAt,
+// which the client applies), and without these columns the first allocation of
+// a series fails a NOT NULL check — which breaks every deposit, withdrawal,
+// loan and repayment, because they all allocate a number inside their
+// transaction.
+func TestNextDocumentNumberQueryWritesItsOwnTimestamps(t *testing.T) {
+	insertColumns := NextDocumentNumberQuery[:strings.Index(NextDocumentNumberQuery, "VALUES")]
+
+	for _, column := range []string{`"createdAt"`, `"updatedAt"`} {
+		if !strings.Contains(insertColumns, column) {
+			t.Errorf("NextDocumentNumberQuery must insert %s explicitly, not rely on a database default", column)
+		}
+	}
+
+	if !strings.Contains(NextDocumentNumberQuery, `DO UPDATE SET counter = document_sequences.counter + 1`) {
+		t.Error("NextDocumentNumberQuery must increment the counter on conflict")
+	}
+	if !strings.Contains(NextDocumentNumberQuery, `RETURNING counter`) {
+		t.Error("NextDocumentNumberQuery must return the allocated counter")
+	}
+}

@@ -75,6 +75,18 @@ func main() {
 	// Neon pooler (pgBouncer) can raise prepared-statement conflicts; simple protocol avoids server-side prepare reuse.
 	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
+	// Pin every connection to UTC. The timestamp columns are `timestamp without
+	// time zone`, so NOW() is stored as whatever wall clock the session's zone
+	// says — on a server set to Asia/Dhaka that is six hours off the UTC values
+	// Prisma writes, and pgx reads bare timestamps back as UTC either way.
+	//
+	// That skew is not cosmetic. IsUserTokensRevoked compares a stored NOW()
+	// against a JWT's `iat`, so under a non-UTC session every token issued after
+	// a password change looked older than the revocation marker and the member
+	// was locked out until it expired. Neon happens to default to UTC, which is
+	// the only reason production has not hit this; a VPS would not be so kind.
+	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
+
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		slog.Error("failed to connect db", "error", err)
