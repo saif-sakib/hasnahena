@@ -1,11 +1,14 @@
 package utils
 
-// Validation constants for financial operations
-// Amounts are in Taka
-
+// Upper bounds for financial operations, in whole Taka (ADR-002).
+//
+// Handlers enforce these inline alongside a `<= 0` lower-bound check, e.g.
+//
+//	if req.Amount <= 0 { ... }
+//	if req.Amount > utils.MaxDepositAmount { ... }
 const (
-	// MaxDepositAmount - Maximum single deposit (10 crore BDT = 100 million BDT)
-	MaxDepositAmount int64 = 10_00_00_000 // 10 crore in Taka
+	// MaxDepositAmount - Maximum single deposit (10 crore BDT)
+	MaxDepositAmount int64 = 10_00_00_000
 
 	// MaxWithdrawalAmount - Maximum single withdrawal (10 crore BDT)
 	MaxWithdrawalAmount int64 = 10_00_00_000
@@ -19,28 +22,13 @@ const (
 	// MaxLoanPaymentAmount - Maximum single loan payment (1 crore BDT)
 	MaxLoanPaymentAmount int64 = 1_00_00_000
 
-	// MinPasswordLength - Minimum password length
-	MinPasswordLength = 8
-
 	// MaxPurposeLength - Maximum loan purpose length
 	MaxPurposeLength = 500
 
-	// MaxNotesLength - Maximum transaction notes length
-	MaxNotesLength = 1000
-
-	// MaxRequestBodySize - Maximum request body size (1 MB)
+	// MaxRequestBodySize - Maximum request body size (1 MB).
+	//
+	// NOT YET ENFORCED. ParseJSON decodes straight from r.Body, so request
+	// bodies are currently unbounded — see SEC-07 in docs/production-readiness.md.
+	// Kept because it is the intended limit, not because it is dead code.
 	MaxRequestBodySize int64 = 1 * 1024 * 1024
 )
-
-// ValidateAmount checks if amount is within acceptable range
-func ValidateAmount(amount int64, maxAmount int64) bool {
-	return amount > 0 && amount <= maxAmount
-}
-
-// ValidateStringLength checks if string is within acceptable length
-func ValidateStringLength(s string, maxLen int) bool {
-	return len(s) <= maxLen
-}
-
-// BDT phone number regex pattern
-const PhonePattern = `^01[3-9]\d{8}$`

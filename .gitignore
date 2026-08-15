@@ -28,8 +28,11 @@ target/
 *.ear
 *.class
 
-# Go
+# Go — compiled server binaries. `go build` drops these next to the source,
+# and a 17 MB artifact was committed once already.
 bin/
+apps/api/server
+apps/api/app
 
 # ------------------------------------------------------------
 # Environment files
@@ -40,7 +43,7 @@ bin/
 .env.development.local
 .env.test.local
 .env.production.local
-.env.example
+# .env.example is intentionally committed — it is the template, not a secret.
 
 # ------------------------------------------------------------
 # IDE and Editor

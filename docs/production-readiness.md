@@ -119,21 +119,19 @@ strings land in proxy logs, CDN logs, browser history and `Referer` headers.
 endpoint instead of accepting the full-power access token, or move support
 messaging to a `fetch`-based stream that can carry a header.
 
-### SEC-06 · A 17 MB compiled binary is committed `[ ]` — **medium**
+### SEC-06 · A 17 MB compiled binary is committed `[x]` — **medium**
 
-`apps/api/server` is tracked (added in `beabc14`, updated in `5db86b7`) and is
-not covered by `.gitignore` — the Go section only ignores `bin/`. It is 17 MB of
-the repo's 59 MB `.git`, it is an opaque artifact nobody can review, and it will
-be stale and misleading forever.
+`apps/api/server` was tracked (added in `beabc14`, updated in `5db86b7`) and not
+covered by `.gitignore` — the Go section only ignored `bin/`.
 
-**Fix.** `git rm --cached apps/api/server`, add `apps/api/server` and
-`apps/api/app` to `.gitignore`. Purging it from history (`git filter-repo`)
-shrinks clones by ~70% but rewrites every commit — worth doing now while the
-repo is solo and only `origin/main` exists; the cost only rises.
+**Done.** Untracked and deleted; `apps/api/server` and `apps/api/app` added to
+`.gitignore`. The `.env.example` line was also removed from `.gitignore`, which
+had been ignoring a file that is deliberately committed.
 
-Also gitignore-worthy: `.env.example` is currently *in* `.gitignore` while being
-tracked. Git honours the tracking, so it works, but the rule contradicts intent —
-remove that line so the template stays obviously committed.
+**Still open:** the blob remains in history, so `.git` is still ~59 MB and every
+clone pays for it. Purging with `git filter-repo` shrinks clones by ~70% but
+rewrites every commit — worth doing while the repo is solo and only
+`origin/main` exists. The cost only rises.
 
 ### SEC-07 · No request body size limit `[ ]` — **medium**
 
@@ -200,7 +198,7 @@ Free-tier hosts hide these. A VPS will not.
 | RUN-07 | Global rate limiting | Login is throttled; nothing else is. Add per-IP limits on all mutating routes |
 | RUN-08 | Panic reporting | `middleware.Recoverer` prevents a crash but the panic goes to stdout and nowhere else — wire it to OBS-03 |
 | RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support |
-| RUN-10 | Delete the 16 empty API folders | Dead scaffolding that misrepresents the API surface (already in tasks.md) |
+| RUN-10 | ~~Delete the empty API folders~~ `[x]` | Done — 27 empty directories removed (they were untracked, so local-only clutter) |
 
 ---
 
@@ -336,6 +334,21 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 Blocks 1–4 are the ones that matter if you only ever do part of this list: they
 turn "it works" into "it works, and if it breaks the members' money is still
 there."
+
+---
+
+## Dead code that must not be deleted
+
+A linter or a cleanup pass will flag these as unused. They are unused **because a
+wiring step was never finished**, and each one is the remedy for a defect on this
+page. Deleting them deletes the fix. Each is marked with a comment in the source.
+
+| Symbol | File | Unused because |
+|---|---|---|
+| `AuthService.ValidateToken` | `internal/services/auth_service.go` | SEC-01 — handlers call `ParseAccessToken` instead, so the blacklist is never read |
+| `SecurityService.CleanupExpiredTokens` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
+| `SecurityService.CleanupExpiredRateLimits` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
+| `utils.MaxRequestBodySize` | `internal/utils/validation.go` | SEC-07 — `ParseJSON` never applies it |
 
 ---
 

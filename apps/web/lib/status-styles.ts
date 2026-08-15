@@ -4,7 +4,6 @@ export type MemberStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING';
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'PROCESSING' | 'REJECTED' | 'CANCELLED';
 export type TransactionType = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | 'DONATION';
 export type LoanStatus = 'PENDING' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'REJECTED' | 'DEFAULTED';
-export type WorkerRole = 'ADMIN' | 'WORKER' | 'MEMBER';
 
 // Badge style classes
 export const statusStyles = {
@@ -63,15 +62,6 @@ export const statusLabels = {
   MEMBER: { en: 'Member', bn: 'সদস্য' },
 } as const;
 
-// Type icons mapping
-export const typeStyles = {
-  DEPOSIT: 'bg-green-100 text-green-700',
-  WITHDRAWAL: 'bg-blue-100 text-blue-700',
-  LOAN_DISBURSEMENT: 'bg-purple-100 text-purple-700',
-  LOAN_REPAYMENT: 'bg-amber-100 text-amber-700',
-  DONATION: 'bg-pink-100 text-pink-700',
-} as const;
-
 // Helper functions
 export function getStatusStyle(status: string): string {
   return statusStyles[status as keyof typeof statusStyles] || 'bg-gray-100 text-gray-600';
@@ -81,13 +71,4 @@ export function getStatusLabel(status: string, locale: string): string {
   const labels = statusLabels[status as keyof typeof statusLabels];
   if (!labels) return status;
   return locale === 'bn' ? labels.bn : labels.en;
-}
-
-export function getTypeStyle(type: string): string {
-  return typeStyles[type as keyof typeof typeStyles] || 'bg-gray-100 text-gray-600';
-}
-
-// Status badge component helper
-export function getStatusBadgeClass(status: string): string {
-  return `px-2 py-0.5 text-xs rounded ${getStatusStyle(status)}`;
 }

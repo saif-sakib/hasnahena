@@ -63,12 +63,3 @@ export async function createAuditLog(params: AuditLogParams): Promise<void> {
     console.error('Failed to create audit log:', error);
   }
 }
-
-/**
- * Get client IP from request headers
- */
-export function getClientIp(headersList: Headers): string {
-  return headersList.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || headersList.get('x-real-ip')
-    || 'unknown';
-}
