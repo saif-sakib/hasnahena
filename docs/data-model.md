@@ -1,6 +1,6 @@
 # Data Model
 
-`apps/web/prisma/schema.prisma` is the single source of truth. The Go API reads the same tables with raw SQL. Schema changes ship via `pnpm db:push` — there are no migration files ([ADR-004](decisions.md)).
+`apps/web/prisma/schema.prisma` is the single source of truth. The Go API reads the same tables with raw SQL. Schema changes ship as migration files under `apps/web/prisma/migrations/`, applied with `pnpm db:migrate` ([ADR-014](decisions.md)).
 
 ## Invariants
 
@@ -67,6 +67,11 @@ between those two views have already caused production-class defects.
 so `prisma db push` actively **strips** any `DEFAULT` from such a column. A
 hand-written `INSERT` that omits `"updatedAt"` therefore works until someone
 runs a db push, and fails a NOT NULL check forever after.
+
+Moving to migrations ([ADR-014](decisions.md)) does not change this. The
+generated `0_init` emits `"updatedAt" TIMESTAMP(3) NOT NULL` with no default,
+exactly like `db push` — the difference is that it is now visible in a
+reviewable file instead of discoverable in production.
 
 This is exactly what happened to `document_sequences`: the table was created by
 the Go bootstrap with `DEFAULT NOW()`, `db push` removed it, and the next
