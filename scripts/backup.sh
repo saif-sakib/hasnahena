@@ -33,9 +33,14 @@ if [[ -z "${BACKUP_PASSPHRASE:-}" ]]; then
   exit 1
 fi
 
+# Neon serves the same database on two hostnames: `-pooler` (PgBouncer, which
+# drops the session state pg_dump depends on) and the direct one. Being handed
+# the pooled URL is the expected mistake — it is the string in every dashboard
+# and every other env var — so derive the direct host rather than failing and
+# leaving the schedule with no backup at all.
 if [[ "$DIRECT_DATABASE_URL" == *"-pooler"* ]]; then
-  echo "backup: DIRECT_DATABASE_URL points at a pooler endpoint; pg_dump needs the direct one" >&2
-  exit 1
+  echo "backup: given a pooler endpoint; using the direct host instead" >&2
+  DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL//-pooler/}"
 fi
 
 mkdir -p "$OUT_DIR"
