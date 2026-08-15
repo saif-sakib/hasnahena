@@ -22,12 +22,12 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[ ]` | None that run. One Playwright spec, no dependency, no config |
+| Automated tests | `[ ]` | Effectively none. One Go middleware test; one Playwright spec with no dependency and no config |
 | CI/CD | `[ ]` | No `.github/`. Lint, typecheck and `go build` are manual |
 | Containerisation | `[ ]` | No Dockerfile. Cannot run anywhere but Vercel + Render |
-| Observability | `[ ]` | `log.Printf` to stdout. No metrics, traces, error tracking, alerts |
+| Observability | `[~]` | Structured JSON access logs with request + user IDs (RUN-04/05). Still no metrics, traces, error tracking or alerts |
 | Backups | `[ ]` | Documented as an intention; nothing scheduled, never restore-tested |
-| Runtime hardening | `[~]` | Request bodies bounded (SEC-07); still no server timeouts or graceful shutdown |
+| Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups (RUN-01→06). RUN-07/08 open |
 | Secrets management | `[~]` | Env vars per host, no rotation record, no central store |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops |
 
@@ -218,12 +218,12 @@ Free-tier hosts hide these. A VPS will not.
 
 | ID | Task | Why |
 |---|---|---|
-| RUN-01 | Replace `http.ListenAndServe` with a configured `http.Server` | [main.go:184](../apps/api/cmd/server/main.go#L184) has no `ReadTimeout`, `WriteTimeout`, `IdleTimeout` or `ReadHeaderTimeout` — one slowloris client can hold a connection open indefinitely |
-| RUN-02 | Graceful shutdown | Catch `SIGTERM`, stop accepting, drain in-flight requests, close the pool. Today a deploy can kill the process **mid money-moving transaction** |
-| RUN-03 | Real health checks | [main.go:87](../apps/api/cmd/server/main.go#L87) returns `ok` without touching the database. Split into `/v1/health` (liveness, cheap) and `/v1/ready` (pings the pool) so an orchestrator can tell "alive" from "usable" |
-| RUN-04 | Structured JSON logging | `log.Printf` cannot be queried. Move to `log/slog` with request ID, user ID, route, status, duration. `middleware.RequestID` is already installed but never logged |
-| RUN-05 | Scrub PII from logs | Handlers log member email addresses on email failures (lines 454, 673, 1262). Log the user ID, never the address |
-| RUN-06 | Schedule the cleanup jobs | `CleanupExpiredTokens` and `CleanupExpiredRateLimits` exist and are **never called** — `token_blacklist` and `rate_limits` grow without bound. A ticker in `main.go` is enough until there is a scheduler |
+| RUN-01 `[x]` | Replace `http.ListenAndServe` with a configured `http.Server` | **Done.** All four timeouts set from `SERVER_*` env vars (10s/30s/60s/120s). The SSE stream clears its own write deadline via `http.ResponseController`, which is why the access-log wrapper implements `Unwrap` |
+| RUN-02 `[x]` | Graceful shutdown | **Done.** `signal.NotifyContext` → `srv.Shutdown` with a 30 s drain, then the pool closes. SSE streams are ended first (`DashboardHandler.BeginShutdown`) so they do not consume a drain window meant for money movement. **The host's stop grace period must exceed `SERVER_SHUTDOWN_TIMEOUT`** or the platform `SIGKILL`s mid-drain — noted in deployment.md |
+| RUN-03 `[x]` | Real health checks | **Done.** `/v1/health` stays cheap and keeps `emailConfigured` for the release checklist; `/v1/ready` pings the pool with a 2 s budget and returns 503 `DB_UNAVAILABLE` on failure |
+| RUN-04 `[x]` | Structured JSON logging | **Done.** `log/slog` JSON to stdout, level from `LOG_LEVEL`. One `http_request` line per request with request ID, method, path, status, bytes, duration, IP and — via a context holder filled in `verifyActiveRole` — the user ID. `slog.SetDefault` also routes the standard `log` package through the same handler, so a stray `log.Printf` in a dependency still emits JSON |
+| RUN-05 `[x]` | Scrub PII from logs | **Done.** All three sites now log the user ID. The staff-welcome path has no user yet, so it logs only the role and leans on the request ID to tie the line back to the caller. The access log records `r.URL.Path` and never `RawQuery`, which would otherwise carry thread IDs and stream tickets |
+| RUN-06 `[x]` | Schedule the cleanup jobs | **Done.** `startCleanupLoop` in `main.go`: sweeps at boot and then every `CLEANUP_INTERVAL` (default 1h), each sweep bounded at 1 minute, tied to the shutdown context, logging rows deleted only when there are any. `sse_tickets` needs no entry here — it sweeps itself on the issue path |
 | RUN-07 | Global rate limiting | Login is throttled; nothing else is. Add per-IP limits on all mutating routes |
 | RUN-08 | Panic reporting | `middleware.Recoverer` prevents a crash but the panic goes to stdout and nowhere else — wire it to OBS-03 |
 | RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support |
@@ -351,7 +351,7 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 |---|---|---|---|
 | 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
 | 2 | **Safety net** | CI-01 → CI-09 | 1 week |
-| 3 | **Runtime hardening** | RUN-01 → RUN-08 | 3–4 days |
+| 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
 | 4 | **Backups that work** | DATA-01, DATA-02, DATA-03 | 1 day |
 | 5 | **Can see it** | OBS-01 → OBS-06 | 2–3 days |
 | 6 | **Migrations + seed** | DATA-04, DATA-05, DATA-08 | 2 days |
@@ -372,13 +372,10 @@ A linter or a cleanup pass will flag these as unused. They are unused **because 
 wiring step was never finished**, and each one is the remedy for a defect on this
 page. Deleting them deletes the fix. Each is marked with a comment in the source.
 
-| Symbol | File | Unused because |
-|---|---|---|
-| `SecurityService.CleanupExpiredTokens` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
-| `SecurityService.CleanupExpiredRateLimits` | `internal/services/security_service.go` | RUN-06 — no scheduler calls it |
-
-`AuthService.ValidateToken` and `utils.MaxRequestBodySize` were on this list
-until SEC-01 and SEC-07 wired them up. Both are now on live code paths.
+**This list is now empty.** Every symbol that was on it has been wired up:
+`AuthService.ValidateToken` and `utils.MaxRequestBodySize` by SEC-01 and SEC-07,
+`SecurityService.CleanupExpiredTokens` and `CleanupExpiredRateLimits` by RUN-06.
+The section stays as a place to record the next one.
 
 ---
 

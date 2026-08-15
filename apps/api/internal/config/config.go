@@ -2,7 +2,7 @@ package config
 
 import (
 	"bufio"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -22,11 +22,26 @@ type Config struct {
 	EmailFrom           string
 	EmailFromName       string
 	AppURL              string
+	LogLevel            string
 	DBMaxConns          int32
 	DBMinConns          int32
 	DBMaxConnIdleTime   time.Duration
 	DBMaxConnLifetime   time.Duration
 	DBHealthCheckPeriod time.Duration
+
+	// HTTP server bounds. Without these a single slow client can hold a
+	// connection open forever (RUN-01).
+	ServerReadHeaderTimeout time.Duration
+	ServerReadTimeout       time.Duration
+	ServerWriteTimeout      time.Duration
+	ServerIdleTimeout       time.Duration
+
+	// How long a shutdown waits for in-flight requests to finish before giving
+	// up. Money-moving requests must be allowed to complete (RUN-02).
+	ServerShutdownTimeout time.Duration
+
+	// How often expired token_blacklist and rate_limits rows are swept (RUN-06).
+	CleanupInterval time.Duration
 }
 
 func Load() Config {
@@ -36,10 +51,12 @@ func Load() Config {
 	// Validate JWT_SECRET - critical security requirement
 	jwtSecret := getEnv("JWT_SECRET", "")
 	if jwtSecret == "" || jwtSecret == "change-this-in-production" {
-		log.Fatal("SECURITY ERROR: JWT_SECRET environment variable must be set to a secure value (minimum 32 characters)")
+		slog.Error("JWT_SECRET must be set to a secure value of at least 32 characters")
+		os.Exit(1)
 	}
 	if len(jwtSecret) < 32 {
-		log.Fatal("SECURITY ERROR: JWT_SECRET must be at least 32 characters long for adequate security")
+		slog.Error("JWT_SECRET must be at least 32 characters long for adequate security", "length", len(jwtSecret))
+		os.Exit(1)
 	}
 
 	return Config{
@@ -53,11 +70,21 @@ func Load() Config {
 		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
 		EmailFromName:       getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
 		AppURL:              resolvePublicAppURL(),
+		LogLevel:            getEnv("LOG_LEVEL", "info"),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
 		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
 		DBMaxConnLifetime:   getEnvDuration("DB_MAX_CONN_LIFETIME", 30*time.Minute),
 		DBHealthCheckPeriod: getEnvDuration("DB_HEALTH_CHECK_PERIOD", 1*time.Minute),
+
+		ServerReadHeaderTimeout: getEnvDuration("SERVER_READ_HEADER_TIMEOUT", 10*time.Second),
+		ServerReadTimeout:       getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second),
+		// Generous because report and document endpoints do real work. The SSE
+		// stream clears this deadline for itself; see DashboardHandler.SupportStream.
+		ServerWriteTimeout:    getEnvDuration("SERVER_WRITE_TIMEOUT", 60*time.Second),
+		ServerIdleTimeout:     getEnvDuration("SERVER_IDLE_TIMEOUT", 120*time.Second),
+		ServerShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second),
+		CleanupInterval:       getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
 	}
 }
 

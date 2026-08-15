@@ -80,10 +80,16 @@ Remove conflicting old records, add both apex and www in Vercel, add `api.hasnah
 
 1. `https://hasnahenafoundation.com` loads; `www` resolves.
 2. `https://api.hasnahenafoundation.com/v1/health` → `status: ok` **and** `emailConfigured: true`.
-3. Login works from the deployed frontend with no CORS errors.
-4. Admin dashboard renders live figures.
-5. A test registration triggers its approval email.
+3. `https://api.hasnahenafoundation.com/v1/ready` → `status: ready`. This one pings the database — a 503 here with a 200 on `/v1/health` means the process is alive but cannot reach Postgres, so do not roll forward.
+4. Login works from the deployed frontend with no CORS errors.
+5. Admin dashboard renders live figures.
+6. A test registration triggers its approval email.
+7. Logs are arriving as JSON (`{"time":…,"level":…,"msg":"http_request",…}`). If they are plain text, `LOG_LEVEL` or the deploy is running an old build.
 
 ## Operations
+
+Point the host's health check at `/v1/health` and its load-balancer check at `/v1/ready` — restarting a process because the database blinked makes an outage worse.
+
+Deploys are drained, not killed: the API catches `SIGTERM`, stops accepting new connections, and gives in-flight requests up to `SERVER_SHUTDOWN_TIMEOUT` (default 30 s) to finish, so a deploy no longer lands mid money-movement. Give the platform a stop-timeout **longer** than that value, or it will `SIGKILL` during the drain and defeat the point. Render's default grace period is 30 s, so either lower `SERVER_SHUTDOWN_TIMEOUT` to ~25 s there or raise the platform's.
 
 Rotate any secret that has ever appeared in a screenshot, chat, or commit — in Neon, Vercel, and Render together, since they are isolated stores. Keep dev and production credentials separate. Back up with `pg_dump` on a schedule; Neon branches are not a backup policy. Watch free-tier limits on all four services.

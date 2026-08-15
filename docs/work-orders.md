@@ -23,7 +23,7 @@ on the quoted code, not the number.
 | Batch | Orders | Theme | Session size |
 |---|---|---|---|
 | ~~**A**~~ | WO-01 → WO-05 | Security defects — **done** | — |
-| **B** | WO-06 → WO-09 | Runtime hardening | ~1 session |
+| ~~**B**~~ | WO-06 → WO-09 | Runtime hardening — **done** | — |
 | **C** | WO-10 → WO-13 | Test harness + CI | ~2 sessions |
 | **D** | WO-14 → WO-16 | Backups, migrations, seed | ~1 session |
 | **E** | WO-17 → WO-19 | Observability | ~1 session |
@@ -207,9 +207,23 @@ ticket before every connect.
 
 ---
 
-# Batch B — Runtime hardening
+# Batch B — Runtime hardening `[x]`
 
-## WO-06 · Server timeouts and graceful shutdown `[ ]`
+**Done.** Outcomes and deviations are recorded per-order below; the *why* is in
+[production-readiness.md](production-readiness.md) under RUN-01 → RUN-06.
+
+Two notes for whoever picks up Batch C:
+
+- **The host's stop grace period must be longer than `SERVER_SHUTDOWN_TIMEOUT`**
+  (default 30 s), or the platform `SIGKILL`s during the drain and the graceful
+  shutdown buys nothing. Render's default grace is also 30 s — lower ours to
+  ~25 s there. Recorded in deployment.md.
+- `go build ./...` **was** run for this batch. The toolchain is not installed on
+  this machine, but a pinned Go 1.22 tarball unpacked into the session scratchpad
+  builds the module fine — `go build`, `go vet` and `go test` all work that way
+  if you need them before CI exists.
+
+## WO-06 · Server timeouts and graceful shutdown `[x]`
 
 **Why:** RUN-01 + RUN-02. `http.ListenAndServe` has no timeouts (slowloris) and
 no signal handling — **a deploy can kill the API mid money-moving transaction.**
@@ -223,7 +237,23 @@ no signal handling — **a deploy can kill the API mid money-moving transaction.
 
 **Verify:** `SIGTERM` during an in-flight request lets it finish. `go build ./...`.
 
-## WO-07 · Real health and readiness endpoints `[ ]`
+**Done.** Timeouts come from `SERVER_*` env vars rather than constants, matching
+the existing `DB_*` pattern. The SSE problem was solved with
+`http.ResponseController.SetWriteDeadline` (not a second server) — which is why
+the WO-09 access-log wrapper has to implement `Unwrap` and `Flush`. There is a
+test for exactly that in `internal/middleware/logging_test.go`, because losing
+either one would break SSE silently.
+
+Shutdown ends SSE streams first via `DashboardHandler.BeginShutdown`. Without
+that, `Shutdown` would wait out the full 30 s on connections that never go idle
+while a real deposit posting is what the window is for.
+
+**Only verified by build and unit test, not by running the process** — the sole
+`DATABASE_URL` on this machine points at production Neon, and booting the API
+runs `EnsureSupportSchema` DDL. Someone with a local Postgres should still do the
+`SIGTERM`-during-request check by hand.
+
+## WO-07 · Real health and readiness endpoints `[x]`
 
 **Why:** RUN-03. `/v1/health` returns `ok` without touching the database.
 
@@ -236,7 +266,12 @@ no signal handling — **a deploy can kill the API mid money-moving transaction.
 **Verify:** stop Postgres → `/v1/ready` 503, `/v1/health` 200. Update
 [deployment.md](deployment.md) release checklist.
 
-## WO-08 · Schedule the cleanup jobs `[ ]`
+**Done** as specified. deployment.md now has both checks in the release
+checklist plus a line telling the operator to point liveness at `/v1/health` and
+the load balancer at `/v1/ready`. Not run against a live database here — see
+WO-06.
+
+## WO-08 · Schedule the cleanup jobs `[x]`
 
 **Why:** RUN-06. `CleanupExpiredTokens` and `CleanupExpiredRateLimits` are never
 called; both tables grow forever.
@@ -249,7 +284,13 @@ shutdown context from WO-06 so it stops cleanly. Log rows deleted. Remove the
 
 **Verify:** insert an expired row, wait a tick, confirm it is gone. `go build ./...`.
 
-## WO-09 · Structured logging + PII scrub `[ ]`
+**Done.** `startCleanupLoop` sweeps once at boot as well as on the ticker — a
+process that restarts more often than the interval would otherwise never sweep.
+Interval is `CLEANUP_INTERVAL` (default 1h, `0` disables). Each sweep is bounded
+at 1 minute so a stuck delete cannot stack up. `sse_tickets` is deliberately not
+in this loop; it sweeps itself on the ticket-issue path.
+
+## WO-09 · Structured logging + PII scrub `[x]`
 
 **Why:** RUN-04 + RUN-05. `log.Printf` is unqueryable, `middleware.RequestID` is
 installed but never logged, and handlers log member **email addresses**.
@@ -262,6 +303,23 @@ status, duration, and user ID where known. Replace logged email addresses with
 user IDs. Add a response-writer wrapper to capture status.
 
 **Verify:** logs parse as JSON; no email addresses in output. `go build ./...`.
+
+**Done, and slightly wider than the spec.** All seven `log.Printf` calls in the
+handlers became `slog`, not just the three that logged emails, and `config.go`'s
+two `log.Fatal`s became `slog.Error` + `os.Exit` so a boot failure is structured
+too. `slog.SetDefault` routes the standard `log` package through the same JSON
+handler, so anything left over still comes out parseable.
+
+"User ID where known" needed plumbing: the middleware runs before the handler
+knows who is calling, so `Logging` puts a small mutable holder in the request
+context and `verifyActiveRole` fills it. That is one line in the single auth
+choke point rather than a change per handler.
+
+`Logging` is now registered **before** `Recoverer` so it is the outer wrapper —
+otherwise a panic produces no access log line at all.
+
+**Left alone:** chi's `Recoverer` still prints its panic trace as plain text to
+stderr. That is RUN-08's job, not this one.
 
 ---
 
@@ -386,14 +444,14 @@ any VPS/AWS work and the thing that makes a migration boring.
 # Recommended order
 
 1. ~~**Batch A** — the live defects.~~ Done.
-2. **WO-10** — makes `pnpm typecheck` a clean signal, which every later order relies on.
-3. **WO-14 + WO-15** — backups. Cheap, and the only protection against the unrecoverable failure.
-4. **Batch B** — hardening.
+2. ~~**Batch B** — hardening.~~ Done (taken early; it was one session and it stops deploys landing mid-transaction).
+3. **WO-10** — makes `pnpm typecheck` a clean signal, which every later order relies on.
+4. **WO-14 + WO-15** — backups. Cheap, and the only protection against the unrecoverable failure.
 5. **WO-11 → WO-13** — tests and CI, so regressions stop being silent.
 6. **WO-16** — migrations, before a second environment exists.
 7. **Batch E**, then **Batch F**.
 8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws), only after all of the above.
 
-If you only ever do part of this list: **A, WO-14, WO-15**. That is the
+If you only ever do part of this list: **A, B, WO-14, WO-15**. That is the
 difference between "it works" and "it works, and if it breaks the members' money
 is still there."

@@ -4,7 +4,7 @@ Two surfaces. Routing ownership and the reason for the split are in [architectur
 
 ## Go API — base `NEXT_PUBLIC_API_URL` (local `http://localhost:8081`)
 
-Auth: `Authorization: Bearer <jwt>` on everything except `/v1/health` and `/v1/auth/*`.
+Auth: `Authorization: Bearer <jwt>` on everything except `/v1/health`, `/v1/ready` and `/v1/auth/*`.
 
 Envelope:
 
@@ -21,7 +21,8 @@ The authoritative list is `apps/api/cmd/server/main.go` — one file, read it wh
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/v1/health` | returns `status` and `emailConfigured` |
+| GET | `/v1/health` | liveness. Returns `status` and `emailConfigured`, touches nothing else |
+| GET | `/v1/ready` | readiness. Pings the database (2 s budget); 503 `DB_UNAVAILABLE` if unreachable |
 | POST | `/v1/auth/login` | `{identifier, password}` — identifier is email **or** phone |
 | POST | `/v1/auth/logout` | blacklists the presented token |
 | POST | `/v1/auth/forgot-password` | emails a reset link |
