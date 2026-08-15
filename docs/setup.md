@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Node 20+, pnpm 8+, Go 1.22+, and either Docker or a local PostgreSQL 15+. Nothing else — no Java, no Redis.
+Node 20+, pnpm 8+, Go 1.25+ (pgx v5.10 requires it), and either Docker or a local PostgreSQL 15+. Nothing else — no Java, no Redis.
 
 ## Run it
 
@@ -222,3 +222,22 @@ cd apps/api && go build ./...
 | `migrate` hangs or fails P1002 | it reached the Neon *pooler*; set `DIRECT_DATABASE_URL` to the host without `-pooler` |
 | `Following migration have not yet been applied` on an existing database | it predates migrations — run `pnpm db:migrate:baseline` once |
 | Prisma "could not find your schema" during install | expected in this monorepo; `prisma generate` runs from `apps/web` |
+
+## Which env file is which
+
+A recurring confusion, so plainly:
+
+| Where | What reads it | How it gets there |
+|---|---|---|
+| `.env.local` (repo root) | **local development only** — both apps | you edit it; it is gitignored and never deployed |
+| `apps/web/.env` | same file — it is a **symlink** to `../../.env.local` | exists only because Prisma looks there |
+| Render dashboard | the deployed Go API | you type them into Render → Environment |
+| Vercel dashboard | the deployed web app | you type them into Vercel → Settings → Environment Variables |
+
+**Nothing in the repo is read by Render or Vercel.** Every `.env*` file is
+gitignored, so it is not in the push and not in the build. The `.env.*.example`
+files are checklists for what to type into each dashboard, nothing more.
+
+The three stores are independent: a variable added to one is missing from the
+other two. `DATABASE_URL` and `JWT_SECRET` must match byte for byte across all
+three, or logins fail with a valid password.

@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.25'
   NODE_VERSION: '20'
 
 jobs:
@@ -160,13 +160,13 @@ jobs:
       BACKUP_PASSPHRASE: ci-drill-passphrase-not-a-secret
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 8.15.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -207,7 +207,19 @@ jobs:
           # gitleaks needs history to scan commits, not just the tree.
           fetch-depth: 0
 
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The gitleaks *binary*, not gitleaks-action. The action is free for
+      # personal accounts but asks for a licence key the moment a repository
+      # moves under an organisation, and its major versions have changed that
+      # boundary before. The binary is MIT and has no such condition, so this
+      # job keeps working whoever owns the repo.
+      - name: Install gitleaks
+        run: |
+          VERSION=8.28.0
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/
+          gitleaks version
+
+      - name: Scan history for secrets
+        run: gitleaks git . --redact --verbose

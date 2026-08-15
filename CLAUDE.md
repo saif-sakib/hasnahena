@@ -2,7 +2,7 @@
 
 Interest-free (Qard al-Hasan) cooperative finance platform — Hasnahena Foundation, Jessore, Bangladesh. Members deposit, borrow without interest, guarantee each other, donate. Bilingual EN/BN.
 
-**Stack:** Next.js 14 App Router + TS + Tailwind/shadcn + next-intl + Prisma 5 (`apps/web`) · Go 1.22 chi + pgx (`apps/api`) · PostgreSQL (Neon prod, Docker local) · Brevo email · Cloudinary · Vercel + Render.
+**Stack:** Next.js 14 App Router + TS + Tailwind/shadcn + next-intl + Prisma 5 (`apps/web`) · Go 1.25 chi + pgx (`apps/api`) · PostgreSQL (Neon prod, Docker local) · Brevo email · Cloudinary · Vercel + Render.
 No Java ledger, Redis, Clerk/Keycloak, SMS, `packages/`, or `services/` — despite what any old doc says.
 
 ## Commands
@@ -19,7 +19,7 @@ cd apps/api && go build ./...                  # Go check
 
 `pnpm typecheck` must exit **clean, zero errors**. Any error is yours.
 
-No Go toolchain on this machine. Unpack a pinned Go 1.22 tarball into the session scratchpad and put it on `PATH` — `go build`, `go vet` and `go test` then all work.
+No Go toolchain on this machine. Unpack a pinned Go 1.25 tarball into the session scratchpad and put it on `PATH` — `go build`, `go vet` and `go test` then all work.
 
 ## Rules
 
