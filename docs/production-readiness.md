@@ -256,12 +256,12 @@ source.
 
 | ID | Task | Notes |
 |---|---|---|
-| DATA-01 | **Automated `pg_dump` to off-provider storage** | Highest-value item on this page. Neon branches are not a backup — they die with the account. Nightly dump to S3/B2 with a lifecycle policy |
-| DATA-02 | **Restore drill** | An untested backup is a rumour. Restore into a scratch database quarterly and diff row counts. Write down the RTO you actually achieved |
-| DATA-03 | Define RPO/RTO in writing | For a member's savings, "24 h data loss" is a decision that needs stating explicitly, not defaulting |
-| DATA-04 | Adopt Prisma migrations | ADR-004 accepted `db push` while solo. It stops being defensible the moment there is a second environment or a second person — no history, no rollback, no review of a destructive change |
-| DATA-05 | Seed script | No way to create the first admin except by hand. Blocks every fresh environment, including CI |
-| DATA-06 | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export |
+| ~~DATA-01~~ | ~~Automated `pg_dump` to off-provider storage~~ | **Done** (WO-14). Nightly + monthly encrypted dump in `.github/workflows/backup.yml`, retained 30/90 days as GitHub artifacts. Set `BACKUP_S3_BUCKET` to also copy to S3/B2/R2 — worth doing once there is real member data, since GitHub is then the single point of failure |
+| ~~DATA-02~~ | ~~Restore drill~~ | **Done** (WO-15). `scripts/restore-check.sh` restores and asserts the money invariants; CI runs the full drill on every push, so it is continuous rather than quarterly |
+| ~~DATA-03~~ | ~~Define RPO/RTO in writing~~ | **Done** (WO-15). RPO 24 h, RTO under 1 h, with the reasoning in [deployment.md](deployment.md#rpo-and-rto). The 24 h is only acceptable because the paper passbook can reconstruct a lost posting |
+| ~~DATA-04~~ | ~~Adopt Prisma migrations~~ | **Done** (WO-16). [ADR-014](decisions.md) supersedes ADR-004; schema baselined as `0_init`; CI applies migrations |
+| ~~DATA-05~~ | ~~Seed script~~ | **Done** (WO-16). `pnpm db:seed` — idempotent, refuses to invent a password |
+| DATA-06 | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **Now the largest remaining data gap** — the nightly dump covers the database and nothing else |
 | DATA-07 | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path — the audit log is append-only by design, so decide now what a member's erasure request means |
 | DATA-08 | Verify audit-log immutability at the DB level | Rule 6 is enforced by convention. A `BEFORE UPDATE OR DELETE` trigger that raises makes it true |
 
@@ -352,9 +352,9 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 | 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
 | 2 | **Safety net** | CI-09 only — branch protection, a GitHub setting (CI-01 → CI-08 done) | 5 minutes |
 | 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
-| 4 | **Backups that work** | DATA-01, DATA-02, DATA-03 | 1 day |
+| ~~4~~ | ~~**Backups that work**~~ | ~~DATA-01, DATA-02, DATA-03~~ | **Done** |
 | 5 | **Can see it** | OBS-01 → OBS-06 | 2–3 days |
-| 6 | **Migrations + seed** | DATA-04, DATA-05, DATA-08 | 2 days |
+| 6 | **Migrations + seed** | DATA-08 only (DATA-04, DATA-05 done) | ½ day |
 | 7 | **Containerise** | PKG-01 → PKG-08 | 2–3 days |
 | 8 | **Code health** | RUN-09, RUN-10, OBS-07, OBS-08 | 1 week |
 | 9 | **Remaining data + ops** | DATA-06, DATA-07, OPS-01 → OPS-09 | 1 week |

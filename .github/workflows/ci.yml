@@ -124,17 +124,79 @@ jobs:
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
-      # The schema under test is the one that actually deploys, `db push` and
-      # all. That matters: db push strips defaults Prisma models in the client
-      # (see docs/data-model.md), and hand-written SQL has to survive it.
+      # The schema under test is the one that actually deploys — migrations, not
+      # `db push`. That matters: neither path emits a database default for an
+      # `@updatedAt` column (Prisma applies those client-side), so hand-written
+      # SQL has to write its own timestamps. See docs/data-model.md.
       - name: Apply schema
-        run: pnpm --filter @hasnahena/web exec prisma db push --skip-generate
+        run: pnpm db:migrate
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Integration tests
         working-directory: apps/api
         run: go test ./... -tags=integration -count=1
+
+  restore:
+    name: Backup and restore drill
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hasnahena_source
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SOURCE_URL: postgresql://postgres:postgres@localhost:5432/hasnahena_source
+      SCRATCH_URL: postgresql://postgres:postgres@localhost:5432/hasnahena_scratch
+      BACKUP_PASSPHRASE: ci-drill-passphrase-not-a-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          DATABASE_URL: ${{ env.SOURCE_URL }}
+
+      - name: Migrate and seed
+        run: |
+          pnpm db:migrate
+          pnpm db:seed
+        env:
+          DATABASE_URL: ${{ env.SOURCE_URL }}
+          SEED_ADMIN_EMAIL: admin@hasnahena.local
+          SEED_ADMIN_PASSWORD: ci-drill-admin-password
+
+      # An untested backup is a rumour. Running the real scripts on every push
+      # is what stops the restore path rotting quietly between the day it is
+      # written and the day it is needed.
+      - name: Dump
+        run: scripts/backup.sh backups
+        env:
+          DIRECT_DATABASE_URL: ${{ env.SOURCE_URL }}
+
+      - name: Restore into a scratch database and verify
+        run: |
+          psql "${SOURCE_URL%/*}/postgres" -c 'CREATE DATABASE hasnahena_scratch;'
+          scripts/restore-check.sh "$(ls backups/*.dump.gpg | head -1)" "$SCRATCH_URL"
 
   secrets:
     name: Secret scan

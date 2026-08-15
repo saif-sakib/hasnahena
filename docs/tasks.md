@@ -10,6 +10,9 @@ This file tracks **product** work. Operational readiness lives in [production-re
 
 ## Recently done
 
+- [x] **Batch D complete (WO-14 → WO-16) — the ledger is now recoverable.** Nightly encrypted `pg_dump` runs in GitHub Actions (`.github/workflows/backup.yml`), kept 30 days as an artifact and 90 for the monthly copy, with an optional S3/B2/R2 copy. The restore procedure is a script, not a paragraph — `scripts/restore-check.sh` decrypts, restores into a scratch database, prints every row count and then asserts the money invariants (no negative balances, no orphaned transaction or loan). **CI runs the whole backup-and-restore drill on every push**, so the restore path cannot rot between the day it was written and the day it is needed. Measured against a 58 MB database (20,041 users, 200,008 transactions): dump 1 s, restore and verify 2 s. **RPO 24 h, RTO under 1 h**, written down with the reasoning in [deployment.md](deployment.md#rpo-and-rto).
+  - **`db push` is retired** ([ADR-014](decisions.md)). The current schema is baselined as `0_init`, generated with `migrate diff --from-empty` so nothing changed shape at the cutover. `pnpm db:migrate` / `:dev` / `:status` / `:baseline`, and CI applies migrations rather than pushing. Migrations need a direct (non-pooled) Neon connection — the wrapper derives one and logs that it did, because the pooled endpoint fails at this in a way that looks like a hang.
+  - **`pnpm db:seed` creates the first admin**, which previously had to be done by hand in Prisma Studio, plus the `system_config` defaults that were until now invisible fallbacks in two codebases. Idempotent, and it will not reset an existing admin's password.
 - [x] **Batch C complete (WO-12, WO-13) — and it found two more silent money defects.** 17 integration tests now run against a real Postgres (`pnpm test:integration`), covering all five financial-integrity scenarios, plus a GitHub Actions pipeline (typecheck, lint, gofmt, vet, build, unit + integration tests, gitleaks) and grouped monthly Dependabot. Writing the tests surfaced:
   - **No money method wrote an `audit_logs` row.** Deposit, withdrawal, disbursement and repayment all moved money with no audit trail at all — a plain violation of CLAUDE.md rule 2. All four now write one inside the posting transaction, so a rolled-back posting cannot leave an audit row describing money that never moved. The dispute step wrote none either; it does now.
   - **The donation-pool leg of the default waterfall was silently broken, twice.** The `INSERT` recording a draw omitted `"accountId"` and `"userId"` — both NOT NULL — so it always failed, and its error was discarded while the loan was still written down. Debt vanished with no ledger row behind it. Separately, the pool balance summed donations and never subtracted prior draws, so **the same donation could settle an unlimited number of defaults**. Both fixed and pinned by tests.
@@ -84,15 +87,18 @@ Security defects are tracked with `SEC-` ids in [production-readiness.md](produc
 
 Operational gaps now have ids and an ordering in [production-readiness.md](production-readiness.md); the summary stays here.
 
-- [ ] **Tests are effectively absent** (`CI-01`…`CI-04`). `apps/web/e2e/admin-dashboard.spec.ts` imports `@playwright/test`, which is not a dependency and has no config or script — it cannot run. No Go tests, no unit tests.
-- [ ] **No backups** (`DATA-01`). `pg_dump` is described in deployment.md as an intention; nothing is scheduled and no restore has ever been tested. This is the largest single risk to the ledger.
-- [ ] No CI: lint, typecheck, and `go build` are manual (`CI-05`).
+- [x] ~~Tests are effectively absent~~ (`CI-01`…`CI-04`). Fixed in Batch C — unit tests for `internal/money`, 17 integration tests against a real Postgres, Playwright wired up.
+- [x] ~~No backups~~ (`DATA-01`). Fixed in Batch D — nightly encrypted `pg_dump` in GitHub Actions, retained 30 days (90 monthly).
+- [x] ~~No CI~~ (`CI-05`). Fixed in Batch C — typecheck, lint, gofmt, vet, build, unit + integration tests, secret scan.
+- [x] ~~No graceful shutdown or server timeouts~~ (`RUN-01`, `RUN-02`). Fixed in Batch B.
+- [x] ~~No seed script~~ (`DATA-05`). Fixed in Batch D — `pnpm db:seed`.
+- [x] ~~Prisma has no migration history~~ (`DATA-04`). Fixed in Batch D — [ADR-014](decisions.md) supersedes ADR-004.
 - [ ] No Dockerfiles — the platform cannot run anywhere but Vercel + Render (`PKG-01`, `PKG-02`). This is the blocker for any VPS/AWS move.
 - [ ] No observability: no metrics, error tracking, uptime monitoring, or alerts (`OBS-01`…`OBS-06`).
-- [ ] No graceful shutdown or server timeouts (`RUN-01`, `RUN-02`) — a deploy can kill the API mid-transaction.
 - [ ] No 48-hour unconfirmed-transaction sweep (needs a scheduled job — `OPS-08`).
-- [ ] No seed script; the first admin must be created by hand (`DATA-05`).
-- [ ] Prisma has no migration history ([ADR-004](decisions.md)) — accepted while solo, but `DATA-04` retires that acceptance before a second environment exists.
+- [ ] Withdrawal notice period is unimplemented (`FR-08`) — the policy exists in [product.md](product.md); nothing enforces it.
+- [ ] `audit_logs` append-only is convention, not a database constraint (`DATA-08`). A `BEFORE UPDATE OR DELETE` trigger would make rule 6 true rather than intended.
+- [ ] Cloudinary assets (NID and member photos) have no backup (`DATA-06`) — the database dump does not cover them.
 - [ ] `user_repository.go` is 4,868 lines — 55% of the Go codebase in one file (`RUN-09`).
 
 ## Priority test scenarios (when testing starts)
