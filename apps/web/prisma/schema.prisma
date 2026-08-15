@@ -351,6 +351,22 @@ model SystemConfig {
   @@map("system_config")
 }
 
+/// Allocates the running number behind every receipt, withdrawal, loan and
+/// repayment reference (DEP-2026-000123). One row per series per year; the Go
+/// API increments it inside the same transaction as the posting it names, so
+/// numbers are unique, sequential, and never consumed by a failed posting.
+model DocumentSequence {
+  series  String
+  year    Int
+  counter BigInt @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([series, year])
+  @@map("document_sequences")
+}
+
 model AuditLog {
   id         String  @id @default(cuid())
   action     String

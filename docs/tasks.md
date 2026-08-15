@@ -4,6 +4,8 @@ Live status of the platform. Verified against the code on **2026-08-14**. Update
 
 ## Recently done
 
+- [x] Documents are English only and drawn as real PDF text — statements/receipts/loan agreements/certificates now produce **selectable, searchable, vector-sharp** PDFs that paginate properly (the previous rasteriser clipped the last line and the footer). One document model, two renderers; `html2canvas` and `jspdf-autotable` dropped. See [ADR-012](decisions.md).
+- [x] Reference numbers are sequential and readable — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…` from the `document_sequences` table, allocated inside the posting transaction. Replaces random hex suffixes that could collide on the unique `loanNumber`. See [ADR-013](decisions.md). **Run `pnpm db:push` before deploying.**
 - [x] Document generation rebuilt — `lib/documents/` split into types/format/theme/templates/export; **multi-page PDFs no longer truncate** (the old exporter put one full-height image on a single A4 page), HTML escaping added, amount-in-words (EN + BN), statements now reconcile and classify loan/donation rows instead of leaving credit and debit blank. See [ADR-010](decisions.md).
 - [x] New logo rolled out — black-background video frame keyed to transparency and trimmed; header, footer, auth pages, favicon, apple-icon and OG card all repointed to `images/logo/`. See [ADR-011](decisions.md).
 

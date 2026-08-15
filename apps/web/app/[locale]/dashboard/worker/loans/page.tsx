@@ -17,8 +17,8 @@ import {
   Download,
 } from 'lucide-react';
 import {
-  generateLoanDocumentHTML,
-  downloadAsPDF,
+  buildLoanAgreement,
+  downloadDocumentPDF,
   fetchOrgSettings,
 } from '@/lib/documents';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -142,7 +142,7 @@ export default function WorkerLoansPage() {
   const handleDownloadLoan = async (loan: ActiveLoan) => {
     try {
       const orgSettings = await fetchOrgSettings();
-      const loanHtml = generateLoanDocumentHTML({
+      const loanDoc = buildLoanAgreement({
         loanNumber: loan.loanNumber,
         memberName: loan.memberName,
         memberId: loan.memberId,
@@ -152,8 +152,8 @@ export default function WorkerLoansPage() {
         totalInstallments: loan.totalInstallments,
         installmentAmount: loan.monthlyInstallment,
         disbursementDate: undefined,
-      }, locale, orgSettings);
-      await downloadAsPDF(loanHtml, `Loan-${loan.loanNumber}`);
+      }, orgSettings);
+      await downloadDocumentPDF(loanDoc);
     } catch (error) {
       console.error('Failed to download loan:', error);
     }

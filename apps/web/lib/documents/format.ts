@@ -1,14 +1,18 @@
 /**
  * Formatting helpers for official documents.
  *
- * Every value that reaches a template passes through `esc()` — document data is
- * member-supplied (names, descriptions, notes) and would otherwise be injected
- * straight into the generated HTML.
+ * Documents are English only (ADR-012), so amounts carry the ISO code `BDT`
+ * rather than the `৳` sign: the sign lives in the Bengali Unicode block and
+ * cannot be drawn by the PDF renderer's standard fonts. Grouping stays
+ * South Asian (1,25,000), which is how figures are read in Bangladesh.
+ *
+ * `esc()` guards the HTML renderer — document data is member-supplied (names,
+ * descriptions, notes) and would otherwise be injected straight into markup.
  */
 
-import type { DocumentLocale, StatementTxType } from './types';
+import type { StatementTxType } from './types';
 
-export const isBn = (locale: string): boolean => locale === 'bn';
+export const CURRENCY_CODE = 'BDT';
 
 /** Escape text for interpolation into an HTML template. */
 export function esc(value: unknown): string {
@@ -21,118 +25,95 @@ export function esc(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Fallback for empty fields so documents never print "undefined". */
+/**
+ * Fallback for empty fields so documents never print "undefined".
+ * Returns plain text — escaping is the HTML renderer's job, because the PDF
+ * renderer needs the raw string.
+ */
 export const orDash = (value: unknown): string => {
   const text = value === null || value === undefined ? '' : String(value).trim();
-  return text.length > 0 ? esc(text) : '—';
+  return text.length > 0 ? text : '—';
 };
 
-/**
- * Money is stored as whole taka, so no fractional digits are printed.
- * Bengali documents use Bengali digits, matching the rest of the UI.
- */
-export function formatCurrency(amount: number, locale: string = 'bn'): string {
+/** Grouped figure with no currency code — for table columns headed "(BDT)". */
+export function formatAmount(amount: number): string {
   const value = Number.isFinite(amount) ? Math.round(amount) : 0;
-  const formatted = value.toLocaleString(isBn(locale) ? 'bn-BD' : 'en-IN', {
-    maximumFractionDigits: 0,
-  });
-  return `৳${formatted}`;
+  return value.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-/** Plain grouped number without the currency symbol (table totals, counts). */
-export function formatNumber(value: number, locale: string = 'bn'): string {
+/** "BDT 1,25,000" — money is whole taka, so no fractional digits are printed. */
+export function formatCurrency(amount: number): string {
+  return `${CURRENCY_CODE} ${formatAmount(amount)}`;
+}
+
+/** Plain grouped number (counts, installments). */
+export function formatNumber(value: number): string {
   const safe = Number.isFinite(value) ? value : 0;
-  return safe.toLocaleString(isBn(locale) ? 'bn-BD' : 'en-IN', { maximumFractionDigits: 0 });
+  return safe.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-const parseDate = (input: string): Date | null => {
+const parseDate = (input?: string): Date | null => {
+  if (!input) return null;
   const date = new Date(input);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-export function formatDate(dateStr: string, locale: string = 'bn'): string {
+export function formatDate(dateStr?: string): string {
   const date = parseDate(dateStr);
   if (!date) return '—';
-  return date.toLocaleDateString(isBn(locale) ? 'bn-BD' : 'en-GB', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-  });
+  return date.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' });
 }
 
-export function formatDateTime(dateStr: string, locale: string = 'bn'): string {
+export function formatDateTime(dateStr?: string): string {
   const date = parseDate(dateStr);
   if (!date) return '—';
-  return `${formatDate(dateStr, locale)}, ${date.toLocaleTimeString(
-    isBn(locale) ? 'bn-BD' : 'en-GB',
-    { hour: '2-digit', minute: '2-digit' }
-  )}`;
+  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `${formatDate(dateStr)}, ${time}`;
 }
 
 // ---------------------------------------------------------------------------
-// Amount in words — required on Bangladeshi financial receipts as a tamper check.
-// Uses the South Asian numbering system (hazar / lakh / kuti).
+// Amount in words — required on Bangladeshi financial receipts as a tamper
+// check. Uses the South Asian numbering system (thousand / lakh / crore).
 // ---------------------------------------------------------------------------
 
-const EN_ONES = [
+const ONES = [
   'Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
   'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen',
 ];
-const EN_TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
 
-const BN_NUMBERS = [
-  'শূন্য', 'এক', 'দুই', 'তিন', 'চার', 'পাঁচ', 'ছয়', 'সাত', 'আট', 'নয়',
-  'দশ', 'এগারো', 'বারো', 'তেরো', 'চৌদ্দ', 'পনেরো', 'ষোলো', 'সতেরো', 'আঠারো', 'উনিশ',
-  'বিশ', 'একুশ', 'বাইশ', 'তেইশ', 'চব্বিশ', 'পঁচিশ', 'ছাব্বিশ', 'সাতাশ', 'আটাশ', 'ঊনত্রিশ',
-  'ত্রিশ', 'একত্রিশ', 'বত্রিশ', 'তেত্রিশ', 'চৌত্রিশ', 'পঁয়ত্রিশ', 'ছত্রিশ', 'সাঁইত্রিশ', 'আটত্রিশ', 'ঊনচল্লিশ',
-  'চল্লিশ', 'একচল্লিশ', 'বিয়াল্লিশ', 'তেতাল্লিশ', 'চুয়াল্লিশ', 'পঁয়তাল্লিশ', 'ছেচল্লিশ', 'সাতচল্লিশ', 'আটচল্লিশ', 'ঊনপঞ্চাশ',
-  'পঞ্চাশ', 'একান্ন', 'বায়ান্ন', 'তিপ্পান্ন', 'চুয়ান্ন', 'পঞ্চান্ন', 'ছাপ্পান্ন', 'সাতান্ন', 'আটান্ন', 'ঊনষাট',
-  'ষাট', 'একষট্টি', 'বাষট্টি', 'তেষট্টি', 'চৌষট্টি', 'পঁয়ষট্টি', 'ছিষট্টি', 'সাতষট্টি', 'আটষট্টি', 'ঊনসত্তর',
-  'সত্তর', 'একাত্তর', 'বাহাত্তর', 'তিয়াত্তর', 'চুয়াত্তর', 'পঁচাত্তর', 'ছিয়াত্তর', 'সাতাত্তর', 'আটাত্তর', 'ঊনআশি',
-  'আশি', 'একাশি', 'বিরাশি', 'তিরাশি', 'চুরাশি', 'পঁচাশি', 'ছিয়াশি', 'সাতাশি', 'আটাশি', 'ঊননব্বই',
-  'নব্বই', 'একানব্বই', 'বিরানব্বই', 'তিরানব্বই', 'চুরানব্বই', 'পঁচানব্বই', 'ছিয়ানব্বই', 'সাতানব্বই', 'আটানব্বই', 'নিরানব্বই',
+const twoDigit = (n: number): string =>
+  n < 20 ? ONES[n] : `${TENS[Math.floor(n / 10)]}${n % 10 ? `-${ONES[n % 10]}` : ''}`;
+
+const belowThousand = (n: number): string => {
+  if (n === 0) return '';
+  if (n < 100) return twoDigit(n);
+  const rest = n % 100;
+  return `${ONES[Math.floor(n / 100)]} Hundred${rest ? ` ${twoDigit(rest)}` : ''}`;
+};
+
+const UNITS: Array<[number, string]> = [
+  [10000000, 'Crore'],
+  [100000, 'Lakh'],
+  [1000, 'Thousand'],
 ];
 
-const enTwoDigit = (n: number): string =>
-  n < 20 ? EN_ONES[n] : `${EN_TENS[Math.floor(n / 10)]}${n % 10 ? `-${EN_ONES[n % 10]}` : ''}`;
-
-const enBelowThousand = (n: number): string => {
-  if (n === 0) return '';
-  if (n < 100) return enTwoDigit(n);
-  const rest = n % 100;
-  return `${EN_ONES[Math.floor(n / 100)]} Hundred${rest ? ` ${enTwoDigit(rest)}` : ''}`;
-};
-
-const bnBelowThousand = (n: number): string => {
-  if (n === 0) return '';
-  if (n < 100) return BN_NUMBERS[n];
-  const rest = n % 100;
-  return `${BN_NUMBERS[Math.floor(n / 100)]} শত${rest ? ` ${BN_NUMBERS[rest]}` : ''}`;
-};
-
-/** "৳12,500" -> "Twelve Thousand Five Hundred Taka Only". */
-export function amountInWords(amount: number, locale: string = 'bn'): string {
-  const bn = isBn(locale);
+/** 125000 -> "One Lakh Twenty-Five Thousand Taka Only". */
+export function amountInWords(amount: number): string {
   let n = Math.abs(Math.round(Number.isFinite(amount) ? amount : 0));
-  if (n === 0) return bn ? 'শূন্য টাকা মাত্র' : 'Zero Taka Only';
-
-  const below = bn ? bnBelowThousand : enBelowThousand;
-  const units: Array<[number, string]> = bn
-    ? [[10000000, 'কোটি'], [100000, 'লক্ষ'], [1000, 'হাজার']]
-    : [[10000000, 'Crore'], [100000, 'Lakh'], [1000, 'Thousand']];
+  if (n === 0) return 'Zero Taka Only';
 
   const parts: string[] = [];
-  for (const [divisor, label] of units) {
+  for (const [divisor, label] of UNITS) {
     const chunk = Math.floor(n / divisor);
     if (chunk > 0) {
-      parts.push(`${below(chunk)} ${label}`);
+      parts.push(`${belowThousand(chunk)} ${label}`);
       n %= divisor;
     }
   }
-  if (n > 0) parts.push(below(n));
+  if (n > 0) parts.push(belowThousand(n));
 
-  const words = parts.join(' ').replace(/\s+/g, ' ').trim();
-  return bn ? `${words} টাকা মাত্র` : `${words} Taka Only`;
+  return `${parts.join(' ').replace(/\s+/g, ' ').trim()} Taka Only`;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,29 +134,27 @@ export function txDirection(type: StatementTxType): 'credit' | 'debit' {
   }
 }
 
-const TX_LABELS: Record<string, { bn: string; en: string }> = {
-  DEPOSIT: { bn: 'জমা', en: 'Deposit' },
-  WITHDRAWAL: { bn: 'উত্তোলন', en: 'Withdrawal' },
-  LOAN_DISBURSEMENT: { bn: 'ঋণ বিতরণ', en: 'Loan Disbursement' },
-  LOAN_REPAYMENT: { bn: 'ঋণ পরিশোধ', en: 'Loan Repayment' },
-  DONATION: { bn: 'অনুদান', en: 'Donation' },
-  FEE: { bn: 'ফি', en: 'Fee' },
+const TX_LABELS: Record<string, string> = {
+  DEPOSIT: 'Deposit',
+  WITHDRAWAL: 'Withdrawal',
+  LOAN_DISBURSEMENT: 'Loan Disbursement',
+  LOAN_REPAYMENT: 'Loan Repayment',
+  DONATION: 'Donation',
+  FEE: 'Fee',
 };
 
-export function txLabel(type: StatementTxType, locale: string = 'bn'): string {
-  const entry = TX_LABELS[type];
-  if (!entry) return esc(String(type).replace(/_/g, ' '));
-  return entry[isBn(locale) ? 'bn' : 'en'];
+export function txLabel(type: StatementTxType): string {
+  return TX_LABELS[type] ?? String(type).replace(/_/g, ' ');
 }
 
 /**
  * Deterministic, human-readable document id printed on every page.
- * A reference that is already a document number (RCP-…, LN-…) is used as-is
- * rather than being prefixed a second time.
+ * A reference that is already a document number (DEP-2026-…, LOAN-2026-…) is
+ * used as-is rather than being prefixed a second time.
  */
 export function buildDocumentId(prefix: string, reference: string): string {
   const clean = String(reference || 'NA').toUpperCase().replace(/[^A-Z0-9-]/g, '');
-  if (clean === 'NA') return `${prefix}-NA`;
+  if (clean === 'NA' || clean === '') return `${prefix}-NA`;
   if (clean.startsWith(`${prefix}-`)) return clean;
   return `${prefix}-${clean}`;
 }
@@ -183,7 +162,31 @@ export function buildDocumentId(prefix: string, reference: string): string {
 /** Document id for records that carry their own number (receipts, loans). */
 export function documentIdFromReference(prefix: string, reference?: string): string {
   const clean = String(reference || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
-  return /^[A-Z]{2,5}-/.test(clean) ? clean : buildDocumentId(prefix, clean || 'NA');
+  return /^[A-Z]{2,6}-/.test(clean) ? clean : buildDocumentId(prefix, clean || 'NA');
 }
 
-export type { DocumentLocale };
+/**
+ * Drop characters the PDF renderer's standard fonts cannot encode.
+ *
+ * Documents are English only, but letterhead values come from `system_config`
+ * and notes are typed by members, so a Bengali string can still reach a
+ * template. Helvetica encodes WinAnsi; anything outside it renders as mojibake.
+ * Removing it up front makes the failure visible and predictable — a dash where
+ * the text would have been — instead of a page of corrupted glyphs.
+ */
+const PDF_SAFE = /[^\x20-\x7E\xA0-\xFF‐-―‘-”†•…‰€™]/g;
+
+export function toPdfSafe(text: string): string {
+  const cleaned = text.replace(PDF_SAFE, '').replace(/\s+/g, ' ').trim();
+  // A value that was entirely non-Latin would otherwise print as an empty gap.
+  return cleaned.length > 0 || text.trim().length === 0 ? cleaned : '—';
+}
+
+/** Safe, readable download filename stem. */
+export const documentFilename = (...parts: Array<string | undefined>): string =>
+  parts
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join('-')
+    .replace(/[^\w\-.]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'document';

@@ -68,15 +68,9 @@ importers:
       clsx:
         specifier: ^2.1.0
         version: 2.1.1
-      html2canvas:
-        specifier: ^1.4.1
-        version: 1.4.1
       jspdf:
         specifier: ^4.2.1
         version: 4.2.1
-      jspdf-autotable:
-        specifier: ^5.0.8
-        version: 5.0.8(jspdf@4.2.1)
       lucide-react:
         specifier: ^0.363.0
         version: 0.363.0(react@18.3.1)
@@ -1829,6 +1823,7 @@ packages:
     engines: {node: '>= 0.6.0'}
     requiresBuild: true
     dev: false
+    optional: true
 
   /baseline-browser-mapping@2.10.10:
     resolution: {integrity: sha512-sUoJ3IMxx4AyRqO4MLeHlnGDkyXRoUG0/AI9fjK+vS72ekpV0yWVY7O0BVjmBcRtkNcsAO2QDZ4tdKKGoI6YaQ==}
@@ -2021,6 +2016,7 @@ packages:
     dependencies:
       utrie: 1.0.2
     dev: false
+    optional: true
 
   /cssesc@3.0.0:
     resolution: {integrity: sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg==}
@@ -2901,6 +2897,7 @@ packages:
       css-line-break: 2.1.0
       text-segmentation: 1.0.3
     dev: false
+    optional: true
 
   /ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -3216,14 +3213,6 @@ packages:
     dependencies:
       minimist: 1.2.8
     dev: true
-
-  /jspdf-autotable@5.0.8(jspdf@4.2.1):
-    resolution: {integrity: sha512-Hy05N86yBO7CXBrnSLOge7i1ZYpKH2DjQ94iybaP7vBhSInjvRBgDc99ngKzSbSO8Jc98ZCally8I6n0tj2RJQ==}
-    peerDependencies:
-      jspdf: ^2 || ^3 || ^4
-    dependencies:
-      jspdf: 4.2.1
-    dev: false
 
   /jspdf@4.2.1:
     resolution: {integrity: sha512-YyAXyvnmjTbR4bHQRLzex3CuINCDlQnBqoSYyjJwTP2x9jDLuKDzy7aKUl0hgx3uhcl7xzg32agn5vlie6HIlQ==}
@@ -4385,6 +4374,7 @@ packages:
     dependencies:
       utrie: 1.0.2
     dev: false
+    optional: true
 
   /text-table@0.2.0:
     resolution: {integrity: sha512-N+8UisAXDGk8PFXP4HAzVR9nbfmVJ3zYLAWiTIoqC5v5isinhr+r5uaO8+7r3BMfuNIufIsA7RdpVgacC2cSpw==}
@@ -4617,6 +4607,7 @@ packages:
     dependencies:
       base64-arraybuffer: 1.0.2
     dev: false
+    optional: true
 
   /which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}

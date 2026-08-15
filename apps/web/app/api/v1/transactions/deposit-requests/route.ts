@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
-import { makeReceipt, serializeTransaction } from '@/lib/api-utils';
+import { serializeTransaction } from '@/lib/api-utils';
+import { SERIES, nextDocumentNumber } from '@/lib/document-numbers';
 import { TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     });
     if (!account) return NextResponse.json({ ok: false, error: 'Account not found' }, { status: 404 });
 
-    const receiptNumber = payload.receiptNumber?.trim() || makeReceipt('RCP');
+    const receiptNumber = payload.receiptNumber?.trim() || (await nextDocumentNumber(SERIES.deposit));
     const amountBig = BigInt(Math.floor(payload.amount));
     if (amountBig <= BigInt(0)) {
       return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });

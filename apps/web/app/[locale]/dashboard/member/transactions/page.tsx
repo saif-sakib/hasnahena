@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
-import { generateStatementHTML, generateReceiptHTML, downloadAsPDF, fetchOrgSettings } from '@/lib/documents';
+import { buildStatement, buildReceipt, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
 
 type KnownTransactionType =
   | 'DEPOSIT'
@@ -127,7 +127,7 @@ export default function TransactionsPage() {
       .filter(tx => tx.type === 'WITHDRAWAL' || tx.type === 'LOAN_REPAYMENT')
       .reduce((sum, tx) => sum + tx.amount, 0);
     
-    const statementHtml = generateStatementHTML({
+    const statementDoc = buildStatement({
       memberName: getMemberDisplayName(memberProfile),
       memberId: getMemberDisplayId(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
@@ -145,9 +145,9 @@ export default function TransactionsPage() {
         description: tx.description,
         receiptNumber: tx.receiptNumber,
       })),
-    }, locale, orgSettings);
+    }, orgSettings);
     
-    await downloadAsPDF(statementHtml, `Statement_${getMemberDisplayId(memberProfile)}_${now.getTime()}`);
+    await downloadDocumentPDF(statementDoc);
   };
 
   // Print individual receipt
@@ -155,7 +155,7 @@ export default function TransactionsPage() {
     if (!memberProfile) return;
     const orgSettings = await fetchOrgSettings();
     
-    const receiptHtml = generateReceiptHTML({
+    const receiptDoc = buildReceipt({
       receiptNumber: tx.receiptNumber,
       type: tx.type,
       amount: tx.amount,
@@ -166,9 +166,9 @@ export default function TransactionsPage() {
       balanceAfter: (tx.balanceAfter || 0),
       processedBy: tx.processedBy,
       notes: tx.description,
-    }, locale, orgSettings);
+    }, orgSettings);
     
-    await downloadAsPDF(receiptHtml, `Receipt_${tx.receiptNumber}`);
+    await downloadDocumentPDF(receiptDoc);
   };
 
   const formatDateLocal = (dateStr: string) => {

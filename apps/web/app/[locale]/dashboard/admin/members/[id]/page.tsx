@@ -59,10 +59,10 @@ import { apiGet, apiPost } from '@/lib/api';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import {
-  generateReceiptHTML,
-  generateLoanDocumentHTML,
-  generateStatementHTML,
-  downloadAsPDF,
+  buildReceipt,
+  buildLoanAgreement,
+  buildStatement,
+  downloadDocumentPDF,
   fetchOrgSettings,
   type ReceiptData,
   type LoanDocumentData,
@@ -382,8 +382,8 @@ export default function MemberDetailPage() {
       notes: tx.notes,
     };
     
-    const html = generateReceiptHTML(receiptData, locale, orgSettings);
-    await downloadAsPDF(html, `Receipt-${tx.receiptNumber}`);
+    const html = buildReceipt(receiptData, orgSettings);
+    await downloadDocumentPDF(html);
   };
 
   const handlePrintLoanDocument = async (loan: Loan) => {
@@ -402,8 +402,8 @@ export default function MemberDetailPage() {
       disbursementDate: loan.disbursementDate,
     };
     
-    const html = generateLoanDocumentHTML(loanData, locale, orgSettings);
-    await downloadAsPDF(html, `Loan-${loan.loanNumber}`);
+    const html = buildLoanAgreement(loanData, orgSettings);
+    await downloadDocumentPDF(html);
   };
 
   const handlePrintStatement = async () => {
@@ -430,8 +430,8 @@ export default function MemberDetailPage() {
       })),
     };
     
-    const html = generateStatementHTML(statementData, locale, orgSettings);
-    await downloadAsPDF(html, `Statement-${member.memberId || member.uid || 'member'}`);
+    const html = buildStatement(statementData, orgSettings);
+    await downloadDocumentPDF(html);
   };
 
   const getStatusBadge = (status: string) => {
