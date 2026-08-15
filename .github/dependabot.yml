@@ -44,17 +44,15 @@ updates:
       - dependency-name: '*'
         update-types: [version-update:semver-major]
 
-  # Actions are pinned by major tag (`@v4`), so a major bump here rewrites the
-  # tag rather than the code. Still a migration — `actions/checkout@v4` → `@v7`
-  # changed under us once already.
+  # Actions are the exception: majors ARE allowed here. A major bump rewrites a
+  # tag rather than any of our code, and GitHub retires the Node runtime under
+  # old action majors on its own schedule — pinning them is how you end up with
+  # "this action runs on Node 20, which is deprecated" and eventually a hard
+  # failure. Keeping these current is the safer direction.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
     groups:
       actions:
         patterns: ['*']
-        update-types: [minor, patch]
-    ignore:
-      - dependency-name: '*'
-        update-types: [version-update:semver-major]

@@ -28,6 +28,7 @@ on the quoted code, not the number.
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | **E** | WO-17 → WO-19 | Observability | ~1 session |
 | **F** | WO-20 → WO-22 | Containerise | ~1 session |
+| **G** | WO-23 → WO-26 | Stack modernisation (security) | ~2–3 sessions |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
 
 ### Standing rules for every order
@@ -47,7 +48,7 @@ spec below are recorded per-order; the *why* is in
 
 Two notes for whoever picks up Batch B:
 
-- **`pnpm db:push` is needed before the next deploy** — WO-05 adds an
+- **`pnpm db:migrate` is needed before the next deploy** — WO-05 adds an
   `sse_tickets` table. The Go API also creates it on boot in
   `EnsureSupportSchema`, so a missed push is not fatal.
 - Password change now signs the user out of the tab that made the change, since
@@ -607,6 +608,46 @@ any VPS/AWS work and the thing that makes a migration boring.
 | WO-22 `[ ]` | Full-stack compose (PKG-03/04/05) | Extend `docker-compose.yml` beyond Postgres so `docker compose up` gives a working platform. Doubles as onboarding and as the WO-12 test environment. Add `.dockerignore`, pin base images by digest |
 
 ---
+
+---
+
+# Batch G — Stack modernisation
+
+**Why this is a batch and not a chore.** On 2026-08-16 `pnpm audit` reported 41
+vulnerabilities. Pinning patched versions of the transitive dependencies in
+`pnpm.overrides` cleared 18 of them, including 12 rated high. The remaining 23
+are **all** Next.js and next-intl, and none of them can be fixed on Next 14 —
+every advisory is patched in 15.5+ only.
+
+So this is a security backlog wearing a version number. It includes SSRF in
+rewrites and in Server Actions, a Middleware/Proxy bypass, and several DoS
+paths. For a platform holding members' savings, the Middleware bypass is the one
+to care about: authentication redirects run there.
+
+**Why it was not done in one pass with Batches A–D.** Next 14 → 16 is two
+majors, drags React 18 → 19 with it, and makes `cookies()`, `headers()`,
+`params` and `searchParams` async — which touches nearly every route handler and
+page in `app/[locale]/`. Done carelessly it produces an application that builds
+and then misbehaves at runtime in ways a typecheck cannot see. Half-migrated is
+worse than outdated.
+
+Do these **in order** and deploy between each. They are separated precisely so
+that a failure tells you which one caused it.
+
+| ID | Task | Notes |
+|---|---|---|
+| WO-23 `[ ]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
+| WO-24 `[ ]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
+| WO-25 `[ ]` | next-intl 3 → 4 | Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
+| WO-26 `[ ]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
+
+**Not in this batch, and not urgent:** Prisma 5 → 7. It has no advisory against
+it, the schema is stable, and the Go API does not use the Prisma client at all —
+only `apps/web` does. Take it when something needs it.
+
+**Verify each order with:** `pnpm build`, `pnpm typecheck`, `pnpm lint`,
+`pnpm test:e2e`, and a manual pass over login, the member dashboard, and one
+deposit — in **both** locales.
 
 # Recommended order
 
