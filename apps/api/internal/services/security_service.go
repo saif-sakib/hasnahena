@@ -80,8 +80,24 @@ func (s *SecurityService) IsUserTokensRevoked(ctx context.Context, userID string
 		}
 		return false, err
 	}
-	// Token is invalid if it was issued before the revocation
-	return tokenIssuedAt.Before(revokedAt), nil
+	return tokenIssuedBeforeRevocation(tokenIssuedAt, revokedAt), nil
+}
+
+// tokenIssuedBeforeRevocation reports whether a token predates a revocation marker.
+//
+// The two timestamps do not have the same precision. A JWT `iat` is whole
+// seconds (`time.Now().Unix()`), while the marker's createdAt comes from NOW()
+// with microseconds. Comparing them raw rejects a token issued in the *same
+// second* as the revocation — which is exactly what first login does: it
+// changes the temporary password, then signs in again ~200 ms later. That new
+// token would be born revoked and every dashboard call would 401.
+//
+// So compare at the precision the token actually carries. The cost is that a
+// token issued earlier in the same second as the password change also survives;
+// that is a sub-second window, and the alternative is a broken first login for
+// every member.
+func tokenIssuedBeforeRevocation(tokenIssuedAt, revokedAt time.Time) bool {
+	return tokenIssuedAt.Before(revokedAt.Truncate(time.Second))
 }
 
 // CleanupExpiredTokens removes expired entries from the blacklist. Called on

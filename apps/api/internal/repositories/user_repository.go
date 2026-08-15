@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"hasnahena/apps/api/internal/models"
+	"hasnahena/apps/api/internal/money"
 	"hasnahena/apps/api/internal/utils"
 )
 
@@ -1107,7 +1108,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	_ = r.db.QueryRow(ctx, eligibilityQuery, userID).Scan(&currentDeposit)
 	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 	currentDepositBDT := currentDeposit
-	maxLoanAmountBDT := currentDepositBDT * maxLoanMultiplier
+	maxLoanAmountBDT := money.MaxLoanAmount(currentDepositBDT, maxLoanMultiplier)
 
 	const loanQuery = `
 		SELECT
@@ -3387,10 +3388,7 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 		var borrowerAccountID string
 		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
 		if err == nil && borrowerSavings > 0 {
-			deduction := amountToRecover
-			if deduction > borrowerSavings {
-				deduction = borrowerSavings
-			}
+			deduction := money.RecoverFrom(amountToRecover, borrowerSavings)
 
 			// Deduct from borrower
 			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, borrowerAccountID)
@@ -3413,10 +3411,7 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 		var guarantorAccountID string
 		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
 		if err == nil && guarantorSavings > 0 {
-			deduction := amountToRecover
-			if deduction > guarantorSavings {
-				deduction = guarantorSavings
-			}
+			deduction := money.RecoverFrom(amountToRecover, guarantorSavings)
 
 			// Deduct from guarantor
 			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, guarantorAccountID)
@@ -3443,10 +3438,7 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 		`).Scan(&donationBalance)
 
 		if err == nil && donationBalance > 0 {
-			deduction := amountToRecover
-			if deduction > donationBalance {
-				deduction = donationBalance
-			}
+			deduction := money.RecoverFrom(amountToRecover, donationBalance)
 
 			// Record donation usage
 			tx.Exec(ctx, `
@@ -4121,14 +4113,10 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 	// Calculate loan eligibility
 	minDepositRequired, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 	minDeposit := minDepositRequired
-	maxLoanAmount := savingsBalance * maxLoanMultiplier
-	eligible := savingsBalance >= minDeposit && activeLoan == 0
-	eligibilityReason := ""
-	if savingsBalance < minDeposit {
-		eligibilityReason = "Insufficient deposit balance"
-	} else if activeLoan > 0 {
-		eligibilityReason = "Already has an active loan"
-	}
+	eligibility := money.EvaluateEligibility(savingsBalance, minDeposit, maxLoanMultiplier, activeLoan > 0)
+	maxLoanAmount := eligibility.MaxLoanAmount
+	eligible := eligibility.Eligible
+	eligibilityReason := eligibility.Reason
 
 	member := map[string]interface{}{
 		"id":                       id,
@@ -4517,7 +4505,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", errors.New("not eligible - insufficient deposit")
 	}
 
-	maxLoanAmount := currentBalance * maxLoanMultiplier
+	maxLoanAmount := money.MaxLoanAmount(currentBalance, maxLoanMultiplier)
 	if amount > maxLoanAmount {
 		return "", errors.New("exceeds limit")
 	}
@@ -4526,7 +4514,9 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	if err != nil {
 		return "", err
 	}
-	installmentAmount := amount / int64(installments)
+	// The stored figure is the regular installment; the rounding remainder goes
+	// into the final one, which the loan agreement PDF prints. See money.InstallmentPlan.
+	installmentAmount, _ := money.InstallmentPlan(amount, installments)
 
 	var loanID string
 	err = tx.QueryRow(ctx, `

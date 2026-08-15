@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import { getValidatedClientToken } from '@/lib/client-auth';
+import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 
 type VerificationStep = 'current' | 'verify' | 'new';
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081').replace(/\/$/, '').replace(/\/api$/, '');
@@ -34,6 +35,7 @@ export function PasswordChangeDialog({
   forcePasswordChange = false,
   onPasswordChanged,
 }: PasswordChangeDialogProps) {
+  const router = useRouter();
   const [step, setStep] = useState<VerificationStep>('current');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -273,9 +275,18 @@ export function PasswordChangeDialog({
 
       toast({
         title: locale === 'bn' ? 'সফল' : 'Success',
-        description: locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন হয়েছে' : 'Password changed successfully',
+        description:
+          locale === 'bn'
+            ? 'পাসওয়ার্ড পরিবর্তন হয়েছে। আবার সাইন ইন করুন।'
+            : 'Password changed. Please sign in again.',
         variant: 'success',
       });
+
+      // The API revokes every token for this user on a password change, so the
+      // token in this tab is dead the moment the request succeeds — staying on
+      // the page would just 401 on the next call. Send the user to login.
+      clearClientAuthState();
+      router.replace(`/${locale}/login`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to change password';
       toast({
