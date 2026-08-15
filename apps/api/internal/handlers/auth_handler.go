@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	appmw "hasnahena/apps/api/internal/middleware"
 	"hasnahena/apps/api/internal/models"
 	"hasnahena/apps/api/internal/services"
 	"hasnahena/apps/api/internal/utils"
@@ -94,6 +95,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID, _ := claims["sub"].(string)
+	appmw.SetRequestUserID(r.Context(), userID)
 	if userID == "" {
 		utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_TOKEN", "Invalid token claims")
 		return

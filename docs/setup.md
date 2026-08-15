@@ -45,6 +45,10 @@ One `.env.local` at the repo root serves both apps — the Go config loader walk
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | document/avatar upload fails; every other flow works |
 | `JWT_EXPIRY_SECONDS` | 86400 |
 | `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | pgx pool defaults (25/2/5m/30m/1m) |
+| `LOG_LEVEL` | `info`. Accepts `debug`, `info`, `warn`, `error`. The API logs JSON to stdout |
+| `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
+| `SERVER_SHUTDOWN_TIMEOUT` | 30s. How long a `SIGTERM` waits for in-flight requests. Must be **shorter** than the host's stop grace period |
+| `CLEANUP_INTERVAL` | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables the sweep |
 
 Skip Cloudinary locally unless you are testing uploads; if you do use it, use a separate dev account or a `hasnahena-dev/` folder prefix — never production credentials.
 

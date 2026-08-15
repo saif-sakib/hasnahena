@@ -84,10 +84,8 @@ func (s *SecurityService) IsUserTokensRevoked(ctx context.Context, userID string
 	return tokenIssuedAt.Before(revokedAt), nil
 }
 
-// CleanupExpiredTokens removes expired entries from blacklist (call periodically).
-//
-// NEVER CALLED — token_blacklist grows without bound. See RUN-06 in
-// docs/production-readiness.md. Keep: this is the fix, not dead code.
+// CleanupExpiredTokens removes expired entries from the blacklist. Called on
+// the cleanup ticker in main.go; without it token_blacklist grows without bound.
 func (s *SecurityService) CleanupExpiredTokens(ctx context.Context) (int64, error) {
 	result, err := s.db.Exec(ctx, `DELETE FROM token_blacklist WHERE "expiresAt" < NOW()`)
 	if err != nil {
@@ -206,10 +204,8 @@ func (s *SecurityService) ClearRateLimit(ctx context.Context, action, identifier
 	return err
 }
 
-// CleanupExpiredRateLimits removes expired rate limit entries.
-//
-// NEVER CALLED — rate_limits grows without bound. See RUN-06 in
-// docs/production-readiness.md. Keep: this is the fix, not dead code.
+// CleanupExpiredRateLimits removes expired rate limit entries. Called on the
+// cleanup ticker in main.go; without it rate_limits grows without bound.
 func (s *SecurityService) CleanupExpiredRateLimits(ctx context.Context) (int64, error) {
 	result, err := s.db.Exec(ctx, `DELETE FROM rate_limits WHERE "expiresAt" < NOW()`)
 	if err != nil {

@@ -6,13 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	appmw "hasnahena/apps/api/internal/middleware"
 	"hasnahena/apps/api/internal/repositories"
 	"hasnahena/apps/api/internal/services"
 	"hasnahena/apps/api/internal/utils"
@@ -23,6 +25,11 @@ type DashboardHandler struct {
 	securityService *services.SecurityService
 	emailService    *services.EmailService
 	userRepo        *repositories.UserRepository
+
+	// Closed when the process starts shutting down, so open SSE streams end at
+	// once instead of eating the whole drain window. See BeginShutdown.
+	shutdown     chan struct{}
+	shutdownOnce sync.Once
 }
 
 type authContext struct {
@@ -36,7 +43,19 @@ func NewDashboardHandler(authService *services.AuthService, securityService *ser
 		securityService: securityService,
 		emailService:    emailService,
 		userRepo:        userRepo,
+		shutdown:        make(chan struct{}),
 	}
+}
+
+// BeginShutdown ends every open SSE stream.
+//
+// http.Server.Shutdown waits for connections to go idle, and an SSE connection
+// by design never does — without this a deploy would sit out the full drain
+// timeout and then cut the streams anyway. It deliberately does not touch
+// ordinary requests: those are allowed to finish, which is the whole point of
+// a graceful shutdown on a service that moves money (RUN-02).
+func (h *DashboardHandler) BeginShutdown() {
+	h.shutdownOnce.Do(func() { close(h.shutdown) })
 }
 
 func generateFirstLoginToken() (string, error) {
@@ -453,7 +472,7 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 	}
 
 	if err := h.emailService.SendStaffWelcomeEmail(req.Email, req.Name, role, req.Phone, req.TemporaryPassword, req.Locale); err != nil {
-		log.Printf("[SendWorkerWelcomeEmail] email send failed for %s: %v", req.Email, err)
+		slog.Error("staff welcome email failed", "role", role, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "EMAIL_SEND_FAILED", summarizeEmailDeliveryError(err))
 		return
 	}
@@ -518,6 +537,10 @@ func (h *DashboardHandler) verifyActiveRole(ctx context.Context, userID string, 
 	if claimedRole != "" && dbRole != claimedRole {
 		return nil, errors.New("role mismatch")
 	}
+
+	// Every authenticated route funnels through here, so this is the one place
+	// that has to tell the access log who the caller is (RUN-04).
+	appmw.SetRequestUserID(ctx, userID)
 
 	return &authContext{
 		UserID: userID,
@@ -682,7 +705,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken); err != nil {
-		log.Printf("[ApproveRegistration] repo error for user %s: %v", req.UserID, err)
+		slog.Error("approve registration failed", "userId", req.UserID, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve registration")
 		return
 	}
@@ -695,7 +718,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	} else if emailAddress == "" {
 		deliveryError = "Member email is not available"
 	} else if err := h.emailService.SendMemberApprovalEmail(emailAddress, candidate.NameEn, tempPassword, req.Locale); err != nil {
-		log.Printf("[ApproveRegistration] email send failed for user %s (%s): %v", req.UserID, emailAddress, err)
+		slog.Error("member approval email failed", "userId", req.UserID, "error", err)
 		deliveryError = summarizeEmailDeliveryError(err)
 	} else {
 		emailDelivered = true
@@ -1273,7 +1296,7 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	if err := h.emailService.SendPasswordChangeVerificationCodeEmail(email, nameEn, code, locale); err != nil {
 		_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix)
 		summary := summarizeEmailDeliveryError(err)
-		log.Printf("password change code email failed user=%s email=%s reason=%s raw=%v", auth.UserID, email, summary, err)
+		slog.Error("password change code email failed", "userId", auth.UserID, "reason", summary, "error", err)
 		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_DELIVERY_FAILED", "Failed to send verification code: "+summary)
 		return
 	}
@@ -1394,7 +1417,7 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	}
 
 	if err := h.userRepo.MarkResetTokenUsed(r.Context(), resetToken.ID); err != nil {
-		log.Printf("failed to mark password change verification code used user=%s token_id=%s error=%v", auth.UserID, resetToken.ID, err)
+		slog.Error("failed to mark password change verification code used", "userId", auth.UserID, "tokenId", resetToken.ID, "error", err)
 	}
 	_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), "pwd-change:"+auth.UserID+":")
 
@@ -1640,6 +1663,14 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// The server sets a WriteTimeout for every other route; this one has to opt
+	// out of it or the stream would be cut mid-conversation. An error here just
+	// means the deadline stays, which degrades to a periodically dropped stream
+	// rather than a broken one, so it is not worth failing the request over.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Warn("support stream could not clear its write deadline", "error", err)
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1669,6 +1700,8 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-h.shutdown:
 			return
 		case <-ticker.C:
 			if !send() {
@@ -1797,7 +1830,7 @@ func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Req
 
 	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberId)
 	if err != nil {
-		log.Printf("GetMemberDetailForWorker error for ID %s: %v", memberId, err)
+		slog.Error("member detail lookup failed", "memberId", memberId, "error", err)
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
@@ -2040,7 +2073,7 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 
 	receiptNumber, err := h.userRepo.AddMemberLoanPayment(r.Context(), memberId, auth.UserID, req.LoanId, req.Amount, req.Notes)
 	if err != nil {
-		log.Printf("DEBUG: AddMemberLoanPayment error: %v", err)
+		slog.Error("add member loan payment failed", "memberId", memberId, "error", err)
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return
