@@ -76,7 +76,6 @@ Verified against the source on 2026-08-16. Security defects carry `SEC-` ids in
 | | Bug | Evidence |
 |---|---|---|
 | `[ ]` | Withdrawal notice period is not validated (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema |
-| `[ ]` | `/api/v1/settings` `PUT` upserts **any** key it receives | No allow-list in the file — a typo creates dead config that looks real in the admin UI. [WO-39](work-orders.md) |
 | `[ ]` | `LoanStatus` carries legacy `PENDING`/`APPROVED` beside the spec states | Two vocabularies for one concept, both live in the enum |
 | `[ ]` | Support chat has no SSE client | **Confirmed: `EventSource` appears nowhere in `apps/web`.** The stream and its ticket endpoint are live and authenticated; the UI still polls. A client must `POST …/support/stream/ticket` and pass `?ticket=` on every connect |
 | `[ ]` | No 48-hour unconfirmed-transaction sweep | Needs the scheduler — OPS-08 |
@@ -88,8 +87,6 @@ Verified against the source on 2026-08-16. Security defects carry `SEC-` ids in
   dump covers the database and nothing else. **The largest remaining data gap.**
 - `[ ]` **No data retention or erasure policy** (`DATA-07`) — decide now what a
   member's erasure request means when the audit log is append-only by design.
-- `[ ]` **The web app has no unit tests** (`CI-04`) — no vitest in any manifest.
-  Go is well covered; `lib/documents/*` and `lib/validation/*` are not.
 - `[ ]` `user_repository.go` is **4,868 lines**, 55% of the Go codebase in one
   file (`RUN-09`).
 - `[ ]` No audit viewer UI (`OBS-08`, FR-22) — the data is complete; nobody can

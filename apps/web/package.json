@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "db:clear": "node scripts/db-clear-preserve-core.mjs",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -51,6 +53,7 @@
     "eslint-config-next": "16.3.1",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "vitest": "^3"
   }
 }

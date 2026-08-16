@@ -1,0 +1,82 @@
+version: "2"
+
+# CI-06. `go vet` is necessary and not sufficient: it happily passed a codebase
+# where `AuthService.ValidateToken` and `utils.MaxRequestBodySize` were written,
+# exported, and called by nothing — which is how SEC-01 and SEC-07 sat open for
+# months looking like implemented security. `unused` is the linter that names
+# exactly that class of defect, and it is why this file exists.
+
+run:
+  timeout: 5m
+  # Integration tests live behind this tag. Without it they are invisible to the
+  # linter and can rot in ways nothing else catches until CI runs them against a
+  # real database.
+  build-tags:
+    - integration
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - unused
+
+  # NOT enabled yet: errcheck and staticcheck.
+  #
+  # This is a deliberate staged adoption, not an oversight. Turning them on today
+  # makes CI red with 44 findings, and a pipeline that is red on arrival gets
+  # ignored or switched off — at which point it catches nothing, including the
+  # next SEC-01. The three above are clean right now, so the pipeline stays
+  # meaningful from the first run.
+  #
+  # The backlog is real and specced as WO-40 in docs/work-orders.md. Measured
+  # 2026-08-16 with golangci-lint 2.6.1:
+  #
+  #   errcheck    38  — 20 are `defer tx.Rollback()` and 3 are `Close()`, which
+  #                     are conventional to ignore. The other 15 are not: 6
+  #                     unchecked `CreateAuditLog` calls (an audit row that fails
+  #                     to write is a rule-6 problem), 2 unchecked `tx.Exec` —
+  #                     the exact shape of the donation-pool waterfall bug that
+  #                     made debt vanish with no ledger row — and 2 unchecked
+  #                     `InvalidateAllUserTokens`, where a silent failure means
+  #                     a password change that revokes nothing.
+  #   staticcheck  6  — 2 capitalised error strings, 2 redundant type
+  #                     declarations, 1 tagged-switch suggestion, and SA1019 on
+  #                     chi's `middleware.RealIP`.
+  #
+  # That SA1019 is worth reading. staticcheck flags RealIP as deprecated and
+  # vulnerable to IP spoofing — independently reaching the same conclusion that
+  # writing the RUN-07 rate limiter reached by hand. It is the single strongest
+  # argument for enabling staticcheck, and the reason WO-40 is filed rather than
+  # dropped.
+
+  settings:
+    # Applies once errcheck is enabled. Kept here so the exclusions are reviewed
+    # alongside the decision rather than invented under time pressure later.
+    errcheck:
+      exclude-functions:
+        # A rollback after a successful commit legitimately errors, and the
+        # deferred form has nowhere to report to.
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+        # Deferred closes on read paths.
+        - (io.Closer).Close
+        # Since Go 1.24 crypto/rand.Read is guaranteed not to fail — it panics
+        # rather than returning an error — so the check is unreachable. Verified
+        # against go.mod (go 1.25.0), and both call sites import crypto/rand,
+        # not math/rand. If either ever switches to math/rand this exclusion
+        # hides predictable password-reset tokens, so it is scoped by package.
+        - crypto/rand.Read
+
+  exclusions:
+    rules:
+      # A failed cleanup in a test surfaces as the next test failing, which is
+      # loud enough.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+issues:
+  # Report everything rather than the default cap of 3 per linter. A truncated
+  # list is how the second instance of a defect gets missed.
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { corsHeaders } from '@/lib/cors';
 import { authenticateRequest } from '@/lib/server-auth';
+import { partitionConfigKeys } from '@/lib/system-config';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -48,6 +49,25 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     if (!body || typeof body !== 'object') {
       return errorResponse(request, 'Invalid request', 'Body must be an object', 400);
+    }
+
+    // This route used to upsert whatever key it was handed, so a typo created a
+    // brand-new row that looked like a real setting everywhere it was displayed
+    // while the code carried on reading the correctly-spelled key and its
+    // default. The admin saw "saved" and the behaviour never changed — silent in
+    // both directions, and permanent.
+    //
+    // Rejecting the whole request rather than filtering the bad keys out is
+    // deliberate: a partial save that reports success is the same class of lie.
+    const { unknown } = partitionConfigKeys(Object.keys(body));
+    if (unknown.length > 0) {
+      return errorResponse(
+        request,
+        'Invalid request',
+        `Unknown settings key${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
+          + 'A key must be declared in apps/web/lib/system-config.ts before it can be saved.',
+        400,
+      );
     }
 
     const updates = Object.entries(body).map(([key, value]) => {
