@@ -2,7 +2,8 @@
 
 Everything between today's free-tier deployment and a platform that can be run
 on a VPS or AWS by someone who is not the author. Audited against the code on
-**2026-08-15**.
+**2026-08-16** — every `[x]` below was re-verified against the source that day,
+not carried forward from the previous pass.
 
 This file is the **operational** backlog. [tasks.md](tasks.md) tracks *product*
 work (FR-01…22). When a task here is finished, tick it here and note it there
@@ -16,15 +17,16 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 | Area | State | One-line verdict |
 |---|---|---|
-| Product features | `[~]` | 13 of 22 FRs complete, 7 partial — see [tasks.md](tasks.md) |
+| **Git history** | `[!]` | **39 files of member records are recoverable from history** — see SEC-10. The only item on this page that is a disclosure rather than a risk |
+| Product features | `[~]` | 13 of 22 FRs complete, 7 partial — see [tasks.md](tasks.md). **FR-11 is not partial, it is dead**: guarantor approval validates cuid ids against a UUID regex and 400s every request |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, request→process→confirm, append-only audit |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[x]` | Unit tests on money maths, IDs, logging and revocation timing; 17 integration tests against real Postgres covering all five financial-integrity scenarios; Playwright wired up |
-| CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, gitleaks. Branch protection is still a manual GitHub setting |
-| Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Images are not built in CI yet (PKG-06), and nothing in production uses them |
+| Automated tests | `[~]` | Go side is covered: unit tests on money maths, IDs, logging and revocation timing, plus 17 integration tests against real Postgres covering all five financial-integrity scenarios. **The web app has no unit tests at all** (CI-04 — no vitest in any manifest), and Playwright is wired up but skips without seeded credentials |
+| CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
+| Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Both images are verified by **running** them. Images are not built in CI yet (PKG-06), and nothing in production uses them |
 | Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
 | Backups | `[x]` | Nightly encrypted `pg_dump` in GitHub Actions, 30-day retention and 90-day monthlies, with a restore drill that runs on every push to main (DATA-01/02/03) |
 | Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups (RUN-01→06). RUN-07/08 open |
@@ -42,7 +44,7 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Go routes | 63 under `/v1` |
 | Next route handlers | 15 (plus 16 empty folders) |
 | Prisma models | 21, 30 indexes |
-| `.git` | 59 MB — 17 MB of that is one committed binary (SEC-06) |
+| `.git` | 53 MB — **~112 MB of raw blobs** in history: 39 member-record files, three stray binaries and a 24 MB `react` blob (SEC-06, SEC-10) |
 
 ---
 
@@ -156,10 +158,13 @@ covered by `.gitignore` — the Go section only ignored `bin/`.
 `.gitignore`. The `.env.example` line was also removed from `.gitignore`, which
 had been ignoring a file that is deliberately committed.
 
-**Still open:** the blob remains in history, so `.git` is still ~59 MB and every
-clone pays for it. Purging with `git filter-repo` shrinks clones by ~70% but
-rewrites every commit — worth doing while the repo is solo and only
-`origin/main` exists. The cost only rises.
+**Still open, and understated when this was written.** The blobs remain in
+history. A full `git rev-list` sweep on 2026-08-16 found three binaries, not one:
+`apps/api/server` (17.5 MB and 16.4 MB), `apps/api/seed` (13.6 MB, never recorded
+anywhere), and a stray 24.6 MB `react` blob from commit `3ef0a91`. Purging is
+[WO-28](work-orders.md) —
+merged with SEC-10 below, because the same rewrite has to remove both and nobody
+should do this twice.
 
 ### SEC-07 · No request body size limit `[x]` — **medium**
 
@@ -181,6 +186,51 @@ membership-disclosure oracle for a religious-finance cooperative.
 **Fix.** Rate-limit per IP through the existing `rate_limits` table, and return
 a uniform response shape so timing does not distinguish the cases.
 
+### SEC-10 · Member records are recoverable from git history `[!]` — **highest**
+
+Found on 2026-08-16 by enumerating every blob in every ref. **39 files** were
+added under `Official Infos/` in commit `f152f0c` ("docs: initial project
+documentation") and deleted in `9306120`. Deleting a file in a later commit
+removes it from the working tree and from nothing else.
+
+The filenames describe the foundation's actual records:
+
+```
+Official Infos/Hasnahena Member Details.docx
+Official Infos/Hasnahena/Hasnahena Member Details 01.pdf     4-page scan
+Official Infos/Hasnahena/Loan Member Detail.docx
+Official Infos/Hasnahena/Hasnahena ledger sanchoy book 2.docx   savings ledger
+Official Infos/Hasnahena/Hasnahena ledger korjo book3.docx      loan ledger
+Official Infos/Hasnahena/Hasnahena ledger ay bay book1.docx     income/expense
+Official Infos/Hasnahena/Check Book.docx · Check Book2.docx
+Official Infos/Hasnahena/Hasnahena Sodossho Form.docx · Aajibon Form.docx
+```
+
+Anyone with read access to the repository can recover all of them in one command.
+This is the difference between every other item on this page and this one: the
+rest are risks, this is a disclosure that has already occurred and is ongoing for
+as long as the objects exist.
+
+**The PDF is an image-only scan**, so no script can determine whether it contains
+live member records — that requires a person to open it. Treat it as PII until
+someone has.
+
+Three questions decide how serious this is, and only the repository owner can
+answer them: **is the repository private?** (if it has ever been public, treat
+this as a breach); **who has had read access**, including any org, collaborator,
+CI integration or fork; and **do the files hold real members or a template?**
+
+**Fix:** [WO-28](work-orders.md)
+— `git filter-repo --invert-paths` over `Official Infos/` and the three binaries
+from SEC-06, force-push, then ask GitHub Support to garbage-collect unreachable
+objects. Until they do, the blobs stay fetchable by SHA even after the rewrite.
+Add `Official Infos/` to `.gitignore` so a re-add is not one `git add -A` away.
+
+**Note this is not what gitleaks scans for.** The `secrets` CI job passes on this
+repository and always has: it looks for credential *patterns*, not for documents
+that should never have been committed. A green secret scan is not evidence that
+history is clean, and this is the example.
+
 ### SEC-09 · HSTS is commented out in the API `[ ]` — **low**
 
 [cors.go](../apps/api/internal/middleware/cors.go) sets a good header set but
@@ -201,12 +251,12 @@ every later phase safe.
 | CI-01 `[x]` | Make one test command exist | **Done.** `pnpm test:go` (Go unit tests, no DB) and `pnpm test:e2e` (Playwright, wired up with config + script). `pnpm typecheck` now exits clean with zero errors, so it is finally a usable signal |
 | CI-02 `[x]` | Go unit tests on money maths | **Done.** The arithmetic was inline in `user_repository.go` and duplicated, so it was extracted to `internal/money` and the repository rewired to call it. Table-driven tests plus a property test that every installment schedule repays the principal exactly. This caught a live rounding defect — see the note under "Where the platform actually stands" |
 | CI-03 `[x]` | Go integration tests against a real Postgres | `docker-compose` already provides one. Cover the five priority scenarios in tasks.md — dispute→correct, loan caps, default waterfall, withdrawal blocking, audit immutability |
-| CI-04 | Web unit tests | Vitest for `lib/documents/*`, `lib/validation/*`, `lib/document-numbers.ts` |
+| CI-04 `[ ]` | Web unit tests | **Confirmed open** — no vitest in any manifest. Vitest over `lib/documents/*`, `lib/validation/*`, `lib/document-numbers.ts`. Pure functions, no DB: the cheapest coverage left ([WO-36](work-orders.md)) |
 | CI-05 `[x]` | GitHub Actions: PR pipeline | `pnpm typecheck`, `pnpm lint`, `go vet ./...`, `go build ./...`, both test suites. Required check on `main` |
-| CI-06 | Add `go vet` + `golangci-lint` | Would have caught the unused `ValidateToken` and `MaxRequestBodySize` that hid SEC-01 and SEC-07 |
+| CI-06 `[~]` | Add `go vet` + `golangci-lint` | `go vet` **is** in CI. `golangci-lint` is not — no config exists. Vet alone missed the unused `ValidateToken` and `MaxRequestBodySize` that hid SEC-01 and SEC-07 ([WO-37](work-orders.md)) |
 | CI-07 `[x]` | Dependabot / Renovate | Weekly, grouped, for npm + Go modules |
 | CI-08 `[x]` | Secret scanning | `gitleaks` in CI. Given SEC-06, also scan history once |
-| CI-09 | Branch protection on `main` | No direct pushes, CI green to merge |
+| CI-09 `[ ]` | Branch protection on `main` | No direct pushes, CI green to merge. **Needs a paid plan on a private repo** — `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`), but it skips the Go checks because Go is not installed locally |
 
 **Exit bar:** a PR cannot merge if the financial-flow tests fail.
 
@@ -224,7 +274,7 @@ Free-tier hosts hide these. A VPS will not.
 | RUN-04 `[x]` | Structured JSON logging | **Done.** `log/slog` JSON to stdout, level from `LOG_LEVEL`. One `http_request` line per request with request ID, method, path, status, bytes, duration, IP and — via a context holder filled in `verifyActiveRole` — the user ID. `slog.SetDefault` also routes the standard `log` package through the same handler, so a stray `log.Printf` in a dependency still emits JSON |
 | RUN-05 `[x]` | Scrub PII from logs | **Done.** All three sites now log the user ID. The staff-welcome path has no user yet, so it logs only the role and leans on the request ID to tie the line back to the caller. The access log records `r.URL.Path` and never `RawQuery`, which would otherwise carry thread IDs and stream tickets |
 | RUN-06 `[x]` | Schedule the cleanup jobs | **Done.** `startCleanupLoop` in `main.go`: sweeps at boot and then every `CLEANUP_INTERVAL` (default 1h), each sweep bounded at 1 minute, tied to the shutdown context, logging rows deleted only when there are any. `sse_tickets` needs no entry here — it sweeps itself on the issue path |
-| RUN-07 | Global rate limiting | Login is throttled; nothing else is. Add per-IP limits on all mutating routes |
+| RUN-07 `[ ]` | Global rate limiting | **Confirmed open** — `main.go` references rate limiting only in the cleanup sweep. Login is throttled; nothing else is ([WO-32](work-orders.md)) |
 | ~~RUN-08~~ | ~~Panic reporting~~ | **Done** (WO-18) — `observability.Recoverer` sits inside chi's Recoverer and reports the panic before re-raising. |
 | RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support |
 | RUN-10 | ~~Delete the empty API folders~~ `[x]` | Done — 27 empty directories removed (they were untracked, so local-only clutter) |
@@ -263,7 +313,7 @@ source.
 | ~~DATA-05~~ | ~~Seed script~~ | **Done** (WO-16). `pnpm db:seed` — idempotent, refuses to invent a password |
 | DATA-06 | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **Now the largest remaining data gap** — the nightly dump covers the database and nothing else |
 | DATA-07 | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path — the audit log is append-only by design, so decide now what a member's erasure request means |
-| DATA-08 | Verify audit-log immutability at the DB level | Rule 6 is enforced by convention. A `BEFORE UPDATE OR DELETE` trigger that raises makes it true |
+| DATA-08 `[ ]` | Verify audit-log immutability at the DB level | **Confirmed open** — no trigger in any migration. Rule 6 is enforced by convention; a `BEFORE UPDATE OR DELETE` trigger that raises makes it true ([WO-33](work-orders.md)) |
 
 ---
 
@@ -274,14 +324,14 @@ for Phase 6. Do it *before* you need to move, so the move is not also a rewrite.
 
 | ID | Task | Notes |
 |---|---|---|
-| PKG-01 `[x]` | Dockerfile for the Go API | Done. Multi-stage, `CGO_ENABLED=0`, `distroless/static-debian12:nonroot`, ~17 MB |
+| PKG-01 `[x]` | Dockerfile for the Go API | Done and **verified by running it**. Multi-stage, `CGO_ENABLED=0`, `distroless/static-debian12:nonroot`. **26.9 MB on disk / 6.0 MB compressed** — measured, not the ~17 MB originally estimated here |
 | PKG-02 `[x]` | Dockerfile for the Next app | Done. Standalone output gated behind `DOCKER_BUILD=1` so the Vercel build is unchanged. Stayed on a glibc base — Prisma's traced engine is `debian-openssl-3.0.x`, and Alpine would need a `binaryTargets` change |
 | PKG-03 `[x]` | Extend `docker-compose.yml` to the whole stack | Done. Postgres → one-shot migrate/seed → api → web. `docker compose up -d postgres` still works on its own |
 | PKG-04 `[x]` | `.dockerignore` for both | Done, and it matters more than it looks: Next's tracer was observed copying `.env.local` into `.next/standalone/`, which would bake production credentials into an image layer |
 | PKG-05 `[x]` | Pin versions everywhere | Done. Go 1.25, Node 24, pnpm 8.15.4, all four base images by digest |
-| PKG-06 | Build and push images in CI | **Still open.** GHCR, tagged by commit SHA. **A deployable artifact per commit is what turns a rollback into one command** |
+| PKG-06 `[ ]` | Build and push images in CI | **Confirmed open** — no workflow references `docker build` or GHCR. Tagged by commit SHA. **A deployable artifact per commit is what turns a rollback into one command**, and it is the prerequisite for Phase 6 ([WO-34](work-orders.md)) |
 | PKG-07 `[x]` | Health checks in the images | Done. The Go image has no shell, so the server probes itself: `/server -healthcheck` → `/v1/ready`. The web image uses `node -e` with `fetch` |
-| PKG-08 | Document the full env-var contract | `.env.example` is good; add which are build-time vs runtime, and which differ between the two apps |
+| PKG-08 `[ ]` | Document the full env-var contract | `.env.example` is good; add which are build-time vs runtime, which host owns each, and which must match across hosts — `JWT_SECRET` differing between Render and Vercel breaks every session ([WO-35](work-orders.md)) |
 
 ---
 
@@ -347,22 +397,31 @@ What makes it *stay* production-ready after you stop looking at it daily.
 
 Do them in this order. Each block is genuinely blocked by the one above it.
 
-| # | Block | Tasks | Rough effort |
-|---|---|---|---|
-| 1 | **Security defects** | SEC-08, SEC-09 (SEC-01 → SEC-07 done) | ½ day |
-| 2 | **Safety net** | CI-09 only — branch protection, a GitHub setting (CI-01 → CI-08 done) | 5 minutes |
-| 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
-| ~~4~~ | ~~**Backups that work**~~ | ~~DATA-01, DATA-02, DATA-03~~ | **Done** |
-| ~~5~~ | ~~**Can see it**~~ | ~~OBS-01 → OBS-06~~ (OBS-05 log aggregation still open) | **Done** |
-| 6 | **Migrations + seed** | DATA-08 only (DATA-04, DATA-05 done) | ½ day |
-| 7 | **Containerise** | PKG-01 → PKG-08 | 2–3 days |
-| 8 | **Code health** | RUN-09, RUN-10, OBS-07, OBS-08 | 1 week |
-| 9 | **Remaining data + ops** | DATA-06, DATA-07, OPS-01 → OPS-09 | 1 week |
-| 10 | **Move hosts** | INF-01 → INF-12 | 1–2 weeks |
+Rewritten 2026-08-16 after re-verifying every claim against the source. Blocks
+that were entirely done have been removed rather than left struck through — the
+[work-orders.md](work-orders.md) completion table is the record.
 
-Blocks 1–4 are the ones that matter if you only ever do part of this list: they
-turn "it works" into "it works, and if it breaks the members' money is still
-there."
+| # | Block | Tasks | Order | Rough effort |
+|---|---|---|---|---|
+| 1 | **Purge git history** | SEC-10 + SEC-06 | WO-28 | ½ day + GitHub Support |
+| 2 | **Live product defect** | FR-11 guarantor approval | WO-29 | 20 minutes |
+| 3 | **Land Batch G** | Merge `wo-23-next15-react19` after a Vercel-preview walk | — | ½ day, mostly manual checking |
+| 4 | **Lint debt from Batch G** | 26 React Compiler findings | WO-27 | 1–2 days |
+| 5 | **Security remainder** | SEC-08, SEC-09 | WO-30, WO-31 | ½ day |
+| 6 | **Hardening remainder** | RUN-07, DATA-08 | WO-32, WO-33 | ½ day |
+| 7 | **Deployable artifacts** | PKG-06, PKG-08 | WO-34, WO-35 | 1 day |
+| 8 | **Code health** | CI-04, CI-06, RUN-09, settings allow-list | WO-36 → WO-39 | 1 week |
+| 9 | **Remaining data + ops** | DATA-06, DATA-07, OBS-05/07/08, OPS-01 → OPS-09 | — | 1 week |
+| 10 | **Move hosts** | INF-01 → INF-12 | — | 1–2 weeks |
+
+**Blocks 1 and 2 are not like the rest of this list.** Block 1 is a disclosure
+that has already happened and continues for as long as the objects exist. Block 2
+is a lending feature members are told exists and that has never once worked. Both
+are small. Everything below block 3 is ordinary backlog by comparison.
+
+The blocks that used to head this list — backups, tests, CI, observability,
+containers — are done, and they are what turned "it works" into "it works, and if
+it breaks the members' money is still there."
 
 ---
 

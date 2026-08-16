@@ -212,6 +212,21 @@ Two things that make scheduled backups quietly stop:
 - GitHub disables scheduled workflows in a repository with **60 days of no commit activity**. It emails first. Re-enable it on the Actions tab.
 - Artifacts expire on the retention window above. That is the whole retention policy until the S3 copy is configured; 30 days is short if nobody looks.
 
+### The PostgreSQL client version
+
+`pg_dump` refuses to dump a server newer than itself, and Neon upgrades Postgres on its own schedule — so this **will** drift again. It already has once: the job failed with `server version: 17.11; pg_dump version: 16.14`.
+
+The cause is not what it looks like. `/usr/bin/pg_dump` on Debian and Ubuntu is `pg_wrapper`, which resolves to the version of the **configured cluster**; GitHub's `ubuntu-latest` image ships a PostgreSQL 16 *server*, so installing a newer client changes nothing and `pg_dump --version` keeps answering 16.
+
+Two layers handle it, and either alone is enough:
+
+- [`.github/actions/postgres-client`](../.github/actions/postgres-client) installs the newest client PGDG publishes and puts its real binary directory ahead of `/usr/bin` on `PATH`. Used by both the Backup workflow and the CI restore drill.
+- [`scripts/lib/pg-client.sh`](../scripts/lib/pg-client.sh) resolves the newest `pg_dump`, `pg_restore` and `psql` by absolute path, so the scripts are correct wherever they run — including on your laptop. It prints which binary it chose, and `backup.sh` refuses to start if the client is older than the server, naming the package to install.
+
+Override with `PG_DUMP` / `PG_RESTORE` / `PSQL` if you are on an unusual layout.
+
+**When Neon moves to a major PGDG has not published yet**, the composite action fails with `resolved PostgreSQL client is N, need at least M`. Raise the loop in the action; there is nothing else to change.
+
 Run one by hand any time from **Actions → Backup → Run workflow**.
 
 ### Restoring
