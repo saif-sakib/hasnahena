@@ -56,10 +56,15 @@ Compose services connect to Postgres on the hostname `postgres`, not
 `docker compose up -d postgres` still does only what it always did — nothing in
 this file requires you to run the whole stack.
 
-| Image | Base | Size |
-|---|---|---|
-| `apps/api/Dockerfile` | `gcr.io/distroless/static-debian12:nonroot` | ~17 MB |
-| `apps/web/Dockerfile` | `node:24-bookworm-slim` | ~250 MB |
+| Image | Base | On disk | Compressed |
+|---|---|---|---|
+| `apps/api/Dockerfile` | `gcr.io/distroless/static-debian12:nonroot` | 26.9 MB | 6.0 MB |
+| `apps/web/Dockerfile` | `node:24-bookworm-slim` | 535 MB | 119.6 MB |
+
+Both columns are real, measured from built images. `docker images` reports the
+uncompressed on-disk size; what actually crosses the network on a push or pull
+is the compressed figure. WO-20's "<20 MB" target is met on the wire and missed
+on disk — the gap is almost entirely the 15 MB Go binary, which compresses well.
 
 Three things about these images that are easy to get wrong:
 

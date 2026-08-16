@@ -21,7 +21,8 @@ This file tracks **product** work. Operational readiness lives in [production-re
   - **Root cause:** `dependabot.yml` ignored majors only for a named list. Majors are now ignored for npm and Go entirely — a major is a migration, not an update. **GitHub Actions are the deliberate exception** and take majors weekly, because GitHub retires the Node runtime under old action majors on its own schedule.
   - **Node 20 → 24** across CI, `engines` and `@types/node`, ahead of Vercel's deprecation.
   - **`pnpm audit`: 41 → 23 vulnerabilities, 20 high → 8**, by pinning patched transitive versions in `pnpm.overrides` (postcss, brace-expansion, js-yaml, lodash, nanoid, picomatch, glob). Everything still standing was Next.js or next-intl and needed a framework migration — scoped as **Batch G** in [work-orders.md](work-orders.md).
-  - **Then 23 → 3 (8 high → 1)** in WO-23, by taking Next to 15.5.23 and React to 19.2.8. Two of the three left are next-intl and close in WO-25; the third is `sharp`, held back on purpose because Next pins it as an optional dependency at a version below the patch.
+  - **Then 23 → 3 (8 high → 1)** in WO-23, by taking Next to 15.5.23 and React to 19.2.8.
+  - **Then 3 → 0** across the rest of Batch G: WO-25 (next-intl 4.13.6) closed both next-intl advisories, and WO-24 (Next 16.3.1) closed `sharp` for free — Next 16 pins it at `^0.35.3`, above the patch, so the override WO-23 declined to force was never needed. **`pnpm audit` now reports no known vulnerabilities.**
   - **`.githooks/pre-push`** runs typecheck + build before a push. Branch protection needs a paid plan on a private repo; this catches the same class of failure for free. Install with `git config core.hooksPath .githooks`.
   - gitleaks now runs from the MIT binary rather than `gitleaks-action`, which wants a licence key for organisation-owned repos.
 

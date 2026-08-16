@@ -28,7 +28,7 @@ on the quoted code, not the number.
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | ~~**E**~~ | ~~WO-17 → WO-19~~ | ~~Observability~~ | **Done** |
 | ~~**F**~~ | ~~WO-20 → WO-22~~ | ~~Containerise~~ — done 2026-08-16 | ~1 session |
-| **G** | ~~WO-23~~ → WO-26 | Stack modernisation (security) — WO-23 done, 23 advisories → 3 | ~2 sessions left |
+| ~~**G**~~ | ~~WO-23 → WO-26~~ | ~~Stack modernisation (security)~~ — done 2026-08-16, **41 advisories → 0** | WO-27 follow-up open |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
 
 ### Standing rules for every order
@@ -657,8 +657,8 @@ any VPS/AWS work and the thing that makes a migration boring.
 | WO-21 `[x]` | Next Dockerfile (PKG-02) | Multi-stage with `output: 'standalone'` in `next.config.js`. Prisma engine binaries need a matching base image — this is the fiddly one |
 | WO-22 `[x]` | Full-stack compose (PKG-03/04/05) | Extend `docker-compose.yml` beyond Postgres so `docker compose up` gives a working platform. Doubles as onboarding and as the WO-12 test environment. Add `.dockerignore`, pin base images by digest |
 
-**Done 2026-08-16.** `apps/api/Dockerfile` (~17 MB: 15 MB static binary on a
-2 MB distroless base), `apps/web/Dockerfile`, `.dockerignore`, and a
+**Done 2026-08-16.** `apps/api/Dockerfile` (26.9 MB on disk / 6.0 MB compressed —
+see the size note below), `apps/web/Dockerfile`, `.dockerignore`, and a
 `docker-compose.yml` extended to Postgres → migrate → api → web.
 
 Four things that were not obvious going in:
@@ -728,9 +728,10 @@ that a failure tells you which one caused it.
 | ID | Task | Notes |
 |---|---|---|
 | WO-23 `[x]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
-| WO-24 `[ ]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
-| WO-25 `[ ]` | next-intl 3 → 4 | Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
-| WO-26 `[ ]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
+| WO-24 `[x]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
+| WO-25 `[x]` | next-intl 3 → 4 | **Must run BEFORE WO-24** — next-intl 3's peer range ends at Next ^15. Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
+| WO-26 `[x]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
+| WO-27 `[ ]` | React Compiler lint cleanup | 26 `react-hooks` findings across 18 dashboard files, downgraded to warnings in WO-24. Do them screen by screen with a manual walk — these files move members' money and have no fixtures |
 
 **Not in this batch, and not urgent:** Prisma 5 → 7. It has no advisory against
 it, the schema is stable, and the Go API does not use the Prisma client at all —
@@ -808,6 +809,58 @@ loan or transaction fixtures, so those routes were reachable only as far as
 their role gates. They contain no `params` usage — the migration surface does
 not touch them — but "no reason to break" is not the same as "checked". Walk
 them on the Vercel preview before merging.
+
+### Batch G outcome — done 2026-08-16
+
+**`pnpm audit`: 41 vulnerabilities → 0.** That was the point of the batch.
+
+| Order | Landed | Advisories closed |
+|---|---|---|
+| WO-23 | Next 14.2.35 → 15.5.23, React 18.3 → 19.2.8 | 23 → 3 |
+| WO-25 | next-intl 3.26.5 → 4.13.6 | 3 → 1 |
+| WO-24 | Next 15 → 16.3.1, ESLint 8 → 9, `middleware.ts` → `proxy.ts` | 1 → 0 |
+| WO-26 | Tailwind 3.4 → 4.3.3 | none — no security payoff |
+
+**The documented order was wrong, and the fix matters.** This file said WO-24
+before WO-25. next-intl 3's peer range ends at `next ^15.0.0` — it does not
+support Next 16 at all, so WO-24 was blocked behind WO-25, not the reverse.
+Corrected in the table above.
+
+**`sharp` closed itself.** It was carried as the one high-severity item WO-23
+deliberately left alone, because Next 15 pinned it as an optional dependency at
+`^0.34.3` while the patch was 0.35.0. Next 16 pins `^0.35.3`. No override was
+ever needed — which is the argument for not forcing one during WO-23.
+
+**Two things the tooling would have shipped broken, silently:**
+
+- The Tailwind 4 codemod deletes `tailwind.config.ts` and does **not** carry
+  `plugins:` across. `tailwindcss-animate` therefore stopped loading, and
+  Tailwind compiles unknown utilities away without complaint. 81 classes across
+  17 files — every Radix dialog, dropdown, select and toast animation — would
+  have become dead strings. Restored with `@plugin` in `globals.css`.
+- Next 16 removed `next lint`. It does not fail usefully either: it reads
+  `lint` as a directory name and reports "no such directory .../lint", which
+  would have been a confusing red CI step rather than an obvious one.
+
+**Deliberately deferred to WO-27:** `eslint-plugin-react-hooks` v7 arrives with
+`eslint-config-next` 16 and reports 26 React Compiler findings across 18
+dashboard files. They are set to `warn`. None marks a behaviour change — this
+code ran unmodified on Next 15 — and rewriting that many `useEffect` bodies
+inside a framework migration is the trap this batch was structured to avoid.
+
+**What was verified, and what was not.** Every order was checked against a real
+seeded Postgres with both apps running, not just `pnpm build`: 28 routes across
+both locales, the dashboard auth redirect in `proxy.ts` still intact,
+`await params` still discriminating between a malformed and a well-formed id,
+the catch-all resolving three paths to three outcomes, and — for WO-26 — every
+one of 923 class tokens resolved against the CSS actually served over HTTP.
+
+Not verified: **how any of it looks**, and the authenticated dashboards. The
+seed has one SUPER_ADMIN and no member, worker, loan or transaction fixtures, so
+those screens were reachable only as far as their role gates. Tailwind 4 also
+changes defaults this codebase never names — border colour is now `currentColor`
+rather than `gray-200`, and ring width drops 3px → 1px. Walk the dashboards on
+the Vercel preview, in both locales, before merging.
 
 **Verify each order with:** `pnpm build`, `pnpm typecheck`, `pnpm lint`,
 `pnpm test:e2e`, and a manual pass over login, the member dashboard, and one
