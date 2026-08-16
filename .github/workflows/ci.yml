@@ -178,10 +178,33 @@ jobs:
     env:
       SOURCE_URL: postgresql://postgres:postgres@localhost:5432/hasnahena_source
       SCRATCH_URL: postgresql://postgres:postgres@localhost:5432/hasnahena_scratch
-      BACKUP_PASSPHRASE: ci-drill-passphrase-not-a-secret
 
     steps:
       - uses: actions/checkout@v7
+
+      # The service container above is Postgres 17, matching production Neon,
+      # and the runner's bundled client is 16. pg_restore rejects an archive
+      # newer than itself outright, so without this the drill fails on the dump
+      # file's header. Same action the nightly Backup uses.
+      - uses: ./.github/actions/postgres-client
+
+      # Throwaway values for one job on one ephemeral runner — but a literal
+      # that *looks* like a password is a literal a secret scanner will flag,
+      # and GitGuardian did flag this file. Minting them at run time removes the
+      # fingerprint and is genuinely better: the drill now proves the scripts
+      # work with an arbitrary passphrase instead of one particular string.
+      #
+      # add-mask keeps them out of the log even though they are worthless.
+      - name: Mint throwaway credentials for this run
+        run: |
+          passphrase="$(openssl rand -base64 32)"
+          admin_password="$(openssl rand -base64 24)"
+          echo "::add-mask::$passphrase"
+          echo "::add-mask::$admin_password"
+          {
+            echo "BACKUP_PASSPHRASE=$passphrase"
+            echo "SEED_ADMIN_PASSWORD=$admin_password"
+          } >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v6
         with:
@@ -204,7 +227,7 @@ jobs:
         env:
           DATABASE_URL: ${{ env.SOURCE_URL }}
           SEED_ADMIN_EMAIL: admin@hasnahena.local
-          SEED_ADMIN_PASSWORD: ci-drill-admin-password
+          # SEED_ADMIN_PASSWORD arrives from the mint step via $GITHUB_ENV.
 
       # An untested backup is a rumour. Running the real scripts on every push
       # is what stops the restore path rotting quietly between the day it is

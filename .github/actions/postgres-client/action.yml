@@ -1,0 +1,78 @@
+name: PostgreSQL client
+description: >
+  Installs the newest PostgreSQL client PGDG publishes and puts its real binary
+  directory ahead of /usr/bin on PATH for the rest of the job.
+
+# Two jobs need this — the nightly Backup and the CI restore drill — and they
+# need exactly the same thing, so it lives here rather than being copied. The
+# copy is how the CI drill ended up talking to a Postgres 17 service container
+# with the runner's bundled 16 client.
+
+inputs:
+  minimum-major:
+    description: >
+      Fail the step if the resolved client is older than this. Set it to the
+      major version of the server being dumped, so a silently-too-old client is
+      a red step here instead of a confusing failure later.
+    required: false
+    default: '17'
+
+runs:
+  using: composite
+  steps:
+    - name: Install the newest PostgreSQL client
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        sudo install -d /usr/share/postgresql-common/pgdg
+        sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+          https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+        add_repo() {
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
+               "https://apt.postgresql.org/pub/repos/apt $1-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+        }
+
+        # `ubuntu-latest` moves to a new release before PGDG publishes a
+        # matching suite, and a bare `apt-get update` against a missing suite
+        # fails the whole job. Fall back to the previous LTS codename, which
+        # PGDG always carries.
+        if ! add_repo "$(lsb_release -cs)"; then
+          echo "PGDG has no suite for $(lsb_release -cs); falling back to noble"
+          add_repo noble
+        fi
+
+        # Newest first — a client can always handle an older server.
+        for v in 19 18 17; do
+          if sudo apt-get install -y -qq "postgresql-client-$v"; then break; fi
+        done
+
+        # THE PART THAT MATTERS. /usr/bin/pg_dump is pg_wrapper, which resolves
+        # to the version of the *configured cluster*. This runner image ships a
+        # PostgreSQL 16 server with a live cluster, so installing client 18
+        # above changes nothing — the wrapper still answers 16.14, which is how
+        # the nightly backup failed against a 17.11 Neon server with a
+        # new-enough client already on disk. Reproduced in a container; a bare
+        # container with no cluster does NOT show the bug.
+        newest="$(find /usr/lib/postgresql -maxdepth 2 -name bin -type d 2>/dev/null \
+                  | sort -V | tail -1)"
+        if [ -z "$newest" ]; then
+          echo "::error::no versioned PostgreSQL client directory under /usr/lib/postgresql"
+          exit 1
+        fi
+        echo "$newest" >> "$GITHUB_PATH"
+        export PATH="$newest:$PATH"
+
+        major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+        echo "selected client: $newest (major $major)"
+        pg_dump --version
+        pg_restore --version
+        psql --version
+
+        if [ "$major" -lt "${{ inputs.minimum-major }}" ]; then
+          echo "::error::resolved PostgreSQL client is $major, need at least ${{ inputs.minimum-major }}. PGDG may not publish that major yet for this runner image."
+          exit 1
+        fi
