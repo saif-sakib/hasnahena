@@ -19,6 +19,12 @@
 
 set -euo pipefail
 
+# Same reason as scripts/backup.sh: pick the newest client by absolute path.
+# pg_restore is the stricter half — it rejects an archive whose format version
+# is newer than itself outright, so a 16 client restoring a dump taken from a 17
+# server fails on the file header before it reads a single row.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/pg-client.sh"
+
 ARCHIVE="${1:-}"
 SCRATCH_URL="${2:-}"
 
@@ -37,6 +43,12 @@ if [[ "$SCRATCH_URL" == *"neon.tech"* && "${ALLOW_NEON_TARGET:-}" != "yes" ]]; t
   echo "restore: restore into a Neon *branch*, never the primary" >&2
   exit 1
 fi
+
+if [[ -z "${PG_RESTORE:-}" || -z "${PSQL:-}" ]]; then
+  echo "restore: pg_restore or psql not found — install a PostgreSQL client" >&2
+  exit 1
+fi
+echo "restore: using $PG_RESTORE ($("$PG_RESTORE" --version))"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -61,13 +73,13 @@ fi
 START="$(date -u +%s)"
 
 echo "restore: resetting scratch schema"
-psql "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 \
+"$PSQL" "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 \
   -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
 
 echo "restore: restoring"
 # --no-owner: the dump's role does not exist here. Exit code is checked below
 # rather than by set -e, because pg_restore warns on things that are fine.
-pg_restore \
+"$PG_RESTORE" \
   --dbname="$SCRATCH_URL" \
   --no-owner \
   --no-acl \
@@ -80,7 +92,7 @@ echo "restore: completed in ${ELAPSED}s"
 
 echo
 echo "restore: row counts"
-psql "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
+"$PSQL" "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
 SELECT relname AS table, n_live_tup AS approx_rows
 FROM pg_stat_user_tables
 ORDER BY relname;
@@ -88,7 +100,7 @@ SQL
 
 echo
 echo "restore: integrity checks"
-psql "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
+"$PSQL" "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
 \set ON_ERROR_STOP on
 
 -- The tables the application cannot start without.

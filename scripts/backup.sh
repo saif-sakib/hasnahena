@@ -20,6 +20,13 @@
 
 set -euo pipefail
 
+# Exports PG_DUMP as an absolute path to the NEWEST client on this machine.
+# /usr/bin/pg_dump is pg_wrapper on Debian and Ubuntu and answers with whatever
+# major postgresql-common calls the default, which is how this script once
+# reported "pg_dump version: 16.14" against a 17.11 server on a runner that had
+# a newer client installed. See scripts/lib/pg-client.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/pg-client.sh"
+
 OUT_DIR="${1:-backups}"
 
 if [[ -z "${DIRECT_DATABASE_URL:-}" ]]; then
@@ -43,15 +50,27 @@ if [[ "$DIRECT_DATABASE_URL" == *"-pooler"* ]]; then
   DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL//-pooler/}"
 fi
 
+if [[ -z "${PG_DUMP:-}" ]]; then
+  echo "backup: no pg_dump found — install a PostgreSQL client" >&2
+  exit 1
+fi
+
+# Checked before the dump so the log names the problem and the remedy, rather
+# than pg_dump's own "aborting because of server version mismatch" 40 minutes
+# into a nightly run. Neon upgrades Postgres on its own schedule, so this WILL
+# drift again; when it does, this is the line that says what to install.
+pg_require_client_at_least "$PG_DUMP" "$DIRECT_DATABASE_URL"
+
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARCHIVE="$OUT_DIR/hasnahena-$STAMP.dump"
 
 echo "backup: dumping at $STAMP (UTC)"
+echo "backup: using $PG_DUMP ($("$PG_DUMP" --version))"
 
 # --no-owner / --no-acl: Neon roles do not exist in a scratch restore target,
 # and a restore that fails on GRANT statements is a restore that did not happen.
-pg_dump \
+"$PG_DUMP" \
   --dbname="$DIRECT_DATABASE_URL" \
   --format=custom \
   --compress=9 \
