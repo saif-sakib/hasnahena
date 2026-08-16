@@ -26,7 +26,17 @@ const nextConfig = {
   // stating: if it moves back under experimental, the Docker image ships
   // without a Prisma engine and dies on the first query.
   outputFileTracingIncludes: {
-    '**': ['./node_modules/.prisma/client/**'],
+    '**': [
+      './node_modules/.prisma/client/**',
+      // Next 16's require-hook resolves @swc/helpers through the package's
+      // `exports` map, which points at ./esm/*. The tracer only follows the
+      // CommonJS entry, so it copies cjs/ and package.json and stops — and the
+      // container then dies at startup with "Cannot find module
+      // .../@swc/helpers/esm/_interop_require_default.js" before it serves a
+      // single request. Only reproducible by running the built image; the
+      // build itself is perfectly happy.
+      '../../node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/**',
+    ],
   },
 
   // Image optimization configuration
