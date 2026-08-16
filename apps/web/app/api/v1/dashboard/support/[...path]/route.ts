@@ -49,21 +49,24 @@ async function forward(req: NextRequest, path: string[] | undefined) {
 
 export async function GET(
   req: NextRequest,
-  context: { params: { path?: string[] } }
+  context: { params: Promise<{ path?: string[] }> }
 ) {
-  return forward(req, context.params.path);
+  const { path } = await context.params;
+  return forward(req, path);
 }
 
 export async function POST(
   req: NextRequest,
-  context: { params: { path?: string[] } }
+  context: { params: Promise<{ path?: string[] }> }
 ) {
-  return forward(req, context.params.path);
+  const { path } = await context.params;
+  return forward(req, path);
 }
 
 export async function PUT(
   req: NextRequest,
-  context: { params: { path?: string[] } }
+  context: { params: Promise<{ path?: string[] }> }
 ) {
-  return forward(req, context.params.path);
+  const { path } = await context.params;
+  return forward(req, path);
 }

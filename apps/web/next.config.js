@@ -19,10 +19,14 @@ const nextConfig = {
   // those. Prisma's query engine is loaded by path at runtime, not imported, so
   // the tracer cannot see it and the container starts and then fails on the
   // first query. Naming it here is what puts it in the output.
-  experimental: {
-    outputFileTracingIncludes: {
-      '**': ['./node_modules/.prisma/client/**'],
-    },
+  //
+  // Top-level, not under `experimental` — Next 15 promoted it. On 14 it was
+  // `experimental.outputFileTracingIncludes`, and Next 15 warns rather than
+  // errors if you leave it there, so this is silently ignorable and worth
+  // stating: if it moves back under experimental, the Docker image ships
+  // without a Prisma engine and dies on the first query.
+  outputFileTracingIncludes: {
+    '**': ['./node_modules/.prisma/client/**'],
   },
 
   // Image optimization configuration
@@ -90,8 +94,12 @@ module.exports = withSentryConfig(withNextIntl(nextConfig), {
   // Quiet unless something is actually wrong.
   silent: !process.env.CI,
 
-  // Strips the Sentry SDK's own debug logging from the browser bundle.
-  disableLogger: true,
+  // Strips the Sentry SDK's own debug logging from the browser bundle. This
+  // replaces the deprecated top-level `disableLogger`, which @sentry/nextjs 10
+  // warns about on every build.
+  webpack: {
+    treeshake: { removeDebugLogging: true },
+  },
 
   // Source maps are uploaded to Sentry and then deleted from the deployed
   // output, so a stack trace is readable in Sentry without publishing the

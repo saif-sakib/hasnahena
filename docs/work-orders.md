@@ -28,7 +28,7 @@ on the quoted code, not the number.
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | ~~**E**~~ | ~~WO-17 → WO-19~~ | ~~Observability~~ | **Done** |
 | ~~**F**~~ | ~~WO-20 → WO-22~~ | ~~Containerise~~ — done 2026-08-16 | ~1 session |
-| **G** | WO-23 → WO-26 | Stack modernisation (security) | ~2–3 sessions |
+| **G** | ~~WO-23~~ → WO-26 | Stack modernisation (security) — WO-23 done, 23 advisories → 3 | ~2 sessions left |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
 
 ### Standing rules for every order
@@ -727,7 +727,7 @@ that a failure tells you which one caused it.
 
 | ID | Task | Notes |
 |---|---|---|
-| WO-23 `[ ]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
+| WO-23 `[x]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
 | WO-24 `[ ]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
 | WO-25 `[ ]` | next-intl 3 → 4 | Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
 | WO-26 `[ ]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
@@ -735,6 +735,79 @@ that a failure tells you which one caused it.
 **Not in this batch, and not urgent:** Prisma 5 → 7. It has no advisory against
 it, the schema is stable, and the Go API does not use the Prisma client at all —
 only `apps/web` does. Take it when something needs it.
+
+### WO-23 outcome — done 2026-08-16, on branch `wo-23-next15-react19`
+
+Next 14.2.35 → **15.5.23**, React 18.3 → **19.2.8**, `eslint-config-next` and
+the React types to match. next-intl stayed on 3.26.5 deliberately: its peer
+range already accepts Next 15 and React 19, so WO-25 is still a separate order.
+
+**`pnpm audit`: 23 vulnerabilities → 3.** High-severity: 8 → 1. That was the
+entire point of Batch G, and most of it is now banked.
+
+The three that remain:
+
+| Package | Severity | Fixed by |
+|---|---|---|
+| `next-intl` open redirect | moderate | WO-25 (needs 4.9.1+) |
+| `next-intl` prototype pollution | moderate | WO-25 (needs 4.9.2+) |
+| `sharp` — inherited libvips | high | see below |
+
+**`sharp` was deliberately not fixed here.** Next 15.5.23 pins it as an
+*optional* dependency at `^0.34.3`; the patched release is 0.35.0, so closing it
+means a `pnpm.overrides` entry forcing a version Next has not tested against.
+That is exactly the kind of change that broke two Vercel deploys this month, and
+this batch is explicitly ordered so a failure names its own cause. Practical
+exposure today is close to zero: sharp only does image optimisation for a
+self-hosted server, and in production Vercel does that on its own infrastructure
+rather than through sharp. Do it as its own small commit once WO-23 is deployed
+and quiet — not bundled into a framework migration.
+
+**What actually changed in the code.** The async request APIs, and nothing else:
+
+- 7 `cookies()` call sites in `app/actions/upload-*.ts` → `await cookies()`
+- 11 pages + `layout.tsx`: `params` is now `Promise<{ locale: string }>`, and
+  every `generateMetadata` became `async` returning `Promise<Metadata>`
+- 5 route handlers: `params` awaited. `[...path]` needed it in all three of its
+  GET/POST/PUT handlers
+- `next.config.js`: `experimental.outputFileTracingIncludes` → top-level
+  `outputFileTracingIncludes` (Next 15 promoted it, and only *warns* if you
+  leave it behind — which would silently ship a Docker image with no Prisma
+  engine, so Batch F depended on catching this)
+- `next.config.js`: Sentry's deprecated `disableLogger` → `webpack.treeshake.removeDebugLogging`
+- `global-error.tsx`: Next 15 promoted `no-html-link-for-pages` to an **error**.
+  The plain `<a>` there is correct and is now an explicit eslint-disable with the
+  reasoning — `global-error` replaces the root layout *because the layout threw*,
+  so a client-side navigation would ask the broken tree to render the next page.
+  A full document load is the point.
+
+**Verification.** Typecheck clean, lint zero errors, build clean with no config
+warnings, and `--frozen-lockfile` install verified (the failure mode that broke
+Vercel twice). Then, against a real seeded Postgres with both apps running:
+
+- 24 marketing and auth routes, both locales, all 200
+- **Locale correctness proved, not assumed.** `<html lang>` correct per locale,
+  Bengali glyph counts dominate `/bn` on every page (5.5k–9.9k vs ~60–140 on
+  `/en`), and async `generateMetadata` emits per-locale `<title>`. A botched
+  `params` migration's signature failure is every page returning 200 in the
+  wrong language, so 200s alone would not have been evidence.
+- **Dynamic route ids proved by discrimination.** `guarantor-approval` with
+  `not-a-uuid` → "Invalid loan ID format"; with a well-formed UUID → past the
+  regex to the role check. Two different ids, two different outcomes. If
+  `params` were unawaited, `id` would be `undefined` and both would return the
+  format error.
+- Catch-all `[...path]`: `support/config` → 200 with real data,
+  `support/threads` → 200 `[]`, `support/nonexistent` → 404. Three paths, three
+  outcomes.
+- Batch F still holds: `DOCKER_BUILD=1` still emits `standalone/`, and the
+  Prisma engine is still traced into it.
+
+**Not verified here:** the authenticated dashboards under `/dashboard/{member,
+worker,admin}`. The seeded database has one SUPER_ADMIN and no member, worker,
+loan or transaction fixtures, so those routes were reachable only as far as
+their role gates. They contain no `params` usage — the migration surface does
+not touch them — but "no reason to break" is not the same as "checked". Walk
+them on the Vercel preview before merging.
 
 **Verify each order with:** `pnpm build`, `pnpm typecheck`, `pnpm lint`,
 `pnpm test:e2e`, and a manual pass over login, the member dashboard, and one

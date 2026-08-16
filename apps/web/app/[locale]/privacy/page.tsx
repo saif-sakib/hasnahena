@@ -7,9 +7,10 @@ import { Logo } from '@/components/ui/logo';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -22,7 +23,8 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default function PrivacyPage({ params: { locale } }: PageProps) {
+export default async function PrivacyPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
