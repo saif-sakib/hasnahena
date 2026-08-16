@@ -154,8 +154,8 @@ them.
 
 | File | Produces | Base |
 |---|---|---|
-| `apps/api/Dockerfile` | Go API, ~17 MB | `gcr.io/distroless/static-debian12:nonroot` |
-| `apps/web/Dockerfile` | Next standalone, ~250 MB | `node:24-bookworm-slim` |
+| `apps/api/Dockerfile` | Go API — 26.9 MB on disk, 6.0 MB compressed | `gcr.io/distroless/static-debian12:nonroot` |
+| `apps/web/Dockerfile` | Next standalone — 535 MB on disk, 119.6 MB compressed | `node:24-bookworm-slim` |
 | `docker-compose.yml` | Postgres + migrate + api + web | — |
 | `.dockerignore` | Governs both build contexts | — |
 
