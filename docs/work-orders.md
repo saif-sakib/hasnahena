@@ -27,7 +27,7 @@ on the quoted code, not the number.
 | ~~**C**~~ | WO-10 → WO-13 | Test harness + CI — **done** | — |
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | ~~**E**~~ | ~~WO-17 → WO-19~~ | ~~Observability~~ | **Done** |
-| **F** | WO-20 → WO-22 | Containerise | ~1 session |
+| ~~**F**~~ | ~~WO-20 → WO-22~~ | ~~Containerise~~ — done 2026-08-16 | ~1 session |
 | **G** | WO-23 → WO-26 | Stack modernisation (security) | ~2–3 sessions |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
 
@@ -653,9 +653,50 @@ any VPS/AWS work and the thing that makes a migration boring.
 
 | ID | Task | Spec |
 |---|---|---|
-| WO-20 `[ ]` | Go Dockerfile (PKG-01) | Multi-stage, `CGO_ENABLED=0`, distroless/alpine final, non-root, `HEALTHCHECK` → `/v1/ready`. Target <20 MB |
-| WO-21 `[ ]` | Next Dockerfile (PKG-02) | Multi-stage with `output: 'standalone'` in `next.config.js`. Prisma engine binaries need a matching base image — this is the fiddly one |
-| WO-22 `[ ]` | Full-stack compose (PKG-03/04/05) | Extend `docker-compose.yml` beyond Postgres so `docker compose up` gives a working platform. Doubles as onboarding and as the WO-12 test environment. Add `.dockerignore`, pin base images by digest |
+| WO-20 `[x]` | Go Dockerfile (PKG-01) | Multi-stage, `CGO_ENABLED=0`, distroless/alpine final, non-root, `HEALTHCHECK` → `/v1/ready`. Target <20 MB |
+| WO-21 `[x]` | Next Dockerfile (PKG-02) | Multi-stage with `output: 'standalone'` in `next.config.js`. Prisma engine binaries need a matching base image — this is the fiddly one |
+| WO-22 `[x]` | Full-stack compose (PKG-03/04/05) | Extend `docker-compose.yml` beyond Postgres so `docker compose up` gives a working platform. Doubles as onboarding and as the WO-12 test environment. Add `.dockerignore`, pin base images by digest |
+
+**Done 2026-08-16.** `apps/api/Dockerfile` (~17 MB: 15 MB static binary on a
+2 MB distroless base), `apps/web/Dockerfile`, `.dockerignore`, and a
+`docker-compose.yml` extended to Postgres → migrate → api → web.
+
+Four things that were not obvious going in:
+
+**The runtime image has no shell, so `HEALTHCHECK` had nothing to call.**
+Distroless carries no curl, no wget, no busybox — which is the point of using
+it. Rather than downgrade the base image or ship a second binary, the server
+probes itself: `/server -healthcheck` handled as the first statement in `main`,
+before `cfg.Load`, because `cfg.Load` exits on a missing `DATABASE_URL` and a
+liveness probe that reports unhealthy over unset configuration is reporting on
+the wrong thing. Costs nothing — `net/http` is already linked in.
+
+**`.dockerignore` turned out to be a secret control.** Next's file tracer copied
+`.env.local` and the `apps/web/.env` symlink into `.next/standalone/` — verified
+by building it. Without the env rules in `.dockerignore` those go into an image
+layer, where a later `RM` does not remove them. This is the single most
+important part of the batch and the least interesting-looking.
+
+**`output: 'standalone'` is gated behind `DOCKER_BUILD=1`.** Vercel ignores the
+setting, but two Vercel builds were already broken this month by build-config
+changes, and there was no reason to make a third possible. Verified both ways: a
+normal `pnpm build` emits no `standalone/` directory at all.
+
+**Alpine was rejected for the web image.** Prisma resolves its query engine
+against the runtime libc. The traced output contains
+`libquery_engine-debian-openssl-3.0.x.so.node`, which matches bookworm and not
+musl. Alpine would need a `binaryTargets` change in `schema.prisma`, and the
+failure mode is a container that starts cleanly and dies on the first query —
+the kind of bug that reaches production because the health check is green.
+
+Verified without a Docker daemon (the daemon on this machine refuses the current
+user, see below): the static binary builds and is confirmed
+`statically linked, stripped`; all four `-healthcheck` paths behave (no listener
+→ 1, 200 → 0, 503 → 1, and no config fatal without `DATABASE_URL`); the
+standalone tree was assembled by hand exactly as the Dockerfile's three `COPY`
+lines do it and booted — `/en` and `/bn` both 200, hashed JS and CSS 200,
+`/images/logo/logo.png` 200, and the Prisma engine loaded and reached Postgres.
+**Not verified: `docker build` itself.** Nobody has run these through a daemon.
 
 ---
 
@@ -707,7 +748,7 @@ deposit — in **both** locales.
 4. ~~**WO-14 + WO-15** — backups.~~ Done.
 5. **WO-11 → WO-13** — tests and CI, so regressions stop being silent.
 6. ~~**WO-16** — migrations.~~ Done.
-7. ~~**Batch E**~~ done. **Batch F**, then **Batch G**.
+7. ~~**Batch E**~~ done. ~~**Batch F**~~ done. **Batch G** is what remains.
 8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws), only after all of the above.
 
 If you only ever do part of this list: **A, B, WO-14, WO-15**. That is the

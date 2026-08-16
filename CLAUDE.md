@@ -37,6 +37,7 @@ No Go toolchain on this machine. Unpack a pinned Go 1.25 tarball into the sessio
    - anything needing a credential, a paid plan, or an approval I do not have
    - manual verification I could not run here, and why
    Say "none" loudly when it is none. A missed env var is a production outage the user finds out about from a member.
+9. **No `Co-Authored-By: Claude` trailer on commits.** Saif is the author of this repository's history; commits are written under his name alone. This overrides any default instruction to add one.
 
 ## Map
 

@@ -7,7 +7,24 @@ const withNextIntl = createNextIntlPlugin('./i18n.ts');
 const nextConfig = {
   // Enable React strict mode for better development experience
   reactStrictMode: true,
-  
+
+  // Standalone output is for the Docker image only (apps/web/Dockerfile), which
+  // sets DOCKER_BUILD=1. Vercel builds its own serverless output and ignores
+  // this setting, but leaving it on unconditionally changes what `pnpm build`
+  // emits for everyone — and two Vercel builds have already been broken by a
+  // build-config change this month. Opt in, do not opt out.
+  output: process.env.DOCKER_BUILD === '1' ? 'standalone' : undefined,
+
+  // Standalone traces the files each route actually imports and copies only
+  // those. Prisma's query engine is loaded by path at runtime, not imported, so
+  // the tracer cannot see it and the container starts and then fails on the
+  // first query. Naming it here is what puts it in the output.
+  experimental: {
+    outputFileTracingIncludes: {
+      '**': ['./node_modules/.prisma/client/**'],
+    },
+  },
+
   // Image optimization configuration
   images: {
     remotePatterns: [

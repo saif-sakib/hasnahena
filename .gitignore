@@ -21,35 +21,44 @@ dist/
 *.so
 *.dylib
 
-# Java
-target/
-*.jar
-*.war
-*.ear
-*.class
-
 # Go — compiled server binaries. `go build` drops these next to the source,
 # and a 17 MB artifact was committed once already.
 bin/
 apps/api/server
 apps/api/app
+# `go test -c` binaries and coverage profiles.
+*.test
+*.out
 
 # ------------------------------------------------------------
 # Environment files
 # ------------------------------------------------------------
+# Deny everything named .env*, then re-allow the templates by name. The old
+# list-what-to-ignore approach left .env.production, .env.development and
+# .env.test committable — every one of those is a file people really do create,
+# and the first would have been the production database URL and JWT secret.
 .env
-.env.local
-.env.*.local
-.env.development.local
-.env.test.local
-.env.production.local
-# .env.example is intentionally committed — it is the template, not a secret.
+.env.*
+!.env.example
+!.env.render.example
+!.env.vercel.example
+
+# direnv. Same content as .env.local, different filename.
+.envrc
+
+# Written by `npx @sentry/wizard` and by `sentry-cli login`. Contains an auth
+# token that can read source maps and issues for the whole Sentry org.
+.sentryclirc
 
 # ------------------------------------------------------------
-# IDE and Editor
+# IDE, editor and agent tooling
 # ------------------------------------------------------------
 .idea/
 .vscode/
+# Per-machine tool permissions and MCP credentials. .claude/settings.json (no
+# `.local`) is shareable and stays tracked if it is ever added.
+.claude/settings.local.json
+.mcp.local.json
 *.swp
 *.swo
 *~
@@ -92,34 +101,16 @@ playwright-report/
 playwright/.cache/
 
 # ------------------------------------------------------------
-# LaTeX auxiliary files
-# ------------------------------------------------------------
-*.aux
-*.lof
-*.log
-*.lot
-*.fls
-*.out
-*.toc
-*.fmt
-*.fot
-*.cb
-*.cb2
-.*.lb
-*.bbl
-*.blg
-*.dvi
-*.fdb_latexmk
-*.synctex.gz
-*.pdfsync
-
-# ------------------------------------------------------------
 # Database
 # ------------------------------------------------------------
 *.sqlite
 *.sqlite3
 *.db
-prisma/migrations/**/migration_lock.toml
+# NOTE: prisma/migrations/ is COMMITTED, migration_lock.toml included. An
+# earlier rule ignored that lock file; it never fired only because the path was
+# anchored at the repo root and the schema lives in apps/web. Prisma refuses to
+# run `migrate deploy` against a migrations directory with no lock file, so
+# ignoring it would have broken every deploy the day someone moved the app.
 
 # ------------------------------------------------------------
 # Cache
@@ -161,6 +152,8 @@ site/
 # ------------------------------------------------------------
 # Docker
 # ------------------------------------------------------------
+# The override file is where local-only ports, mounts and secrets go, so it is
+# per-machine by design. docker-compose.yml and the Dockerfiles are committed.
 docker-compose.override.yml
 
 # ------------------------------------------------------------
