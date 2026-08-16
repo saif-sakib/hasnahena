@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
-import { Building2, Wallet, Bell, Shield, Save, RefreshCw, AlertCircle, CheckCircle2, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
+import { Building2, Wallet, Shield, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,30 +65,7 @@ export default function AdminSettingsPage() {
     allowActiveLoanWithdrawal: false,
   });
 
-  // Notification Settings
-  const [notificationSettings, setNotificationSettings] = useState({
-    emailNotifications: true,
-    smsNotifications: true,
-    loanApprovalNotify: true,
-    depositConfirmationNotify: true,
-    paymentReminderNotify: true,
-    newMemberNotify: true,
-  });
-
-  // Security Settings
-  const [securitySettings, setSecuritySettings] = useState({
-    twoFactorAuth: false,
-    sessionTimeout: 30,
-    passwordExpiry: 90,
-    loginAttempts: 5,
-  });
   const [supportRetentionDays, setSupportRetentionDays] = useState(10);
-  const [appearanceSettings, setAppearanceSettings] = useState({
-    defaultLanguage: 'bn',
-    theme: 'light',
-    dateFormat: 'dd/mm/yyyy',
-    currencyFormat: 'bn-BD',
-  });
 
   // Landing Page Settings (Dynamic Content)
   const [landingSettings, setLandingSettings] = useState<Record<string, string>>({
@@ -178,39 +155,6 @@ export default function AdminSettingsPage() {
           allowActiveLoanWithdrawal: parseBooleanSetting(data['loan.allowActiveLoanWithdrawal'], prev.allowActiveLoanWithdrawal),
         }));
 
-        setNotificationSettings((prev) => ({
-          ...prev,
-          emailNotifications: parseBooleanSetting(data['notification.emailNotifications'], prev.emailNotifications),
-          smsNotifications: parseBooleanSetting(data['notification.smsNotifications'], prev.smsNotifications),
-          loanApprovalNotify: parseBooleanSetting(data['notification.loanApprovalNotify'], prev.loanApprovalNotify),
-          depositConfirmationNotify: parseBooleanSetting(data['notification.depositConfirmationNotify'], prev.depositConfirmationNotify),
-          paymentReminderNotify: parseBooleanSetting(data['notification.paymentReminderNotify'], prev.paymentReminderNotify),
-          newMemberNotify: parseBooleanSetting(data['notification.newMemberNotify'], prev.newMemberNotify),
-        }));
-
-        setSecuritySettings((prev) => ({
-          ...prev,
-          twoFactorAuth: parseBooleanSetting(data['security.twoFactorAuth'], prev.twoFactorAuth),
-          sessionTimeout: parseNumberSetting(data['security.sessionTimeout'], prev.sessionTimeout),
-          passwordExpiry: parseNumberSetting(data['security.passwordExpiry'], prev.passwordExpiry),
-          loginAttempts: parseNumberSetting(data['security.loginAttempts'], prev.loginAttempts),
-        }));
-
-        setAppearanceSettings((prev) => ({
-          ...prev,
-          defaultLanguage: typeof data['appearance.defaultLanguage'] === 'string'
-            ? data['appearance.defaultLanguage']
-            : prev.defaultLanguage,
-          theme: typeof data['appearance.theme'] === 'string'
-            ? data['appearance.theme']
-            : prev.theme,
-          dateFormat: typeof data['appearance.dateFormat'] === 'string'
-            ? data['appearance.dateFormat']
-            : prev.dateFormat,
-          currencyFormat: typeof data['appearance.currencyFormat'] === 'string'
-            ? data['appearance.currencyFormat']
-            : prev.currencyFormat,
-        }));
 
         setSupportRetentionDays((prev) =>
           parseNumberSetting(data['support.chatRetentionDays'], prev)
@@ -347,11 +291,6 @@ export default function AdminSettingsPage() {
         noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
         allowActiveLoanWithdrawal: loanSettings.allowActiveLoanWithdrawal,
       };
-      const normalizedSecuritySettings = {
-        sessionTimeout: Math.max(1, Math.trunc(securitySettings.sessionTimeout)),
-        passwordExpiry: Math.max(1, Math.trunc(securitySettings.passwordExpiry)),
-        loginAttempts: Math.max(1, Math.trunc(securitySettings.loginAttempts)),
-      };
       const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
 
       // Flatten settings for saving
@@ -383,10 +322,6 @@ export default function AdminSettingsPage() {
       };
 
       setLoanSettings(normalizedLoanSettings);
-      setSecuritySettings((prev) => ({
-        ...prev,
-        ...normalizedSecuritySettings,
-      }));
       setSupportRetentionDays(normalizedSupportRetentionDays);
 
       const authToken = getAuthToken();
@@ -439,10 +374,80 @@ export default function AdminSettingsPage() {
     { key: 'organization', label: locale === 'bn' ? 'প্রতিষ্ঠান' : 'Organization' },
     { key: 'landing', label: locale === 'bn' ? 'ল্যান্ডিং' : 'Landing' },
     { key: 'loans', label: locale === 'bn' ? 'ঋণ নীতি' : 'Loans' },
-    { key: 'notifications', label: locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notify' },
-    { key: 'security', label: locale === 'bn' ? 'নিরাপত্তা' : 'Security' },
-    { key: 'appearance', label: locale === 'bn' ? 'ডিজাইন' : 'Appearance' },
+    { key: 'system', label: locale === 'bn' ? 'সিস্টেম' : 'System' },
   ];
+
+  // Read by the System tab. Every row is something an admin might reasonably
+  // come here looking for and will not find, so each one says where it lives
+  // instead of leaving them hunting.
+  const systemBehaviours: Array<{ behaviour: string; controlledBy: string; note?: string }> =
+    locale === 'bn'
+      ? [
+          {
+            behaviour: 'ইমেইল বিজ্ঞপ্তি',
+            controlledBy: 'Render-এ BREVO_API_KEY',
+            note: 'কনফিগার করা থাকলে সবসময় পাঠানো হয়; চালু/বন্ধ করার সুইচ নেই।',
+          },
+          {
+            behaviour: 'এসএমএস বিজ্ঞপ্তি',
+            controlledBy: 'সমর্থিত নয় (ADR-003)',
+            note: 'কোনো এসএমএস সরবরাহকারী নেই — সিদ্ধান্ত অনুযায়ী।',
+          },
+          {
+            behaviour: 'সেশনের মেয়াদ',
+            controlledBy: 'Render-এ JWT_EXPIRY_SECONDS',
+          },
+          {
+            behaviour: 'লগইন চেষ্টার সীমা',
+            controlledBy: 'Go কোডে RateLimitMaxAttempts',
+            note: 'internal/services/security_service.go',
+          },
+          {
+            behaviour: 'দুই-ধাপ যাচাই ও পাসওয়ার্ড মেয়াদ',
+            controlledBy: 'এখনো তৈরি হয়নি',
+          },
+          {
+            behaviour: 'ভাষা ও থিম',
+            controlledBy: 'URL-এর /en বা /bn, এবং ব্যবহারকারীর ব্রাউজার',
+          },
+          {
+            behaviour: 'তারিখ ও টাকার ফরম্যাট',
+            controlledBy: 'lib/utils.ts ও lib/documents/format.ts',
+          },
+        ]
+      : [
+          {
+            behaviour: 'Email notifications',
+            controlledBy: 'BREVO_API_KEY on Render',
+            note: 'Always sent when configured. There is no on/off switch.',
+          },
+          {
+            behaviour: 'SMS notifications',
+            controlledBy: 'Not supported (ADR-003)',
+            note: 'There is no SMS provider, by decision.',
+          },
+          {
+            behaviour: 'Session length',
+            controlledBy: 'JWT_EXPIRY_SECONDS on Render',
+          },
+          {
+            behaviour: 'Login attempt lockout',
+            controlledBy: 'RateLimitMaxAttempts in the Go API',
+            note: 'internal/services/security_service.go',
+          },
+          {
+            behaviour: 'Two-factor auth, password expiry',
+            controlledBy: 'Not built yet',
+          },
+          {
+            behaviour: 'Language and theme',
+            controlledBy: 'The /en or /bn prefix in the URL, and the reader’s browser',
+          },
+          {
+            behaviour: 'Date and currency formatting',
+            controlledBy: 'lib/utils.ts and lib/documents/format.ts',
+          },
+        ];
 
   return (
     <div className="space-y-4">
@@ -1061,6 +1066,11 @@ export default function AdminSettingsPage() {
                         {locale === 'bn' ? 'টি পেমেন্ট' : 'payments'}
                       </span>
                     </div>
+                    <p className="text-xs text-amber-700">
+                      {locale === 'bn'
+                        ? 'এখনো প্রয়োগ হয় না — খেলাপি চিহ্নিত করা হয় ম্যানুয়ালি।'
+                        : 'Not enforced yet — a loan is marked defaulted manually.'}
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -1084,6 +1094,11 @@ export default function AdminSettingsPage() {
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
                     </div>
+                    <p className="text-xs text-amber-700">
+                      {locale === 'bn'
+                        ? 'এখনো প্রয়োগ হয় না (FR-08) — উত্তোলনে নোটিস পিরিয়ড যাচাই করা হয় না।'
+                        : 'Not enforced yet (FR-08) — withdrawals do not check a notice period.'}
+                    </p>
                   </div>
 
                   <div className="space-y-2 md:col-span-2">
@@ -1130,310 +1145,65 @@ export default function AdminSettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Notification Settings */}
-          <TabsContent value="notifications">
+          {/*
+            One panel replaces three former tabs — Notify, Security and
+            Appearance — that between them rendered eighteen controls reading
+            and writing config keys nothing in either backend consumed.
+
+            Switching "Email notifications" off did not stop an email. Setting
+            "Session timeout" to 5 minutes did not shorten a session. A "Security
+            Status: Protected" banner was hardcoded green and derived from
+            nothing at all. Worse, posting those keys made the settings endpoint
+            reject the *entire* request as unrecognised (WO-39), so while they
+            were on screen no setting on this page could be saved — loan policy
+            and organisation details included.
+
+            A control that lies is worse than no control, because it eventually
+            gets trusted. Until something reads these values they are documented
+            here instead, pointing at whatever actually governs the behaviour.
+            To make one real: wire the reader first, then move the key into
+            SYSTEM_CONFIG_KEYS in lib/system-config.ts, then give it a control.
+          */}
+          <TabsContent value="system">
             <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bell className="h-5 w-5" />
-                  {locale === 'bn' ? 'বিজ্ঞপ্তি সেটিংস' : 'Notification Settings'}
+                <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                  <Shield className="h-4 w-4" />
+                  {locale === 'bn' ? 'সিস্টেম আচরণ' : 'System behaviour'}
                 </CardTitle>
                 <CardDescription>
                   {locale === 'bn'
-                    ? 'বিজ্ঞপ্তি পছন্দ কনফিগার করুন'
-                    : 'Configure notification preferences'}
+                    ? 'এই আচরণগুলো এখান থেকে পরিবর্তন করা যায় না। কোথায় পরিবর্তন করতে হবে তা নিচে দেওয়া আছে।'
+                    : 'These are not configurable from this page. Where each one is actually controlled:'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  <h4 className="font-medium">{locale === 'bn' ? 'বিজ্ঞপ্তি চ্যানেল' : 'Notification Channels'}</h4>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'ইমেইল বিজ্ঞপ্তি' : 'Email Notifications'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'ইমেইলে বিজ্ঞপ্তি পান' : 'Receive notifications via email'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.emailNotifications}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, emailNotifications: checked })
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'SMS বিজ্ঞপ্তি' : 'SMS Notifications'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'SMS এ বিজ্ঞপ্তি পান' : 'Receive notifications via SMS'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.smsNotifications}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, smsNotifications: checked })
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-200 my-4" />
-
-                <div className="space-y-4">
-                  <h4 className="font-medium">{locale === 'bn' ? 'বিজ্ঞপ্তি প্রকার' : 'Notification Types'}</h4>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'ঋণ অনুমোদন' : 'Loan Approval'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'ঋণ অনুমোদিত হলে বিজ্ঞপ্তি' : 'Notify when loan is approved'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.loanApprovalNotify}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, loanApprovalNotify: checked })
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'জমা নিশ্চিতকরণ' : 'Deposit Confirmation'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'জমা প্রসেস হলে বিজ্ঞপ্তি' : 'Notify when deposit is processed'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.depositConfirmationNotify}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, depositConfirmationNotify: checked })
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'পেমেন্ট রিমাইন্ডার' : 'Payment Reminder'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'কিস্তির তারিখের আগে রিমাইন্ডার' : 'Remind before installment due date'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.paymentReminderNotify}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, paymentReminderNotify: checked })
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>{locale === 'bn' ? 'নতুন সদস্য' : 'New Member'}</Label>
-                        <p className="text-sm text-muted-foreground">
-                          {locale === 'bn' ? 'নতুন সদস্য আবেদন করলে বিজ্ঞপ্তি' : 'Notify when new member registers'}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={notificationSettings.newMemberNotify}
-                        onCheckedChange={(checked) =>
-                          setNotificationSettings({ ...notificationSettings, newMemberNotify: checked })
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Security Settings */}
-          <TabsContent value="security">
-            <Card className="rounded-none border-gray-200 shadow-none">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5" />
-                  {locale === 'bn' ? 'নিরাপত্তা সেটিংস' : 'Security Settings'}
-                </CardTitle>
-                <CardDescription>
-                  {locale === 'bn'
-                    ? 'অ্যাকাউন্ট এবং সিস্টেম নিরাপত্তা কনফিগার করুন'
-                    : 'Configure account and system security'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="flex items-center gap-2">
-                      <Lock className="h-4 w-4" />
-                      {locale === 'bn' ? 'দুই-ধাপ যাচাইকরণ' : 'Two-Factor Authentication'}
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {locale === 'bn'
-                        ? 'অতিরিক্ত নিরাপত্তার জন্য 2FA সক্ষম করুন'
-                        : 'Enable 2FA for additional security'}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={securitySettings.twoFactorAuth}
-                    onCheckedChange={(checked) =>
-                      setSecuritySettings({ ...securitySettings, twoFactorAuth: checked })
-                    }
-                  />
-                </div>
-
-                <div className="border-t border-gray-200 my-4" />
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      {locale === 'bn' ? 'সেশন টাইমআউট' : 'Session Timeout'}
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={securitySettings.sessionTimeout}
-                        onChange={(e) =>
-                          setSecuritySettings({
-                            ...securitySettings,
-                            sessionTimeout: parseIntegerInput(e.target.value, securitySettings.sessionTimeout),
-                          })
-                        }
-                        min={1}
-                        step={1}
-                        className="w-24"
-                      />
-                      <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মিনিট' : 'minutes'}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'পাসওয়ার্ড মেয়াদ' : 'Password Expiry'}</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={securitySettings.passwordExpiry}
-                        onChange={(e) =>
-                          setSecuritySettings({
-                            ...securitySettings,
-                            passwordExpiry: parseIntegerInput(e.target.value, securitySettings.passwordExpiry),
-                          })
-                        }
-                        min={1}
-                        step={1}
-                        className="w-24"
-                      />
-                      <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'দিন' : 'days'}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'সর্বোচ্চ লগইন চেষ্টা' : 'Max Login Attempts'}</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={securitySettings.loginAttempts}
-                        onChange={(e) =>
-                          setSecuritySettings({
-                            ...securitySettings,
-                            loginAttempts: parseIntegerInput(e.target.value, securitySettings.loginAttempts),
-                          })
-                        }
-                        min={1}
-                        step={1}
-                        className="w-24"
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {locale === 'bn' ? 'বার' : 'attempts'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-green-50">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-green-800">
-                        {locale === 'bn' ? 'নিরাপত্তা স্ট্যাটাস: সুরক্ষিত' : 'Security Status: Protected'}
-                      </p>
-                      <p className="text-sm text-green-700 mt-1">
-                        {locale === 'bn'
-                          ? 'আপনার সিস্টেম সর্বোত্তম নিরাপত্তা অনুশীলন অনুসরণ করছে।'
-                          : 'Your system is following best security practices.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Appearance Settings */}
-          <TabsContent value="appearance">
-            <Card className="rounded-none border-gray-200 shadow-none">
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">{locale === 'bn' ? 'ডিজাইন সেটিংস' : 'Appearance Settings'}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm">{locale === 'bn' ? 'ডিফল্ট ভাষা' : 'Default Language'}</Label>
-                    <select
-                      value={appearanceSettings.defaultLanguage}
-                      onChange={(e) =>
-                        setAppearanceSettings({ ...appearanceSettings, defaultLanguage: e.target.value })
-                      }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
-                    >
-                      <option value="bn">বাংলা</option>
-                      <option value="en">English</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm">{locale === 'bn' ? 'থিম' : 'Theme'}</Label>
-                    <select
-                      value={appearanceSettings.theme}
-                      onChange={(e) =>
-                        setAppearanceSettings({ ...appearanceSettings, theme: e.target.value })
-                      }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
-                    >
-                      <option value="light">{locale === 'bn' ? 'লাইট' : 'Light'}</option>
-                      <option value="dark">{locale === 'bn' ? 'ডার্ক' : 'Dark'}</option>
-                      <option value="system">{locale === 'bn' ? 'সিস্টেম' : 'System'}</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm">{locale === 'bn' ? 'তারিখ ফরম্যাট' : 'Date Format'}</Label>
-                    <select
-                      value={appearanceSettings.dateFormat}
-                      onChange={(e) =>
-                        setAppearanceSettings({ ...appearanceSettings, dateFormat: e.target.value })
-                      }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
-                    >
-                      <option value="dd/mm/yyyy">DD/MM/YYYY</option>
-                      <option value="mm/dd/yyyy">MM/DD/YYYY</option>
-                      <option value="yyyy-mm-dd">YYYY-MM-DD</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm">{locale === 'bn' ? 'মুদ্রা ফরম্যাট' : 'Currency Format'}</Label>
-                    <select
-                      value={appearanceSettings.currencyFormat}
-                      onChange={(e) =>
-                        setAppearanceSettings({ ...appearanceSettings, currencyFormat: e.target.value })
-                      }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
-                    >
-                      <option value="bn-BD">৳ 1,00,000 (বাংলাদেশি)</option>
-                      <option value="en-BD">BDT 100,000 (English)</option>
-                    </select>
-                  </div>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+                        <th className="py-2 pr-4 font-medium">
+                          {locale === 'bn' ? 'আচরণ' : 'Behaviour'}
+                        </th>
+                        <th className="py-2 font-medium">
+                          {locale === 'bn' ? 'কোথায় নিয়ন্ত্রিত' : 'Controlled by'}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {systemBehaviours.map((row) => (
+                        <tr key={row.behaviour} className="align-top">
+                          <td className="py-3 pr-4 font-medium text-gray-900">{row.behaviour}</td>
+                          <td className="py-3 text-gray-600">
+                            <span className="block">{row.controlledBy}</span>
+                            {row.note && (
+                              <span className="mt-0.5 block text-xs text-gray-400">{row.note}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>

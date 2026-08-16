@@ -42,9 +42,17 @@ export async function nextDocumentNumber(
 ): Promise<string> {
   const year = new Date().getFullYear();
 
+  // "createdAt" and "updatedAt" are written explicitly. Both are NOT NULL, and
+  // Prisma's `@updatedAt` is applied by the client rather than by the database
+  // — a raw INSERT gets no value for it, so the *first* allocation of a series
+  // in a given year failed a NOT NULL check while every later one succeeded via
+  // the DO UPDATE branch. Because the first one never landed, the conflict path
+  // was never reached either: no loan application could be created at all until
+  // a row for that series and year existed. The Go allocator names both columns
+  // for exactly this reason (utils.NextDocumentNumberQuery); this copy did not.
   const rows = await client.$queryRaw<Array<{ counter: bigint }>>`
-    INSERT INTO document_sequences (series, year, counter)
-    VALUES (${series}, ${year}, 1)
+    INSERT INTO document_sequences (series, year, counter, "createdAt", "updatedAt")
+    VALUES (${series}, ${year}, 1, NOW(), NOW())
     ON CONFLICT (series, year)
     DO UPDATE SET counter = document_sequences.counter + 1, "updatedAt" = NOW()
     RETURNING counter

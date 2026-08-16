@@ -37,18 +37,26 @@ async function getLoanPolicySettings() {
     acc[row.key] = row.value;
     return acc;
   }, {});
+  // For a multiplier and an installment cap, zero is nonsense rather than a
+  // policy — it would mean nobody may borrow anything — so it falls back.
   const parsePositiveInt = (raw: string | undefined, fallback: number) => {
     const parsed = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   };
-  // Zero is meaningful here — it means "always require a guarantor" — so this
-  // one accepts 0 rather than falling back to the default on it.
+  // For a minimum balance and a guarantor threshold, zero is a real setting:
+  // "no minimum" and "always require a guarantor". Rejecting it is not a safe
+  // default, it is a different policy from the one the admin chose.
   const parseNonNegativeInt = (raw: string | undefined, fallback: number) => {
     const parsed = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
   };
   return {
-    minDepositForLoan: parsePositiveInt(map['loan.minDepositForLoan'], 8000),
+    // Non-negative, matching the Go API, which reads the same key through
+    // getSystemConfigNonNegativeInt64 and honours 0. While this used
+    // parsePositiveInt the two backends disagreed about the same row: an admin
+    // who set the minimum deposit to 0 got a member shown as loan-eligible by
+    // the Go dashboard and refused by this endpoint with LOAN_ELIGIBILITY_FAILED.
+    minDepositForLoan: parseNonNegativeInt(map['loan.minDepositForLoan'], 8000),
     maxLoanMultiplier: parsePositiveInt(map['loan.maxLoanMultiplier'], 5),
     maxInstallmentMonths: parsePositiveInt(map['loan.maxInstallmentMonths'], 24),
     guarantorThresholdAmount: parseNonNegativeInt(map['loan.guarantorThresholdAmount'], 20000),

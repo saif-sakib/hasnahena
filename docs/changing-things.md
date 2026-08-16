@@ -122,6 +122,85 @@ inline in SQL.
 
 ---
 
+## "I want to change the registration form"
+
+[`app/[locale]/(auth)/register/page.tsx`](../apps/web/app/[locale]/(auth)/register/page.tsx)
+is one file, four steps, and the only way a member ever joins. It is also the
+page most likely to be filled in on a mid-range Android over a patchy
+connection, which is what most of its non-obvious code is for.
+
+**Adding a field is four edits, and the compiler enforces the fourth:**
+
+1. The shape in [`lib/validation/registration.ts`](../apps/web/lib/validation/registration.ts).
+2. A label in `fieldLabels` — **both languages**. Without it the error summary
+   tells a member to fix `permanentPoliceStation`.
+3. The input, with an `id` equal to the field name. The error summary scrolls by
+   `getElementById`, so a mismatched id silently stops working.
+4. The field name in `STEP_FIELDS`. Miss it and `tsc` fails naming the field —
+   this assertion exists because `childrenCount` was missing, so a cross-field
+   rule could block submission from a step the form would never navigate to.
+
+**Five things that will bite you:**
+
+1. **An error nobody can see is the same as no error.** Every blocked submit
+   goes through `revealErrorSummary()`, which scrolls the summary into view and
+   focuses it. The submit button is at the bottom of a long form and the summary
+   is at the top; without the scroll, pressing submit looks like nothing
+   happening. That was the bug.
+2. **`overflow-hidden` on an ancestor kills `position: sticky`,** and the
+   navigation bar is sticky so Next stays reachable one-handed. The `Card`
+   deliberately does not set it.
+3. **Photos are downscaled in the browser** (`downscaleImageFile`) before
+   upload. Four phone-camera shots are 12–32 MB and the serverless request-body
+   cap is 4.5 MB, so without it an honest submission cannot be sent at all. Keep
+   `imageOrientation: 'from-image'` — EXIF rotation is not in the pixels, and a
+   canvas discards it.
+4. **The availability check is advisory.** The POST re-checks and answers 409.
+   Never let a failed pre-check block submission; a rate limit once stranded
+   people who had done nothing wrong.
+5. **The whole page uses `locale === 'bn' ? … : …` rather than `messages/`.**
+   This matches the login page beside it. It is the one place the copy rule
+   (rule 5 in [CLAUDE.md](../CLAUDE.md)) is not followed; if you migrate it, do
+   the whole `(auth)` folder in one commit rather than half of it.
+
+**Prove it:** the nine specs in
+[`e2e/registration.spec.ts`](../apps/web/e2e/registration.spec.ts) run on a
+Pixel 7 viewport and assert what is *visible*, not what is in the DOM.
+
+```bash
+pnpm dev
+cd apps/web && npx playwright test e2e/registration.spec.ts
+```
+
+---
+
+## "I want to add or change an admin setting"
+
+Three steps, **in this order**:
+
+1. **Make something read it.** A key nothing reads is a note, not a setting.
+2. Seed a default in [`scripts/seed.mjs`](../apps/web/scripts/seed.mjs).
+3. Declare it in [`lib/system-config.ts`](../apps/web/lib/system-config.ts), then
+   give it a control.
+
+The allow-list entry is last for a reason, and the ordering is not pedantry:
+`PUT /api/v1/settings` rejects the **entire request** on one unrecognised key,
+so a control posting a key the list does not know breaks *every other setting on
+the page at the same time*. That happened — see WO-46. Whenever you touch either
+side, diff what the form posts against `SYSTEM_CONFIG_KEYS`; reviewing the two
+halves separately is how they drifted.
+
+Zero is usually a real value, not a missing one. `loan.minDepositForLoan = 0`
+means "no minimum" and `loan.guarantorThresholdAmount = 0` means "always require
+a guarantor" — parse those with a non-negative check, and make sure **both
+backends agree**, since the Go API reads the same rows through its own helpers.
+
+Keys that are settable and enforced by nothing (`loan.noticePeriodMonths`,
+`loan.missedPaymentsForDefault`) say so under their input. Keep it that way, or
+delete them.
+
+---
+
 ## "I want to add an endpoint"
 
 One question decides the backend: **does it change a balance?**

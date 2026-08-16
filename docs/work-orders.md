@@ -50,6 +50,119 @@ session to find.
 
 ---
 
+# Batch M — Admin settings and registration `[x]` — done 2026-08-17
+
+Two surfaces the audit had signed off on by reading, and which turned out to be
+broken when driven. Both were found the same way: by running the thing rather
+than reviewing it.
+
+**Status: complete.** Nine browser tests and 27 unit tests were added, and every
+one was confirmed to fail against the pre-fix code before being accepted.
+
+## WO-46 · The admin settings page could not save anything `[x]` — **critical**
+
+`PUT /api/v1/settings` rejects the whole request on one unrecognised key
+(WO-39, deliberately). The form posted **48 keys** and the allow-list held
+**21**, so every save returned `400 Unknown settings keys: …` — loan policy and
+organisation details included, not just the new landing copy.
+
+The allow-list had been written from the schema rather than from what the form
+actually posts. That is the failure mode to watch for: reviewing both halves
+separately and never diffing one against the other.
+
+Of the 28 rejected keys, 14 had real readers and were added. The other 14 —
+every `notification.*`, `security.*` and `appearance.*` key — had **zero**
+readers in either backend, verified by grep.
+
+## WO-47 · Three settings tabs controlled nothing `[x]` — **high**
+
+Notify, Security and Appearance rendered eighteen controls that wrote config
+rows nothing consumed. Switching "Email notifications" off did not stop an
+email; "Session timeout" is `JWT_EXPIRY_SECONDS` on Render; "Max login attempts"
+is a Go constant; 2FA and password expiry do not exist; language comes from the
+URL prefix and theme from the browser. A hardcoded "Security Status: Protected"
+banner was derived from nothing at all.
+
+All three are replaced by one **System** tab that states where each behaviour is
+actually controlled. A control that lies is worse than no control, because it
+eventually gets trusted. `loan.missedPaymentsForDefault` and
+`loan.noticePeriodMonths` are real keys that nothing enforces either; they keep
+their inputs but now say "not enforced yet" beneath them.
+
+To make one real: **wire the reader first**, then move the key into
+`SYSTEM_CONFIG_KEYS`, then give it a control. The allow-list entry is the last
+step, never the first.
+
+## WO-48 · Loan policy honours 0 inconsistently across the two backends `[x]` — **high**
+
+`loan.minDepositForLoan = 0` means "no minimum" to the Go API
+(`getSystemConfigNonNegativeInt64`) and "8000" to the Next application endpoint,
+which parsed it as positive-only and fell back. An admin who set it got a member
+shown as eligible by the dashboard and refused by the endpoint.
+
+Proved against a live stack with a member holding ৳5,000 of savings:
+
+```
+minDepositForLoan='8000'  -> refused: LOAN_ELIGIBILITY_FAILED
+minDepositForLoan='0'     -> refused: LOAN_ELIGIBILITY_FAILED   <- wrong
+minDepositForLoan='1'     -> ACCEPTED
+```
+
+Fixed to the non-negative parser, matching Go. `guarantorThresholdAmount = 0`
+was verified to mean "every loan needs a guarantor" over the same rig, and every
+malformed value (`-1`, `abc`, empty, overflow) falls back rather than widening a
+limit.
+
+## WO-49 · The first document number of each year could never be allocated `[x]` — **critical**
+
+`document_sequences."updatedAt"` is `NOT NULL` and Prisma applies `@updatedAt`
+in the *client*, so a raw `INSERT` that does not name the column violates the
+constraint. The Go allocator names it. The TypeScript copy in
+[`lib/document-numbers.ts`](../apps/web/lib/document-numbers.ts) did not.
+
+Only the first allocation of a series in a year takes the `INSERT` path — and
+because it could never land, the `ON CONFLICT` path was never reached either.
+**No loan application could be created at all**, indefinitely, returning a 500
+with `Code: 23502` in the server log and "Registration failed" to the member.
+
+This is the same defect the Go integration suite carries a comment about. It was
+fixed on one side of the codebase and not the other, which is the standing risk
+of two backends over one schema: grep both.
+
+## WO-50 · Registration was unusable on the phones members own `[x]` — **high**
+
+Reported as *"at the last page it shows form needs attention but there is no
+error"*. Both halves were true, and the cause was that nothing scrolled: the
+form moved the member to the step holding the bad field while they stayed parked
+at the buttons they had just pressed, with the message several screens above.
+The only durable feedback was a toast that named no field and then vanished.
+
+Fixed, with the reasoning in [changing-things.md](changing-things.md#i-want-to-change-the-registration-form):
+
+| | Was | Now |
+|---|---|---|
+| Blocked submit | toast, then nothing | error summary that names the fields, scrolled to and focused |
+| `stepFields` | missing `childrenCount`, `nameBn`, both road numbers | complete, enforced by a compile-time assertion |
+| Inline errors | none on gender, marital status, same-as-permanent | every field renders its own |
+| Photo upload | 10 MB each / 40 MB total, message said "3.5 MB" | downscaled in-browser to ~300 KB, real 4 MB cap |
+| Cloudinary failure | member row orphaned; retry answered 409 | rolled back, 503, member can retry |
+| Duplicate email | stranded on the last step | returned to step 1 with the field focused |
+| Availability check | a rate limit blocked registration entirely | advisory; the POST is authoritative |
+| Draft | kept forever, restored a ticked agreement | 7-day expiry, consent never restored |
+| Touch targets | 36–40px, 14px text | 48px, 16px — no zoom-on-focus |
+| Native validation | fought react-hook-form | `noValidate` |
+
+> ### The verification that matters
+>
+> The nine specs in
+> [`e2e/registration.spec.ts`](../apps/web/e2e/registration.spec.ts) run on a
+> **Pixel 7 viewport** and assert *visibility*, not state — an error that exists
+> in the DOM and cannot be seen is the bug. All nine were run against the
+> pre-fix page and **all nine failed**, then passed after. Run them with a stack
+> up: `E2E_BASE_URL=http://localhost:3000 npx playwright test e2e/registration.spec.ts`.
+
+---
+
 # Batch L — Ledger integrity `[~]` — WO-41 → WO-44 done 2026-08-17
 
 Found in the 2026-08-17 audit, each reproduced against a real Postgres 17. The

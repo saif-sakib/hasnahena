@@ -23,6 +23,18 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > regression tests each verified to fail against the pre-fix code. Integration
 > suite: 17 → 24.
 >
+> **`[x]` Admin settings and registration are fixed (2026-08-17).** Neither
+> worked. The settings page could not save *any* setting — the form posted 48
+> config keys against a 21-key allow-list and the endpoint rejects the whole
+> request on one unknown key. Separately, no loan application could be created
+> at all: the TypeScript document-number allocator omitted a `NOT NULL` column,
+> so the first allocation of a series each year failed and the upsert's conflict
+> path was never reached. Registration's "form needs attention" message was
+> being written to a part of the page a phone user could not see. See
+> [Batch M](work-orders.md#batch-m--admin-settings-and-registration--done-2026-08-17)
+> — 9 browser specs on a Pixel 7 viewport and 27 unit tests, all confirmed to
+> fail against the pre-fix code.
+>
 > **`[!]` Member records are recoverable from git history.** 39 files under
 > `Official Infos/` — member details, savings and loan ledgers, check books — were
 > committed in `f152f0c` and deleted in `9306120`. Deleting a file removes it from

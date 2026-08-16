@@ -3,6 +3,28 @@ import { z } from 'zod';
 export const bdPhoneRegex = /^01\d{9}$/;
 export const bdNidRegex = /^(?:\d{10}|\d{13}|\d{17})$/;
 
+/**
+ * Upload budget for the four registration documents.
+ *
+ * These were previously declared twice — once in the page, once in the route —
+ * as 10 MB each and 40 MB total, while *both* error messages told the member the
+ * limit was 3.5 MB. Neither number was right. The real constraint is the
+ * serverless request-body cap in front of this app (4.5 MB), which rejects the
+ * request before any handler runs, so a 40 MB ceiling was never reachable and a
+ * member who hit it got a platform error page instead of a form message.
+ *
+ * The client downscales every photo before it is attached
+ * (`downscaleImageFile`), which puts a realistic four-document submission around
+ * 1–2 MB. TOTAL sits below the platform cap so the failure, if it ever happens,
+ * is ours to explain rather than the platform's to swallow. PER_FILE stays
+ * generous because it is checked *after* downscaling.
+ */
+export const REGISTRATION_UPLOAD_LIMITS = {
+  PER_FILE_MB: 4,
+  TOTAL_BYTES: 4 * 1024 * 1024,
+  TOTAL_LABEL: '4 MB',
+} as const;
+
 const normalizeOptionalNumber = (value: unknown) => {
   if (value === '' || value === null || value === undefined) {
     return undefined;

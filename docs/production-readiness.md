@@ -28,6 +28,34 @@ the previous pass.
 > — the Next handlers still do not check the token blacklist. It is now the
 > largest open defect on this page after SEC-10.
 
+> ## Admin settings and registration — found and fixed 2026-08-17
+>
+> A second pass **drove** the two surfaces the first pass had cleared by
+> reading. Both were broken. Full write-ups in
+> [Batch M](work-orders.md#batch-m--admin-settings-and-registration--done-2026-08-17).
+>
+> - **No admin setting could be saved at all.** The form posted 48 config keys
+>   against a 21-key allow-list, and the endpoint rejects the whole request on
+>   one unknown key — so loan policy and organisation details failed too, not
+>   just the landing copy (WO-46).
+> - **No loan application could be created, ever.** The TypeScript document-number
+>   allocator omitted `"updatedAt"`, which is `NOT NULL` with no database
+>   default, so the first `INSERT` for a series in a year failed and the
+>   `ON CONFLICT` path was therefore never reached (WO-49). The Go allocator has
+>   named that column for months — the fix was applied to one backend and not
+>   the other.
+> - **Three settings tabs controlled nothing** — 18 switches and inputs whose
+>   keys had zero readers, plus a hardcoded "Security Status: Protected" banner
+>   (WO-47).
+> - **`loan.minDepositForLoan = 0` meant different things to the two backends**
+>   (WO-48).
+> - **Registration was unusable on a phone**, and its blocked-submit message was
+>   written to a part of the page the member could not see (WO-50).
+>
+> The lesson is the same one Phase −1 records: reading the code establishes what
+> it *says*, and only running it establishes what it *does*. Every finding above
+> was invisible to typecheck, lint and the existing tests.
+
 This file is the **operational** backlog. [tasks.md](tasks.md) tracks *product*
 work (FR-01…22). When a task here is finished, tick it here and note it there
 only if it changed behaviour members can see.

@@ -100,6 +100,21 @@ with a generic 500.
 > explicitly.** Never rely on a database default for a column Prisma models with
 > `@updatedAt`.
 
+**It came back on the other side of the codebase (2026-08-17).** The Go
+allocator (`utils.NextDocumentNumberQuery`) names both columns and has for
+months. The TypeScript one in
+[`lib/document-numbers.ts`](../apps/web/lib/document-numbers.ts) — used by
+`POST /api/v1/loans/applications` — did not, so **no loan application could ever
+be created**: the first `INSERT` for `(LOAN, <year>)` violated the constraint,
+and because that row never landed, the `ON CONFLICT` branch was never reached
+either. Fixed in WO-49 and pinned by
+[`lib/document-numbers.test.ts`](../apps/web/lib/document-numbers.test.ts).
+
+The durable lesson is not about this column. **Two backends write these tables,
+so a schema-level fix is only half applied until you grep the other one.** When
+you fix raw SQL in `apps/api`, search `apps/web/lib` and `apps/web/app/api` for
+the same table, and the reverse.
+
 **2. Timestamps are `timestamp without time zone`.** Prisma writes UTC. Postgres
 `NOW()` written into such a column stores whatever wall clock the *session's*
 timezone says, and pgx reads bare timestamps back as UTC. On a server set to

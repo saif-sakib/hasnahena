@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { UserRole, UserStatus } from '@prisma/client';
-import { bdPhoneRegex, registerApiSchema } from '@/lib/validation/registration';
+import {
+  bdPhoneRegex,
+  registerApiSchema,
+  REGISTRATION_UPLOAD_LIMITS,
+} from '@/lib/validation/registration';
 import { uploadImage, deleteImage } from '@/lib/cloudinary';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 import {
@@ -53,8 +57,6 @@ const REQUIRED_DOCUMENT_FIELDS = [
 ] as const;
 
 const REJECTED_REGISTRATION_PASSWORD_HASH = '__PENDING_APPROVAL_NO_LOGIN__';
-const REGISTRATION_MAX_FILE_SIZE_MB = 10;
-const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 40 * 1024 * 1024;
 const rejectedRegistrationFilter: Prisma.UserWhereInput = {
   role: UserRole.MEMBER,
   status: UserStatus.INACTIVE,
@@ -267,7 +269,7 @@ export async function POST(req: Request) {
 
       const validation = validateImageFile(fileEntry, {
         acceptedTypes: UPLOAD_TYPES.avatar,
-        maxSizeMB: REGISTRATION_MAX_FILE_SIZE_MB,
+        maxSizeMB: REGISTRATION_UPLOAD_LIMITS.PER_FILE_MB,
       });
       if (!validation.valid) {
         return NextResponse.json(
@@ -276,16 +278,22 @@ export async function POST(req: Request) {
         );
       }
 
+      // Checked against the running total *before* reading the body into
+      // memory. Buffering all four first and rejecting afterwards meant an
+      // oversized submission was fully resident before we declined it.
       totalUploadBytes += fileEntry.size;
+      if (totalUploadBytes > REGISTRATION_UPLOAD_LIMITS.TOTAL_BYTES) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Combined document size exceeds the ${REGISTRATION_UPLOAD_LIMITS.TOTAL_LABEL} limit`,
+          },
+          { status: 400 },
+        );
+      }
+
       const buffer = Buffer.from(await fileEntry.arrayBuffer());
       validatedFiles.push({ requirement, fileEntry, buffer });
-    }
-
-    if (totalUploadBytes > REGISTRATION_MAX_TOTAL_UPLOAD_BYTES) {
-      return NextResponse.json(
-        { ok: false, error: 'Combined document size exceeds 3.5 MB limit' },
-        { status: 400 },
-      );
     }
 
     const sameAsPermanent = payload.sameAsPermanent ?? true;
@@ -393,44 +401,54 @@ export async function POST(req: Request) {
       });
     });
 
-    const uploadResults = await Promise.all(
-      validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
-        const uploadResult = await uploadImage(
-          buffer,
-          `registrations/members/${created.memberId}/${requirement.folderSlug}`,
-          {
-            preserveOriginal: true,
-            useFilename: true,
-            uniqueFilename: true,
-          },
-        );
+    // Everything past this point runs against a user row that already exists,
+    // so every failure here has to undo it. Leaving the row behind is worse
+    // than failing: the member's email and phone are then taken, and their
+    // second attempt is refused with "already exists" — a dead end only an
+    // admin can clear, caused by an image host being briefly unavailable.
+    try {
+      const uploadResults = await Promise.all(
+        validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
+          const uploadResult = await uploadImage(
+            buffer,
+            `registrations/members/${created.memberId}/${requirement.folderSlug}`,
+            {
+              preserveOriginal: true,
+              useFilename: true,
+              uniqueFilename: true,
+            },
+          );
 
-        return {
-          publicId: uploadResult.publicId,
-          document: {
+          // Recorded the moment it lands, not after all four settle: if a
+          // later upload throws, the ones that already succeeded still need
+          // deleting, and a list assembled afterwards never gets built.
+          uploadedPublicIds.push(uploadResult.publicId);
+
+          return {
             userId: created.id,
             type: requirement.documentType,
             url: uploadResult.url,
             fileName: fileEntry.name,
             mimeType: fileEntry.type,
             size: fileEntry.size,
-          },
-        };
-      }),
-    );
+          };
+        }),
+      );
 
-    uploadedPublicIds.push(...uploadResults.map((entry) => entry.publicId));
-
-    try {
-      await prisma.document.createMany({
-        data: uploadResults.map((entry) => entry.document),
-      });
-    } catch (documentError) {
+      await prisma.document.createMany({ data: uploadResults });
+    } catch (uploadError) {
       await cleanupUploadedAssets();
       await prisma.user.delete({ where: { id: created.id } }).catch((deleteErr) => {
-        console.error('Failed to rollback registration after document upload failure:', deleteErr);
+        console.error('Failed to roll back registration after document failure:', deleteErr);
       });
-      throw documentError;
+      console.error('Registration document upload failed:', uploadError);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Could not store your documents. Please try again in a moment.',
+        },
+        { status: 503 },
+      );
     }
 
     // Create notification for admins (non-blocking)

@@ -1,26 +1,54 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { useForm, type FieldErrors, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ChevronLeft, ChevronRight, Check, User, MapPin, Users, FileText, Globe } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  User,
+  MapPin,
+  Users,
+  FileText,
+  Globe,
+  Loader2,
+  AlertCircle,
+  Camera,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import {
   bdPhoneRegex,
   getRegistrationFieldLabel,
   registerSchema,
+  REGISTRATION_UPLOAD_LIMITS,
   type RegisterFormData,
 } from '@/lib/validation/registration';
-import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
+import {
+  downscaleImageFile,
+  formatFileSize,
+  validateImageFile,
+  UPLOAD_TYPES,
+} from '@/lib/image-utils';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -34,6 +62,11 @@ type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
 type RegisterFieldName = FieldPath<RegisterFormData>;
 
 const REGISTRATION_DRAFT_KEY_PREFIX = 'hn_registration_draft_v1';
+
+// A half-finished form is worth restoring for a few days; a two-month-old one
+// is a stranger's data sitting on what may be a shared handset, and a schema
+// this draft predates. Expire it rather than silently repopulating.
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FORM_DEFAULT_VALUES: Partial<RegisterFormData> = {
   maritalStatus: 'UNMARRIED',
@@ -56,25 +89,146 @@ const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'signatureImage',
 ];
 
-const REGISTRATION_MAX_FILE_SIZE_MB = 10;
-const REGISTRATION_MAX_TOTAL_UPLOAD_BYTES = 40 * 1024 * 1024;
+type DocumentSlot = {
+  file: File;
+  previewUrl: string;
+  originalSize: number;
+};
+
+const EMPTY_DOCUMENTS: Record<RequiredDocumentKey, DocumentSlot | null> = {
+  nidFrontImage: null,
+  nidBackImage: null,
+  memberPhotoImage: null,
+  signatureImage: null,
+};
+
+/**
+ * Which fields belong to which step.
+ *
+ * Every field in the schema must appear exactly once, and the assertion below
+ * makes the compiler enforce that. It is not decoration: `childrenCount` was
+ * missing from this list, so the cross-field rule "children must be 0 when
+ * unmarried" could fail the form while `onInvalidSubmit` had no step to send
+ * the member to — the submit button did nothing a member could act on.
+ */
+const STEP_FIELDS = [
+  // Step 0 — Personal
+  [
+    'nameEn',
+    'nameBn',
+    'fatherName',
+    'motherName',
+    'phone',
+    'email',
+    'nidNumber',
+    'gender',
+    'dateOfBirth',
+    'bloodGroup',
+    'profession',
+    'maritalStatus',
+    'childrenCount',
+  ],
+  // Step 1 — Address
+  [
+    'permanentHouseNo',
+    'permanentRoadNo',
+    'permanentVillage',
+    'permanentUnion',
+    'permanentPoliceStation',
+    'permanentDistrict',
+    'sameAsPermanent',
+    'presentHouseNo',
+    'presentRoadNo',
+    'presentVillage',
+    'presentUnion',
+    'presentPoliceStation',
+    'presentDistrict',
+  ],
+  // Step 2 — Nominee
+  ['nomineeName', 'nomineeRelationship', 'nomineeNid', 'nomineePhone'],
+  // Step 3 — Documents and agreement
+  ['agreeToTerms'],
+] as const satisfies ReadonlyArray<ReadonlyArray<RegisterFieldName>>;
+
+type RoutedField = (typeof STEP_FIELDS)[number][number];
+type UnroutedField = Exclude<keyof RegisterFormData, RoutedField>;
+type Assert<T extends true> = T;
+// Type-only. Fails to compile if a schema field belongs to no step, and the
+// error names the field. Erased at build time, so it costs nothing at runtime.
+export type _EveryRegistrationFieldHasAStep = Assert<
+  [UnroutedField] extends [never] ? true : false
+>;
+
+/** Every field blanked, then the handful that have a starting value. */
+const BLANK_FORM: Partial<RegisterFormData> = {
+  ...(Object.fromEntries(
+    STEP_FIELDS.flat().map((field) => [field, '']),
+  ) as Partial<RegisterFormData>),
+  ...FORM_DEFAULT_VALUES,
+};
+
+const CONDITIONAL_ADDRESS_FIELDS: RegisterFieldName[] = [
+  'presentHouseNo',
+  'presentRoadNo',
+  'presentVillage',
+  'presentUnion',
+  'presentPoliceStation',
+  'presentDistrict',
+];
+
+// Android-first field sizing.
+//
+// 48px is the Android touch-target minimum and 16px is the threshold below
+// which mobile browsers zoom the viewport on focus, leaving the member scrolled
+// sideways mid-address. The shared Input primitive is 40px/14px, which is right
+// for the dense dashboard tables it was built for and wrong for a form filled
+// in one-handed — so this is applied here rather than by changing the primitive
+// underneath every other page.
+//
+// Applied per field on purpose: an `[&_input]:h-12` variant on the form reads
+// better but compiles to nothing once it contains nested brackets, and a style
+// that fails silently is worse than one that is repeated.
+const FIELD = 'h-12 text-base sm:h-10 sm:text-sm';
+
+const SELECT_CLASS = cn(
+  'flex w-full rounded-sm border border-input bg-background px-3 py-2 shadow-none transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50',
+  FIELD,
+);
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span>{message}</span>
+    </p>
+  );
+}
 
 export default function RegisterPage() {
   const locale = useLocale();
+  const isBn = locale === 'bn';
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'finishing'>('idle');
   const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
   const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
-  const [documentFiles, setDocumentFiles] = useState<Record<RequiredDocumentKey, File | null>>({
-    nidFrontImage: null,
-    nidBackImage: null,
-    memberPhotoImage: null,
-    signatureImage: null,
-  });
-  const [documentErrors, setDocumentErrors] = useState<Partial<Record<RequiredDocumentKey, string>>>({});
+  const [documentFiles, setDocumentFiles] =
+    useState<Record<RequiredDocumentKey, DocumentSlot | null>>(EMPTY_DOCUMENTS);
+  const [documentErrors, setDocumentErrors] = useState<
+    Partial<Record<RequiredDocumentKey, string>>
+  >({});
+  const [processingDocument, setProcessingDocument] = useState<RequiredDocumentKey | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+
   const draftStorageKey = useMemo(() => `${REGISTRATION_DRAFT_KEY_PREFIX}:${locale}`, [locale]);
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
+  const formTopRef = useRef<HTMLDivElement | null>(null);
+  const hasMountedRef = useRef(false);
+  // Remembers verdicts we already paid a rate-limit token for, so correcting a
+  // typo and coming back to the original value does not spend another one.
+  const availabilityCacheRef = useRef<Map<string, boolean>>(new Map());
 
   const {
     register,
@@ -82,9 +236,11 @@ export default function RegisterPage() {
     watch,
     reset,
     getValues,
+    setValue,
     trigger,
     setError,
     clearErrors,
+    getFieldState,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -96,75 +252,169 @@ export default function RegisterPage() {
   const sameAsPermanent = watch('sameAsPermanent') ?? true;
   const watchedEmail = watch('email');
   const watchedPhone = watch('phone');
+  const maritalStatus = watch('maritalStatus');
+
+  const stepTitles = isBn
+    ? ['ব্যক্তিগত তথ্য', 'ঠিকানা', 'নমিনী', 'নথি ও চুক্তি']
+    : ['Personal Info', 'Address', 'Nominee', 'Documents'];
+
+  // Switching back to Unmarried must clear any children already entered.
+  // The count input is disabled while Unmarried is selected, so a leftover
+  // value would fail the "must be 0 when unmarried" rule in a field the member
+  // is no longer allowed to touch — an unfixable form.
+  useEffect(() => {
+    if (maritalStatus === 'UNMARRIED' && (getValues('childrenCount') ?? 0) !== 0) {
+      setValue('childrenCount', 0, { shouldValidate: true, shouldDirty: true });
+    }
+  }, [maritalStatus, getValues, setValue]);
+
+  /** Scroll a field into view and focus it, tolerating a smooth scroll on the way. */
+  const focusField = useCallback((fieldId: string) => {
+    if (typeof document === 'undefined') return;
+    const element = document.getElementById(fieldId);
+    if (!element) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    element.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+    // Focusing immediately cancels the smooth scroll on Chrome; focusing after
+    // it settles keeps both the scroll and the Android keyboard.
+    window.setTimeout(() => {
+      (element as HTMLElement).focus({ preventScroll: true });
+    }, reduceMotion ? 0 : 300);
+  }, []);
+
+  const scrollToFormTop = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    formTopRef.current?.scrollIntoView({
+      block: 'start',
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+  }, []);
+
+  /**
+   * Send the reader to the error summary.
+   *
+   * The summary sits at the top of the card and the submit button at the
+   * bottom, so on a phone a blocked submit wrote an explanation onto a part of
+   * the page the member could not see — which is what "it says the form needs
+   * attention but there is no error" was describing. Focusing the summary is
+   * also the accessible pattern: a screen reader announces the whole list of
+   * problems rather than a single field the member has not reached yet.
+   */
+  const revealErrorSummary = useCallback(() => {
+    window.setTimeout(() => {
+      const banner = errorBannerRef.current;
+      if (!banner) return;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      banner.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+      banner.focus({ preventScroll: true });
+    }, 0);
+  }, []);
+
+  // Moving between steps replaces the entire visible form. Without this the
+  // member stays parked at the old scroll offset — they press "Next" at the
+  // bottom of Personal and land at the bottom of Address, looking at the
+  // buttons they just used and none of the fields they now have to fill.
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    scrollToFormTop();
+  }, [currentStep, scrollToFormTop]);
+
+  const checkAvailability = useCallback(
+    async (params: URLSearchParams): Promise<{ emailExists: boolean; phoneExists: boolean } | null> => {
+      const response = await fetch(`/api/v1/registrations?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`availability check failed: ${response.status}`);
+      }
+      const json = (await response.json().catch(() => ({}))) as {
+        emailExists?: boolean;
+        phoneExists?: boolean;
+      };
+      return {
+        emailExists: Boolean(json.emailExists),
+        phoneExists: Boolean(json.phoneExists),
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     const email = (watchedEmail || '').trim().toLowerCase();
-    if (email === '') {
+    if (email === '' || !emailSchema.safeParse(email).success) {
       setEmailAvailability('idle');
-      if (errors.email?.type === 'manual') {
-        clearErrors('email');
-      }
+      if (errors.email?.type === 'manual') clearErrors('email');
       return;
     }
-    if (!emailSchema.safeParse(email).success) {
-      setEmailAvailability('idle');
-      if (errors.email?.type === 'manual') {
+
+    const cached = availabilityCacheRef.current.get(`email:${email}`);
+    if (cached !== undefined) {
+      setEmailAvailability(cached ? 'taken' : 'available');
+      if (cached) {
+        setError('email', {
+          type: 'manual',
+          message: isBn ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
+        });
+      } else if (errors.email?.type === 'manual') {
         clearErrors('email');
       }
       return;
     }
 
     const controller = new AbortController();
+    // 700ms rather than 450ms: this endpoint is rate limited, and every extra
+    // round trip while someone types their address is a token spent.
     const timeoutId = window.setTimeout(async () => {
       setEmailAvailability('checking');
       try {
-        const response = await fetch(`/api/v1/registrations?email=${encodeURIComponent(email)}`, {
-          method: 'GET',
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const json = (await response.json().catch(() => ({}))) as { emailExists?: boolean };
-        if (!response.ok) {
-          throw new Error('Failed to validate email availability');
-        }
-
-        if (json.emailExists) {
+        const result = await checkAvailability(new URLSearchParams({ email }));
+        if (controller.signal.aborted || !result) return;
+        availabilityCacheRef.current.set(`email:${email}`, result.emailExists);
+        if (result.emailExists) {
           setEmailAvailability('taken');
           setError('email', {
             type: 'manual',
-            message: locale === 'bn' ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
+            message: isBn ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
           });
         } else {
           setEmailAvailability('available');
-          if (errors.email?.type === 'manual') {
-            clearErrors('email');
-          }
+          if (errors.email?.type === 'manual') clearErrors('email');
         }
       } catch {
-        if (!controller.signal.aborted) {
-          setEmailAvailability('error');
-        }
+        if (!controller.signal.aborted) setEmailAvailability('error');
       }
-    }, 450);
+    }, 700);
 
     return () => {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [watchedEmail, setError, clearErrors, errors.email?.type, locale]);
+  }, [watchedEmail, setError, clearErrors, errors.email?.type, isBn, checkAvailability]);
 
   useEffect(() => {
     const phone = (watchedPhone || '').trim();
-    if (phone === '') {
+    if (phone === '' || !bdPhoneRegex.test(phone)) {
       setPhoneAvailability('idle');
-      if (errors.phone?.type === 'manual') {
-        clearErrors('phone');
-      }
+      if (errors.phone?.type === 'manual') clearErrors('phone');
       return;
     }
-    if (!bdPhoneRegex.test(phone)) {
-      setPhoneAvailability('idle');
-      if (errors.phone?.type === 'manual') {
+
+    const cached = availabilityCacheRef.current.get(`phone:${phone}`);
+    if (cached !== undefined) {
+      setPhoneAvailability(cached ? 'taken' : 'available');
+      if (cached) {
+        setError('phone', {
+          type: 'manual',
+          message: isBn
+            ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
+            : 'This phone number is already registered',
+        });
+      } else if (errors.phone?.type === 'manual') {
         clearErrors('phone');
       }
       return;
@@ -174,228 +424,238 @@ export default function RegisterPage() {
     const timeoutId = window.setTimeout(async () => {
       setPhoneAvailability('checking');
       try {
-        const response = await fetch(`/api/v1/registrations?phone=${encodeURIComponent(phone)}`, {
-          method: 'GET',
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const json = (await response.json().catch(() => ({}))) as { phoneExists?: boolean };
-        if (!response.ok) {
-          throw new Error('Failed to validate phone availability');
-        }
-
-        if (json.phoneExists) {
+        const result = await checkAvailability(new URLSearchParams({ phone }));
+        if (controller.signal.aborted || !result) return;
+        availabilityCacheRef.current.set(`phone:${phone}`, result.phoneExists);
+        if (result.phoneExists) {
           setPhoneAvailability('taken');
           setError('phone', {
             type: 'manual',
-            message: locale === 'bn' ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত' : 'This phone number is already registered',
+            message: isBn
+              ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
+              : 'This phone number is already registered',
           });
         } else {
           setPhoneAvailability('available');
-          if (errors.phone?.type === 'manual') {
-            clearErrors('phone');
-          }
+          if (errors.phone?.type === 'manual') clearErrors('phone');
         }
       } catch {
-        if (!controller.signal.aborted) {
-          setPhoneAvailability('error');
-        }
+        if (!controller.signal.aborted) setPhoneAvailability('error');
       }
-    }, 450);
+    }, 700);
 
     return () => {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [watchedPhone, setError, clearErrors, errors.phone?.type, locale]);
+  }, [watchedPhone, setError, clearErrors, errors.phone?.type, isBn, checkAvailability]);
 
+  // Restore a draft, if there is a fresh one.
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
     const raw = window.localStorage.getItem(draftStorageKey);
-    if (!raw) {
-      return;
-    }
+    if (!raw) return;
 
     try {
       const parsed = JSON.parse(raw) as {
         data?: Partial<RegisterFormData>;
         currentStep?: number;
+        savedAt?: number;
       };
-      const restoredValues: Partial<RegisterFormData> = {
+
+      if (typeof parsed.savedAt === 'number' && Date.now() - parsed.savedAt > DRAFT_TTL_MS) {
+        window.localStorage.removeItem(draftStorageKey);
+        return;
+      }
+
+      const restored: Partial<RegisterFormData> = {
         ...FORM_DEFAULT_VALUES,
         ...(parsed.data || {}),
+        // Consent is an act, not a saved preference. Restoring a ticked box
+        // would let someone submit a pledge they never read.
+        agreeToTerms: undefined as unknown as true,
       };
-      reset(restoredValues);
+      reset(restored);
+      setDraftRestored(true);
 
       if (typeof parsed.currentStep === 'number' && Number.isFinite(parsed.currentStep)) {
-        const clampedStep = Math.min(Math.max(parsed.currentStep, 0), steps.length - 1);
-        setCurrentStep(clampedStep);
+        setCurrentStep(Math.min(Math.max(parsed.currentStep, 0), steps.length - 1));
       }
     } catch {
       window.localStorage.removeItem(draftStorageKey);
     }
   }, [draftStorageKey, reset]);
 
+  // Persist the draft, debounced. Writing on every keystroke serialises the
+  // whole form into localStorage thirty times a second on a slow handset.
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
+    let timeoutId: number | undefined;
     const subscription = watch((value: Partial<RegisterFormData>) => {
-      window.localStorage.setItem(
-        draftStorageKey,
-        JSON.stringify({
-          data: value,
-          currentStep,
-          savedAt: Date.now(),
-        }),
-      );
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        const { agreeToTerms: _agreed, ...persistable } = value;
+        void _agreed;
+        try {
+          window.localStorage.setItem(
+            draftStorageKey,
+            JSON.stringify({ data: persistable, currentStep, savedAt: Date.now() }),
+          );
+        } catch {
+          // Private browsing or a full quota. A lost draft is not worth a crash.
+        }
+      }, 400);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      window.clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, [watch, currentStep, draftStorageKey]);
 
-  // Fields to validate per step
-  const conditionalAddressFields: RegisterFieldName[] = [
-    'presentHouseNo',
-    'presentVillage',
-    'presentUnion',
-    'presentPoliceStation',
-    'presentDistrict',
-  ];
-
-  const stepFields: RegisterFieldName[][] = [
-    // Step 0: Personal Info
-    ['nameEn', 'fatherName', 'motherName', 'phone', 'email', 'nidNumber', 'gender', 'bloodGroup', 'profession', 'maritalStatus', 'dateOfBirth'],
-    // Step 1: Address
-    ['permanentHouseNo', 'permanentVillage', 'permanentUnion', 'permanentPoliceStation', 'permanentDistrict', 'sameAsPermanent', 'presentHouseNo', 'presentVillage', 'presentUnion', 'presentPoliceStation', 'presentDistrict'],
-    // Step 2: Nominee
-    ['nomineeName', 'nomineeRelationship', 'nomineeNid', 'nomineePhone'],
-    // Step 3: Documents & Agreement
-    ['agreeToTerms'],
-  ];
-
-  const checkContactAvailability = async (emailValue: string, phoneValue: string): Promise<'available' | 'taken' | 'error'> => {
-    const email = emailValue.trim().toLowerCase();
-    const phone = phoneValue.trim();
-
-    setEmailAvailability(email ? 'checking' : 'idle');
-    setPhoneAvailability(phone ? 'checking' : 'idle');
-
-    try {
-      const params = new URLSearchParams();
-      if (email) {
-        params.set('email', email);
+  // Object URLs for the document previews leak until revoked. The unmount
+  // handler has to read the *current* slots, not the empty set it closed over
+  // on mount, so it goes through a ref.
+  const documentFilesRef = useRef(documentFiles);
+  documentFilesRef.current = documentFiles;
+  useEffect(() => {
+    return () => {
+      for (const slot of Object.values(documentFilesRef.current)) {
+        if (slot) URL.revokeObjectURL(slot.previewUrl);
       }
-      if (phone) {
-        params.set('phone', phone);
-      }
+    };
+  }, []);
 
-      const response = await fetch(`/api/v1/registrations?${params.toString()}`, {
-        method: 'GET',
-        cache: 'no-store',
-      });
-      const json = (await response.json().catch(() => ({}))) as {
-        emailExists?: boolean;
-        phoneExists?: boolean;
-      };
-      if (!response.ok) {
-        throw new Error('Availability check failed');
-      }
-
-      const emailTaken = Boolean(email) && Boolean(json.emailExists);
-      const phoneTaken = Boolean(phone) && Boolean(json.phoneExists);
-
-      if (emailTaken) {
-        setError('email', {
-          type: 'manual',
-          message: locale === 'bn' ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
-        });
-      } else if (errors.email?.type === 'manual') {
-        clearErrors('email');
-      }
-
-      if (phoneTaken) {
-        setError('phone', {
-          type: 'manual',
-          message: locale === 'bn' ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত' : 'This phone number is already registered',
-        });
-      } else if (errors.phone?.type === 'manual') {
-        clearErrors('phone');
-      }
-
-      setEmailAvailability(email ? (emailTaken ? 'taken' : 'available') : 'idle');
-      setPhoneAvailability(phone ? (phoneTaken ? 'taken' : 'available') : 'idle');
-
-      if (emailTaken || phoneTaken) {
-        return 'taken';
-      }
-      return 'available';
-    } catch {
-      setEmailAvailability(email ? 'error' : 'idle');
-      setPhoneAvailability(phone ? 'error' : 'idle');
-      return 'error';
+  const discardDraft = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(draftStorageKey);
     }
-  };
+    // Every field has to be named. `reset(FORM_DEFAULT_VALUES)` only mentions
+    // the five fields with defaults, and react-hook-form leaves the DOM value
+    // of a field it was not given alone — so "Start fresh" cleared the saved
+    // draft and the form state while the member went on looking at their old
+    // answers still typed into the boxes.
+    reset(BLANK_FORM);
+    setCurrentStep(0);
+    setDraftRestored(false);
+    setSubmitError(null);
+    availabilityCacheRef.current.clear();
+  }, [draftStorageKey, reset]);
+
+  const fieldsForStep = useCallback(
+    (step: number): RegisterFieldName[] => {
+      const fields = [...STEP_FIELDS[step]] as RegisterFieldName[];
+      if (step === 1 && sameAsPermanent) {
+        return fields.filter((field) => !CONDITIONAL_ADDRESS_FIELDS.includes(field));
+      }
+      return fields;
+    },
+    [sameAsPermanent],
+  );
+
+  /**
+   * Pre-flight duplicate check.
+   *
+   * Advisory only. The POST handler re-checks and answers 409, so a failure
+   * here — a rate limit, a flaky connection — must never be what stops someone
+   * registering. It used to: an unreachable check returned 'error' and the
+   * Next button refused to advance, with a message offering no way forward.
+   */
+  const checkContactAvailability = useCallback(
+    async (emailValue: string, phoneValue: string): Promise<'available' | 'taken' | 'error'> => {
+      const email = emailValue.trim().toLowerCase();
+      const phone = phoneValue.trim();
+      if (!email && !phone) return 'available';
+
+      setEmailAvailability(email ? 'checking' : 'idle');
+      setPhoneAvailability(phone ? 'checking' : 'idle');
+
+      try {
+        const params = new URLSearchParams();
+        if (email) params.set('email', email);
+        if (phone) params.set('phone', phone);
+
+        const result = await checkAvailability(params);
+        if (!result) throw new Error('no result');
+
+        const emailTaken = Boolean(email) && result.emailExists;
+        const phoneTaken = Boolean(phone) && result.phoneExists;
+        if (email) availabilityCacheRef.current.set(`email:${email}`, emailTaken);
+        if (phone) availabilityCacheRef.current.set(`phone:${phone}`, phoneTaken);
+
+        if (emailTaken) {
+          setError('email', {
+            type: 'manual',
+            message: isBn ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত' : 'This email is already registered',
+          });
+        } else if (errors.email?.type === 'manual') {
+          clearErrors('email');
+        }
+
+        if (phoneTaken) {
+          setError('phone', {
+            type: 'manual',
+            message: isBn
+              ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
+              : 'This phone number is already registered',
+          });
+        } else if (errors.phone?.type === 'manual') {
+          clearErrors('phone');
+        }
+
+        setEmailAvailability(email ? (emailTaken ? 'taken' : 'available') : 'idle');
+        setPhoneAvailability(phone ? (phoneTaken ? 'taken' : 'available') : 'idle');
+
+        return emailTaken || phoneTaken ? 'taken' : 'available';
+      } catch {
+        setEmailAvailability(email ? 'error' : 'idle');
+        setPhoneAvailability(phone ? 'error' : 'idle');
+        return 'error';
+      }
+    },
+    [checkAvailability, clearErrors, errors.email?.type, errors.phone?.type, isBn, setError],
+  );
 
   const onSubmit = async (data: RegisterFormData) => {
     setSubmitError(null);
     setSubmitStage('idle');
 
-    const availability = await checkContactAvailability(data.email, data.phone);
-    if (availability === 'error') {
-      setSubmitError(
-        locale === 'bn'
-          ? 'ই-মেইল/মোবাইল যাচাই করা যাচ্ছে না। অনুগ্রহ করে আবার চেষ্টা করুন।'
-          : 'Unable to validate email/phone right now. Please try again.'
-      );
-      return;
-    }
-
-    if (availability === 'taken') {
-      setSubmitError(
-        locale === 'bn'
-          ? 'এই ই-মেইল বা মোবাইল নম্বর দিয়ে ইতোমধ্যে নিবন্ধন করা হয়েছে।'
-          : 'This email or phone number is already registered.'
-      );
-      return;
-    }
-
     const missingDocumentKey = REQUIRED_DOCUMENT_KEYS.find((key) => !documentFiles[key]);
     if (missingDocumentKey) {
       setDocumentErrors((prev) => ({
         ...prev,
-        [missingDocumentKey]: locale === 'bn' ? 'এই ফাইলটি প্রয়োজন' : 'This file is required',
+        [missingDocumentKey]: isBn ? 'এই ফাইলটি প্রয়োজন' : 'This file is required',
       }));
       setSubmitError(
-        locale === 'bn'
-          ? 'নিবন্ধন সম্পন্ন করতে সব বাধ্যতামূলক নথি আপলোড করুন।'
-          : 'Please upload all required documents to complete registration.',
+        isBn
+          ? 'নিবন্ধন সম্পন্ন করতে চারটি ছবিই দিতে হবে।'
+          : 'All four document photos are required to complete registration.',
       );
+      revealErrorSummary();
       return;
     }
 
     if (Object.values(documentErrors).some(Boolean)) {
       setSubmitError(
-        locale === 'bn'
+        isBn
           ? 'নথির ত্রুটিগুলো ঠিক করে আবার চেষ্টা করুন।'
           : 'Please fix the document upload errors and try again.',
       );
+      revealErrorSummary();
       return;
     }
 
-    const totalUploadBytes = REQUIRED_DOCUMENT_KEYS.reduce((sum, key) => {
-      const file = documentFiles[key];
-      return sum + (file?.size ?? 0);
-    }, 0);
-    if (totalUploadBytes > REGISTRATION_MAX_TOTAL_UPLOAD_BYTES) {
+    const totalUploadBytes = REQUIRED_DOCUMENT_KEYS.reduce(
+      (sum, key) => sum + (documentFiles[key]?.file.size ?? 0),
+      0,
+    );
+    if (totalUploadBytes > REGISTRATION_UPLOAD_LIMITS.TOTAL_BYTES) {
       setSubmitError(
-        locale === 'bn'
-          ? 'নথির মোট সাইজ খুব বেশি। সর্বোচ্চ ৩.৫ MB এর মধ্যে রাখুন।'
-          : 'Total document upload size is too large. Keep all files within 3.5 MB.',
+        isBn
+          ? `নথির মোট সাইজ ${formatFileSize(totalUploadBytes)} — সর্বোচ্চ ${REGISTRATION_UPLOAD_LIMITS.TOTAL_LABEL}। একটি ছবি সরিয়ে ছোট ছবি দিন।`
+          : `Your documents total ${formatFileSize(totalUploadBytes)}, above the ${REGISTRATION_UPLOAD_LIMITS.TOTAL_LABEL} limit. Replace one with a smaller photo.`,
       );
       return;
     }
@@ -403,7 +663,6 @@ export default function RegisterPage() {
     try {
       setSubmitStage('uploading');
       const registrationPayload = {
-        // Personal Info
         nameEn: data.nameEn,
         nameBn: data.nameBn,
         fatherName: data.fatherName,
@@ -417,7 +676,7 @@ export default function RegisterPage() {
         bloodGroup: data.bloodGroup,
         profession: data.profession,
         dateOfBirth: data.dateOfBirth,
-        // Permanent Address
+
         permanentHouseNo: data.permanentHouseNo,
         permanentRoadNo: data.permanentRoadNo,
         permanentVillage: data.permanentVillage,
@@ -425,7 +684,6 @@ export default function RegisterPage() {
         permanentPoliceStation: data.permanentPoliceStation,
         permanentDistrict: data.permanentDistrict,
 
-        // Present Address
         sameAsPermanent: data.sameAsPermanent ?? true,
         presentHouseNo: data.presentHouseNo,
         presentRoadNo: data.presentRoadNo,
@@ -434,7 +692,6 @@ export default function RegisterPage() {
         presentPoliceStation: data.presentPoliceStation,
         presentDistrict: data.presentDistrict,
 
-        // Nominee
         nomineeName: data.nomineeName,
         nomineeRelationship: data.nomineeRelationship,
         nomineeNid: data.nomineeNid,
@@ -444,10 +701,8 @@ export default function RegisterPage() {
       const formData = new FormData();
       formData.append('payload', JSON.stringify(registrationPayload));
       for (const key of REQUIRED_DOCUMENT_KEYS) {
-        const file = documentFiles[key];
-        if (file) {
-          formData.append(key, file);
-        }
+        const slot = documentFiles[key];
+        if (slot) formData.append(key, slot.file);
       }
 
       const response = await fetch('/api/v1/registrations', {
@@ -471,20 +726,66 @@ export default function RegisterPage() {
 
       if (!response.ok) {
         setSubmitStage('idle');
-        // Keep registration error rendering resilient so users never see a blank failure.
-        const fieldErrorMessages = json?.details?.fieldErrors && typeof json.details.fieldErrors === 'object'
-          ? Object.entries(json.details.fieldErrors)
-            .map(([field, messages]) => {
-              const safeMessages = Array.isArray(messages)
-                ? messages.filter((message): message is string => typeof message === 'string' && message.trim() !== '')
-                : [];
-              if (!safeMessages.length) return '';
-              return `${getRegistrationFieldLabel(field, locale === 'bn' ? 'bn' : 'en')}: ${safeMessages.join(', ')}`;
-            })
-            .filter(Boolean)
-            .join('\n')
-          : '';
-        const formErrorMessages = (Array.isArray(json?.details?.formErrors) ? json.details.formErrors : [])
+
+        // A duplicate is decided by the server, and the field to fix is three
+        // steps back. Say which, and take them there.
+        if (response.status === 409) {
+          const conflictsWithPhone = /phone/i.test(json.error || '');
+          const field: RegisterFieldName = conflictsWithPhone ? 'phone' : 'email';
+          availabilityCacheRef.current.set(
+            `${field}:${conflictsWithPhone ? data.phone.trim() : data.email.trim().toLowerCase()}`,
+            true,
+          );
+          setError(field, {
+            type: 'manual',
+            message: conflictsWithPhone
+              ? isBn
+                ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
+                : 'This phone number is already registered'
+              : isBn
+                ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত'
+                : 'This email is already registered',
+          });
+          setSubmitError(
+            isBn
+              ? 'এই ই-মেইল বা মোবাইল নম্বর দিয়ে ইতোমধ্যে নিবন্ধন করা হয়েছে। প্রথম ধাপে গিয়ে সংশোধন করুন।'
+              : 'This email or phone number is already registered. Correct it on step 1 and try again.',
+          );
+          setCurrentStep(0);
+          window.setTimeout(() => focusField(field), 350);
+          return;
+        }
+
+        // The platform rejects an oversized body before this route runs, so the
+        // reply is an HTML error page rather than our JSON.
+        if (response.status === 413) {
+          setSubmitError(
+            isBn
+              ? `নথিগুলো খুব বড়। সর্বোচ্চ ${REGISTRATION_UPLOAD_LIMITS.TOTAL_LABEL}, ছোট ছবি দিয়ে আবার চেষ্টা করুন।`
+              : `Your documents are too large to send. Keep them under ${REGISTRATION_UPLOAD_LIMITS.TOTAL_LABEL} and try again.`,
+          );
+          return;
+        }
+
+        const fieldErrorMessages =
+          json?.details?.fieldErrors && typeof json.details.fieldErrors === 'object'
+            ? Object.entries(json.details.fieldErrors)
+                .map(([field, messages]) => {
+                  const safeMessages = Array.isArray(messages)
+                    ? messages.filter(
+                        (message): message is string =>
+                          typeof message === 'string' && message.trim() !== '',
+                      )
+                    : [];
+                  if (!safeMessages.length) return '';
+                  return `${getRegistrationFieldLabel(field, isBn ? 'bn' : 'en')}: ${safeMessages.join(', ')}`;
+                })
+                .filter(Boolean)
+                .join('\n')
+            : '';
+        const formErrorMessages = (
+          Array.isArray(json?.details?.formErrors) ? json.details.formErrors : []
+        )
           .filter((message): message is string => typeof message === 'string')
           .map((message) => message.trim())
           .filter(Boolean)
@@ -493,25 +794,25 @@ export default function RegisterPage() {
 
         if (detailedMessage) {
           setSubmitError(
-            locale === 'bn'
-              ? `ফর্মে ত্রুটি রয়েছে:\n${detailedMessage}`
-              : `Form has errors:\n${detailedMessage}`
+            isBn ? `ফর্মে ত্রুটি রয়েছে:\n${detailedMessage}` : `Form has errors:\n${detailedMessage}`,
           );
-        } else {
-          const fallbackFromBody = responseText.trim();
-          setSubmitError(
-            (typeof json?.error === 'string' && json.error.trim())
-            || fallbackFromBody
-            || (locale === 'bn' ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed')
-          );
+          return;
         }
+
+        // Never surface a raw response body: when the platform answers instead
+        // of the route, it is an HTML page, and dumping it in the error box
+        // showed members a wall of markup.
+        const serverMessage =
+          typeof json?.error === 'string' && json.error.trim() ? json.error.trim() : '';
+        setSubmitError(
+          serverMessage || (isBn ? 'নিবন্ধন ব্যর্থ হয়েছে' : 'Registration failed. Please try again.'),
+        );
         return;
       }
 
-      // Show success toast
       toast({
-        title: locale === 'bn' ? 'নিবন্ধন সফল!' : 'Registration Successful!',
-        description: locale === 'bn'
+        title: isBn ? 'নিবন্ধন সফল!' : 'Registration Successful!',
+        description: isBn
           ? 'আপনার আবেদন জমা হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।'
           : 'Your application has been submitted. Please wait for admin approval.',
         variant: 'success',
@@ -520,124 +821,121 @@ export default function RegisterPage() {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(draftStorageKey);
       }
-      setDocumentFiles({
-        nidFrontImage: null,
-        nidBackImage: null,
-        memberPhotoImage: null,
-        signatureImage: null,
-      });
+      for (const slot of Object.values(documentFiles)) {
+        if (slot) URL.revokeObjectURL(slot.previewUrl);
+      }
+      setDocumentFiles(EMPTY_DOCUMENTS);
       setDocumentErrors({});
       setSubmitStage('finishing');
 
-      // Redirect after a short delay so user can see the message
       setTimeout(() => {
         router.push(`/${locale}/login`);
       }, 2000);
     } catch {
       setSubmitStage('idle');
       setSubmitError(
-        locale === 'bn'
-          ? 'নিবন্ধন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
-          : 'Registration failed. Please try again.'
+        isBn
+          ? 'নিবন্ধন ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।'
+          : 'Registration failed. Check your connection and try again.',
       );
     }
   };
 
+  /**
+   * Submission blocked by validation.
+   *
+   * The old version fired a "Form needs attention" toast and moved the step,
+   * and that was all: the toast vanished after a few seconds, three fields
+   * rendered no error text at all, and nothing scrolled, so the member arrived
+   * at a step that looked complete and was told, briefly, that it was not.
+   * Now the reason stays on screen, names the fields, and the first bad one is
+   * scrolled to and focused.
+   */
   const onInvalidSubmit = (formErrors: FieldErrors<RegisterFormData>) => {
-    const stepFieldSet = new Set(stepFields.flat());
-    const errorFields = (Object.keys(formErrors) as RegisterFieldName[]).filter((field) =>
-      stepFieldSet.has(field)
-    );
-    const visibleErrorFields = errorFields.filter(
-      (field) => !(sameAsPermanent && conditionalAddressFields.includes(field))
-    );
+    const errored = (Object.keys(formErrors) as RegisterFieldName[]).filter((field) => {
+      if (sameAsPermanent && CONDITIONAL_ADDRESS_FIELDS.includes(field)) return false;
+      return STEP_FIELDS.some((fields) => (fields as readonly string[]).includes(field));
+    });
 
-    if (!visibleErrorFields.length) {
+    if (!errored.length) {
+      // Nothing maps to a step — a root-level schema issue. Show whatever the
+      // resolver said rather than an empty banner.
       const rootMessage = (formErrors as { root?: { message?: unknown } }).root?.message;
-      const firstFieldMessage = Object.values(formErrors).find((value) => {
-        if (!value || typeof value !== 'object') {
-          return false;
-        }
-        return typeof (value as { message?: unknown }).message === 'string';
-      }) as { message?: string } | undefined;
+      const firstMessage = Object.values(formErrors).find(
+        (value) =>
+          value && typeof value === 'object' && typeof (value as { message?: unknown }).message === 'string',
+      ) as { message?: string } | undefined;
 
-      const fallbackMessage =
-        (typeof rootMessage === 'string' && rootMessage.trim())
-          ? rootMessage.trim()
-          : (firstFieldMessage?.message?.trim() ||
-            (locale === 'bn'
-              ? 'ফর্মে কিছু তথ্য আবার যাচাই করুন।'
-              : 'Please review the form information once more.'));
-
-      setSubmitError(fallbackMessage);
+      setSubmitError(
+        (typeof rootMessage === 'string' && rootMessage.trim()) ||
+          firstMessage?.message?.trim() ||
+          (isBn ? 'ফর্মে কিছু তথ্য আবার যাচাই করুন।' : 'Please review the form information once more.'),
+      );
+      revealErrorSummary();
       return;
     }
 
     let targetStep = steps.length - 1;
-    for (const [index, fields] of stepFields.entries()) {
-      if (visibleErrorFields.some((field) => fields.includes(field))) {
+    for (const [index, fields] of STEP_FIELDS.entries()) {
+      if (errored.some((field) => (fields as readonly string[]).includes(field))) {
         targetStep = index;
         break;
       }
     }
 
+    const fieldsOnTarget = errored.filter((field) =>
+      (STEP_FIELDS[targetStep] as readonly string[]).includes(field),
+    );
+    const labels = fieldsOnTarget.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
+
+    setSubmitError(
+      isBn
+        ? `${stepTitles[targetStep]} ধাপে এই তথ্যগুলো ঠিক করুন: ${labels.join(', ')}`
+        : `Fix these on the "${stepTitles[targetStep]}" step: ${labels.join(', ')}`,
+    );
     setCurrentStep(targetStep);
-    toast({
-      title: locale === 'bn' ? 'ফর্মে সমস্যা আছে' : 'Form needs attention',
-      description:
-        locale === 'bn'
-          ? 'যে ধাপে সমস্যা আছে সেখানে আপনাকে নিয়ে যাওয়া হয়েছে।'
-          : 'You have been moved to the step that needs correction.',
-      variant: 'destructive',
-    });
+    revealErrorSummary();
   };
 
   const nextStep = async () => {
     setSubmitError(null);
 
-    // Validate current step fields before proceeding
-    const fieldsToValidate =
-      currentStep === 1 && sameAsPermanent
-        ? stepFields[currentStep].filter((field) => !conditionalAddressFields.includes(field))
-        : stepFields[currentStep];
+    const fieldsToValidate = fieldsForStep(currentStep);
     const isValid = await trigger(fieldsToValidate);
 
     if (!isValid) {
-      // Show toast about validation errors
-      toast({
-        title: locale === 'bn' ? 'অনুগ্রহ করে ত্রুটি সংশোধন করুন' : 'Please fix the errors',
-        description: locale === 'bn'
-          ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
-          : 'Please fill all required fields correctly.',
-        variant: 'destructive',
-      });
+      // `errors` from the render closure is a tick behind `trigger`, so asking
+      // it which fields failed the validation we just ran returns the previous
+      // answer. getFieldState reads the live state the trigger updated.
+      const badFields = fieldsToValidate.filter((field) => getFieldState(field).invalid);
+      const labels = badFields.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
+      setSubmitError(
+        labels.length
+          ? isBn
+            ? `এই তথ্যগুলো ঠিক করুন: ${labels.join(', ')}`
+            : `Please correct: ${labels.join(', ')}`
+          : isBn
+            ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
+            : 'Please fill all required fields correctly.',
+      );
+      revealErrorSummary();
       return;
     }
 
     if (currentStep === 0) {
       const availability = await checkContactAvailability(getValues('email'), getValues('phone'));
-      if (availability === 'error') {
-        toast({
-          title: locale === 'bn' ? 'যাচাই ব্যর্থ' : 'Validation failed',
-          description:
-            locale === 'bn'
-              ? 'ই-মেইল/মোবাইল যাচাই করা যাচ্ছে না। অনুগ্রহ করে আবার চেষ্টা করুন।'
-              : 'Unable to validate email/phone right now. Please try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
       if (availability === 'taken') {
-        toast({
-          title: locale === 'bn' ? 'ডুপ্লিকেট তথ্য পাওয়া গেছে' : 'Duplicate information found',
-          description:
-            locale === 'bn'
-              ? 'এই ই-মেইল বা মোবাইল নম্বর আগে থেকেই ব্যবহৃত হয়েছে।'
-              : 'This email or phone number is already in use.',
-          variant: 'destructive',
-        });
+        setSubmitError(
+          isBn
+            ? 'এই ই-মেইল বা মোবাইল নম্বর আগে থেকেই ব্যবহৃত হয়েছে।'
+            : 'This email or phone number is already in use.',
+        );
+        revealErrorSummary();
         return;
       }
+      // 'error' deliberately falls through: the check is advisory and the POST
+      // is authoritative. Blocking here on a rate limit or a dropped packet
+      // stranded people who had done nothing wrong.
     }
 
     if (currentStep < steps.length - 1) {
@@ -647,61 +945,118 @@ export default function RegisterPage() {
 
   const prevStep = () => {
     setSubmitError(null);
+    if (currentStep > 0) setCurrentStep(currentStep - 1);
+  };
 
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+  const goToStep = (index: number) => {
+    // Backwards only. Jumping forward would skip the per-step validation that
+    // keeps a member from reaching the documents step with an unusable form.
+    if (index < currentStep) {
+      setSubmitError(null);
+      setCurrentStep(index);
     }
   };
 
-  const stepTitles = locale === 'bn' 
-    ? ['ব্যক্তিগত তথ্য', 'ঠিকানা', 'নমিনী', 'নথি ও চুক্তি']
-    : ['Personal Info', 'Address', 'Nominee', 'Documents'];
-
-  const documentFieldMeta: Array<{ key: RequiredDocumentKey; label: string; helper: string }> = [
+  const documentFieldMeta: Array<{
+    key: RequiredDocumentKey;
+    label: string;
+    helper: string;
+  }> = [
     {
       key: 'nidFrontImage',
-      label: locale === 'bn' ? 'NID কার্ডের সামনের ছবি *' : 'NID front image *',
-      helper: locale === 'bn' ? 'স্পষ্ট ও পূর্ণ ফ্রেমে তুলুন' : 'Upload a clear full-frame image',
+      label: isBn ? 'NID কার্ডের সামনের ছবি' : 'NID front image',
+      helper: isBn ? 'স্পষ্ট ও পূর্ণ ফ্রেমে তুলুন' : 'Capture the whole card, in focus',
     },
     {
       key: 'nidBackImage',
-      label: locale === 'bn' ? 'NID কার্ডের পেছনের ছবি *' : 'NID back image *',
-      helper: locale === 'bn' ? 'সব লেখা স্পষ্ট দেখা যেতে হবে' : 'Make sure all text is readable',
+      label: isBn ? 'NID কার্ডের পেছনের ছবি' : 'NID back image',
+      helper: isBn ? 'সব লেখা স্পষ্ট দেখা যেতে হবে' : 'All text must be readable',
     },
     {
       key: 'memberPhotoImage',
-      label: locale === 'bn' ? 'আপনার পাসপোর্ট সাইজ ছবি *' : 'Your passport photo *',
-      helper: locale === 'bn' ? 'সাম্প্রতিক ছবি দিন' : 'Use a recent portrait photo',
+      label: isBn ? 'আপনার পাসপোর্ট সাইজ ছবি' : 'Your passport photo',
+      helper: isBn ? 'সাম্প্রতিক ছবি দিন' : 'Use a recent portrait photo',
     },
     {
       key: 'signatureImage',
-      label: locale === 'bn' ? 'স্বাক্ষরের ছবি *' : 'Signature image *',
-      helper: locale === 'bn' ? 'সাদা কাগজে কালো কালি/কলমে' : 'Use dark ink on white background',
+      label: isBn ? 'স্বাক্ষরের ছবি' : 'Signature image',
+      helper: isBn ? 'সাদা কাগজে কালো কালিতে' : 'Dark ink on white paper',
     },
   ];
 
-  const handleDocumentChange = (key: RequiredDocumentKey, event: ChangeEvent<HTMLInputElement>) => {
+  const handleDocumentChange = async (
+    key: RequiredDocumentKey,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0] ?? null;
     setSubmitError(null);
+    // Let the same file be re-picked after an error; without this the change
+    // event never fires again for an identical filename.
+    event.target.value = '';
 
-    if (!file) {
-      setDocumentFiles((prev) => ({ ...prev, [key]: null }));
-      setDocumentErrors((prev) => ({ ...prev, [key]: locale === 'bn' ? 'এই ফাইলটি প্রয়োজন' : 'This file is required' }));
-      return;
+    if (!file) return;
+
+    setProcessingDocument(key);
+    try {
+      // Type first: downscaling a PDF or a HEIC is not going to help, and the
+      // member should hear why rather than watch a spinner.
+      const typeCheck = validateImageFile(file, {
+        acceptedTypes: UPLOAD_TYPES.avatar,
+        maxSizeMB: Number.MAX_SAFE_INTEGER,
+      });
+      if (!typeCheck.valid) {
+        setDocumentErrors((prev) => ({
+          ...prev,
+          [key]: isBn
+            ? 'শুধু JPG, PNG বা WebP ছবি দিন।'
+            : 'Only JPG, PNG or WebP images are accepted.',
+        }));
+        return;
+      }
+
+      const processed = await downscaleImageFile(file);
+      const sizeCheck = validateImageFile(processed, {
+        acceptedTypes: UPLOAD_TYPES.avatar,
+        maxSizeMB: REGISTRATION_UPLOAD_LIMITS.PER_FILE_MB,
+      });
+      if (!sizeCheck.valid) {
+        setDocumentErrors((prev) => ({
+          ...prev,
+          [key]: isBn
+            ? `ছবিটি খুব বড় (${formatFileSize(processed.size)})। কম রেজোলিউশনে তুলুন।`
+            : `Still too large after compression (${formatFileSize(processed.size)}). Use a lower-resolution photo.`,
+        }));
+        return;
+      }
+
+      setDocumentFiles((prev) => {
+        const existing = prev[key];
+        if (existing) URL.revokeObjectURL(existing.previewUrl);
+        return {
+          ...prev,
+          [key]: {
+            file: processed,
+            previewUrl: URL.createObjectURL(processed),
+            originalSize: file.size,
+          },
+        };
+      });
+      setDocumentErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } finally {
+      setProcessingDocument(null);
     }
+  };
 
-    const validation = validateImageFile(file, {
-      acceptedTypes: UPLOAD_TYPES.avatar,
-      maxSizeMB: REGISTRATION_MAX_FILE_SIZE_MB,
+  const clearDocument = (key: RequiredDocumentKey) => {
+    setDocumentFiles((prev) => {
+      const existing = prev[key];
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
+      return { ...prev, [key]: null };
     });
-    if (!validation.valid) {
-      setDocumentFiles((prev) => ({ ...prev, [key]: null }));
-      setDocumentErrors((prev) => ({ ...prev, [key]: validation.error || (locale === 'bn' ? 'অবৈধ ফাইল' : 'Invalid file') }));
-      event.target.value = '';
-      return;
-    }
-
-    setDocumentFiles((prev) => ({ ...prev, [key]: file }));
     setDocumentErrors((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -718,23 +1073,30 @@ export default function RegisterPage() {
     void handleSubmit(onSubmit, onInvalidSubmit)(event);
   };
 
+  const uploadedCount = REQUIRED_DOCUMENT_KEYS.filter((key) => documentFiles[key]).length;
+  const totalUploadBytes = REQUIRED_DOCUMENT_KEYS.reduce(
+    (sum, key) => sum + (documentFiles[key]?.file.size ?? 0),
+    0,
+  );
+  const isLastStep = currentStep === steps.length - 1;
+  const busy = isSubmitting || submitStage !== 'idle';
+
   return (
-    <div className="min-h-dvh bg-slate-50">
-      {/* Header with Navigation */}
-      <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md safe-area-top">
-        <div className="container-wide flex h-14 items-center justify-between">
+    <div className="min-h-dvh bg-muted/30">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-md safe-area-top">
+        <div className="container-wide flex h-14 items-center justify-between gap-2">
           <div className="flex items-center gap-6">
-            <Link href={`/${locale}`}>
+            <Link href={`/${locale}`} aria-label={isBn ? 'হোম' : 'Home'}>
               <Logo size="sm" />
             </Link>
             <Link
               href={`/${locale}`}
-              className="hidden sm:flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="hidden items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground sm:flex"
             >
-              ← {locale === 'bn' ? 'হোম' : 'Home'}
+              ← {isBn ? 'হোম' : 'Home'}
             </Link>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 sm:gap-4">
             <Link href={`/${locale === 'en' ? 'bn' : 'en'}/register`}>
               <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
                 <Globe className="h-4 w-4" />
@@ -743,308 +1105,376 @@ export default function RegisterPage() {
             </Link>
             <Link
               href={`/${locale}/login`}
-              className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+              className="px-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
             >
-              {locale === 'bn' ? 'লগইন করুন' : 'Login'}
+              {isBn ? 'লগইন' : 'Login'}
             </Link>
           </div>
         </div>
       </header>
 
-      <main className="py-6 sm:py-8 px-4 safe-area-bottom">
+      <main className="px-3 py-5 safe-area-bottom sm:px-4 sm:py-8">
         <div className="container-wide max-w-4xl">
-          {/* Progress Steps */}
-          <div className="mb-8 sm:mb-12 relative">
-            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-200 dark:bg-slate-800 -translate-y-1/2 rounded-full z-0" />
-            <div className="flex items-center justify-between relative z-10">
-              {steps.map((step, index) => (
-                <div key={step.id} className="flex flex-col items-center group">
-                  <div
-                    className={`h-10 w-10 sm:h-14 sm:w-14 rounded-xl sm:rounded-2xl flex items-center justify-center border-2 sm:border-4 transition-all duration-500 ${
-                      index < currentStep
-                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-100'
-                        : index === currentStep
-                        ? 'bg-white border-emerald-600 text-emerald-600 shadow-xl shadow-emerald-600/20 scale-105 sm:scale-110'
-                        : 'bg-white border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
-                    }`}
-                  >
-                    {index < currentStep ? (
-                      <Check className="h-4 w-4 sm:h-6 sm:w-6 animate-in zoom-in duration-300" />
-                    ) : (
-                      <step.icon className={`h-4 w-4 sm:h-6 sm:w-6 ${index === currentStep ? 'animate-bounce' : ''}`} />
-                    )}
-                  </div>
-                  <span className={`text-[10px] sm:text-sm mt-2 sm:mt-3 font-semibold transition-colors duration-300 text-center ${
-                    index <= currentStep ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'
-                  }`}>
-                    {stepTitles[index]}
-                  </span>
-                </div>
-              ))}
-            </div>
-            
-            <div 
-              className="absolute top-1/2 left-0 h-1 bg-emerald-600 -translate-y-1/2 rounded-full z-0 transition-all duration-700 ease-in-out"
+          <div ref={formTopRef} className="scroll-mt-20" />
+
+          {/* Progress */}
+          <div className="relative mb-6 sm:mb-10">
+            <div className="absolute left-0 top-5 z-0 h-1 w-full -translate-y-1/2 rounded-full bg-border sm:top-7" />
+            <div
+              className="absolute left-0 top-5 z-0 h-1 -translate-y-1/2 rounded-full bg-primary transition-all duration-500 ease-out sm:top-7"
               style={{ width: `${(currentStep / (steps.length - 1)) * 100}%` }}
             />
+            <ol className="relative z-10 flex items-start justify-between">
+              {steps.map((step, index) => {
+                const done = index < currentStep;
+                const active = index === currentStep;
+                return (
+                  <li key={step.id} className="flex flex-col items-center">
+                    <button
+                      type="button"
+                      onClick={() => goToStep(index)}
+                      disabled={index >= currentStep}
+                      aria-current={active ? 'step' : undefined}
+                      aria-label={`${isBn ? 'ধাপ' : 'Step'} ${index + 1}: ${stepTitles[index]}`}
+                      className={cn(
+                        'flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-all duration-300 sm:h-14 sm:w-14 sm:rounded-2xl',
+                        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                        done && 'border-primary bg-primary text-primary-foreground cursor-pointer',
+                        active && 'border-primary bg-background text-primary shadow-lg shadow-primary/20',
+                        !done && !active && 'border-border bg-background text-muted-foreground',
+                      )}
+                    >
+                      {done ? (
+                        <Check className="h-4 w-4 sm:h-6 sm:w-6" />
+                      ) : (
+                        <step.icon className="h-4 w-4 sm:h-6 sm:w-6" />
+                      )}
+                    </button>
+                    <span
+                      className={cn(
+                        'mt-2 max-w-16 text-center text-[11px] font-medium leading-tight sm:mt-3 sm:max-w-none sm:text-sm',
+                        index <= currentStep ? 'text-primary' : 'text-muted-foreground',
+                      )}
+                    >
+                      {stepTitles[index]}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
 
-          <Card className="border-0 shadow-2xl shadow-emerald-900/10 dark:shadow-black/40 overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
-            <div className="h-2 w-full bg-linear-to-r from-emerald-500 via-teal-500 to-emerald-600" />
-            <CardHeader className="pb-8 text-center border-b border-slate-100 dark:border-slate-800/50">
-              <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-linear-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
-                {locale === 'bn' ? 'হাসনাহেনায় নিবন্ধন' : 'Register for Hasnahena'}
+          {/* No `overflow-hidden` here: it establishes a clipping context that
+              silently disables `position: sticky` on the navigation bar below,
+              which is the only thing keeping Next reachable one-handed. */}
+          <Card className="border shadow-lg">
+            <div className="h-1.5 w-full rounded-t-sm bg-primary" />
+            <CardHeader className="border-b pb-5 text-center sm:pb-6">
+              <CardTitle className="text-xl font-bold sm:text-3xl">
+                {isBn ? 'হাসনাহেনায় নিবন্ধন' : 'Register for Hasnahena'}
               </CardTitle>
-              <CardDescription className="text-lg mt-2 text-slate-500 dark:text-slate-400">
-                {locale === 'bn'
+              <CardDescription className="mt-1 text-sm sm:text-base">
+                {isBn
                   ? 'সুদমুক্ত অর্থায়নে আপনার যাত্রা শুরু করুন'
                   : 'Start your journey to interest-free finance'}
               </CardDescription>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {isBn
+                  ? `ধাপ ${currentStep + 1} / ${steps.length}`
+                  : `Step ${currentStep + 1} of ${steps.length}`}
+              </p>
             </CardHeader>
-            <CardContent className="p-8 md:p-10">
-              {submitError && (
-                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {submitError}
+
+            <CardContent className="p-4 sm:p-8 md:p-10">
+              {draftRestored && (
+                <div className="mb-4 flex flex-col gap-2 rounded-lg border bg-muted/50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    {isBn
+                      ? 'আপনার আগের অসম্পূর্ণ ফর্ম ফিরিয়ে আনা হয়েছে।'
+                      : 'We restored your unfinished form.'}
+                  </span>
+                  <Button type="button" variant="outline" size="sm" onClick={discardDraft}>
+                    {isBn ? 'নতুন করে শুরু করুন' : 'Start fresh'}
+                  </Button>
                 </div>
               )}
-              <form onSubmit={handleFormSubmit}>
+
+              {submitError && (
+                <div
+                  ref={errorBannerRef}
+                  role="alert"
+                  aria-live="assertive"
+                  tabIndex={-1}
+                  className="mb-5 flex items-start gap-2 whitespace-pre-line rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive scroll-mt-24 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-destructive/40"
+                >
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              {/* noValidate: the browser's own bubbles fire before submit and
+                  suppress our validation, so a member saw a native tooltip on
+                  one field while the rest stayed unchecked. */}
+              <form onSubmit={handleFormSubmit} noValidate>
                 {/* Step 1: Personal Information */}
                 {currentStep === 0 && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold border-b border-slate-100 pb-3 text-slate-800">
-                      {locale === 'bn' ? 'ব্যক্তিগত তথ্য' : 'Personal Information'}
+                  <div className="space-y-5">
+                    <h3 className="border-b pb-3 text-lg font-semibold">
+                      {isBn ? 'ব্যক্তিগত তথ্য' : 'Personal Information'}
                     </h3>
-                    
-                    <div className="grid sm:grid-cols-2 gap-4">
+
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="nameEn" className="text-sm font-medium">
-                          {locale === 'bn' ? 'নাম (ইংরেজি) *' : 'Name (English) *'}
-                        </Label>
+                        <Label htmlFor="nameEn">{isBn ? 'নাম (ইংরেজি) *' : 'Name (English) *'}</Label>
                         <Input
+                          className={FIELD}
                           id="nameEn"
-                          className="h-11 bg-white border-slate-200 focus:border-primary"
+                          autoComplete="name"
+                          autoCapitalize="words"
+                          enterKeyHint="next"
                           placeholder="Full name in English"
+                          aria-invalid={Boolean(errors.nameEn)}
                           {...register('nameEn')}
                         />
-                        {errors.nameEn && (
-                          <p className="text-sm text-destructive">{errors.nameEn.message}</p>
-                        )}
+                        <FieldError message={errors.nameEn?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="nameBn" className="text-sm font-medium">
-                          {locale === 'bn' ? 'নাম (বাংলা)' : 'Name (Bengali)'}
-                        </Label>
+                        <Label htmlFor="nameBn">{isBn ? 'নাম (বাংলা)' : 'Name (Bengali)'}</Label>
                         <Input
+                          className={FIELD}
                           id="nameBn"
-                          className="h-11 bg-white border-slate-200 focus:border-primary"
+                          autoCapitalize="words"
+                          enterKeyHint="next"
                           placeholder="পূর্ণ নাম বাংলায়"
+                          aria-invalid={Boolean(errors.nameBn)}
                           {...register('nameBn')}
                         />
+                        <FieldError message={errors.nameBn?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="fatherName">
-                          {locale === 'bn' ? 'পিতার নাম *' : "Father's Name *"}
-                        </Label>
+                        <Label htmlFor="fatherName">{isBn ? 'পিতার নাম *' : "Father's Name *"}</Label>
                         <Input
+                          className={FIELD}
                           id="fatherName"
+                          autoCapitalize="words"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.fatherName)}
                           {...register('fatherName')}
                         />
-                        {errors.fatherName && (
-                          <p className="text-sm text-destructive">{errors.fatherName.message}</p>
-                        )}
+                        <FieldError message={errors.fatherName?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="motherName">
-                          {locale === 'bn' ? 'মাতার নাম *' : "Mother's Name *"}
-                        </Label>
+                        <Label htmlFor="motherName">{isBn ? 'মাতার নাম *' : "Mother's Name *"}</Label>
                         <Input
+                          className={FIELD}
                           id="motherName"
+                          autoCapitalize="words"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.motherName)}
                           {...register('motherName')}
                         />
-                        {errors.motherName && (
-                          <p className="text-sm text-destructive">{errors.motherName.message}</p>
-                        )}
+                        <FieldError message={errors.motherName?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="phone">
-                          {locale === 'bn' ? 'মোবাইল নম্বর *' : 'Mobile Number *'}
-                        </Label>
+                        <Label htmlFor="phone">{isBn ? 'মোবাইল নম্বর *' : 'Mobile Number *'}</Label>
                         <Input
+                          className={FIELD}
                           id="phone"
                           type="tel"
+                          inputMode="numeric"
+                          autoComplete="tel"
+                          enterKeyHint="next"
+                          maxLength={11}
                           placeholder="01XXXXXXXXX"
+                          aria-invalid={Boolean(errors.phone)}
                           {...register('phone')}
                         />
-                        {errors.phone && (
-                          <p className="text-sm text-destructive">{errors.phone.message}</p>
-                        )}
+                        <FieldError message={errors.phone?.message} />
                         {!errors.phone && phoneAvailability === 'checking' && (
-                          <p className="text-xs text-muted-foreground">
-                            {locale === 'bn' ? 'মোবাইল নম্বর যাচাই হচ্ছে...' : 'Checking phone number...'}
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                            {isBn ? 'যাচাই হচ্ছে...' : 'Checking…'}
                           </p>
                         )}
-                        {!errors.phone && phoneAvailability === 'taken' && (
-                          <p className="text-sm text-destructive">
-                            {locale === 'bn'
-                              ? 'এই মোবাইল নম্বর ইতোমধ্যে নিবন্ধিত'
-                              : 'This phone number is already registered'}
+                        {!errors.phone && phoneAvailability === 'available' && (
+                          <p className="flex items-center gap-1.5 text-xs text-primary">
+                            <Check className="h-3 w-3" aria-hidden />
+                            {isBn ? 'ব্যবহার করা যাবে' : 'Available'}
                           </p>
                         )}
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="email">
-                          {locale === 'bn' ? 'ই-মেইল *' : 'Email *'}
-                        </Label>
+                        <Label htmlFor="email">{isBn ? 'ই-মেইল *' : 'Email *'}</Label>
                         <Input
+                          className={FIELD}
                           id="email"
                           type="email"
+                          inputMode="email"
+                          autoComplete="email"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          enterKeyHint="next"
                           placeholder="name@example.com"
+                          aria-invalid={Boolean(errors.email)}
                           {...register('email')}
                         />
-                        {errors.email && (
-                          <p className="text-sm text-destructive">{errors.email.message}</p>
-                        )}
+                        <FieldError message={errors.email?.message} />
                         {!errors.email && emailAvailability === 'checking' && (
-                          <p className="text-xs text-muted-foreground">
-                            {locale === 'bn' ? 'ই-মেইল যাচাই হচ্ছে...' : 'Checking email...'}
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                            {isBn ? 'যাচাই হচ্ছে...' : 'Checking…'}
                           </p>
                         )}
-                        {!errors.email && emailAvailability === 'taken' && (
-                          <p className="text-sm text-destructive">
-                            {locale === 'bn'
-                              ? 'এই ই-মেইল ইতোমধ্যে নিবন্ধিত'
-                              : 'This email is already registered'}
+                        {!errors.email && emailAvailability === 'available' && (
+                          <p className="flex items-center gap-1.5 text-xs text-primary">
+                            <Check className="h-3 w-3" aria-hidden />
+                            {isBn ? 'ব্যবহার করা যাবে' : 'Available'}
                           </p>
                         )}
+                        <p className="text-xs text-muted-foreground">
+                          {isBn
+                            ? 'অনুমোদনের পর এখানেই পাসওয়ার্ড পাঠানো হবে।'
+                            : 'Your password will be sent here after approval.'}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-3 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
-                        <Label htmlFor="nidNumber">
-                          {locale === 'bn' ? 'এন.আই.ডি নং *' : 'NID Number *'}
-                        </Label>
+                        <Label htmlFor="nidNumber">{isBn ? 'এন.আই.ডি নং *' : 'NID Number *'}</Label>
                         <Input
+                          className={FIELD}
                           id="nidNumber"
-                          placeholder="10, 13, or 17 digits"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          spellCheck={false}
+                          enterKeyHint="next"
+                          maxLength={17}
+                          placeholder={isBn ? '১০, ১৩ বা ১৭ সংখ্যা' : '10, 13 or 17 digits'}
+                          aria-invalid={Boolean(errors.nidNumber)}
                           {...register('nidNumber')}
                         />
-                        {errors.nidNumber && (
-                          <p className="text-sm text-destructive">{errors.nidNumber.message}</p>
-                        )}
+                        <FieldError message={errors.nidNumber?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="gender">
-                          {locale === 'bn' ? 'লিঙ্গ *' : 'Gender *'}
-                        </Label>
+                        <Label htmlFor="gender">{isBn ? 'লিঙ্গ *' : 'Gender *'}</Label>
                         <select
                           id="gender"
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                          className={SELECT_CLASS}
+                          aria-invalid={Boolean(errors.gender)}
                           {...register('gender')}
                         >
-                          <option value="MALE">{locale === 'bn' ? 'পুরুষ' : 'Male'}</option>
-                          <option value="FEMALE">{locale === 'bn' ? 'মহিলা' : 'Female'}</option>
-                          <option value="OTHER">{locale === 'bn' ? 'অন্যান্য' : 'Other'}</option>
+                          <option value="MALE">{isBn ? 'পুরুষ' : 'Male'}</option>
+                          <option value="FEMALE">{isBn ? 'মহিলা' : 'Female'}</option>
+                          <option value="OTHER">{isBn ? 'অন্যান্য' : 'Other'}</option>
                         </select>
+                        <FieldError message={errors.gender?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="dateOfBirth">
-                          {locale === 'bn' ? 'জন্ম তারিখ *' : 'Date of Birth *'}
-                        </Label>
+                        <Label htmlFor="dateOfBirth">{isBn ? 'জন্ম তারিখ *' : 'Date of Birth *'}</Label>
                         <Input
+                          className={FIELD}
                           id="dateOfBirth"
                           type="date"
+                          max={new Date().toISOString().slice(0, 10)}
+                          aria-invalid={Boolean(errors.dateOfBirth)}
                           {...register('dateOfBirth')}
                         />
-                        {errors.dateOfBirth && (
-                          <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
-                        )}
+                        <FieldError message={errors.dateOfBirth?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="bloodGroup">
-                          {locale === 'bn' ? 'রক্তের গ্রুপ *' : 'Blood Group *'}
-                        </Label>
+                        <Label htmlFor="bloodGroup">{isBn ? 'রক্তের গ্রুপ *' : 'Blood Group *'}</Label>
                         <select
                           id="bloodGroup"
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                          className={SELECT_CLASS}
+                          aria-invalid={Boolean(errors.bloodGroup)}
                           {...register('bloodGroup')}
                         >
-                          <option value="A+">A+</option>
-                          <option value="A-">A-</option>
-                          <option value="B+">B+</option>
-                          <option value="B-">B-</option>
-                          <option value="AB+">AB+</option>
-                          <option value="AB-">AB-</option>
-                          <option value="O+">O+</option>
-                          <option value="O-">O-</option>
+                          {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((group) => (
+                            <option key={group} value={group}>
+                              {group}
+                            </option>
+                          ))}
                         </select>
-                        {errors.bloodGroup && (
-                          <p className="text-sm text-destructive">{errors.bloodGroup.message}</p>
-                        )}
+                        <FieldError message={errors.bloodGroup?.message} />
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="profession">
-                          {locale === 'bn' ? 'পেশা *' : 'Profession *'}
-                        </Label>
+                        <Label htmlFor="profession">{isBn ? 'পেশা *' : 'Profession *'}</Label>
                         <Input
+                          className={FIELD}
                           id="profession"
-                          placeholder={locale === 'bn' ? 'যেমন: কৃষক, শিক্ষক, ব্যবসায়ী' : 'e.g. Farmer, Teacher, Business'}
+                          enterKeyHint="next"
+                          placeholder={
+                            isBn ? 'যেমন: কৃষক, শিক্ষক, ব্যবসায়ী' : 'e.g. Farmer, Teacher, Business'
+                          }
+                          aria-invalid={Boolean(errors.profession)}
                           {...register('profession')}
                         />
-                        {errors.profession && (
-                          <p className="text-sm text-destructive">{errors.profession.message}</p>
-                        )}
+                        <FieldError message={errors.profession?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="maritalStatus">
-                          {locale === 'bn' ? 'বৈবাহিক অবস্থা *' : 'Marital Status *'}
+                          {isBn ? 'বৈবাহিক অবস্থা *' : 'Marital Status *'}
                         </Label>
                         <select
                           id="maritalStatus"
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                          className={SELECT_CLASS}
+                          aria-invalid={Boolean(errors.maritalStatus)}
                           {...register('maritalStatus')}
                         >
-                          <option value="UNMARRIED">{locale === 'bn' ? 'অবিবাহিত' : 'Unmarried'}</option>
-                          <option value="MARRIED">{locale === 'bn' ? 'বিবাহিত' : 'Married'}</option>
+                          <option value="UNMARRIED">{isBn ? 'অবিবাহিত' : 'Unmarried'}</option>
+                          <option value="MARRIED">{isBn ? 'বিবাহিত' : 'Married'}</option>
                         </select>
+                        <FieldError message={errors.maritalStatus?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="childrenCount">
-                          {locale === 'bn' ? 'সন্তানের সংখ্যা' : 'Number of Children'}
+                          {isBn ? 'সন্তানের সংখ্যা' : 'Number of Children'}
                         </Label>
                         <Input
+                          className={FIELD}
                           id="childrenCount"
                           type="number"
-                          min="0"
+                          inputMode="numeric"
+                          min={0}
+                          max={20}
+                          disabled={maritalStatus === 'UNMARRIED'}
+                          aria-invalid={Boolean(errors.childrenCount)}
                           {...register('childrenCount', { valueAsNumber: true })}
                         />
-                        {errors.childrenCount && (
-                          <p className="text-sm text-destructive">{errors.childrenCount.message}</p>
-                        )}
+                        {maritalStatus === 'UNMARRIED' ? (
+                          <p className="text-xs text-muted-foreground">
+                            {isBn
+                              ? 'বিবাহিত নির্বাচন করলে এটি পূরণ করা যাবে।'
+                              : 'Available once you select Married.'}
+                          </p>
+                        ) : null}
+                        <FieldError message={errors.childrenCount?.message} />
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                      {locale === 'bn'
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                      {isBn
                         ? 'অনুমোদনের পরে আপনাকে ইমেইলে অস্থায়ী পাসওয়ার্ড পাঠানো হবে। প্রথম লগইনের পর পাসওয়ার্ড পরিবর্তন বাধ্যতামূলক।'
                         : 'After approval, a temporary password will be sent to your email. You must change it after first login.'}
                     </div>
@@ -1053,178 +1483,177 @@ export default function RegisterPage() {
 
                 {/* Step 2: Address */}
                 {currentStep === 1 && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold border-b pb-2">
-                      {locale === 'bn' ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}
+                  <div className="space-y-5">
+                    <h3 className="border-b pb-3 text-lg font-semibold">
+                      {isBn ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}
                     </h3>
-                    
-                    <div className="grid sm:grid-cols-3 gap-4">
+
+                    <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
-                        <Label htmlFor="permanentHouseNo">
-                          {locale === 'bn' ? 'বাড়ী নং *' : 'House No *'}
-                        </Label>
+                        <Label htmlFor="permanentHouseNo">{isBn ? 'বাড়ী নং *' : 'House No *'}</Label>
                         <Input
+                          className={FIELD}
                           id="permanentHouseNo"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentHouseNo)}
                           {...register('permanentHouseNo')}
                         />
-                        {errors.permanentHouseNo && (
-                          <p className="text-sm text-destructive">{errors.permanentHouseNo.message}</p>
-                        )}
+                        <FieldError message={errors.permanentHouseNo?.message} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="permanentRoadNo">
-                          {locale === 'bn' ? 'রোড নং' : 'Road No'}
-                        </Label>
+                        <Label htmlFor="permanentRoadNo">{isBn ? 'রোড নং' : 'Road No'}</Label>
                         <Input
+                          className={FIELD}
                           id="permanentRoadNo"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentRoadNo)}
                           {...register('permanentRoadNo')}
                         />
+                        <FieldError message={errors.permanentRoadNo?.message} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="permanentVillage">
-                          {locale === 'bn' ? 'গ্রাম *' : 'Village *'}
-                        </Label>
+                        <Label htmlFor="permanentVillage">{isBn ? 'গ্রাম *' : 'Village *'}</Label>
                         <Input
+                          className={FIELD}
                           id="permanentVillage"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentVillage)}
                           {...register('permanentVillage')}
                         />
-                        {errors.permanentVillage && (
-                          <p className="text-sm text-destructive">{errors.permanentVillage.message}</p>
-                        )}
+                        <FieldError message={errors.permanentVillage?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-3 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-2">
-                        <Label htmlFor="permanentUnion">
-                          {locale === 'bn' ? 'ইউনিয়ন *' : 'Union *'}
-                        </Label>
+                        <Label htmlFor="permanentUnion">{isBn ? 'ইউনিয়ন *' : 'Union *'}</Label>
                         <Input
+                          className={FIELD}
                           id="permanentUnion"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentUnion)}
                           {...register('permanentUnion')}
                         />
-                        {errors.permanentUnion && (
-                          <p className="text-sm text-destructive">{errors.permanentUnion.message}</p>
-                        )}
+                        <FieldError message={errors.permanentUnion?.message} />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="permanentPoliceStation">
-                          {locale === 'bn' ? 'থানা *' : 'Police Station *'}
+                          {isBn ? 'থানা *' : 'Police Station *'}
                         </Label>
                         <Input
+                          className={FIELD}
                           id="permanentPoliceStation"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentPoliceStation)}
                           {...register('permanentPoliceStation')}
                         />
-                        {errors.permanentPoliceStation && (
-                          <p className="text-sm text-destructive">{errors.permanentPoliceStation.message}</p>
-                        )}
+                        <FieldError message={errors.permanentPoliceStation?.message} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="permanentDistrict">
-                          {locale === 'bn' ? 'জেলা *' : 'District *'}
-                        </Label>
+                        <Label htmlFor="permanentDistrict">{isBn ? 'জেলা *' : 'District *'}</Label>
                         <Input
+                          className={FIELD}
                           id="permanentDistrict"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.permanentDistrict)}
                           {...register('permanentDistrict')}
                         />
-                        {errors.permanentDistrict && (
-                          <p className="text-sm text-destructive">{errors.permanentDistrict.message}</p>
-                        )}
+                        <FieldError message={errors.permanentDistrict?.message} />
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-4 border-t">
+                    <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
                       <input
                         type="checkbox"
                         id="sameAsPermanent"
-                        className="h-4 w-4"
+                        className="h-5 w-5 shrink-0 accent-primary"
                         {...register('sameAsPermanent')}
                       />
-                      <Label htmlFor="sameAsPermanent" className="text-sm font-normal">
-                        {locale === 'bn'
+                      <Label htmlFor="sameAsPermanent" className="text-sm font-normal leading-snug">
+                        {isBn
                           ? 'বর্তমান ঠিকানা স্থায়ী ঠিকানার সাথে একই'
                           : 'Present address is same as permanent address'}
                       </Label>
                     </div>
+                    <FieldError message={errors.sameAsPermanent?.message} />
 
                     {!sameAsPermanent && (
                       <>
-                        <h3 className="text-lg font-semibold border-b pb-2">
-                          {locale === 'bn' ? 'বর্তমান ঠিকানা' : 'Present Address'}
+                        <h3 className="border-b pb-3 text-lg font-semibold">
+                          {isBn ? 'বর্তমান ঠিকানা' : 'Present Address'}
                         </h3>
-                        
-                        <div className="grid sm:grid-cols-3 gap-4">
+
+                        <div className="grid gap-4 sm:grid-cols-3">
                           <div className="space-y-2">
-                            <Label htmlFor="presentHouseNo">
-                              {locale === 'bn' ? 'বাড়ী নং *' : 'House No *'}
-                            </Label>
+                            <Label htmlFor="presentHouseNo">{isBn ? 'বাড়ী নং *' : 'House No *'}</Label>
                             <Input
+                              className={FIELD}
                               id="presentHouseNo"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentHouseNo)}
                               {...register('presentHouseNo')}
                             />
-                            {errors.presentHouseNo && (
-                              <p className="text-sm text-destructive">{errors.presentHouseNo.message}</p>
-                            )}
+                            <FieldError message={errors.presentHouseNo?.message} />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="presentRoadNo">
-                              {locale === 'bn' ? 'রোড নং' : 'Road No'}
-                            </Label>
+                            <Label htmlFor="presentRoadNo">{isBn ? 'রোড নং' : 'Road No'}</Label>
                             <Input
+                              className={FIELD}
                               id="presentRoadNo"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentRoadNo)}
                               {...register('presentRoadNo')}
                             />
+                            <FieldError message={errors.presentRoadNo?.message} />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="presentVillage">
-                              {locale === 'bn' ? 'গ্রাম *' : 'Village *'}
-                            </Label>
+                            <Label htmlFor="presentVillage">{isBn ? 'গ্রাম *' : 'Village *'}</Label>
                             <Input
+                              className={FIELD}
                               id="presentVillage"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentVillage)}
                               {...register('presentVillage')}
                             />
-                            {errors.presentVillage && (
-                              <p className="text-sm text-destructive">{errors.presentVillage.message}</p>
-                            )}
+                            <FieldError message={errors.presentVillage?.message} />
                           </div>
                         </div>
 
-                        <div className="grid sm:grid-cols-3 gap-4">
+                        <div className="grid gap-4 sm:grid-cols-3">
                           <div className="space-y-2">
-                            <Label htmlFor="presentUnion">
-                              {locale === 'bn' ? 'ইউনিয়ন *' : 'Union *'}
-                            </Label>
+                            <Label htmlFor="presentUnion">{isBn ? 'ইউনিয়ন *' : 'Union *'}</Label>
                             <Input
+                              className={FIELD}
                               id="presentUnion"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentUnion)}
                               {...register('presentUnion')}
                             />
-                            {errors.presentUnion && (
-                              <p className="text-sm text-destructive">{errors.presentUnion.message}</p>
-                            )}
+                            <FieldError message={errors.presentUnion?.message} />
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="presentPoliceStation">
-                              {locale === 'bn' ? 'থানা *' : 'Police Station *'}
+                              {isBn ? 'থানা *' : 'Police Station *'}
                             </Label>
                             <Input
+                              className={FIELD}
                               id="presentPoliceStation"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentPoliceStation)}
                               {...register('presentPoliceStation')}
                             />
-                            {errors.presentPoliceStation && (
-                              <p className="text-sm text-destructive">{errors.presentPoliceStation.message}</p>
-                            )}
+                            <FieldError message={errors.presentPoliceStation?.message} />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="presentDistrict">
-                              {locale === 'bn' ? 'জেলা *' : 'District *'}
-                            </Label>
+                            <Label htmlFor="presentDistrict">{isBn ? 'জেলা *' : 'District *'}</Label>
                             <Input
+                              className={FIELD}
                               id="presentDistrict"
+                              enterKeyHint="next"
+                              aria-invalid={Boolean(errors.presentDistrict)}
                               {...register('presentDistrict')}
                             />
-                            {errors.presentDistrict && (
-                              <p className="text-sm text-destructive">{errors.presentDistrict.message}</p>
-                            )}
+                            <FieldError message={errors.presentDistrict?.message} />
                           </div>
                         </div>
                       </>
@@ -1234,66 +1663,78 @@ export default function RegisterPage() {
 
                 {/* Step 3: Nominee */}
                 {currentStep === 2 && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold border-b pb-2">
-                      {locale === 'bn' ? 'নমিনী তথ্য' : 'Nominee Information'}
+                  <div className="space-y-5">
+                    <h3 className="border-b pb-3 text-lg font-semibold">
+                      {isBn ? 'নমিনী তথ্য' : 'Nominee Information'}
                     </h3>
-                    
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <p className="text-sm text-muted-foreground">
+                      {isBn
+                        ? 'আপনার অনুপস্থিতিতে যিনি আপনার জমার দাবিদার হবেন।'
+                        : 'The person who may claim your savings in your absence.'}
+                    </p>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="nomineeName">
-                          {locale === 'bn' ? 'নমিনীর নাম *' : 'Nominee Name *'}
-                        </Label>
+                        <Label htmlFor="nomineeName">{isBn ? 'নমিনীর নাম *' : 'Nominee Name *'}</Label>
                         <Input
+                          className={FIELD}
                           id="nomineeName"
+                          autoCapitalize="words"
+                          enterKeyHint="next"
+                          aria-invalid={Boolean(errors.nomineeName)}
                           {...register('nomineeName')}
                         />
-                        {errors.nomineeName && (
-                          <p className="text-sm text-destructive">{errors.nomineeName.message}</p>
-                        )}
+                        <FieldError message={errors.nomineeName?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="nomineeRelationship">
-                          {locale === 'bn' ? 'সম্পর্ক *' : 'Relationship *'}
-                        </Label>
+                        <Label htmlFor="nomineeRelationship">{isBn ? 'সম্পর্ক *' : 'Relationship *'}</Label>
                         <Input
+                          className={FIELD}
                           id="nomineeRelationship"
-                          placeholder={locale === 'bn' ? 'যেমন: পিতা, মাতা, স্ত্রী, স্বামী' : 'e.g. Father, Mother, Wife, Husband'}
+                          enterKeyHint="next"
+                          placeholder={
+                            isBn ? 'যেমন: পিতা, মাতা, স্ত্রী, স্বামী' : 'e.g. Father, Mother, Wife, Husband'
+                          }
+                          aria-invalid={Boolean(errors.nomineeRelationship)}
                           {...register('nomineeRelationship')}
                         />
-                        {errors.nomineeRelationship && (
-                          <p className="text-sm text-destructive">{errors.nomineeRelationship.message}</p>
-                        )}
+                        <FieldError message={errors.nomineeRelationship?.message} />
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="nomineeNid">
-                          {locale === 'bn' ? 'নমিনীর NID *' : 'Nominee NID *'}
-                        </Label>
+                        <Label htmlFor="nomineeNid">{isBn ? 'নমিনীর NID *' : 'Nominee NID *'}</Label>
                         <Input
+                          className={FIELD}
                           id="nomineeNid"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          spellCheck={false}
+                          enterKeyHint="next"
+                          maxLength={17}
+                          placeholder={isBn ? '১০, ১৩ বা ১৭ সংখ্যা' : '10, 13 or 17 digits'}
+                          aria-invalid={Boolean(errors.nomineeNid)}
                           {...register('nomineeNid')}
                         />
-                        {errors.nomineeNid && (
-                          <p className="text-sm text-destructive">{errors.nomineeNid.message}</p>
-                        )}
+                        <FieldError message={errors.nomineeNid?.message} />
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="nomineePhone">
-                          {locale === 'bn' ? 'নমিনীর মোবাইল' : 'Nominee Phone'}
-                        </Label>
+                        <Label htmlFor="nomineePhone">{isBn ? 'নমিনীর মোবাইল' : 'Nominee Phone'}</Label>
                         <Input
+                          className={FIELD}
                           id="nomineePhone"
                           type="tel"
+                          inputMode="numeric"
+                          enterKeyHint="done"
+                          maxLength={11}
+                          placeholder="01XXXXXXXXX"
+                          aria-invalid={Boolean(errors.nomineePhone)}
                           {...register('nomineePhone')}
                         />
-                        {errors.nomineePhone && (
-                          <p className="text-sm text-destructive">{errors.nomineePhone.message}</p>
-                        )}
+                        <FieldError message={errors.nomineePhone?.message} />
                       </div>
                     </div>
                   </div>
@@ -1301,128 +1742,194 @@ export default function RegisterPage() {
 
                 {/* Step 4: Documents & Agreement */}
                 {currentStep === 3 && (
-                  <div className="space-y-6">
-                    <h3 className="text-lg font-semibold border-b pb-2">
-                      {locale === 'bn' ? 'প্রয়োজনীয় নথি' : 'Required Documents'}
-                    </h3>
-                    
-                    <div className="bg-muted/50 rounded-lg p-4 text-sm">
-                      <p className="font-medium mb-2">
-                        {locale === 'bn' ? 'নিবন্ধন সম্পন্ন করতে নিচের নথিগুলো আপলোড বাধ্যতামূলক:' : 'All uploads below are mandatory to complete registration:'}
-                      </p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {locale === 'bn'
-                          ? 'শুধু JPG/PNG/WebP, সর্বোচ্চ ১০MB।'
-                          : 'Only JPG/PNG/WebP, up to 10MB each.'}
-                      </p>
+                  <div className="space-y-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
+                      <h3 className="text-lg font-semibold">
+                        {isBn ? 'প্রয়োজনীয় নথি' : 'Required Documents'}
+                      </h3>
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {uploadedCount}/{REQUIRED_DOCUMENT_KEYS.length}
+                        {totalUploadBytes > 0 ? ` · ${formatFileSize(totalUploadBytes)}` : ''}
+                      </span>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {documentFieldMeta.map((field) => (
-                        <div key={field.key} className="space-y-2">
-                          <Label htmlFor={field.key}>{field.label}</Label>
-                          <Input
-                            id={field.key}
-                            type="file"
-                            accept="image/jpeg,image/jpg,image/png,image/webp"
-                            onChange={(event) => handleDocumentChange(field.key, event)}
-                          />
-                          <p className="text-xs text-muted-foreground">{field.helper}</p>
-                          {documentFiles[field.key] && (
-                            <p className="text-xs text-emerald-700">
-                              {locale === 'bn' ? 'নির্বাচিত:' : 'Selected:'} {documentFiles[field.key]?.name}
-                            </p>
-                          )}
-                          {documentErrors[field.key] && (
-                            <p className="text-xs text-destructive">{documentErrors[field.key]}</p>
-                          )}
-                        </div>
-                      ))}
+                    <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                      {isBn
+                        ? 'চারটি ছবিই দিতে হবে। ফোন থেকে সরাসরি ছবি তুলতে পারেন — ছবিগুলো পাঠানোর আগে স্বয়ংক্রিয়ভাবে ছোট করা হয়, তাই ইন্টারনেট ডেটা কম লাগবে।'
+                        : 'All four are required. You can photograph them directly with your phone — each picture is shrunk automatically before sending, so it uses very little data.'}
+                    </p>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {documentFieldMeta.map((field) => {
+                        const slot = documentFiles[field.key];
+                        const isProcessing = processingDocument === field.key;
+                        return (
+                          <div key={field.key} className="space-y-2">
+                            <Label htmlFor={field.key}>{field.label} *</Label>
+                            <input
+                              id={field.key}
+                              type="file"
+                              accept="image/jpeg,image/jpg,image/png,image/webp"
+                              className="sr-only"
+                              onChange={(event) => void handleDocumentChange(field.key, event)}
+                            />
+                            {slot ? (
+                              <div className="flex items-center gap-3 rounded-lg border p-2">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={slot.previewUrl}
+                                  alt=""
+                                  className="h-16 w-16 shrink-0 rounded-md border object-cover"
+                                />
+                                <div className="min-w-0 flex-1 text-xs">
+                                  <p className="truncate font-medium">{slot.file.name}</p>
+                                  <p className="text-muted-foreground tabular-nums">
+                                    {formatFileSize(slot.file.size)}
+                                    {slot.originalSize > slot.file.size && (
+                                      <>
+                                        {' '}
+                                        <span className="text-primary">
+                                          ({isBn ? 'ছোট করা হয়েছে' : 'compressed'})
+                                        </span>
+                                      </>
+                                    )}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => clearDocument(field.key)}
+                                  aria-label={isBn ? 'ছবি সরান' : 'Remove image'}
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <Label
+                                htmlFor={field.key}
+                                className={cn(
+                                  'flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-4 text-center transition-colors',
+                                  documentErrors[field.key]
+                                    ? 'border-destructive/50 bg-destructive/5'
+                                    : 'hover:border-primary hover:bg-primary/5',
+                                )}
+                              >
+                                {isProcessing ? (
+                                  <>
+                                    <Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden />
+                                    <span className="text-xs text-muted-foreground">
+                                      {isBn ? 'ছবি প্রস্তুত হচ্ছে...' : 'Preparing image…'}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Camera className="h-5 w-5 text-muted-foreground" aria-hidden />
+                                    <span className="text-sm font-medium">
+                                      {isBn ? 'ছবি তুলুন বা বেছে নিন' : 'Take or choose a photo'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">{field.helper}</span>
+                                  </>
+                                )}
+                              </Label>
+                            )}
+                            <FieldError message={documentErrors[field.key]} />
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    <h3 className="text-lg font-semibold border-b pb-2">
-                      {locale === 'bn' ? 'নিয়মাবলী' : 'Rules & Regulations'}
+                    <h3 className="border-b pb-3 text-lg font-semibold">
+                      {isBn ? 'নিয়মাবলী' : 'Rules & Regulations'}
                     </h3>
-                    
-                    <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-4 text-sm space-y-3">
+
+                    <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
                       <p>
-                        {locale === 'bn'
+                        {isBn
                           ? '১. সুদ মুক্ত সমাজ গঠনের লক্ষ্যে এককালীন ১০০ টাকা অনুদান দিয়ে কর্জ প্রদানে ওয়াদাবদ্ধ হয়ে যে কেউ সদস্য হতে পারবে। উল্লেখ্য যে, সদস্যদের অনুদান অবশ্যই হালাল হতে হবে।'
                           : '1. Anyone can become a member by donating a one-time fee of ৳100 and committing to provide interest-free loans. Note: Member donations must be from halal sources.'}
                       </p>
                       <p>
-                        {locale === 'bn'
+                        {isBn
                           ? '২. কোন সদস্য জমাকৃত টাকা উত্তোলন করতে চাইলে তাকে কমপক্ষে তিন মাস আগে কর্তৃপক্ষকে অবহিত করতে হবে।'
                           : '2. If a member wishes to withdraw deposited funds, they must notify the management at least three months in advance.'}
                       </p>
                       <p>
-                        {locale === 'bn'
+                        {isBn
                           ? '৩. সদস্য জমাকৃত টাকার উপর কোন প্রকার লভ্যাংশ পাবে না।'
                           : '3. Members will not receive any interest or dividends on their deposited funds.'}
                       </p>
                     </div>
 
-                    <h3 className="text-lg font-semibold border-b pb-2">
-                      {locale === 'bn' ? 'অঙ্গীকারনামা' : 'Pledge'}
+                    <h3 className="border-b pb-3 text-lg font-semibold">
+                      {isBn ? 'অঙ্গীকারনামা' : 'Pledge'}
                     </h3>
-                    
-                    <div className="bg-muted/50 rounded-lg p-4 text-sm">
+
+                    <div className="rounded-lg bg-muted/50 p-4 text-sm">
                       <p className="font-bengali">
-                        {locale === 'bn'
+                        {isBn
                           ? 'আমি অঙ্গীকার করছি যে, অত্র ম্যানেজমেন্টের যাবতীয় নিয়ম কানুন নীতিমালা ও গৃহীত সকল সিদ্ধান্ত আন্তরিকভাবে মেনে চলব। অত্র ম্যানেজমেন্টের স্বার্থ ও মান ক্ষুন্ন ও নিয়ম পরিপন্থী কর্মকান্ডে লিপ্ত হব না।'
                           : 'I pledge that I will sincerely abide by all rules, regulations, policies, and decisions of this management. I will not engage in any activities that harm the interests or violate the rules of this management.'}
                       </p>
                     </div>
 
-                    <div className="flex items-start gap-2 pt-4">
+                    <div
+                      className={cn(
+                        'flex items-start gap-3 rounded-lg border p-3',
+                        errors.agreeToTerms ? 'border-destructive/50 bg-destructive/5' : 'bg-muted/40',
+                      )}
+                    >
                       <input
                         type="checkbox"
                         id="agreeToTerms"
-                        className="h-4 w-4 mt-1"
+                        className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+                        aria-invalid={Boolean(errors.agreeToTerms)}
                         {...register('agreeToTerms')}
                       />
-                      <Label htmlFor="agreeToTerms" className="text-sm font-normal">
-                        {locale === 'bn'
+                      <Label htmlFor="agreeToTerms" className="text-sm font-normal leading-snug">
+                        {isBn
                           ? 'আমি উপরের সকল নিয়মাবলী পড়েছি এবং মেনে চলতে সম্মত আছি *'
                           : 'I have read and agree to all the above rules and regulations *'}
                       </Label>
                     </div>
-                    {errors.agreeToTerms && (
-                      <p className="text-sm text-destructive">{errors.agreeToTerms.message}</p>
-                    )}
+                    <FieldError message={errors.agreeToTerms?.message} />
                   </div>
                 )}
 
-                {/* Navigation Buttons */}
-                <div className="flex justify-between mt-8 pt-6 border-t">
+                {/* Navigation — sticky on phones so the way forward is always
+                    reachable without scrolling to the end of a long step. */}
+                <div className="sticky bottom-0 -mx-4 mt-8 flex items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:pt-6 sm:backdrop-blur-none">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={prevStep}
-                    disabled={currentStep === 0}
-                    className="gap-2"
+                    disabled={currentStep === 0 || busy}
+                    className="h-12 gap-1 sm:h-10 sm:gap-2"
                   >
                     <ChevronLeft className="h-4 w-4" />
-                    {locale === 'bn' ? 'পেছনে' : 'Back'}
+                    {isBn ? 'পেছনে' : 'Back'}
                   </Button>
 
-                  {currentStep < steps.length - 1 ? (
-                    <Button type="button" onClick={nextStep} className="gap-2">
-                      {locale === 'bn' ? 'পরবর্তী' : 'Next'}
+                  {!isLastStep ? (
+                    <Button type="button" onClick={nextStep} className="h-12 gap-1 sm:h-10 sm:gap-2">
+                      {isBn ? 'পরবর্তী' : 'Next'}
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   ) : (
-                    <Button type="submit" disabled={isSubmitting} className="gap-2">
-                      {isSubmitting ? (
-                        <span className="flex items-center gap-2">
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                          {submitStage === 'uploading'
-                            ? (locale === 'bn' ? 'নথি আপলোড হচ্ছে...' : 'Uploading documents...')
-                            : (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')}
-                        </span>
+                    <Button type="submit" disabled={busy} className="h-12 gap-2 sm:h-10">
+                      {busy ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          {submitStage === 'finishing'
+                            ? isBn
+                              ? 'সম্পন্ন হচ্ছে...'
+                              : 'Finishing…'
+                            : isBn
+                              ? 'জমা হচ্ছে...'
+                              : 'Submitting…'}
+                        </>
                       ) : (
                         <>
-                          {locale === 'bn' ? 'নিবন্ধন সম্পন্ন করুন' : 'Complete Registration'}
+                          {isBn ? 'নিবন্ধন সম্পন্ন করুন' : 'Complete Registration'}
                           <Check className="h-4 w-4" />
                         </>
                       )}
@@ -1433,34 +1940,29 @@ export default function RegisterPage() {
 
               <div className="mt-6 text-center text-sm">
                 <span className="text-muted-foreground">
-                  {locale === 'bn' ? 'ইতিমধ্যে অ্যাকাউন্ট আছে?' : 'Already have an account?'}{' '}
+                  {isBn ? 'ইতিমধ্যে অ্যাকাউন্ট আছে?' : 'Already have an account?'}{' '}
                 </span>
-                <Link
-                  href={`/${locale}/login`}
-                  className="text-primary hover:underline font-medium"
-                >
-                  {locale === 'bn' ? 'সাইন ইন' : 'Sign In'}
+                <Link href={`/${locale}/login`} className="font-medium text-primary hover:underline">
+                  {isBn ? 'সাইন ইন' : 'Sign In'}
                 </Link>
               </div>
             </CardContent>
           </Card>
 
-          {/* Back to home link */}
-          <p className="text-center mt-8">
+          <p className="mt-8 text-center">
             <Link
               href={`/${locale}`}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              ← {locale === 'bn' ? 'হোম পেজে ফিরে যান' : 'Back to home'}
+              ← {isBn ? 'হোম পেজে ফিরে যান' : 'Back to home'}
             </Link>
           </p>
         </div>
       </main>
 
-      {/* Simple Footer */}
-      <footer className="border-t border-slate-100 py-6 mt-8">
+      <footer className="mt-8 border-t py-6">
         <p className="text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} Hasnahena. {locale === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
+          © {new Date().getFullYear()} Hasnahena. {isBn ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
         </p>
       </footer>
     </div>

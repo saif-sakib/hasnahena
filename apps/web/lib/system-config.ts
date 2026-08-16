@@ -27,6 +27,11 @@ export const SYSTEM_CONFIG_KEYS = [
   'loan.maxLoanMultiplier',
   'loan.maxInstallmentMonths',
   'loan.allowActiveLoanWithdrawal',
+  // Settable, and enforced by nothing. A loan becomes DEFAULTED only when an
+  // admin marks it so (MarkLoanDefaulted); no job counts missed installments,
+  // and loan_repository.go reports "missedPayments" as a literal 0. Kept so the
+  // intended policy is recorded and the admin control keeps working, but the
+  // control says "not enforced yet" rather than implying automation.
   'loan.missedPaymentsForDefault',
   // Loans at or below this amount need no guarantor and go straight to
   // PENDING_APPROVAL. product.md has always specified a threshold; until WO-45
