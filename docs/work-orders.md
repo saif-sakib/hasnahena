@@ -27,7 +27,7 @@ session to find.
 | A–G | WO-01 → WO-26 | Security, hardening, tests, CI, backups, observability, containers, stack modernisation | **Done** |
 | **H** | WO-27 → WO-29 | Live defects found in the 2026-08-16 audit | **WO-29 done · WO-28 open · WO-27 part-done** |
 | ~~I~~ | ~~WO-30 → WO-33~~ | ~~Remaining security + hardening~~ | **Done 2026-08-16** |
-| J | WO-34 → WO-35 | Deployable artifacts | Open |
+| ~~J~~ | ~~WO-34 → WO-35~~ | ~~Deployable artifacts~~ | **Done 2026-08-16** |
 | K | WO-36 → WO-39 | Code health and product gaps | Open |
 
 ### Standing rules for every order
@@ -87,6 +87,29 @@ compiler is off.
 **Do them as part of enabling the React Compiler, not before it.** At that point
 the rules mean something and the risk buys a real optimisation. Doing it now is
 the trade this batch was structured to avoid.
+
+**The obvious fix does not work — tried and measured 2026-08-16.** The tempting
+transformation is to split each loader into a `fetch*` that writes no state
+before its first `await`, and point the mount effect at that:
+
+```ts
+const fetchDeposits = async () => {           // no setState before the await
+  try { const d = await apiGet(...); setDeposits(d); }
+  finally { setIsLoading(false); }
+};
+useEffect(() => { void fetchDeposits(); }, []);
+```
+
+The rule still fires. The compiler follows the call graph into the callee and
+cannot prove `apiGet` will not throw *synchronously* into the `finally`, so the
+effect is still treated as setting state during render. The attempt also
+introduced a fresh `exhaustive-deps` warning, making the count worse.
+
+Clearing these therefore needs the effect body to contain no reachable setState
+at all — which means moving these screens onto a data-fetching library (React
+Query/SWR) or `use()` with Suspense. That is an architectural change to 13 screens
+that move members' money, and it is Stage 4 work in [go-live.md](go-live.md), not
+a lint cleanup.
 
 **When you do pick this up** — run `pnpm lint` for the current list; the rules are
 configured in [apps/web/eslint.config.mjs](../apps/web/eslint.config.mjs) with the
@@ -308,7 +331,31 @@ the restore itself.
 
 ---
 
-# Batch J — Deployable artifacts `[ ]`
+# Batch J — Deployable artifacts `[x]`
+
+**Done 2026-08-16.** [.github/workflows/images.yml](../.github/workflows/images.yml)
+publishes both images to GHCR on every push to `main`, tagged with the commit SHA
+and `latest`, and the env-var contract is documented in
+[setup.md](setup.md#build-time-vs-runtime-pkg-08).
+
+Two things in that workflow are there because of Batch F, and should not be
+removed as ceremony:
+
+- **It runs the image it just pushed.** Batch F shipped three defects that a
+  green build could not see and only a started container could — a half-traced
+  `@swc/helpers`, a missing OpenSSL, and a dangling `.env` symlink. The web job
+  waits for `/en` to answer; the api job checks the distroless entrypoint
+  resolves at all.
+- **It asserts no `.env` file is inside the image.** `.dockerignore` is the
+  control that prevents it, and `.dockerignore` has been wrong once already, in a
+  way that surfaced only by luck. Both checks were verified against a real image
+  *and against a negative control* — a deliberately planted `/app/.env` is caught,
+  so the assertion is not silently passing.
+
+**Nothing in production consumes these images yet**; Vercel and Render still
+build from source. They exist so the history is already there on the day
+something does (INF-06).
+
 
 ## WO-34 · Build and push images in CI `[ ]`
 

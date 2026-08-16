@@ -120,6 +120,51 @@ must be byte-identical:
 Everything else belongs to one host only. Setting a Render variable on Vercel
 does nothing, and vice versa.
 
+### Build-time vs runtime (PKG-08)
+
+The other half of the contract, and the half with no error message. Every
+variable is read at one of two moments, and they behave completely differently
+when you change one.
+
+| Kind | Which | Read when | To change it you must |
+|---|---|---|---|
+| **Build-time** | every `NEXT_PUBLIC_*` | `next build` | **Redeploy.** Restarting changes nothing — the value is already inside the JavaScript that browsers downloaded |
+| **Runtime** | everything else, both apps | on each request or at boot | Restart the service. Render does this for you when you save a variable |
+
+Three consequences worth knowing before they cost you an afternoon:
+
+- **`NEXT_PUBLIC_*` is baked for server code too**, not just the browser bundle.
+  A Next route handler running on the server still sees the value from build
+  time. This is genuinely surprising and it is easy to misread as a caching bug.
+- **In Docker they are `--build-arg`, not `-e`.** `apps/web/Dockerfile` declares
+  them as `ARG`, and [images.yml](../.github/workflows/images.yml) passes the
+  production URLs. Passing one to `docker run` does nothing at all.
+- **`NEXT_PUBLIC_*` is public.** It ships to every visitor's browser. Nothing
+  secret can go in one — no API key, no token, no database URL. The prefix is the
+  entire access-control decision.
+
+### Who owns what
+
+| Variable | Render (Go) | Vercel (web) | Local | Kind |
+|---|---|---|---|---|
+| `DATABASE_URL` | ✅ | ✅ | ✅ | runtime — **must match** |
+| `JWT_SECRET` | ✅ | ✅ | ✅ | runtime — **must match** |
+| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL` | — | ✅ | ✅ | **build-time** |
+| `NEXT_PUBLIC_SENTRY_DSN` | — | ✅ | ✅ | **build-time** |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | — | ✅ | — | build-time (source-map upload; a build never fails without them) |
+| `CORS_ORIGINS`, `PORT`, `LOG_LEVEL`, `SERVER_*`, `DB_*`, `CLEANUP_INTERVAL` | ✅ | — | ✅ | runtime |
+| `ENABLE_HSTS`, `TRUSTED_PROXIES`, `RATE_LIMIT_*` | ✅ | — | — | runtime |
+| `METRICS_TOKEN` | ✅ | — | — | runtime — unset ⇒ `/metrics` 404s |
+| `BREVO_*`, `EMAIL_FROM` | ✅ | — | ✅ | runtime |
+| `CLOUDINARY_*` | — | ✅ | ✅ | runtime |
+| `BACKUP_DATABASE_URL`, `BACKUP_PASSPHRASE`, `BACKUP_S3_*` | — | — | — | GitHub **repository secrets**, not a host |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | — | — | ✅ | runtime, `pnpm db:seed` only |
+
+**`BACKUP_PASSPHRASE` deserves its own warning.** Rotating it makes every
+existing dump undecryptable. Keep the old value for as long as you keep the
+dumps it encrypted, and store it somewhere that survives losing this GitHub
+account — otherwise the backups are files of noise.
+
 ### Local: one file, one symlink
 
 `apps/web/.env` is a symlink to the root `.env.local`, so there is one file to

@@ -358,9 +358,9 @@ for Phase 6. Do it *before* you need to move, so the move is not also a rewrite.
 | PKG-03 `[x]` | Extend `docker-compose.yml` to the whole stack | Done. Postgres → one-shot migrate/seed → api → web. `docker compose up -d postgres` still works on its own |
 | PKG-04 `[x]` | `.dockerignore` for both | Done, and it matters more than it looks: Next's tracer was observed copying `.env.local` into `.next/standalone/`, which would bake production credentials into an image layer |
 | PKG-05 `[x]` | Pin versions everywhere | Done. Go 1.25, Node 24, pnpm 8.15.4, all four base images by digest |
-| PKG-06 `[ ]` | Build and push images in CI | **Confirmed open** — no workflow references `docker build` or GHCR. Tagged by commit SHA. **A deployable artifact per commit is what turns a rollback into one command**, and it is the prerequisite for Phase 6 ([WO-34](work-orders.md)) |
+| PKG-06 `[x]` | Build and push images in CI | **Done 2026-08-16.** `.github/workflows/images.yml` → GHCR, tagged by commit SHA and `latest`, on every push to `main` that touches code. Each job **runs the image it pushed** rather than trusting a green build — the three Batch F defects were all invisible until a container started — and asserts no `.env` file is inside. Both checks verified against a negative control. Nothing in production consumes them yet; they exist so the history is there for INF-06 |
 | PKG-07 `[x]` | Health checks in the images | Done. The Go image has no shell, so the server probes itself: `/server -healthcheck` → `/v1/ready`. The web image uses `node -e` with `fetch` |
-| PKG-08 `[ ]` | Document the full env-var contract | `.env.example` is good; add which are build-time vs runtime, which host owns each, and which must match across hosts — `JWT_SECRET` differing between Render and Vercel breaks every session ([WO-35](work-orders.md)) |
+| PKG-08 `[x]` | Document the full env-var contract | **Done 2026-08-16.** [setup.md](setup.md) now carries a per-variable ownership table and a build-time/runtime split. The part with no error message: `NEXT_PUBLIC_*` is baked at `next build` — including for server-side route handlers — so changing one needs a **redeploy**, not a restart, and in Docker it is a `--build-arg` that `-e` cannot override |
 
 ---
 

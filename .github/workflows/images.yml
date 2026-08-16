@@ -1,0 +1,175 @@
+name: Images
+
+# PKG-06 · a deployable artifact per commit.
+#
+# The Dockerfiles have existed since Batch F and are proven to run, but nothing
+# built them on a commit — so "roll back to yesterday" meant rebuilding yesterday
+# rather than pulling it. This publishes both images to GHCR tagged with the
+# commit SHA, which turns a rollback into one `docker pull` and is the
+# prerequisite for the VPS move (INF-06).
+#
+# Nothing in production consumes these yet: Vercel and Render build from source.
+# They are here so that the day something does, the history already exists.
+
+on:
+  push:
+    branches: [main]
+    # Docs-only commits do not change an image. Skipping them keeps the registry
+    # readable and saves ~4 minutes of Actions time per docs push.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+# Both images are built from the same commit, so a partial publish would leave
+# the SHA meaning two different things. Serialise rather than cancel: a
+# half-pushed tag is worse than a slow one.
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: Build and push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      # Required to push to GHCR with the built-in GITHUB_TOKEN. Without it the
+      # push fails at the very end of a successful build, which is a slow way to
+      # discover a one-line problem.
+      packages: write
+
+    strategy:
+      # Do not cancel the API image because the web image failed. They are
+      # independent, and knowing whether both are broken is worth 2 minutes.
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: apps/api/Dockerfile
+          - name: web
+            dockerfile: apps/web/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR rejects uppercase in a repository path, and GitHub usernames are
+      # commonly mixed case — `Saif-Sakib/hasnahena` would fail on push after a
+      # full build. Lowercase it here rather than hard-coding the owner.
+      - name: Compute the image name
+        id: img
+        run: echo "ref=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # The repository root, not the Dockerfile's directory: both images need
+          # the pnpm workspace manifest and lockfile, which live at the root.
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.img.outputs.ref }}:${{ github.sha }}
+            ${{ steps.img.outputs.ref }}:latest
+          # NEXT_PUBLIC_* is baked into the client bundle at build time, so these
+          # cannot be supplied at `docker run` — a wrong value here ships to every
+          # browser and can only be fixed by rebuilding. Harmless for the api
+          # image, which ignores them.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://api.hasnahenafoundation.com' }}
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL || 'https://hasnahenafoundation.com' }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL || 'https://hasnahenafoundation.com' }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: false
+
+      # A build that succeeds and an image that runs are different claims — Batch
+      # F shipped three defects that only appeared when the container was
+      # started, and every one of them passed a green build. This does not prove
+      # the app works, but it does prove the entrypoint resolves and the process
+      # survives its first seconds, which is what those three broke.
+      - name: Smoke-test the pushed image
+        run: |
+          set -euo pipefail
+          image='${{ steps.img.outputs.ref }}:${{ github.sha }}'
+          docker pull -q "$image"
+
+          if [ '${{ matrix.name }}' = 'api' ]; then
+            # No database here, so the server is expected to exit rather than
+            # serve. What is being checked is that the binary exists, is
+            # executable and fails for the RIGHT reason — a distroless image with
+            # a missing or mislinked binary fails with exec format / not found.
+            out="$(docker run --rm --entrypoint /server "$image" -healthcheck 2>&1 || true)"
+            case "$out" in
+              *"exec format error"*|*"no such file"*|*"not found"*)
+                echo "::error::the api image's entrypoint is broken: $out"; exit 1 ;;
+            esac
+            echo "api entrypoint resolves"
+          else
+            docker run -d --name smoke -p 3000:3000 \
+              -e DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/none' "$image"
+            ok=
+            for _ in $(seq 1 30); do
+              # Any HTTP response proves node started and the standalone tree is
+              # complete. The @swc/helpers defect died here, before serving one
+              # request, with a green build behind it.
+              if curl -fsS -o /dev/null http://127.0.0.1:3000/en 2>/dev/null; then ok=1; break; fi
+              sleep 2
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::the web image did not serve /en within 60s"
+              docker logs smoke | tail -40
+              docker rm -f smoke >/dev/null 2>&1 || true
+              exit 1
+            fi
+            docker rm -f smoke >/dev/null 2>&1 || true
+            echo "web image serves /en"
+          fi
+
+      # The single control that stops a credential reaching a public-ish
+      # registry. .dockerignore is what prevents it, and .dockerignore has been
+      # wrong once already (Batch F) in a way that only surfaced by accident.
+      - name: Assert no env files were baked in
+        run: |
+          set -euo pipefail
+          image='${{ steps.img.outputs.ref }}:${{ github.sha }}'
+          found="$(docker run --rm --entrypoint='' "$image" \
+                     sh -c 'find / -xdev \( -name ".env" -o -name ".env.*" \) ! -name "*.example" 2>/dev/null' \
+                   || true)"
+          if [ -n "$found" ]; then
+            echo "::error::env files are present inside the image:"; echo "$found"; exit 1
+          fi
+          echo "no env files in the image"
+        # The api image is distroless and has no shell, so `sh -c` cannot run —
+        # which is also why nothing can be exfiltrated from it interactively.
+        # Its build context is the same, and the web check covers the shared
+        # .dockerignore.
+        if: matrix.name == 'web'
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ matrix.name }} image"
+            echo
+            echo '```'
+            echo "docker pull ${{ steps.img.outputs.ref }}:${{ github.sha }}"
+            echo '```'
+            echo
+            echo "Rolling back is pulling an earlier SHA tag — see docs/deployment.md."
+          } >> "$GITHUB_STEP_SUMMARY"
