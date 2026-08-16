@@ -839,6 +839,17 @@ than at build time. They are grouped by what you have to be touching to hit them
 
 ### Next, React and the build
 
+**`next-env.d.ts` churns on every run and must not be tracked.** `next dev`
+writes `import "./.next/dev/types/routes.d.ts"`; `next build` writes
+`import "./.next/types/routes.d.ts"`. A tracked copy therefore shows up modified
+after whichever command you ran last, forever. Next's own docs say to gitignore
+it and remove it from Git if tracked
+(`node_modules/next/dist/docs/01-app/03-api-reference/05-config/02-typescript.md`).
+Untracked 2026-08-17. It stays in the tsconfig `include` array — tsc tolerates a
+listed file that does not exist, and `.next/types/**/*.ts` is included directly,
+so `pnpm typecheck` passes on a fresh clone with no build (verified from a
+clean tree).
+
 - **`outputFileTracingIncludes` must stay top-level.** Next 15 promoted it out of
   `experimental` and only *warns* if you leave it behind — which silently ships an
   image with no Prisma engine that dies on the first query.

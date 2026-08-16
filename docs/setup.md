@@ -283,7 +283,7 @@ browsers once with `pnpm --filter @hasnahena/web exec playwright install chromiu
 pnpm db:migrate           # apply pending migrations
 pnpm db:migrate:dev       # after editing schema.prisma: generate a migration
 pnpm db:migrate:status    # what is applied and what is not
-pnpm db:seed              # first SUPER_ADMIN + system_config defaults
+pnpm db:seed              # system_config defaults; creates the first admin only if none exists
 pnpm db:studio            # browse data
 pnpm db:clear             # delete everything except admin + gallery + system config
 ```
@@ -298,7 +298,12 @@ Migrations need a direct (non-pooled) connection. `pnpm db:migrate` strips
 `-pooler` from a Neon URL automatically and logs that it did; set
 `DIRECT_DATABASE_URL` to be explicit.
 
-### First admin
+### Seeding
+
+`pnpm db:seed` has two modes, and which one runs depends on whether the database
+already has an admin.
+
+**First run, on an empty database** — the admin variables are required:
 
 ```bash
 SEED_ADMIN_EMAIL=admin@hasnahena.local \
@@ -306,8 +311,23 @@ SEED_ADMIN_PASSWORD='choose-something-long' \
 pnpm db:seed
 ```
 
+**Every run after that** — no variables needed:
+
+```bash
+pnpm db:seed        # ensures system_config, leaves the admin alone
+```
+
+This is the command to run after pulling a change that adds a config key
+(`loan.guarantorThresholdAmount` was the most recent). Requiring an admin
+password to write a settings row is how a routine re-seed turns into a hunt for
+credentials, so the admin step is skipped once one exists — and the skip is
+logged, not silent.
+
+It still **fails loudly** if there is no admin *and* no credentials: a database
+with seeded config and nobody who can log in looks seeded and is not.
+
 Creates one `SUPER_ADMIN` and the `system_config` rows the loan rules read
-(`loan.minDepositForLoan`, `loan.maxLoanMultiplier`, …). It is idempotent: run
+(`loan.minDepositForLoan`, `loan.maxLoanMultiplier`, `loan.guarantorThresholdAmount`, …). It is idempotent: run
 it again and it changes nothing, and in particular it will **not** reset an
 existing admin's password. It refuses to invent a password, and rejects one
 under 12 characters.

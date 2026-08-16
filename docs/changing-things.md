@@ -46,7 +46,7 @@ page.tsx
 
 1. **Copy lives in `messages/{en,bn}.json`, never in the component.** A hardcoded
    English string is invisible until a Bengali member reads it. Add the key to
-   *both* files — the audit checks parity and they are currently 239/239 exact.
+   *both* files — the audit checks parity and they are currently 283/283 exact.
 2. **`hero.*` and `org.*` come from the admin settings page,** not from code. If
    your new design drops `hero.backgroundImage`, remove the key from
    [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too, or you leave a
@@ -107,7 +107,9 @@ SET "savingsBalance" = "savingsBalance" + $1   -- correct
 ```
 
 Never read the balance and write back a total. See [ADR-015](decisions.md) — that
-bug is live in `transaction_repository.go` today and it destroys money.
+bug was live in `transaction_repository.go` until 2026-08-17 and it destroyed
+money: twenty concurrent deposits left one deposit's worth. Concurrency tests in
+`ledger_integrity_integration_test.go` now fail if it comes back.
 
 **Never** add a rate, markup, or fee. Zero interest is a Shariah constraint, not
 a configurable default. If a requirement seems to need one, that requirement is
@@ -132,8 +134,9 @@ One question decides the backend: **does it change a balance?**
 - **No → a Next route handler is fine.** Registration intake, CMS, settings,
   status transitions.
 
-Then document it in [`api.md`](api.md) in the same commit. The audit found seven
-Next handlers with no caller because that step was skipped in both directions.
+Then document it in [`api.md`](api.md) in the same commit. The 2026-08-17 audit
+found seven Next handlers with no caller because that step was skipped in both
+directions; five were deleted and the rest got their UI.
 
 ---
 
@@ -238,6 +241,12 @@ pnpm lint
 pnpm test:unit        # web, ~1s
 pnpm test:go          # Go, no database needed
 ```
+
+**`apps/web/next-env.d.ts` is generated and untracked.** If you see it in
+`git status`, something re-added it — do not commit it. `next dev` writes
+imports pointing at `.next/dev/types` and `next build` writes `.next/types`, so
+a tracked copy is dirtied by whichever one you ran last. Next documents it as an
+implementation detail that must be gitignored.
 
 If you touched money or SQL, also run the integration suite against a real
 Postgres — the command is in [CLAUDE.md](../CLAUDE.md). It is the only thing that

@@ -8,7 +8,18 @@
 // script someone will reach for in a hurry, against a database they are not
 // completely sure about.
 //
+// First run, on an empty database:
+//
 //   SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... pnpm db:seed
+//
+// Every run after that, to pick up config keys added since:
+//
+//   pnpm db:seed
+//
+// The admin variables are only required when there is no admin yet. Once one
+// exists the admin step is skipped and only system_config is ensured, because
+// needing a password to add a settings row is how a routine re-seed turns into
+// a reason to go looking for credentials.
 //
 // It refuses to invent a password. An admin account with a guessable default is
 // how a cooperative's entire member ledger walks out the door.
@@ -73,8 +84,36 @@ function requiredEnv(name, hint) {
 }
 
 async function seedAdmin(prisma) {
-  const email = requiredEnv('SEED_ADMIN_EMAIL', 'Example: SEED_ADMIN_EMAIL=admin@hasnahena.local');
+  const email = process.env.SEED_ADMIN_EMAIL?.trim();
   const phone = process.env.SEED_ADMIN_PHONE?.trim() || '01700000000';
+
+  // No credentials supplied. That is the ordinary case for re-running the seed
+  // on a working database to pick up newly added config keys, and it used to
+  // fail before reaching seedConfig at all — demanding an admin email to write
+  // a settings row, on a database whose admin has existed for months.
+  //
+  // Skipping is only safe when an admin already exists. On a genuinely fresh
+  // database, silently seeding config and no admin would leave something that
+  // looks seeded and cannot be logged into, so that still fails loudly.
+  if (!email) {
+    const anyAdmin = await prisma.user.findFirst({
+      where: { role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] } },
+      select: { id: true, email: true, phone: true },
+    });
+
+    if (!anyAdmin) {
+      throw new Error(
+        'SEED_ADMIN_EMAIL is not set and this database has no admin account.\n'
+          + '  To create the first admin:\n'
+          + '    SEED_ADMIN_EMAIL=admin@hasnahena.local SEED_ADMIN_PASSWORD=<12+ chars> pnpm db:seed'
+      );
+    }
+
+    console.log(
+      `admin: skipped — SEED_ADMIN_EMAIL not set and ${anyAdmin.email ?? anyAdmin.phone} already exists`
+    );
+    return anyAdmin.id;
+  }
 
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, { phone }] },
