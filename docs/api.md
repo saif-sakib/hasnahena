@@ -53,7 +53,6 @@ The SSE stream takes an `Authorization` header when the caller can set one. A br
 | GET | `/v1/dashboard/worker/{members,requests,loans,transactions,profile}` |
 | GET | `/v1/dashboard/worker/members/{memberId}` |
 | POST | `/v1/dashboard/worker/members/{memberId}/{deposit,withdrawal,loan,loan-payment}` |
-| POST | `/v1/dashboard/worker/{deposit,withdrawal}` |
 | PUT | `/v1/dashboard/worker/profile` |
 
 ### Admin
@@ -77,7 +76,8 @@ The SSE stream takes an `Authorization` header when the caller can set one. A br
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-Thirteen handlers, of which **six have a caller in the app and seven do not**.
+Eleven handlers. Only `admin/audit-logs` has no caller, and it is OBS-08'''s
+backend waiting on its viewer UI.
 The "called by" column is the audited answer, not an intention — verified
 2026-08-17 by grepping every `/api/v1/...` literal in `app/`, `components/`,
 `lib/`, `hooks/` and `e2e/`. An uncalled route is not automatically dead (some
@@ -96,15 +96,17 @@ untested.
 | POST | `/api/v1/loans/applications` | member loan application | **nothing** — FR-10's missing UI ([WO-45](work-orders.md)) |
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | **nothing** — FR-11's missing UI ([WO-45](work-orders.md)) |
 | GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
-| POST | `/api/v1/admin/approvals/registration` | approve a pending registration | **nothing** — superseded by the Go route ([WO-44](work-orders.md)) |
-| POST | `/api/v1/transactions/deposit-requests` | member deposit request | **nothing** — superseded by Go `/v1/dashboard/member/requests/deposit` ([WO-44](work-orders.md)) |
-| POST | `/api/v1/transactions/withdrawal-requests` | member withdrawal request | **nothing** ([WO-44](work-orders.md)) |
 
-**Removed 2026-08-17** — both mutated balances from Next, which
-[ADR-001](decisions.md) forbids, and neither had a caller:
-`POST /api/v1/worker/transactions/{id}/process` (also 500'd on every call — it
-wrote a display name into `processedBy`, a foreign key to `users.id`) and
-`POST /api/v1/member/transactions/{id}/confirm`.
+**Removed 2026-08-17 ([WO-44](work-orders.md))** — five handlers, none with a
+caller anywhere in the app:
+
+| Route | Why |
+|---|---|
+| `POST /api/v1/worker/transactions/{id}/process` | Mutated balances from Next ([ADR-001](decisions.md) forbids it) **and 500'd on every call** — it wrote a display name into `processedBy`, a foreign key to `users.id` |
+| `POST /api/v1/member/transactions/{id}/confirm` | Mutated balances from Next, carrying LEDGER-01's lost update |
+| `POST /api/v1/transactions/deposit-requests` | Superseded by Go `/v1/dashboard/member/requests/deposit` |
+| `POST /api/v1/transactions/withdrawal-requests` | No caller; a withdrawal-request path belongs in Go beside the deposit twin |
+| `POST /api/v1/admin/approvals/registration` | The approvals page calls the Go route of the same name |
 
 ## Adding an endpoint
 

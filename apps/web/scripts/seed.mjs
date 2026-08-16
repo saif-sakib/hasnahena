@@ -43,6 +43,11 @@ const CONFIG_DEFAULTS = [
     description: 'Allow savings withdrawal while the member has an active loan',
   },
   {
+    key: 'loan.guarantorThresholdAmount',
+    value: '20000',
+    description: 'Loans above this amount (taka) require a guarantor; 0 requires one always',
+  },
+  {
     key: 'support.chatRetentionDays',
     value: '10',
     description: 'Days a resolved support thread is kept before deletion',

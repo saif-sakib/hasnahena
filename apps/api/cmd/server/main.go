@@ -270,8 +270,10 @@ func main() {
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)
 			dashboard.Get("/worker/profile", dashboardHandler.WorkerProfile)
 			dashboard.Put("/worker/profile", dashboardHandler.UpdateProfile)
-			dashboard.Post("/worker/deposit", dashboardHandler.ProcessDeposit)
-			dashboard.Post("/worker/withdrawal", dashboardHandler.ProcessWithdrawal)
+			// POST /worker/{deposit,withdrawal} removed 2026-08-17 (WO-41):
+			// unused duplicates of the /worker/members/{memberId}/… routes
+			// above, one without an audit row and one that reported success
+			// without moving money.
 
 			// Everything under /admin is gated by the middleware below, so a
 			// handler added here is protected by where it is mounted rather

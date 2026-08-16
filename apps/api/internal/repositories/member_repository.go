@@ -137,17 +137,26 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		}
 	}
 
+	// Two defects fixed here 2026-08-17, both of which made this panel
+	// permanently empty and neither of which could fail loudly:
+	//
+	//  1. The SELECT listed five columns and the Scan below took four, so every
+	//     row errored and was swallowed by the `continue`.
+	//  2. It filtered on the legacy `PENDING` status while a guarantor request is
+	//     created as `PENDING_GUARANTOR`, so even a correct scan matched nothing.
+	//
+	// This is the legacy-status ambiguity in tasks.md costing something real:
+	// two vocabularies for one concept, and the query picked the wrong one.
 	const guarantorQuery = `
 		SELECT
 			l.id::text,
-			u.id::text,
 			COALESCE(u."nameEn", ''),
 			l."principalAmount"::bigint,
 			l."createdAt"
 		FROM loans l
 		JOIN users u ON u.id = l."borrowerId"
 		WHERE l."guarantorId" = $1
-		  AND l.status = 'PENDING'
+		  AND l.status = 'PENDING_GUARANTOR'
 		ORDER BY l."createdAt" DESC
 		LIMIT 5
 	`
@@ -529,47 +538,28 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 		}
 	}
 
-	availableGuarantors := make([]map[string]interface{}, 0)
-	guarantorsQuery := `
-		SELECT
-			u.id::text,
-			COALESCE(u."nameEn", ''),
-			COALESCE(a."savingsBalance", 0)::bigint
-		FROM users u
-		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.role = 'MEMBER'
-		  AND u.status = 'ACTIVE'
-		  AND u.id <> $1
-		ORDER BY COALESCE(a."savingsBalance", 0) DESC, u."nameEn" ASC
-		LIMIT 50
-	`
-	aRows, aErr := r.db.Query(ctx, guarantorsQuery, userID)
-	if aErr == nil {
-		defer aRows.Close()
-		for aRows.Next() {
-			var id, name string
-			var deposit int64
-			if scanErr := aRows.Scan(&id, &name, &deposit); scanErr != nil {
-				continue
-			}
-			availableGuarantors = append(availableGuarantors, map[string]interface{}{
-				"id":      id,
-				"name":    name,
-				"deposit": deposit,
-			})
-		}
-	}
+	// availableGuarantors was removed 2026-08-17 (SEC-13).
+	//
+	// It answered every signed-in member with the name AND savings balance of the
+	// 50 wealthiest other members, ordered by balance descending — a ranked list
+	// of who in the village has the most money, handed to anyone with a login.
+	// product.md is explicit that a member cannot see another member's data, and
+	// no UI ever consumed this, so it was pure disclosure with no feature behind
+	// it.
+	//
+	// Nominating a guarantor now goes through GET /api/v1/members/lookup: the
+	// applicant types a member ID they already know and gets back one name to
+	// confirm, rate limited, with no balance in the response.
 
 	return map[string]interface{}{
-		"currentDeposit":      currentDepositBDT,
-		"minDepositRequired":  minDepositRequired,
-		"maxLoanMultiplier":   maxLoanMultiplier,
-		"maxLoanAmount":       maxLoanAmountBDT,
-		"isEligible":          currentDepositBDT >= minDepositRequired,
-		"activeLoan":          activeLoan,
-		"loanHistory":         loanHistory,
-		"guarantorRequests":   guarantorRequests,
-		"availableGuarantors": availableGuarantors,
+		"currentDeposit":     currentDepositBDT,
+		"minDepositRequired": minDepositRequired,
+		"maxLoanMultiplier":  maxLoanMultiplier,
+		"maxLoanAmount":      maxLoanAmountBDT,
+		"isEligible":         currentDepositBDT >= minDepositRequired,
+		"activeLoan":         activeLoan,
+		"loanHistory":        loanHistory,
+		"guarantorRequests":  guarantorRequests,
 	}, nil
 }
 

@@ -16,6 +16,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiGet, apiPost } from '@/lib/api';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
+import { LoanApplicationForm } from '@/components/dashboard/loan-application-form';
+import { GuarantorRequests, type GuarantorRequestItem } from '@/components/dashboard/guarantor-requests';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -48,11 +50,15 @@ export default function LoansPage() {
   const [loanPolicy, setLoanPolicy] = useState({
     minDepositRequired: 8000,
     maxLoanMultiplier: 5,
+    maxInstallmentMonths: 24,
+    guarantorThreshold: 20000,
   });
   const minDepositRequired = loanPolicy.minDepositRequired;
   const maxLoanMultiplier = loanPolicy.maxLoanMultiplier;
   const maxLoanAmount = currentDeposit * maxLoanMultiplier;
   const isEligible = currentDeposit >= minDepositRequired;
+  const [showApplyForm, setShowApplyForm] = useState(false);
+  const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequestItem[]>([]);
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
   const [loanHistory, setLoanHistory] = useState<Loan[]>([]);
   const [selectedHistoryLoan, setSelectedHistoryLoan] = useState<Loan | null>(null);
@@ -80,6 +86,7 @@ export default function LoansPage() {
           currentDeposit?: number;
           activeLoan?: Loan | null;
           loanHistory?: Loan[];
+          guarantorRequests?: GuarantorRequestItem[];
         }>('/v1/dashboard/member/loans'),
         apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions'),
         fetch('/api/v1/settings', { cache: 'no-store' })
@@ -90,6 +97,7 @@ export default function LoansPage() {
       setCurrentDeposit(loanData?.currentDeposit ?? 0);
       setActiveLoan(loanData?.activeLoan ?? null);
       setLoanHistory(loanData?.loanHistory ?? []);
+      setGuarantorRequests(loanData?.guarantorRequests ?? []);
       setPendingRepaymentRequests(
         (transactionData ?? []).filter((item) =>
           item.type === 'LOAN_REPAYMENT' && item.status === 'PENDING',
@@ -98,6 +106,8 @@ export default function LoansPage() {
       setLoanPolicy((prev) => {
         const parsedMinDeposit = Number(settingsData?.['loan.minDepositForLoan']);
         const parsedMultiplier = Number(settingsData?.['loan.maxLoanMultiplier']);
+        const parsedMaxInstallments = Number(settingsData?.['loan.maxInstallmentMonths']);
+        const parsedThreshold = Number(settingsData?.['loan.guarantorThresholdAmount']);
         return {
           minDepositRequired:
             Number.isFinite(parsedMinDeposit) && parsedMinDeposit >= 0
@@ -107,6 +117,16 @@ export default function LoansPage() {
             Number.isFinite(parsedMultiplier) && parsedMultiplier > 0
               ? parsedMultiplier
               : prev.maxLoanMultiplier,
+          maxInstallmentMonths:
+            Number.isFinite(parsedMaxInstallments) && parsedMaxInstallments > 0
+              ? parsedMaxInstallments
+              : prev.maxInstallmentMonths,
+          // Zero is a real setting here — it means every loan needs a guarantor —
+          // so this accepts 0 rather than treating it as unset.
+          guarantorThreshold:
+            Number.isFinite(parsedThreshold) && parsedThreshold >= 0
+              ? parsedThreshold
+              : prev.guarantorThreshold,
         };
       });
     } catch (e: any) {
@@ -229,7 +249,35 @@ export default function LoansPage() {
         <h1 className="text-lg font-semibold text-gray-900">
           {t('myLoans')}
         </h1>
+        {/* A member may hold only one loan at a time, which the Go API enforces
+            too — so the button is hidden rather than shown and rejected. */}
+        {isEligible && !activeLoan && !showApplyForm && (
+          <Button type="button" size="sm" onClick={() => setShowApplyForm(true)}>
+            <HandCoins className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {t('applyForLoan')}
+          </Button>
+        )}
       </div>
+
+      {/* Guarantee requests from other members. Above the member's own loans on
+          purpose: it is someone else waiting on them, and it commits their
+          savings. */}
+      <GuarantorRequests requests={guarantorRequests} onResolved={refresh} />
+
+      {showApplyForm && (
+        <LoanApplicationForm
+          maxLoanAmount={maxLoanAmount}
+          maxInstallmentMonths={loanPolicy.maxInstallmentMonths}
+          guarantorThreshold={loanPolicy.guarantorThreshold}
+          onCancel={() => setShowApplyForm(false)}
+          onSubmitted={async (hadGuarantor) => {
+            setShowApplyForm(false);
+            setActionError(null);
+            setActionSuccess(hadGuarantor ? t('applySuccessGuarantor') : t('applySuccess'));
+            await refresh();
+          }}
+        />
+      )}
 
       {/* Eligibility Info */}
       <div className="border border-gray-200 bg-white">

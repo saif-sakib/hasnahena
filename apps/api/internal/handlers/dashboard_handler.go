@@ -1773,48 +1773,18 @@ func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request)
 	utils.Success(w, http.StatusOK, data)
 }
 
-func (h *DashboardHandler) ProcessDeposit(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
-	if !ok {
-		return
-	}
-
-	var req struct {
-		MemberID string `json:"memberId"`
-		Amount   int64  `json:"amount"`
-		Receipt  string `json:"receipt"`
-	}
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	if err := h.userRepo.ProcessDeposit(r.Context(), req.MemberID, auth.UserID, req.Amount, req.Receipt); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "PROCESS_DEPOSIT_FAILED", "Failed to process deposit")
-		return
-	}
-
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Deposit processed successfully"})
-}
-
-func (h *DashboardHandler) ProcessWithdrawal(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
-		return
-	}
-
-	var req struct {
-		MemberID string `json:"memberId"`
-		Amount   int64  `json:"amount"`
-		Reason   string `json:"reason"`
-	}
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	// Would call ProcessWithdrawal repository method when implemented
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Withdrawal processed successfully"})
-}
+// ProcessDeposit and ProcessWithdrawal were removed 2026-08-17 (WO-41), along
+// with POST /v1/dashboard/worker/{deposit,withdrawal}.
+//
+// ProcessDeposit duplicated WorkerAddDeposit without the audit row or the
+// sequential receipt number. ProcessWithdrawal was worse: it parsed the request
+// and then answered `{"message":"Withdrawal processed successfully"}` having
+// moved nothing and recorded nothing — a handler that reports success for work
+// it never did is the failure mode a reconciliation job exists to catch.
+//
+// Neither had a client. The worker UI posts to
+// /v1/dashboard/worker/members/{memberId}/{deposit,withdrawal}, which is
+// WorkerAddDeposit / WorkerAddWithdrawal below.
 
 // WorkerMemberDetail returns detailed information about a specific member
 func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Request) {

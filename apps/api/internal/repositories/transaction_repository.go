@@ -53,12 +53,16 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 	txType = strings.ToUpper(strings.TrimSpace(txType))
 
 	if txType == "DEPOSIT" {
-		var savingsBalance, loanBalance int64
-		if err := tx.QueryRow(ctx, `SELECT "savingsBalance", "loanBalance" FROM accounts WHERE id = $1`, accountID).Scan(&savingsBalance, &loanBalance); err != nil {
-			return err
-		}
-		newSavings := savingsBalance + amount
-		if _, err := tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1, "updatedAt" = NOW() WHERE id = $2`, newSavings, accountID); err != nil {
+		// Credited relatively, so the row's own value is the input (ADR-015).
+		// This used to SELECT the balance and write back a total computed in Go,
+		// which loses one of two concurrent approvals against the same account.
+		var newSavings, loanBalance int64
+		if err := tx.QueryRow(ctx, `
+			UPDATE accounts
+			SET "savingsBalance" = "savingsBalance" + $1, "updatedAt" = NOW()
+			WHERE id = $2
+			RETURNING "savingsBalance"::bigint, "loanBalance"::bigint
+		`, amount, accountID).Scan(&newSavings, &loanBalance); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -624,7 +628,14 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		return "", fmt.Errorf("donation account not found")
 	}
 
-	receiptNumber := fmt.Sprintf("DON-%s", time.Now().Format("20060102150405"))
+	// Allocated from document_sequences like every other reference number
+	// (ADR-013). This used to be DON- plus a wall-clock stamp to the second, so
+	// two donations recorded in the same second collided on a number a member is
+	// handed on paper.
+	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDonation)
+	if err != nil {
+		return "", err
+	}
 
 	description := strings.TrimSpace(notes)
 	if dn := strings.TrimSpace(donorName); dn != "" {
@@ -635,13 +646,15 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		}
 	}
 
-	newDonationBalance := donationBalance + amount
-	_, err = tx.Exec(ctx, `
+	// Credited relatively (ADR-015), even though the FOR UPDATE above already
+	// serialises donations: the pool is a single row every donation contends on.
+	var newDonationBalance int64
+	if err := tx.QueryRow(ctx, `
 		UPDATE accounts
-		SET "savingsBalance" = $1, "updatedAt" = NOW()
+		SET "savingsBalance" = "savingsBalance" + $1, "updatedAt" = NOW()
 		WHERE id = $2
-	`, newDonationBalance, donationAccID)
-	if err != nil {
+		RETURNING "savingsBalance"::bigint
+	`, amount, donationAccID).Scan(&newDonationBalance); err != nil {
 		return "", err
 	}
 
@@ -658,6 +671,15 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		return "", err
 	}
 
+	// A donation changes a balance, so it leaves an audit row like every other
+	// posting (CLAUDE.md rule 2). This was the only money method in the Go API
+	// without one.
+	if err := r.insertAuditLogTx(ctx, tx, "DONATION_RECORDED", "ACCOUNT", donationAccID, recordedByID,
+		fmt.Sprintf("Donation %d BDT recorded, receipt %s, pool %d -> %d", amount, receiptNumber, donationBalance, newDonationBalance),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -665,69 +687,44 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 	return receiptNumber, nil
 }
 
-// ==================== REPORT GENERATION ====================
-
-func (r *UserRepository) ProcessDeposit(ctx context.Context, memberID, workerID string, amount int64, receipt string) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	// Get account ID
-	var accountID string
-	var currentBalance int64
-	err = tx.QueryRow(ctx, `SELECT id, "savingsBalance" FROM accounts WHERE "userId" = $1`, memberID).Scan(&accountID, &currentBalance)
-	if err != nil {
-		return fmt.Errorf("account not found")
-	}
-
-	// Update account balance
-	newBalance := currentBalance + amount
-	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1, "updatedAt" = NOW() WHERE id = $2`, newBalance, accountID)
-	if err != nil {
-		return err
-	}
-
-	// Create deposit transaction
-	const txnQuery = `
-		INSERT INTO transactions (id, type, amount, "receiptNumber", description, "savingsAfter", "createdAt", "accountId", "userId", "processedBy")
-		VALUES (gen_random_uuid()::text, 'DEPOSIT', $1, $2, 'জমা', $3, NOW(), $4, $5, $6)
-	`
-	_, err = tx.Exec(ctx, txnQuery, amount, receipt, newBalance, accountID, memberID, workerID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-// GetMemberDetailForWorker returns detailed information about a member for staff view
+// ProcessDeposit was removed 2026-08-17 (WO-41). It was a second, worse deposit
+// path behind POST /v1/dashboard/worker/deposit: no audit row, a receipt number
+// taken from the request body instead of document_sequences, no transaction
+// status, and the same lost update as AddMemberDeposit. No client ever called
+// it — the worker UI posts to /worker/members/{id}/deposit — so it was a
+// duplicate money path kept alive only by its route. AddMemberDeposit below is
+// the one to use.
 
 // AddMemberDeposit adds a deposit for a member (worker action)
 func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
-	// Verify member exists and is active
-	var status, accountID string
-	var currentBalance int64
-	err := r.db.QueryRow(ctx, `
-		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
-		FROM users u
-		LEFT JOIN accounts a ON a."userId" = u.id
-		WHERE u.id = $1 AND u.role = 'MEMBER'
-	`, memberID).Scan(&status, &accountID, &currentBalance)
-	if err != nil {
-		return "", errors.New("member not found")
-	}
-	if strings.ToUpper(status) != "ACTIVE" {
-		return "", errors.New("member not active")
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
 	}
 
-	// Start transaction
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+
+	// Inside the transaction and locked. This read used to come from the pool
+	// before the transaction existed, so two workers posting to the same member
+	// both saw the old balance and the second overwrote the first — twenty
+	// concurrent deposits left one deposit's worth of money (ADR-015).
+	var status, accountID string
+	var currentBalance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1 AND u.role = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&status, &accountID, &currentBalance); err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
 
 	// Allocated inside the transaction so an abandoned deposit does not burn a
 	// receipt number.
@@ -736,10 +733,15 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", err
 	}
 
-	// Update account balance
-	newBalance := currentBalance + amount
-	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1 WHERE id = $2`, newBalance, accountID)
-	if err != nil {
+	// Credited relatively: the stored value is the input, not a total computed
+	// in Go from a value that may already be stale.
+	var newBalance int64
+	if err := tx.QueryRow(ctx, `
+		UPDATE accounts
+		SET "savingsBalance" = "savingsBalance" + $1, "updatedAt" = NOW()
+		WHERE id = $2
+		RETURNING "savingsBalance"::bigint
+	`, amount, accountID).Scan(&newBalance); err != nil {
 		return "", err
 	}
 
@@ -798,22 +800,35 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 
 // AddMemberWithdrawal processes a withdrawal for a member (worker action)
 func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
-	// Verify member exists and is active
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	// Locked inside the transaction. Every eligibility test below is made
+	// against this row, so it has to be the row the debit lands on — reading it
+	// from the pool first let ten concurrent withdrawals of ৳5,000 all pass a
+	// ৳10,000 balance check and all succeed (ADR-015).
 	var status, accountID string
 	var currentBalance, activeLoan int64
 	var isGuarantor bool
-	err := r.db.QueryRow(ctx, `
-		SELECT 
-			u.status::text, 
-			a.id::text, 
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
+			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
 			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
 		FROM users u
-		LEFT JOIN accounts a ON a."userId" = u.id
+		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role = 'MEMBER'
-	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan, &isGuarantor)
-	if err != nil {
+		FOR UPDATE OF a
+	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan, &isGuarantor); err != nil {
 		return "", errors.New("member not found")
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
@@ -829,21 +844,25 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		return "", errors.New("is guarantor for active loan")
 	}
 
-	// Start transaction
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback(ctx)
-
 	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
 	if err != nil {
 		return "", err
 	}
 
-	// Update account balance
-	newBalance := currentBalance - amount
-	_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = $1 WHERE id = $2`, newBalance, accountID)
+	// Debited relatively, and the balance test is repeated in the WHERE clause
+	// so the check and the debit are one atomic step rather than two. No row
+	// back means the balance moved underneath us — the same answer the caller
+	// already understands.
+	var newBalance int64
+	err = tx.QueryRow(ctx, `
+		UPDATE accounts
+		SET "savingsBalance" = "savingsBalance" - $1, "updatedAt" = NOW()
+		WHERE id = $2 AND "savingsBalance" >= $1
+		RETURNING "savingsBalance"::bigint
+	`, amount, accountID).Scan(&newBalance)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", errors.New("insufficient balance")
+	}
 	if err != nil {
 		return "", err
 	}

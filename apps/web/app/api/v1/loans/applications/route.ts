@@ -8,18 +8,27 @@ import { LoanStatus, UserRole } from '@prisma/client';
 
 const isDev = process.env.NODE_ENV === 'development';
 
+// guarantorId is optional: a loan at or below loan.guarantorThresholdAmount does
+// not need one (product.md). The threshold is checked server-side below — an
+// application that omits a guarantor for a loan above it is rejected, not
+// quietly accepted.
 const bodySchema = z.object({
   amount: z.number().positive(),
   installments: z.number().int().positive(),
   purpose: z.string().min(3),
-  guarantorId: z.string().min(1),
+  guarantorId: z.string().min(1).optional(),
 });
 
 async function getLoanPolicySettings() {
   const configs = await prisma.systemConfig.findMany({
     where: {
       key: {
-        in: ['loan.minDepositForLoan', 'loan.maxLoanMultiplier', 'loan.maxInstallmentMonths'],
+        in: [
+          'loan.minDepositForLoan',
+          'loan.maxLoanMultiplier',
+          'loan.maxInstallmentMonths',
+          'loan.guarantorThresholdAmount',
+        ],
       },
     },
     select: { key: true, value: true },
@@ -32,10 +41,17 @@ async function getLoanPolicySettings() {
     const parsed = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   };
+  // Zero is meaningful here — it means "always require a guarantor" — so this
+  // one accepts 0 rather than falling back to the default on it.
+  const parseNonNegativeInt = (raw: string | undefined, fallback: number) => {
+    const parsed = Number.parseInt(raw ?? '', 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  };
   return {
     minDepositForLoan: parsePositiveInt(map['loan.minDepositForLoan'], 8000),
     maxLoanMultiplier: parsePositiveInt(map['loan.maxLoanMultiplier'], 5),
     maxInstallmentMonths: parsePositiveInt(map['loan.maxInstallmentMonths'], 24),
+    guarantorThresholdAmount: parseNonNegativeInt(map['loan.guarantorThresholdAmount'], 20000),
   };
 }
 
@@ -77,21 +93,53 @@ export async function POST(req: Request) {
       );
     }
 
-    const guarantor = await prisma.user.findUnique({
-      where: { id: payload.guarantorId },
-      select: { id: true, role: true, status: true },
-    });
-    if (!guarantor || guarantor.role !== UserRole.MEMBER) {
-      return NextResponse.json({ ok: false, error: 'Guarantor not found' }, { status: 404 });
+    // A guarantor is required above the configured threshold, not on every loan
+    // (product.md). Below it the application skips PENDING_GUARANTOR and goes
+    // straight to admin review — the default waterfall handles an unguaranteed
+    // loan correctly since WO-42.
+    const guarantorRequired = amountBig > BigInt(loanPolicy.guarantorThresholdAmount);
+    if (guarantorRequired && !payload.guarantorId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'GUARANTOR_REQUIRED',
+          details: { threshold: loanPolicy.guarantorThresholdAmount.toString() },
+        },
+        { status: 422 },
+      );
     }
 
-    const guarantorAccount = await prisma.account.findFirst({
-      where: { userId: guarantor.id },
-      select: { savingsBalance: true },
-    });
-    const guarantorDeposit = guarantorAccount ? guarantorAccount.savingsBalance : BigInt(0);
-    if (guarantorDeposit < amountBig) {
-      return NextResponse.json({ ok: false, error: 'GUARANTOR_DECLINED' }, { status: 422 });
+    let guarantor: { id: string } | null = null;
+    if (payload.guarantorId) {
+      const found = await prisma.user.findUnique({
+        where: { id: payload.guarantorId },
+        select: { id: true, role: true, status: true },
+      });
+      if (!found || found.role !== UserRole.MEMBER || found.status !== 'ACTIVE') {
+        return NextResponse.json({ ok: false, error: 'Guarantor not found' }, { status: 404 });
+      }
+      if (found.id === auth.id) {
+        return NextResponse.json({ ok: false, error: 'GUARANTOR_IS_SELF' }, { status: 422 });
+      }
+
+      // The guarantee is proportional, not full cover: the guarantor is liable
+      // for whatever they hold, which is exactly what ProcessWaterfallRecovery
+      // takes. This used to demand savings >= the entire loan and answer
+      // GUARANTOR_DECLINED — a rule that, at a 5x multiplier, required the
+      // guarantor to have saved five times what the borrower had, and a name
+      // that blamed the guarantor for a balance check they never saw.
+      //
+      // What is still worth refusing is a guarantee worth nothing.
+      const guarantorAccount = await prisma.account.findFirst({
+        where: { userId: found.id },
+        select: { savingsBalance: true },
+      });
+      const guarantorDeposit = guarantorAccount ? guarantorAccount.savingsBalance : BigInt(0);
+      if (guarantorDeposit <= BigInt(0)) {
+        return NextResponse.json({ ok: false, error: 'GUARANTOR_HAS_NO_SAVINGS' }, { status: 422 });
+      }
+
+      guarantor = { id: found.id };
     }
 
     const installments = payload.installments;
@@ -104,7 +152,7 @@ export async function POST(req: Request) {
     const existingPendingLoan = await prisma.loan.findFirst({
       where: {
         borrowerId: auth.id,
-        guarantorId: guarantor.id,
+        guarantorId: guarantor?.id ?? null,
         principalAmount: amountBig,
         totalInstallments: installments,
         purpose: payload.purpose.trim(),
@@ -131,10 +179,12 @@ export async function POST(req: Request) {
         paidInstallments: 0,
         purpose: payload.purpose.trim(),
         applicationFee: BigInt(0),
-        status: LoanStatus.PENDING_GUARANTOR,
+        // With no guarantor there is nobody to wait for, so the loan starts at
+        // admin review rather than sitting in PENDING_GUARANTOR forever.
+        status: guarantor ? LoanStatus.PENDING_GUARANTOR : LoanStatus.PENDING_APPROVAL,
         borrowerId: auth.id,
         accountId: borrowerAccount.id,
-        guarantorId: guarantor.id,
+        guarantorId: guarantor?.id ?? null,
       },
       include: {
         borrower: {
@@ -146,23 +196,26 @@ export async function POST(req: Request) {
       },
     });
 
-    // Create notification for guarantor to approve the loan
-    await prisma.notification.create({
-      data: {
-        type: 'LOAN_REQUEST',
-        title: 'Guarantor Request',
-        message: `${loan.borrower.nameEn} has requested you to be their guarantor for a loan of ৳${Number(amountBig).toLocaleString()}`,
-        targetUserId: guarantor.id,
+    // Create notification for guarantor to approve the loan — only when there is
+    // one to ask.
+    if (guarantor) {
+      await prisma.notification.create({
         data: {
-          loanId: loan.id,
-          loanNumber: loan.loanNumber,
-          borrowerId: auth.id,
-          borrowerName: loan.borrower.nameEn,
-          amount: Number(amountBig),
-          purpose: payload.purpose.trim(),
+          type: 'LOAN_REQUEST',
+          title: 'Guarantor Request',
+          message: `${loan.borrower.nameEn} has requested you to be their guarantor for a loan of ৳${Number(amountBig).toLocaleString()}`,
+          targetUserId: guarantor.id,
+          data: {
+            loanId: loan.id,
+            loanNumber: loan.loanNumber,
+            borrowerId: auth.id,
+            borrowerName: loan.borrower.nameEn,
+            amount: Number(amountBig),
+            purpose: payload.purpose.trim(),
+          },
         },
-      },
-    });
+      });
+    }
 
     // Create notification for admins about the new loan application
     await prisma.notification.create({
@@ -176,8 +229,8 @@ export async function POST(req: Request) {
           loanNumber: loan.loanNumber,
           borrowerId: auth.id,
           borrowerName: loan.borrower.nameEn,
-          guarantorId: guarantor.id,
-          guarantorName: loan.guarantor?.nameEn ?? 'Guarantor',
+          guarantorId: guarantor?.id ?? null,
+          guarantorName: loan.guarantor?.nameEn ?? null,
           amount: Number(amountBig),
           installments,
           purpose: payload.purpose.trim(),

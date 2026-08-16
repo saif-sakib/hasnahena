@@ -14,14 +14,14 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
 ## Read this first
 
-> **`[!]` The ledger races.** Concurrent postings to one account destroy money:
-> 20 simultaneous ৳1,000 deposits leave a ৳1,000 balance against ৳20,000 of
-> transaction rows, and ten ৳5,000 withdrawals all clear against a ৳10,000
-> balance. Defaulting a loan with **no guarantor** marks it DEFAULTED and
-> recovers nothing. Both reproduced against a real database on 2026-08-17.
-> [LEDGER-01/02](production-readiness.md#phase-1--ledger-integrity-defects),
-> fixes specced as [WO-41/42](work-orders.md#batch-l--ledger-integrity). **These
-> come before everything below, including the history purge.**
+> **`[x]` The ledger defects are fixed (2026-08-17).** Concurrent postings used
+> to destroy money — 20 simultaneous ৳1,000 deposits left a ৳1,000 balance
+> against ৳20,000 of transaction rows — and defaulting a loan with **no
+> guarantor** marked it DEFAULTED while recovering nothing. All four
+> [LEDGER defects](production-readiness.md#phase-1--ledger-integrity-defects) are
+> closed by [WO-41 → WO-43](work-orders.md#batch-l--ledger-integrity), with 7
+> regression tests each verified to fail against the pre-fix code. Integration
+> suite: 17 → 24.
 >
 > **`[!]` Member records are recoverable from git history.** 39 files under
 > `Official Infos/` — member details, savings and loan ledgers, check books — were
@@ -60,11 +60,11 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
 | FR-08 | Withdrawal request with notice period | `[~]` | request + approval work; **3-month notice not validated — confirmed, no notice-period code exists anywhere in either app** |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
-| FR-10 | Max loan from configured caps | `[~]` | personal cap only — fairness and solvency caps missing. **`/api/v1/loans/applications` exists and no UI calls it**, so a member cannot apply at all (WO-45) |
-| FR-11 | Guarantor request + approval | `[~]` | **Downgraded 2026-08-17.** WO-29 fixed the endpoint and that fix is real, but **no page in the app calls it** — `guarantor` appears in the UI only as a status label. A guarantor has no way to approve anything (WO-45) |
+| FR-10 | Max loan from configured caps | `[~]` | Members can now apply from the dashboard (WO-45). Personal cap enforced; **fairness and solvency caps still missing** |
+| FR-11 | Guarantor request + approval | `[x]` | Complete 2026-08-17 (WO-45). Guarantor required above `loan.guarantorThresholdAmount`, nominated by member ID with the name confirmed, approve/decline on the member dashboard. Two defects fixed on the way: the dashboard query was scanning 5 columns into 4 *and* filtering the legacy `PENDING` status, so the panel was always empty |
 | FR-12 | Approve → disburse → confirm | `[~]` | Go admin/worker endpoints exist, but the worker path (`CreateMemberLoan`) writes `status = 'ACTIVE'` directly, skipping `PENDING_GUARANTOR` → `PENDING_APPROVAL`. The documented lifecycle is reachable only via admin approval of a loan the UI cannot create |
 | FR-13 | Installments and late fees | `[~]` | installments recorded; **no late-fee logic at all** |
-| FR-14 | Default settlement waterfall | `[!]` | Ordering and proportionality are correct **when a guarantor exists**. With `guarantorId IS NULL` the whole waterfall fails on a NULL scan and recovers nothing, after the loan is already committed as DEFAULTED — LEDGER-02 |
+| FR-14 | Default settlement waterfall | `[x]` | Ordering and proportionality correct, with or without a guarantor. Status change, all three recovery legs and the audit row now commit in one transaction (WO-42) |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split |
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, but no separate pool accounting |
 | FR-17 | Member raises dispute | `[x]` | `/api/v1/member/transactions/{id}/dispute` |
@@ -74,7 +74,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
-**12 complete, 9 partial, 1 broken.**
+**14 complete, 8 partial.**
 
 ## Open bugs
 
@@ -85,12 +85,13 @@ in [production-readiness.md](production-readiness.md); fixed ones are in the
 
 | | Bug | Evidence |
 |---|---|---|
-| `[!]` | **Concurrent postings destroy money** (LEDGER-01) | Measured: 20 parallel ৳1,000 deposits → ৳1,000 balance, ৳20,000 of ledger rows. 10 parallel ৳5,000 withdrawals all cleared a ৳10,000 balance. Cause: balance read from the pool, outside the transaction, unlocked; absolute total written back |
-| `[!]` | **Unguaranteed loan default recovers nothing** (LEDGER-02) | `ProcessWaterfallRecovery` scans nullable `guarantorId` into a Go `string`; pgx errors before step 1. `MarkLoanDefaulted` has already committed `DEFAULTED` in a separate transaction |
-| `[!]` | **Loan-approved notification divides by 100** (LEDGER-03) | `loan_repository.go:123`. A ৳50,000 loan is announced to the member as "BDT 500.00". Last surviving ×100 from before [ADR-002](decisions.md) |
 | `[!]` | **Next handlers ignore the token blacklist** (SEC-11) | `lib/auth.ts` and `lib/server-auth.ts` check signature and `exp` only. After logout or a password change the old token still edits settings, gallery, workers |
-| `[ ]` | Donations bypass `document_sequences` and write no audit row (LEDGER-04) | `RecordDonation` builds `DON-<timestamp>`; two donations in one second collide. Only balance-changing Go method with no `audit_logs` row |
-| `[ ]` | No member loan-application or guarantor-approval UI (FR-10/11) | Exhaustive grep: nothing under `app/[locale]/` calls `loans/applications` or `guarantor-approval` |
+| `[x]` | ~~No member loan-application or guarantor-approval UI~~ (FR-10/11) | Built 2026-08-17 by WO-45 |
+| `[x]` | ~~`availableGuarantors` leaked every member's savings~~ (SEC-13) | Fixed 2026-08-17 — the member loans endpoint returned the 50 wealthiest members' names and balances to any signed-in member |
+| `[x]` | ~~Concurrent postings destroy money~~ (LEDGER-01) | Fixed 2026-08-17 by WO-41 |
+| `[x]` | ~~Unguaranteed loan default recovers nothing~~ (LEDGER-02) | Fixed 2026-08-17 by WO-42 |
+| `[x]` | ~~Loan-approved notification divides by 100~~ (LEDGER-03) | Fixed 2026-08-17 by WO-43 |
+| `[x]` | ~~Donations bypass `document_sequences`, no audit row~~ (LEDGER-04) | Fixed 2026-08-17 by WO-43 |
 | `[ ]` | Withdrawal notice period is not validated (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema. `loan.noticePeriodMonths` is settable and read by nothing |
 | `[ ]` | `LoanStatus` carries legacy `PENDING`/`APPROVED` beside the spec states | Two vocabularies for one concept, both live in the enum |
 | `[ ]` | Support chat has no SSE client | **Confirmed: `EventSource` appears nowhere in `apps/web`.** The stream and its ticket endpoint are live and authenticated; the UI still polls. A client must `POST …/support/stream/ticket` and pass `?ticket=` on every connect |
@@ -108,25 +109,28 @@ in [production-readiness.md](production-readiness.md); fixed ones are in the
 
 ## Suggested order
 
-**[Batch L](work-orders.md#batch-l--ledger-integrity) first** — WO-41/42/43. The
-ledger is wrong under concurrency and on unguaranteed defaults; nothing else on
-this page is worth doing over a broken balance. Then the git-history purge
-(WO-28). Then:
+**[Batch L](work-orders.md#batch-l--ledger-integrity) is done** (WO-41 → WO-44).
+The git-history purge (WO-28) is now next. Then:
 
-1. **SEC-11** — Next handlers must check the token blacklist.
-2. **Collapse the legacy loan statuses** — an enum value cannot be dropped once
+1. **SEC-11** — Next handlers must check the token blacklist. Now the largest
+   open defect.
+2. **Collapse the legacy loan statuses** — this already cost a bug: the member
+   dashboard's guarantor query filtered `PENDING` while applications create
+   `PENDING_GUARANTOR`, so the panel was silently empty (fixed in WO-45) — an enum value cannot be dropped once
    rows reference it.
 3. **Donation fund types** (FR-15/16) — schema plus admin UI, cheap only while
    the donation table is empty.
-4. **WO-45** — the member loan-application and guarantor-approval UI. This is
-   what makes FR-10/11/12 real rather than endpoint-shaped.
+4. ~~WO-45 — loan-application and guarantor UI.~~ **Done 2026-08-17.** FR-12 is
+   still partial: the worker path writes `status = 'ACTIVE'` directly, so a
+   worker-created loan skips the lifecycle a member-created one now follows.
 5. **Fairness and solvency caps** (FR-10), then late fees (FR-13).
 6. **Withdrawal notice period** (FR-08) — the policy is in
    [product.md](product.md); nothing enforces it.
 7. **Admin audit viewer UI** and worker SLA colouring (FR-21/22).
 8. **OPS-07 reconciliation job** — sum of transactions vs account balances. Had
    this existed, LEDGER-01 would have been a nightly alert instead of an audit
-   finding. Treat it as the regression test for the whole ledger.
+   finding. The regression tests now guard the two known shapes; this guards the
+   ones nobody has thought of. Treat it as the ledger's smoke alarm.
 
 ## Priority test scenarios
 
@@ -135,10 +139,15 @@ Financial-integrity first. 1–3 and 5 are covered by
 
 > **The 2026-08-17 lesson.** All 17 integration tests were green while
 > LEDGER-01 and LEDGER-02 were live. Both were found by asking *what does the
-> suite never do* — it never runs two postings at once, and it never seeds a
+> suite never do* — it never ran two postings at once, and it never seeded a
 > loan without a guarantor. A green suite bounds the cases it contains and says
-> nothing about the ones it does not. New scenarios 7 and 8 below exist to close
-> exactly those two blind spots.
+> nothing about the ones it does not. Scenarios 7 and 8 below now close those two
+> blind spots, in
+> [`ledger_integrity_integration_test.go`](../apps/api/internal/repositories/ledger_integrity_integration_test.go).
+>
+> Each of those tests was run against the **pre-fix** code and confirmed to fail
+> with the symptom it names. A regression test written after the fix, and never
+> seen to fail, proves only that today's code passes it.
 
 1. Wrong amount processed → member disputes → admin corrects → every step
    traceable in `audit_logs`. **Covered.**
@@ -152,17 +161,15 @@ Financial-integrity first. 1–3 and 5 are covered by
 6. **Not covered at all: the guarantor flow.** Integration coverage stops at the
    Go API, and FR-11 lives in a Next route handler — which is exactly how a
    permanently-400ing endpoint went unnoticed. Add coverage with [WO-29](work-orders.md).
-7. **Not covered at all: concurrency.** No test in the suite issues two postings
-   at once, which is why LEDGER-01 was invisible. Required by
-   [WO-41](work-orders.md): N parallel deposits must sum exactly, and parallel
-   withdrawals must never overdraw.
-8. **Not covered at all: a loan with no guarantor.** Every waterfall test seeds
-   one, so the nullable column's real path never executed. Required by
-   [WO-42](work-orders.md).
+7. **Concurrency. Covered** (WO-41) — 20 parallel deposits must sum exactly, 10
+   parallel withdrawals against a 2-withdrawal balance must yield exactly 2, and
+   concurrent postings must not collide on a receipt number.
+8. **A loan with no guarantor. Covered** (WO-42) — recovery from the borrower,
+   residual debt when they cannot cover it, and atomicity of the status change.
 
 Exit bar: zero critical or high defects in financial flows, 80% coverage on core
-modules. **Not met today** — LEDGER-01 and LEDGER-02 are both critical and both
-in financial flows.
+modules. **Financial flows now meet it** — LEDGER-01→04 are closed and covered.
+SEC-11 is high but is an auth defect, not a financial one.
 
 ---
 
@@ -175,6 +182,7 @@ in [Traps](work-orders.md#traps-that-cost-a-session); the decisions are in
 
 | Date | What | Notable |
 |---|---|---|
+| 2026-08-17 | **Batch L** (WO-41 → WO-44) — ledger integrity | Full audit against a running Postgres 17. **Concurrent postings were destroying money** — 20 parallel deposits left 1 deposit's worth — and the default waterfall failed outright on any loan without a guarantor, after committing DEFAULTED. Balance writes are now relative ([ADR-015](decisions.md)); recovery shares the status change's transaction. Also removed: a worker withdrawal endpoint that reported success while doing nothing, and 5 uncalled Next handlers. 7 regression tests, **each verified to fail against the pre-fix code first**. Integration suite 17 → 24 |
 | 2026-08-16 | **Batch G** (WO-23 → WO-26) — Next 14 → 16.3.1, React 18 → 19.2.8, next-intl 3 → 4.13.6, ESLint 8 → 9, Tailwind 3 → 4.3.3 | **`pnpm audit` 41 → 0.** Tailwind's codemod silently dropped `tailwindcss-animate`, killing 81 animation classes across 17 files. `sharp` closed itself — the override WO-23 declined to force was never needed |
 | 2026-08-16 | **Batch F** (WO-20 → WO-22) — Dockerfiles, compose, `.dockerignore` | Verified by *running* the images; three defects survived static review, all runtime-only. `.dockerignore` turned out to be a secret-containment control |
 | 2026-08-16 | **Batch E** (WO-17 → WO-19) — metrics, Sentry, alerting | `/metrics` is token-gated: the exposition is business data. Alerting split three ways on cost grounds. Found a startup context being handed to a background loop — gauges froze, which looks exactly like a calm system |

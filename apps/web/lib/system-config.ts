@@ -28,6 +28,11 @@ export const SYSTEM_CONFIG_KEYS = [
   'loan.maxInstallmentMonths',
   'loan.allowActiveLoanWithdrawal',
   'loan.missedPaymentsForDefault',
+  // Loans at or below this amount need no guarantor and go straight to
+  // PENDING_APPROVAL. product.md has always specified a threshold; until WO-45
+  // the application endpoint demanded a guarantor for every loan regardless.
+  // Set to 0 to require a guarantor on every loan.
+  'loan.guarantorThresholdAmount',
   // Settable today, and enforced by nothing — FR-08 is still open. Listed so the
   // admin UI keeps working, but changing it currently has no effect on a
   // withdrawal. Do not read that as the setting being broken; the feature is.

@@ -120,7 +120,9 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 		tx,
 		"SYSTEM_ALERT",
 		"Loan approved",
-		fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.", loanNumber, float64(principalAmount)/100),
+		// No /100 here: money is whole taka (ADR-002). The divide that used to sit
+		// in this call told a member their ৳50,000 loan was "BDT 500.00".
+		fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.", loanNumber, float64(principalAmount)),
 		&borrowerID,
 		nil,
 	); err != nil {
@@ -660,6 +662,14 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 	return result, nil
 }
 
+// MarkLoanDefaulted writes the DEFAULTED status and runs the recovery waterfall
+// in ONE transaction.
+//
+// It used to commit the status change and then call ProcessWaterfallRecovery,
+// which opened a transaction of its own. When recovery failed — which it did for
+// every loan without a guarantor, see waterfallRecoveryTx — the loan was already
+// permanently defaulted with nothing recovered and no clean way to retry. A
+// default that was never settled is not a state this domain has a name for.
 func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -677,21 +687,27 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 		return err
 	}
 
-	// Create audit log
+	// Create audit log. Checked: an unwritten audit row for a default is a
+	// rule-6 problem, and this Exec used to discard its error entirely.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
 	`
-	tx.Exec(ctx, auditQuery, loanID, adminID, notes)
+	if _, err := tx.Exec(ctx, auditQuery, loanID, adminID, notes); err != nil {
+		return fmt.Errorf("failed to write audit log: %w", err)
+	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.waterfallRecoveryTx(ctx, tx, loanID); err != nil {
 		return err
 	}
 
-	// Process waterfall recovery
-	return r.ProcessWaterfallRecovery(ctx, loanID)
+	return tx.Commit(ctx)
 }
 
+// ProcessWaterfallRecovery runs the waterfall on its own. MarkLoanDefaulted no
+// longer uses it — it shares its transaction via waterfallRecoveryTx — but the
+// standalone form stays for re-running recovery against a loan already marked
+// defaulted.
 func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -699,13 +715,35 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 	}
 	defer tx.Rollback(ctx)
 
-	// Get loan details
+	if err := r.waterfallRecoveryTx(ctx, tx, loanID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// waterfallRecoveryTx recovers a defaulted loan inside the caller's transaction:
+// borrower's savings, then the guarantor's, then the donation pool, in that
+// order and never past what is owed.
+func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loanID string) error {
+	// Get loan details.
+	//
+	// "guarantorId" is nullable — a loan below the guarantor threshold has none —
+	// so it MUST be coalesced. Scanning NULL into a Go string fails, and because
+	// this is the first statement the whole waterfall aborted before step 1 for
+	// exactly those loans. The empty string is what the guarantor step below
+	// already tests for.
+	//
+	// FOR UPDATE: recovery reads a balance, decides what to take, and writes it
+	// back. Without the lock two concurrent defaults against one guarantor can
+	// both draw the same savings.
 	var remainingAmount int64
 	var borrowerID, guarantorID, accountID string
 	const loanQuery = `
-		SELECT "remainingAmount", "borrowerId", "guarantorId", "accountId"
+		SELECT "remainingAmount", "borrowerId", COALESCE("guarantorId", ''), "accountId"
 		FROM loans
 		WHERE id = $1
+		FOR UPDATE
 	`
 	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&remainingAmount, &borrowerID, &guarantorID, &accountID); err != nil {
 		return err
@@ -718,7 +756,7 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 	if amountToRecover > 0 {
 		var borrowerSavings int64
 		var borrowerAccountID string
-		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1 FOR UPDATE`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
 		if err == nil && borrowerSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, borrowerSavings)
 
@@ -743,7 +781,7 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 	if amountToRecover > 0 && guarantorID != "" {
 		var guarantorSavings int64
 		var guarantorAccountID string
-		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1 FOR UPDATE`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
 		if err == nil && guarantorSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, guarantorSavings)
 
@@ -803,19 +841,22 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 
 	// Update loan remaining amount
 	newRemaining := amountToRecover
-	_, err = tx.Exec(ctx, `UPDATE loans SET "remainingAmount" = $1 WHERE id = $2`, newRemaining, loanID)
-	if err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE loans SET "remainingAmount" = $1, "updatedAt" = NOW() WHERE id = $2`, newRemaining, loanID); err != nil {
 		return err
 	}
 
-	// Create audit log
+	// Create audit log. Checked, for the same reason as the one in
+	// MarkLoanDefaulted: this row is the only record of which savings were drawn
+	// to settle the debt, and it used to discard its error.
 	recoveryDetails := fmt.Sprintf("Waterfall recovery completed. Steps: %v. Remaining: %d", recoverySteps, newRemaining)
-	tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'WATERFALL_RECOVERY', 'LOAN', $1, NOW(), $2)
-	`, loanID, recoveryDetails)
+	`, loanID, recoveryDetails); err != nil {
+		return fmt.Errorf("failed to write recovery audit log: %w", err)
+	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 // ==================== DONATION MANAGEMENT ====================

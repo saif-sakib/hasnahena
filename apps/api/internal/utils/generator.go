@@ -14,6 +14,7 @@ const (
 	SeriesWithdrawal    = "WDR"  // withdrawal receipt
 	SeriesLoan          = "LOAN" // loan agreement
 	SeriesLoanRepayment = "REP"  // loan repayment receipt
+	SeriesDonation      = "DON"  // donation receipt
 )
 
 // NextDocumentNumberQuery allocates the next number in a series for the current

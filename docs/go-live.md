@@ -33,9 +33,9 @@ is deliberately deferred *because* it stays the same price forever.
 
 **This is the whole point of the plan.** Each of these is cheap exactly once.
 
-### 1.0 Fix the ledger — [Batch L](work-orders.md#batch-l--ledger-integrity) — **added 2026-08-17**
+### 1.0 Fix the ledger — [Batch L](work-orders.md#batch-l--ledger-integrity) — **done 2026-08-17**
 
-This is new, and it goes ahead of the history purge.
+Added and completed the same day. It went ahead of the history purge.
 
 The organising principle above says to do first what gets more expensive later.
 The ledger defects are the case where the principle understates the urgency:
@@ -44,9 +44,10 @@ posting made while they are open is a balance nobody can vouch for.
 
 | | Measured against a real database |
 |---|---|
-| LEDGER-01 | 20 concurrent ৳1,000 deposits → **৳1,000 balance, ৳20,000 of ledger rows**. Ten concurrent ৳5,000 withdrawals all cleared a ৳10,000 balance |
-| LEDGER-02 | Defaulting a loan with no guarantor marks it DEFAULTED and recovers **nothing** |
-| LEDGER-03 | The loan-approved notification tells a member their ৳50,000 loan is "BDT 500.00" |
+| LEDGER-01 `[x]` | 20 concurrent ৳1,000 deposits → **৳1,000 balance, ৳20,000 of ledger rows**. Ten concurrent ৳5,000 withdrawals all cleared a ৳10,000 balance |
+| LEDGER-02 `[x]` | Defaulting a loan with no guarantor marks it DEFAULTED and recovers **nothing** |
+| LEDGER-03 `[x]` | The loan-approved notification tells a member their ৳50,000 loan is "BDT 500.00" |
+| LEDGER-04 `[x]` | Two donations in one second share a receipt number, and none writes an audit row |
 
 Two of these are invisible in normal single-user testing, which is exactly why
 they survived 17 green integration tests and several audits. They will not
@@ -57,9 +58,11 @@ drift. Had it existed, LEDGER-01 would have been a nightly alert. Build it as
 part of this stage, not Phase 7 — it is the only control that catches the *next*
 one of these.
 
-**Do not clear the database (Stage 2.1) before this is fixed.** The current test
-data is the only corpus you have that was posted by the buggy code, and it is
-worth keeping until the fix is verified against it.
+**Balances written before 2026-08-17 may be wrong.** Any account that received
+overlapping postings under the old code can hold a figure that does not match its
+transaction rows. That does not matter if you clear the database at Stage 2.1 —
+which is the plan — but it does mean **no balance from the current data should be
+carried forward by hand**. Reconcile before trusting, or start from zero.
 
 ### 1.1 Purge git history — [WO-28](work-orders.md)
 

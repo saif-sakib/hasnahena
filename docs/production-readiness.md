@@ -6,13 +6,27 @@ on a VPS or AWS by someone who is not the author. Audited against the code on
 every `[x]` below was re-verified against the source, not carried forward from
 the previous pass.
 
-> ## ⛔ Read this before anything else
+> ## Ledger defects — found and fixed 2026-08-17
 >
-> The 2026-08-17 audit found **four defects that destroy or misreport money**,
-> proved against a real database rather than by reading. They are not on the
-> list below because they are not operational readiness — they are the ledger
-> being wrong. See [Phase −1](#phase-1--ledger-integrity-defects) at the top of
-> this page. **Nothing else on this page matters until LEDGER-01 is fixed.**
+> The audit found **four defects that destroyed or misreported money**, proved
+> against a real database rather than by reading. **All four are fixed**
+> ([WO-41 → WO-43](work-orders.md#batch-l--ledger-integrity)), each with a
+> regression test confirmed to fail against the pre-fix code. The integration
+> suite went 17 → 24 tests.
+>
+> They are kept in full in [Phase −1](#phase-1--ledger-integrity-defects)
+> because the *reasoning* is the durable part: two of them were invisible to a
+> green suite, and the reason they were invisible is a property of the suite
+> that is worth not re-creating.
+>
+> **Also closed 2026-08-17:** SEC-13 (the member loans endpoint returned the 50
+> wealthiest members' names and savings balances to any signed-in member) and
+> [WO-45](work-orders.md) (the loan-application and guarantor UI, which is how
+> SEC-13 was found).
+>
+> **Still open from this audit:** [SEC-11](#sec-11--the-nextjs-surface-ignores-token-revocation)
+> — the Next handlers still do not check the token blacklist. It is now the
+> largest open defect on this page after SEC-10.
 
 This file is the **operational** backlog. [tasks.md](tasks.md) tracks *product*
 work (FR-01…22). When a task here is finished, tick it here and note it there
@@ -26,15 +40,15 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 | Area | State | One-line verdict |
 |---|---|---|
-| **Ledger integrity** | `[!]` | **Concurrent postings destroy money; defaulting an unguaranteed loan recovers nothing** — LEDGER-01/02. Proved against a real database 2026-08-17. Ahead of everything else on this page |
+| **Ledger integrity** | `[x]` | LEDGER-01→04 all fixed 2026-08-17. Balance writes are relative and locked (ADR-015), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. 7 regression tests, each verified to fail against the pre-fix code |
 | **Git history** | `[!]` | **39 files of member records are recoverable from history** — see SEC-10. The only item on this page that is a disclosure rather than a risk |
-| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-11 has a working endpoint and **no UI that calls it** |
-| Domain correctness | `[~]` | BigInt taka, zero-interest, append-only audit all hold. Request→process→confirm holds for deposits; the balance arithmetic underneath it does not race-proof (LEDGER-01) |
+| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-10/FR-11 got their UI in WO-45; FR-12 is still partial because a worker-created loan skips the lifecycle |
+| Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is now race-proof under concurrent postings |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[~]` | Go side is correct (SEC-01). **The Next handlers never check the blacklist** — SEC-11 |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[~]` | 17 Go integration tests against real Postgres, Go unit tests on money maths/IDs/logging/revocation timing, 32 web unit tests (CI-04, done). All green. **But they are green over LEDGER-01 and LEDGER-02** — nothing tests concurrency, and every waterfall test seeds a guarantor, so the null-guarantor path was never executed. Playwright has one 28-line spec and skips without seeded credentials |
+| Automated tests | `[~]` | **26** Go integration tests against real Postgres (17 + 9 added for Batch L), Go unit tests on money maths/IDs/logging/revocation timing, 32 web unit tests. Concurrency and the null-guarantor path are now covered. Playwright is still one 28-line spec that skips without seeded credentials — the remaining real gap |
 | CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Both images are verified by **running** them. Images are not built in CI yet (PKG-06), and nothing in production uses them |
 | Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
@@ -51,8 +65,8 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 |---|---|
 | Go API | 38 files, 12.1k lines (incl. tests). The 4.9k-line `user_repository.go` was split by domain in WO-38; the largest file is now `dashboard_handler.go` at 2.1k, then `loan_repository.go` at 1.1k |
 | Next web | 141 TS/TSX files, 26.7k lines |
-| Go routes | 63 under `/v1` |
-| Next route handlers | 13, of which **7 have no caller anywhere in the app** — see [WO-44](work-orders.md). Empty folders are gone |
+| Go routes | 61 under `/v1` (WO-41 removed 2 dead worker routes) |
+| Next route handlers | 11 — WO-44 removed 5, WO-45 added `members/lookup`. Only `admin/audit-logs` is now uncalled, awaiting OBS-08's viewer |
 | Prisma models | 21, 30 indexes |
 | `.git` | 53 MB — **~112 MB of raw blobs** in history: 39 member-record files, three stray binaries and a 24 MB `react` blob (SEC-06, SEC-10) |
 
@@ -60,14 +74,18 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 ## Phase −1 — Ledger integrity defects
 
-Found 2026-08-17. Each was **reproduced against a real Postgres 17**, not
-inferred from reading. Every one of them silently produces a wrong balance, and
-every one of them is cheap to fix now and unfixable later: once a wrong balance
-is a member's savings figure, correcting it is a conversation, not a commit.
+Found **and fixed** 2026-08-17. Each was reproduced against a real Postgres 17,
+not inferred from reading, and each fix carries a regression test that was
+confirmed to fail against the pre-fix code before it was allowed to pass.
 
-Execution specs: [WO-41 → WO-44](work-orders.md#batch-l--ledger-integrity).
+Execution record: [WO-41 → WO-44](work-orders.md#batch-l--ledger-integrity).
 
-### LEDGER-01 · Concurrent postings destroy money `[!]` — **critical**
+Kept in full because the reasoning outlives the patch. Two of these were live
+under 17 green integration tests, and the property of the suite that hid them —
+it never ran two postings at once, and never seeded a loan without a guarantor —
+is the thing worth not re-creating.
+
+### LEDGER-01 · Concurrent postings destroy money `[x]` — **critical** — fixed
 
 `AddMemberDeposit` and `AddMemberWithdrawal`
 ([transaction_repository.go](../apps/api/internal/repositories/transaction_repository.go))
@@ -92,12 +110,19 @@ The fix is not a lock ordering puzzle. `loan_repository.go` already does it
 right — `SET "savingsBalance" = "savingsBalance" - $1` — and the waterfall has
 been correct all along for exactly that reason.
 
-Two callers are affected today (`POST /v1/dashboard/worker/members/{id}/deposit`
-and `/withdrawal`), and `ApproveWithdrawal`'s DEPOSIT branch has a weaker form of
-the same bug: it reads inside the transaction but without `FOR UPDATE`, so it is
-safe against itself only because it locks the `transactions` row first.
+Two callers were affected (`POST /v1/dashboard/worker/members/{id}/deposit` and
+`/withdrawal`), and `ApproveWithdrawal`'s DEPOSIT branch had a weaker form of the
+same bug: it read inside the transaction but without `FOR UPDATE`.
 
-### LEDGER-02 · Defaulting a loan with no guarantor recovers nothing `[!]` — **critical**
+**Fixed** by [WO-41](work-orders.md): all balance writes are relative, all
+eligibility reads are inside the transaction under `FOR UPDATE OF a`, and the
+withdrawal's balance test moved into the `UPDATE … WHERE "savingsBalance" >= $1`
+so the check and the debit are one step. Two unreachable duplicate routes were
+deleted rather than fixed — one of them, `POST /v1/dashboard/worker/withdrawal`,
+reported `"Withdrawal processed successfully"` while moving and recording
+nothing.
+
+### LEDGER-02 · Defaulting a loan with no guarantor recovers nothing `[x]` — **critical** — fixed
 
 `ProcessWaterfallRecovery` scans `loans."guarantorId"` into a Go `string`.
 The column is `String?` — nullable by design, because a loan below the guarantor
@@ -122,7 +147,12 @@ The two-transaction split is the second half of the defect: recovery must happen
 in the same transaction as the status change, or a default can be recorded that
 was never settled.
 
-### LEDGER-03 · Loan approval notification divides by 100 `[!]` — **high**
+**Fixed** by [WO-42](work-orders.md): `COALESCE("guarantorId", '')` — the empty
+string is what the guarantor step already tested for, so no other logic moved —
+and the recovery body became `waterfallRecoveryTx`, which runs inside the
+caller's transaction. `FOR UPDATE` added on the loan and both account reads.
+
+### LEDGER-03 · Loan approval notification divides by 100 `[x]` — **high** — fixed
 
 [loan_repository.go:123](../apps/api/internal/repositories/loan_repository.go) —
 `float64(principalAmount)/100` in the member-facing "loan approved" message. A
@@ -131,10 +161,12 @@ was never settled.
 Money is whole taka ([ADR-002](decisions.md)); there is no paisa to divide by.
 It is the last surviving ×100 from the pre-ADR-002 era and it is in the one
 place a member reads a number and believes it. Every other notification on the
-same path formats `float64(amount)` correctly, so this is a single-character
-class of fix — and a reminder that the migration was never linted for.
+same path formats `float64(amount)` correctly.
 
-### LEDGER-04 · Donations are numbered by wall clock, not by sequence `[~]` — **medium**
+**Fixed** by [WO-43](work-orders.md). A sweep confirms the only remaining
+`/ 100` in the Go API is percentage maths.
+
+### LEDGER-04 · Donations are numbered by wall clock, not by sequence `[x]` — **medium** — fixed
 
 `RecordDonation` builds `DON-20260817143022` from `time.Now()`, bypassing
 `document_sequences` entirely. That contradicts [ADR-013](decisions.md), which
@@ -144,8 +176,14 @@ paper passbook. Two donations recorded in the same second collide, and
 
 `RecordDonation` also writes **no `audit_logs` row**, which makes it the only
 balance-changing method in the Go API that does not — a direct CLAUDE.md rule-2
-violation that the audit-coverage integration test misses because it does not
+violation that the audit-coverage integration test missed because it did not
 cover donations.
+
+**Fixed** by [WO-43](work-orders.md): allocation via a new `utils.SeriesDonation`
+(`DON`), a relative credit to the pool, and the missing `DONATION_RECORDED`
+audit row. The collision was not hypothetical — two donations recorded back to
+back in the regression test both received `DON-20260816213322` under the old
+format.
 
 ---
 
@@ -172,6 +210,26 @@ throws — i.e. never in a correctly configured deployment.
 Blast radius is bounded by what those handlers do (no balance mutation after the
 WO-42 cleanup) but it includes changing loan policy, which is not a small thing
 to leave reachable with a revoked token.
+
+### SEC-13 · Member savings balances were exposed to every member `[x]` — **high** — fixed
+
+Found 2026-08-17 while building WO-45. `GetMemberLoans` returned an
+`availableGuarantors` array to any signed-in member: the name **and savings
+balance** of the 50 wealthiest other members, ordered by balance descending.
+
+That is a ranked list of who in the village has the most money, handed to anyone
+with a login. [product.md](product.md) states plainly that a member cannot see
+another member's data.
+
+Nothing in the web app ever read it, so it was disclosure with no feature behind
+it — and the obvious way to build the guarantor picker would have been to render
+it into a dropdown, which would have turned the leak into a shipped feature.
+
+**Fixed** by removing it. Nominating a guarantor now goes through
+`GET /api/v1/members/lookup`: authenticated, members only, exact full-member-ID
+match, returns a name and no balance, rate limited to 10 lookups per 10 minutes
+keyed on user id plus address. That shape is deliberate — any id-to-name resolver
+is an enumeration oracle, and SEC-08 was closed to remove one.
 
 ### SEC-12 · `GET /api/v1/settings` is unauthenticated `[~]` — **low**
 

@@ -186,7 +186,7 @@ The originals remain in git history at commit `a8f7517` if a formal deliverable 
 
 ### ADR-015 — A balance is written relatively, never read-modify-written
 
-**Status:** accepted · 2026-08-17.
+**Status:** accepted · 2026-08-17 · implemented the same day ([WO-41](work-orders.md)).
 
 Two of the three ways this codebase changes a savings balance were
 read-modify-write: fetch the balance, add in Go, write the total back. One of
@@ -218,9 +218,15 @@ solves; an advisory lock per account adds a second lock ordering to reason about
 next to the `FOR UPDATE` on `transactions`. Neither is needed.
 
 `loan_repository.go` already followed this — which is why the default waterfall
-was never affected — so the fix is convergence on existing practice, not a new
+was never affected — so the fix was convergence on existing practice, not a new
 pattern. Recorded as an ADR because the wrong version is the intuitive one, and
 it was written twice independently.
+
+The guard against it coming back a third time is a test, not this document:
+`TestConcurrentDepositsAllLand` and `TestConcurrentWithdrawalsCannotOverdraw` in
+[`ledger_integrity_integration_test.go`](../apps/api/internal/repositories/ledger_integrity_integration_test.go)
+fail loudly against a read-modify-write. Both were confirmed to fail against the
+pre-fix code before they were allowed to pass.
 
 ---
 

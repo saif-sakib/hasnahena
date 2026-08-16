@@ -29,6 +29,7 @@ session to find.
 | ~~I~~ | ~~WO-30 → WO-33~~ | ~~Remaining security + hardening~~ | **Done 2026-08-16** |
 | ~~J~~ | ~~WO-34 → WO-35~~ | ~~Deployable artifacts~~ | **Done 2026-08-16** |
 | K | WO-36 → WO-40 | Code health and product gaps | **WO-36 → WO-39 done · WO-40 open** |
+| **L** | WO-41 → WO-45 | Ledger integrity, dead routes, the loan + guarantor UI | **Done 2026-08-17** |
 
 ### Standing rules for every order
 
@@ -36,25 +37,76 @@ session to find.
 - `pnpm lint` must exit 0. It currently reports **26 warnings** — 20 of them are
   the `set-state-in-effect` findings WO-27 owns, and 6 are pre-existing
   `@next/next` ones. Do not let that count grow.
-- No Go toolchain is installed system-wide. Unpack a pinned Go 1.25 tarball into
-  the session scratchpad and put it on `PATH`; `go build`, `go vet` and `go test`
-  then all work, so Go orders can be verified here rather than handed back.
+- Go **is** installed (`go1.26.5`); `go build`, `go vet` and `go test` work
+  directly. `golangci-lint` 2.6.1 panics on a 1.26 toolchain — use
+  `GOTOOLCHAIN=go1.25.3`, which is what CI pins. Integration tests need a
+  database; the command is in [CLAUDE.md](../CLAUDE.md).
+- A regression test must be seen to **fail against the pre-fix code** before it
+  is allowed to pass. A test written after the fix, never observed red, proves
+  only that today's code passes it.
 - Money changes stay in the Go API, one transaction, with an `audit_logs` row
   (CLAUDE.md rules 1, 2, 6).
 - Update [tasks.md](tasks.md) and tick the order here in the same commit.
 
 ---
 
-# Batch L — Ledger integrity `[ ]` — **do this batch first**
+# Batch L — Ledger integrity `[~]` — WO-41 → WO-44 done 2026-08-17
 
 Found in the 2026-08-17 audit, each reproduced against a real Postgres 17. The
 *why* is [Phase −1](production-readiness.md#phase-1--ledger-integrity-defects).
 
-These come before Batch H and before the git-history purge. A history rewrite is
-expensive to delay; a wrong balance is expensive to *have*, and one of these is
-already capable of paying out five times an account's savings.
+These came before Batch H and before the git-history purge. A history rewrite is
+expensive to delay; a wrong balance is expensive to *have*, and one of these was
+capable of paying out five times an account's savings.
 
-## WO-41 · Make balance writes race-proof `[ ]` — **critical** (LEDGER-01)
+**Status: complete.** WO-41 → WO-45 are all done. WO-45 was blocked on three
+product decisions; all three were answered in favour of what
+[product.md](product.md) already specified, so the code moved to the spec rather
+than the other way round.
+
+> ### The verification that matters
+>
+> Each of the seven new tests in
+> [`ledger_integrity_integration_test.go`](../apps/api/internal/repositories/ledger_integrity_integration_test.go)
+> was run **against the pre-fix code** and confirmed to fail with the exact
+> symptom it describes, then run again after. Without that step a regression test
+> proves only that the current code passes it.
+>
+> ```
+> balance = 2000, want 20000 — deposits overwrote each other
+> 10 withdrawals succeeded, want exactly 2; paid out 50000 against a 10000 balance
+> cannot scan NULL into *string   (col: guarantorId)
+> both donations got receipt DON-20260816213322
+> ```
+>
+> Integration suite: **17 → 26 tests**, all green. Two more defects surfaced
+> while building WO-45's UI — SEC-13 and an always-empty guarantor panel — and
+> both got the same treatment.
+
+## WO-41 · Make balance writes race-proof `[x]` — **critical** (LEDGER-01)
+
+**Done 2026-08-17.** All balance writes are now relative (ADR-015), and every
+eligibility read happens inside the transaction under `FOR UPDATE OF a`.
+`AddMemberWithdrawal` carries its balance test in the `UPDATE … WHERE
+"savingsBalance" >= $1` itself, so the check and the debit are one step;
+`pgx.ErrNoRows` becomes the existing `insufficient balance` error, so the handler
+contract is unchanged.
+
+Two routes were **deleted** rather than fixed, because both were unreachable
+duplicates and neither should be re-created:
+
+| Removed | Why |
+|---|---|
+| `POST /v1/dashboard/worker/deposit` (`ProcessDeposit`) | A second deposit path with no audit row, a receipt number taken from the request body instead of `document_sequences`, and no transaction status. The worker UI has always posted to `/worker/members/{memberId}/deposit` |
+| `POST /v1/dashboard/worker/withdrawal` (`ProcessWithdrawal`) | Parsed its request and answered `{"message":"Withdrawal processed successfully"}` having moved nothing and recorded nothing. **A handler that reports success for work it never did** is precisely what OPS-07 exists to catch |
+
+Guards added: `amount <= 0` is rejected on both paths, and the `LEFT JOIN
+accounts` became a `JOIN` so a member with no account returns *member not found*
+rather than a scan error.
+
+### The original specification, kept for the reasoning
+
+
 
 **Files:** `apps/api/internal/repositories/transaction_repository.go`
 
@@ -103,9 +155,23 @@ balance and a ৳20,000 ledger sum, and 10 concurrent ৳5,000 withdrawals again
 tests — the suite has no concurrency coverage at all today, which is why this
 survived 17 green tests.
 
-## WO-42 · Fix the default waterfall for loans with no guarantor `[ ]` — **critical** (LEDGER-02)
+## WO-42 · Fix the default waterfall for loans with no guarantor `[x]` — **critical** (LEDGER-02)
 
-**Files:** `apps/api/internal/repositories/loan_repository.go`
+**Done 2026-08-17.** `"guarantorId"` is coalesced to `''`, which is the value the
+guarantor step already tested for, so no other logic changed. The recovery body
+moved into `waterfallRecoveryTx(ctx, tx, loanID)`, which runs inside the caller's
+transaction: `MarkLoanDefaulted` now writes the status *and* recovers *and*
+audits in one transaction, so a failure anywhere leaves the loan un-defaulted
+rather than defaulted-and-unsettled. `ProcessWaterfallRecovery` survives as the
+standalone wrapper for re-running recovery against an already-defaulted loan.
+
+`FOR UPDATE` added to the loan row and both account reads — recovery reads a
+balance, decides what to take, and writes it back, so without the lock two
+concurrent defaults could draw the same guarantor's savings twice. Both audit
+inserts in this flow were bare `tx.Exec(...)` discarding their error; both are
+now checked, which closes 2 of WO-40's 21 real findings.
+
+### The original specification, kept for the reasoning
 
 Two independent bugs in one flow.
 
@@ -134,7 +200,20 @@ borrower's savings and returns nil, and a forced failure in the donation-pool
 leg leaves the loan **not** defaulted. Add both as integration tests; every
 existing waterfall test seeds a guarantor.
 
-## WO-43 · Remove the last ÷100 and fix donation numbering `[ ]` — **high** (LEDGER-03/04)
+## WO-43 · Remove the last ÷100 and fix donation numbering `[x]` — **high** (LEDGER-03/04)
+
+**Done 2026-08-17.** The `/100` is gone from the loan-approved notification; a
+sweep confirms the only remaining `/ 100` in the Go API is percentage maths
+(`admin_repository.go:121`, `loan_repository.go:520`). `RecordDonation` now
+allocates from `document_sequences` via a new `utils.SeriesDonation` (`DON`),
+credits the pool relatively, and writes the `DONATION_RECORDED` audit row it
+never had — it was the only balance-changing method in the Go API without one.
+
+The collision was not hypothetical: two donations recorded back to back in the
+regression test both received `DON-20260816213322` under the old wall-clock
+format.
+
+### The original specification, kept for the reasoning
 
 Two small independent changes.
 
@@ -156,7 +235,14 @@ the only remaining hits are percentage maths (`admin_repository.go:121`,
 numbers, and `TestEveryBalanceChangeWritesAnAuditRow` is extended to cover
 `RecordDonation` — it currently does not, which is why the gap survived.
 
-## WO-44 · Delete the dead Next route handlers `[~]` — **medium**
+## WO-44 · Delete the dead Next route handlers `[x]` — **medium**
+
+**Done 2026-08-17.** All five deletions are made. Ten Next route handlers remain,
+of which seven have a caller and three are built backends waiting on their UI
+(`loans/applications`, `loans/{id}/guarantor-approval`, `admin/audit-logs`) —
+kept deliberately, listed in [api.md](api.md).
+
+### The original specification, kept for the reasoning
 
 Seven of thirteen Next route handlers have **no caller anywhere** in
 `app/`, `components/`, `lib/`, `hooks/` or `e2e/`. Verified by exhaustive grep
@@ -170,23 +256,65 @@ direct violation of [ADR-001](decisions.md)):
 | `worker/transactions/[id]/process` | **Provably broken** — wrote `processedBy: workerName`, a display name, into a column that is a foreign key to `users.id`. Every call violated `transactions_processedBy_fkey` and 500'd. Also duplicated the Go worker-deposit path |
 | `member/transactions/[id]/confirm` | Read the balance and wrote back an absolute total from a Next handler — LEDGER-01's bug, in the backend that is not allowed to hold it |
 
-**Still present, still uncalled — decide per route:**
+**Also deleted 2026-08-17:**
 
-| Route | Recommendation |
+| Route | Why |
 |---|---|
-| `transactions/deposit-requests` | **Delete.** Superseded by Go `POST /v1/dashboard/member/requests/deposit`, which the member deposits page actually calls |
-| `transactions/withdrawal-requests` | **Delete.** No withdrawal-request UI exists; when one is built it belongs in Go beside the deposit twin |
-| `admin/approvals/registration` | **Delete.** The approvals page calls the Go route of the same name |
-| `loans/applications` | **Keep.** FR-10's only implementation, and the member loan-application UI is unbuilt — see WO-45 |
-| `loans/[id]/guarantor-approval` | **Keep.** FR-11's only implementation; WO-29 fixed it, and WO-45 gives it a caller |
-| `admin/audit-logs` | **Keep.** OBS-08's backend; the viewer UI is the missing half |
+| `transactions/deposit-requests` | Superseded by Go `POST /v1/dashboard/member/requests/deposit`, which the member deposits page actually calls |
+| `transactions/withdrawal-requests` | No withdrawal-request UI exists; when one is built it belongs in Go beside the deposit twin |
+| `admin/approvals/registration` | The approvals page calls the Go route of the same name |
+
+**Kept, uncalled, on purpose** — these are built features missing only their UI,
+not dead code:
+
+| Route | Why it stays |
+|---|---|
+| `loans/applications` | FR-10's only implementation — see WO-45 |
+| `loans/[id]/guarantor-approval` | FR-11's only implementation; WO-29 fixed it |
+| `admin/audit-logs` | OBS-08's backend; the viewer UI is the missing half |
 
 **Done when** the three deletions are gone, `pnpm build` still enumerates every
 remaining route, and `docs/api.md` lists exactly what is on disk. Delete
 `apps/web/.next` before typechecking — Next caches generated route types and
 will report a removed route as a missing module.
 
-## WO-45 · Give FR-10 and FR-11 a user interface `[ ]` — **high**
+## WO-45 · Give FR-10 and FR-11 a user interface `[x]` — **high**
+
+**Done 2026-08-17**, after the three policy questions below were answered. All
+three answers chose the option that matches [product.md](product.md), so the
+endpoint was corrected to the spec rather than the spec to the endpoint.
+
+| Decision | Answer | Change |
+|---|---|---|
+| Guarantor always, or above a threshold? | **Threshold** | New `loan.guarantorThresholdAmount` key (default ৳20,000, seeded). `guarantorId` is now optional; below the threshold the loan is created straight into `PENDING_APPROVAL` — there is nobody to wait for. Above it, an application without one is refused with `GUARANTOR_REQUIRED` |
+| How does a member nominate one? | **Member ID, name confirmed** | New `GET /api/v1/members/lookup?memberId=` — authenticated, members only, exact full-ID match, returns *name only*, rate limited to 10 per 10 minutes keyed on user id + address |
+| Full cover or proportional? | **Proportional** | The `guarantorDeposit >= amount` check is gone; the guarantee is worth whatever the guarantor holds, which is what `ProcessWaterfallRecovery` already takes. Only a guarantor with **zero** savings is refused, now as `GUARANTOR_HAS_NO_SAVINGS` — the old `GUARANTOR_DECLINED` blamed the guarantor for a balance check they never saw |
+
+**Built:** `components/dashboard/loan-application-form.tsx` (amount, installments,
+purpose, live installment estimate, guarantor lookup that appears and disappears
+as the amount crosses the threshold) and
+`components/dashboard/guarantor-requests.tsx` (accept/decline, with the
+consequence — *your savings can be drawn on* — stated above the buttons, not
+after). Both wired into the member loans page. **41 new keys in each of
+`messages/{en,bn}.json`**; parity 239 → 283, still exact.
+
+Two defects were found while wiring it up, each of which alone made the feature
+unreachable — see **SEC-13** below and the `PENDING`-vs-`PENDING_GUARANTOR` note
+in [tasks.md](tasks.md).
+
+### SEC-13 · `availableGuarantors` leaked every member's savings `[x]` — **high**
+
+`GetMemberLoans` returned, to any signed-in member, the name **and savings
+balance** of the 50 wealthiest other members, ordered by balance descending — a
+ranked list of who in the village has the most money. [product.md](product.md)
+is explicit that a member cannot see another member's data.
+
+No UI ever consumed it, so it was pure disclosure with no feature behind it, and
+the obvious way to build this form would have been to render it into a dropdown
+— cementing the leak as a feature. Removed; the lookup endpoint above replaces
+it and returns no balance at all.
+
+### The original specification, kept for the reasoning
 
 The audit's most surprising finding: **a member cannot apply for a loan, and a
 guarantor cannot approve one, from anywhere in the app.**
@@ -209,11 +337,51 @@ and a false one about the feature.
 
 **Scope:** a member-side application form posting to `/api/v1/loans/applications`,
 and a guarantor action on the member dashboard posting to
-`/api/v1/loans/{id}/guarantor-approval`. Both routes exist and work; this is UI
-plus `messages/{en,bn}.json` copy.
+`/api/v1/loans/{id}/guarantor-approval`.
 
 **Done when** a member can apply, a nominated guarantor sees and approves the
 request, and the loan reaches `PENDING_APPROVAL` without anyone touching SQL.
+
+### ⛔ Blocked — three policy decisions, not UI work
+
+Attempting this on 2026-08-17 surfaced that the existing endpoint encodes policy
+that **contradicts [product.md](product.md)**. Building a form on top of it would
+cement the contradiction in the product rather than reveal it, so the UI is held
+until these are answered.
+
+**1. How does a member nominate a guarantor?**
+`POST /api/v1/loans/applications` requires `guarantorId` — a `cuid`, the
+guarantor's internal user id. A member has no way to obtain one:
+[product.md](product.md) says a member **cannot see another member's data**, and
+no endpoint lists members to a member. The plausible answer is that the applicant
+types the guarantor's human-readable member ID (`ACC-KH-33001`), which needs a
+narrow `memberId → userId` resolver — and that resolver is an enumeration surface
+of exactly the kind [SEC-08](production-readiness.md) was closed to remove.
+Deciding what a member may confirm about another member is a privacy decision.
+
+**2. Is a guarantor always required, or only above a threshold?**
+The endpoint requires one **unconditionally** (`guarantorId: z.string().min(1)`).
+[product.md](product.md) says *"a guarantor is required above an admin-set
+threshold"*. No such threshold key exists in
+[`lib/system-config.ts`](../apps/web/lib/system-config.ts), so the policy is
+implemented nowhere and contradicted in code. Note this is now the **only** thing
+standing between the platform and unguaranteed loans — WO-42 made the default
+waterfall handle them correctly, so the schema, the recovery path and the tests
+all support a loan with no guarantor. Only this endpoint does not.
+
+**3. Must a guarantor's savings cover the whole loan?**
+The endpoint rejects the application with `GUARANTOR_DECLINED` unless
+`guarantorDeposit >= amount` — the guarantor must have saved the entire loan
+value. [product.md](product.md) describes the guarantee as *proportional*, and
+`ProcessWaterfallRecovery` recovers proportionally, taking whatever the guarantor
+has. Full cover is a far stricter rule than the recovery model assumes, and at a
+5× multiplier it means a guarantor must hold five times what the borrower does —
+which would make most guarantees impossible. The error name is also wrong: the
+guarantor has not declined anything, they are too poor to qualify.
+
+**Recommended sequence once answered:** correct the endpoint's policy first, add
+the threshold config key, *then* build the form against a contract that matches
+the spec. The UI is a few hours; agreeing what the product does is the work.
 
 ---
 
