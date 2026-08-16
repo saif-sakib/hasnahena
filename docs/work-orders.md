@@ -136,8 +136,52 @@ framed this as ~59 MB of clone weight; the weight is the least of it.
    the blobs stay fetchable by SHA on the remote even after a force-push.
 5. Add `Official Infos/` to `.gitignore` so a re-add is not one `git add -A` away.
 
-**Watch:** take a `git bundle --all` backup first. The rewrite is irreversible
-and the last one in this repo needed exactly that safety net.
+**Runbook.** Prepared and dry-checked on 2026-08-16; the rewrite itself was not
+run, because it is irreversible and rewrites every commit hash in the repository.
+Run it from a clean tree with everything pushed.
+
+```bash
+# 0. Two safety nets. Do not skip; the rewrite cannot be undone.
+git bundle create ~/hasnahena-pre-purge.bundle --all
+cp -r .git ~/hasnahena-git-backup
+
+# 1. Get filter-repo. It is a single Python script; pacman has it as
+#    `git-filter-repo`, or:
+curl -sSfL -o /tmp/git-filter-repo \
+  https://raw.githubusercontent.com/newren/git-filter-repo/v2.47.0/git-filter-repo
+chmod +x /tmp/git-filter-repo
+
+# 2. Drop the pre-coauthor backup branches FIRST. They exist only to preserve the
+#    history being discarded, and while they live every purged blob stays
+#    reachable — the purge would appear to do nothing.
+git branch -D backup/pre-coauthor-rewrite-main backup/pre-coauthor-rewrite-wo23
+
+# 3. The rewrite.
+/tmp/git-filter-repo --invert-paths \
+  --path 'Official Infos' \
+  --path react \
+  --path apps/api/server \
+  --path apps/api/seed \
+  --force
+
+# 4. filter-repo removes `origin` deliberately, so a stale push cannot happen.
+git remote add origin https://github.com/Saif-Sakib/hasnahena.git
+
+# 5. Verify BEFORE pushing — see the done-when test below.
+
+# 6. Publish. Every hash changed, so this must be a force-push of everything.
+git push --force origin --all
+git push --force origin --tags
+```
+
+**Then two things that are not optional.** `git gc --prune=now --aggressive`
+locally, and **open a GitHub Support ticket asking them to garbage-collect
+unreachable objects**. Until they do, every purged blob stays fetchable by SHA on
+the remote — the force-push makes them unreferenced, not gone.
+
+**Watch:** the repository has no other collaborators today, which is exactly why
+this is cheap now. Anyone holding a clone afterwards must re-clone; `git pull`
+will not reconcile a rewritten history and will produce a confusing merge.
 
 **Verify:** `git rev-list --objects --all | git cat-file --batch-check` shows no
 blob over 2 MB except `apps/web/assets/brand/logo.mp4`. A fresh clone is under
