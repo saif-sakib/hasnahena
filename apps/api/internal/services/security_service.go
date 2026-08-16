@@ -119,10 +119,10 @@ const (
 )
 
 type RateLimitResult struct {
-	Allowed         bool
-	RemainingTries  int
-	LockedUntil     *time.Time
-	RetryAfterSecs  int
+	Allowed        bool
+	RemainingTries int
+	LockedUntil    *time.Time
+	RetryAfterSecs int
 }
 
 // CheckRateLimit checks if an action is allowed for the given identifier

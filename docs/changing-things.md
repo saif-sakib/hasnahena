@@ -1,0 +1,248 @@
+# Changing Things Safely
+
+A playbook keyed by **"I want to change ___"**. Each entry says which files to
+touch, what will break if you touch the wrong one, and how to prove you did not
+break it.
+
+The organising idea: this codebase has a small number of places where a change
+is *contained*, and a small number where a change *leaks*. Knowing which is
+which is most of what makes a change safe.
+
+## The blast-radius map
+
+| Layer | Change here and it affects | Safe to change freely? |
+|---|---|---|
+| `app/[locale]/**/page.tsx` | that one page | **Yes** |
+| `components/ui/*` | every page using that primitive | Check callers first |
+| `app/globals.css` tokens | the whole site, both themes | Deliberate only |
+| `messages/{en,bn}.json` | copy everywhere | Yes, **but both files** |
+| `lib/documents/*` | printed paperwork members keep | Deliberate only |
+| `prisma/schema.prisma` | both backends, needs a migration | Deliberate only |
+| `internal/repositories/*_repository.go` | **money** | Read [ADR-015](decisions.md) first |
+
+Rule of thumb: **presentation is cheap to change, persistence is not.** Anything
+under `app/[locale]/` that is not a `route.ts` can be rewritten freely.
+
+---
+
+## "I want to redesign the homepage"
+
+**This is a contained change.** The homepage is one file —
+[`app/[locale]/page.tsx`](../apps/web/app/[locale]/page.tsx), ~580 lines, eight
+`<section>` blocks. Nothing else imports it. Rewriting it entirely cannot break
+the dashboards, the API, or anyone's balance.
+
+**What it reads, and therefore what you must keep supplying:**
+
+```
+page.tsx
+├── prisma.galleryItem.findMany()   → the gallery strip
+├── prisma.systemConfig.findMany()  → org.* and hero.* values
+├── messages/{en,bn}.json           → every string
+└── components/{layout,ui}          → Header, Footer, Button, Card, Gallery, AuthAwareCTA
+```
+
+**The four things that will bite you:**
+
+1. **Copy lives in `messages/{en,bn}.json`, never in the component.** A hardcoded
+   English string is invisible until a Bengali member reads it. Add the key to
+   *both* files — the audit checks parity and they are currently 239/239 exact.
+2. **`hero.*` and `org.*` come from the admin settings page,** not from code. If
+   your new design drops `hero.backgroundImage`, remove the key from
+   [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too, or you leave a
+   setting an admin can still edit that does nothing.
+3. **Use semantic colour classes** — `bg-primary`, `text-muted-foreground`,
+   `border-border` — not hex, and not raw `emerald-600`. The tokens are defined
+   once in `app/globals.css` for light and `.dark`. A hardcoded colour is the one
+   change that looks fine to you and broken to a member on dark mode.
+4. **`AuthAwareCTA` changes based on login state.** If you replace the hero
+   button, keep it, or a signed-in member gets shown "Register".
+
+**Prove it:**
+```bash
+pnpm typecheck && pnpm lint
+pnpm --filter @hasnahena/web build       # catches server/client boundary errors
+pnpm dev                                 # then read /en AND /bn, light AND dark
+```
+Both locales and both themes, every time. That is the whole checklist.
+
+**Changing the look everywhere instead of on one page:** edit the HSL values in
+`app/globals.css` under `:root` and `.dark`. Brand primary is emerald
+`hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`. Status badge colours are
+centralised in [`lib/status-styles.ts`](../apps/web/lib/status-styles.ts) —
+extend that, never inline a badge colour.
+
+---
+
+## "I want to add or change a page"
+
+Add a folder under `app/[locale]/`. It is picked up automatically; `sitemap.ts`
+and `robots.ts` generate from the route tree.
+
+- Public pages go beside `about/`, `faq/`, `contact/`.
+- Dashboard pages go under `dashboard/{member,worker,admin}/`. These are
+  **already role-gated** by `proxy.ts` (redirects on missing/expired token) and
+  by the layout in each role folder. The gate is where the file lives.
+- Every locale string in `messages/{en,bn}.json`.
+
+---
+
+## "I want to change a money rule"
+
+Stop and read [`docs/product.md`](product.md) first, then
+[ADR-015](decisions.md).
+
+**If it is a *policy number*** — minimum deposit, loan multiplier, installment
+cap — it is already configurable. Change it in the admin settings page. No code.
+Adding a *new* policy key is three steps, in this order: make something read it,
+seed a default in `scripts/seed.mjs`, then declare it in `lib/system-config.ts`.
+The allow-list entry is last, because a key nothing reads is a note.
+
+**If it changes how a balance moves**, it belongs in
+`apps/api/internal/repositories/`, in one transaction, with an `audit_logs` row,
+and the balance must be written *relatively*:
+
+```sql
+SET "savingsBalance" = "savingsBalance" + $1   -- correct
+```
+
+Never read the balance and write back a total. See [ADR-015](decisions.md) — that
+bug is live in `transaction_repository.go` today and it destroys money.
+
+**Never** add a rate, markup, or fee. Zero interest is a Shariah constraint, not
+a configurable default. If a requirement seems to need one, that requirement is
+wrong; raise it.
+
+**Prove it:** `pnpm test:go`, then the integration suite against a real database
+(command in [CLAUDE.md](../CLAUDE.md)). Pure arithmetic belongs in
+`internal/money/`, which is tested without a database — put new maths there, not
+inline in SQL.
+
+---
+
+## "I want to add an endpoint"
+
+One question decides the backend: **does it change a balance?**
+
+- **Yes → Go.** Route in `cmd/server/main.go`, HTTP shape in
+  `dashboard_handler.go`, SQL in the matching `*_repository.go`. Mount it inside
+  the `/admin` group if it is admin-only — that group is gated at the router, so
+  a new handler is protected by *where it is mounted* rather than by remembering
+  a check.
+- **No → a Next route handler is fine.** Registration intake, CMS, settings,
+  status transitions.
+
+Then document it in [`api.md`](api.md) in the same commit. The audit found seven
+Next handlers with no caller because that step was skipped in both directions.
+
+---
+
+## "I want to move off Vercel and Render onto a VPS"
+
+The application is already portable; this is an infrastructure job, not a code
+job. Both apps have Dockerfiles, `docker-compose.yml` runs the full stack, and
+CI publishes images to GHCR tagged by commit SHA.
+
+**What the app needs from any host** — this is the entire contract:
+
+| | Go API | Next web |
+|---|---|---|
+| Required | `DATABASE_URL`, `JWT_SECRET` (32+ chars) | `DATABASE_URL`, `JWT_SECRET`, `NEXT_PUBLIC_API_URL` |
+| Also set | `CORS_ORIGINS`, `ENABLE_HSTS=true`, `TRUSTED_PROXIES`, `METRICS_TOKEN` | Cloudinary keys |
+| Listens on | `API_PORT` / `PORT`, default 8081 | 3000 |
+| Health | `GET /v1/health` (liveness), `GET /v1/ready` (pings DB) | — |
+
+Full list: [`.env.render.example`](../.env.render.example) and
+[`.env.vercel.example`](../.env.vercel.example). They are separate stores — a
+variable added to one is missing from the other, and `JWT_SECRET` **must be
+identical in both** or every login fails with a correct password.
+
+**Three things that are Vercel/Render-shaped and must be replaced:**
+
+1. **TLS termination.** Render does it. On a VPS use Caddy (automatic Let's
+   Encrypt) or nginx + certbot. `ENABLE_HSTS=true` only once HTTPS is permanent —
+   browsers remember it for the whole `max-age`.
+2. **`TRUSTED_PROXIES`** counts the reverse proxies in front of the API and
+   decides which `X-Forwarded-For` entry is trusted. Render is `1`. Set it to
+   match your proxy chain or the rate limiter keys on a value the caller
+   controls, which makes it decorative.
+3. **The stop grace period must exceed `SERVER_SHUTDOWN_TIMEOUT`** (30s default)
+   or a deploy `SIGKILL`s the API mid-transaction. On Render this is a dashboard
+   setting; in systemd it is `TimeoutStopSec`; in compose it is
+   `stop_grace_period`.
+
+**Two things that are genuinely UTC-shaped.** Neon defaults to UTC and a VPS may
+not. The pool pins `timezone=UTC` on every connection
+([main.go](../apps/api/cmd/server/main.go)) — **do not remove that line**; without
+it, timestamp comparisons drift by your server's offset and every token issued
+after a password change is born revoked. And `pgx` runs in
+`QueryExecModeSimpleProtocol` for Neon's pooler; that is harmless on a plain
+Postgres, so leave it.
+
+The staged plan with the cutover runbook is INF-01 → INF-12 in
+[`production-readiness.md`](production-readiness.md). Do it only once everything
+else is quiet.
+
+---
+
+## "I want to change the database schema"
+
+`prisma/schema.prisma` is the source of truth; the Go API reads the same tables
+with raw SQL, so a rename breaks Go silently at runtime rather than at compile
+time. Grep `apps/api` for the column name before renaming anything.
+
+```bash
+pnpm db:migrate:dev     # generate the migration locally
+pnpm db:migrate         # apply it — in EVERY environment
+```
+
+Never `db:push` at anything you cannot rebuild ([ADR-014](decisions.md)) — it
+diffs against the live database and will drop a column to make it match.
+
+**Two traps that have already cost production incidents**, both documented in
+[`data-model.md`](data-model.md): an `@updatedAt` column gets **no database
+default**, so hand-written `INSERT`s must set `"createdAt"` and `"updatedAt"`
+themselves; and column names are camelCase and **must be quoted** in raw SQL
+(`a."savingsBalance"`).
+
+`audit_logs` has a `BEFORE UPDATE OR DELETE` trigger that Prisma cannot model.
+A `--from-empty` baseline would drop it — the warning is in `schema.prisma` above
+`model AuditLog`.
+
+---
+
+## "I want to change a generated document"
+
+Statements, receipts, loan agreements, certificates: `lib/documents/`. They are
+**English only** by decision ([ADR-012](decisions.md)) — do not add Bengali; the
+PDF's standard fonts cannot shape conjuncts, and the last attempt is why these
+were screenshots for a while.
+
+One builder produces a renderer-independent model; two renderers consume it
+(`render/html.ts` for print, `render/pdf.ts` for download) so the two outputs
+cannot drift. Adding a document is one builder plus one export line. Adding a
+*kind of* content is a new `Block` variant handled in **both** renderers.
+
+Amounts print as `BDT 1,25,000` — the `৳` sign cannot be encoded. Document
+numbers come from `document_sequences`, never from a random or a timestamp
+([ADR-013](decisions.md)).
+
+---
+
+## Before you commit, whatever you changed
+
+```bash
+pnpm typecheck        # must be zero errors; rm -rf apps/web/.next if it
+                      # reports a missing app/api/**/route.js
+pnpm lint
+pnpm test:unit        # web, ~1s
+pnpm test:go          # Go, no database needed
+```
+
+If you touched money or SQL, also run the integration suite against a real
+Postgres — the command is in [CLAUDE.md](../CLAUDE.md). It is the only thing that
+tests what the database actually does, and the 2026-08-17 audit is a standing
+reminder that a green suite only bounds the cases it contains.
+
+If you touched the schema, say so in your handover: `pnpm db:migrate` has to run
+in every environment, and nothing runs it for you.

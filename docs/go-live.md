@@ -33,6 +33,34 @@ is deliberately deferred *because* it stays the same price forever.
 
 **This is the whole point of the plan.** Each of these is cheap exactly once.
 
+### 1.0 Fix the ledger — [Batch L](work-orders.md#batch-l--ledger-integrity) — **added 2026-08-17**
+
+This is new, and it goes ahead of the history purge.
+
+The organising principle above says to do first what gets more expensive later.
+The ledger defects are the case where the principle understates the urgency:
+they are not more expensive later, they are **already wrong now**, and every
+posting made while they are open is a balance nobody can vouch for.
+
+| | Measured against a real database |
+|---|---|
+| LEDGER-01 | 20 concurrent ৳1,000 deposits → **৳1,000 balance, ৳20,000 of ledger rows**. Ten concurrent ৳5,000 withdrawals all cleared a ৳10,000 balance |
+| LEDGER-02 | Defaulting a loan with no guarantor marks it DEFAULTED and recovers **nothing** |
+| LEDGER-03 | The loan-approved notification tells a member their ৳50,000 loan is "BDT 500.00" |
+
+Two of these are invisible in normal single-user testing, which is exactly why
+they survived 17 green integration tests and several audits. They will not
+announce themselves at go-live either — a wrong balance looks like a correct
+balance until someone adds it up. Which is the argument for **OPS-07, the
+reconciliation job**: sum of transactions versus account balances, alerting on
+drift. Had it existed, LEDGER-01 would have been a nightly alert. Build it as
+part of this stage, not Phase 7 — it is the only control that catches the *next*
+one of these.
+
+**Do not clear the database (Stage 2.1) before this is fixed.** The current test
+data is the only corpus you have that was posted by the buggy code, and it is
+worth keeping until the fix is verified against it.
+
 ### 1.1 Purge git history — [WO-28](work-orders.md)
 
 39 files of foundation records plus three stray binaries. The repository is
@@ -204,7 +232,13 @@ These cost the same whenever they are done, so they should not delay launch.
 
 ## What "no hassle after production" actually requires
 
-Three things, and none of them is a feature:
+Four things, and none of them is a feature:
+
+0. **A ledger that is arithmetically correct under concurrency.** Stage 1.0.
+   Added after the 2026-08-17 audit found that it is not, and that nothing in the
+   test suite, the type system, or the review process was positioned to notice.
+   The durable fix is not the three patches — it is OPS-07, a job that adds up
+   the transactions and compares them to the balances every night.
 
 1. **A restore you have performed**, not one you have written down. Stage 1.4.
 2. **A data model you are not going to change.** Stage 1.2 is the difference

@@ -40,13 +40,6 @@ func normalizedRolePtr(role string) *string {
 // posting's transaction: an audit row written separately can survive a rollback
 // and describe money that never moved. audit_logs is append-only — a correction
 // appends a second row, it never edits the first (rule 6).
-
-// insertAuditLogTx appends an audit row inside the caller's transaction.
-//
-// Every balance change must leave one (CLAUDE.md rule 2), and it must share the
-// posting's transaction: an audit row written separately can survive a rollback
-// and describe money that never moved. audit_logs is append-only — a correction
-// appends a second row, it never edits the first (rule 6).
 func (r *UserRepository) insertAuditLogTx(
 	ctx context.Context,
 	tx pgx.Tx,

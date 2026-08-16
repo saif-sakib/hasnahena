@@ -2,8 +2,17 @@
 
 Everything between today's free-tier deployment and a platform that can be run
 on a VPS or AWS by someone who is not the author. Audited against the code on
-**2026-08-16** — every `[x]` below was re-verified against the source that day,
-not carried forward from the previous pass.
+**2026-08-16**, and re-audited **2026-08-17** against a running Postgres 17 —
+every `[x]` below was re-verified against the source, not carried forward from
+the previous pass.
+
+> ## ⛔ Read this before anything else
+>
+> The 2026-08-17 audit found **four defects that destroy or misreport money**,
+> proved against a real database rather than by reading. They are not on the
+> list below because they are not operational readiness — they are the ledger
+> being wrong. See [Phase −1](#phase-1--ledger-integrity-defects) at the top of
+> this page. **Nothing else on this page matters until LEDGER-01 is fixed.**
 
 This file is the **operational** backlog. [tasks.md](tasks.md) tracks *product*
 work (FR-01…22). When a task here is finished, tick it here and note it there
@@ -17,14 +26,15 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 | Area | State | One-line verdict |
 |---|---|---|
+| **Ledger integrity** | `[!]` | **Concurrent postings destroy money; defaulting an unguaranteed loan recovers nothing** — LEDGER-01/02. Proved against a real database 2026-08-17. Ahead of everything else on this page |
 | **Git history** | `[!]` | **39 files of member records are recoverable from history** — see SEC-10. The only item on this page that is a disclosure rather than a risk |
-| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-11 (guarantor approval) was dead on a UUID-vs-cuid id check and was fixed 2026-08-16 |
-| Domain correctness | `[x]` | BigInt taka, zero-interest, request→process→confirm, append-only audit |
+| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-11 has a working endpoint and **no UI that calls it** |
+| Domain correctness | `[~]` | BigInt taka, zero-interest, append-only audit all hold. Request→process→confirm holds for deposits; the balance arithmetic underneath it does not race-proof (LEDGER-01) |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
-| Session revocation | `[x]` | `authFromRequest` → `ValidateToken`; logout and password-change now bite (SEC-01) |
+| Session revocation | `[~]` | Go side is correct (SEC-01). **The Next handlers never check the blacklist** — SEC-11 |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[~]` | Go side is covered: unit tests on money maths, IDs, logging and revocation timing, plus 17 integration tests against real Postgres covering all five financial-integrity scenarios. **The web app has no unit tests at all** (CI-04 — no vitest in any manifest), and Playwright is wired up but skips without seeded credentials |
+| Automated tests | `[~]` | 17 Go integration tests against real Postgres, Go unit tests on money maths/IDs/logging/revocation timing, 32 web unit tests (CI-04, done). All green. **But they are green over LEDGER-01 and LEDGER-02** — nothing tests concurrency, and every waterfall test seeds a guarantor, so the null-guarantor path was never executed. Playwright has one 28-line spec and skips without seeded credentials |
 | CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Both images are verified by **running** them. Images are not built in CI yet (PKG-06), and nothing in production uses them |
 | Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
@@ -39,18 +49,138 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 | | |
 |---|---|
-| Go API | 23 files, 8.8k lines. The 4.9k-line `user_repository.go` was split by domain in WO-38; the largest file is now `loan_repository.go` at 1.1k |
-| Next web | 189 TS/TSX files, 34.7k lines |
+| Go API | 38 files, 12.1k lines (incl. tests). The 4.9k-line `user_repository.go` was split by domain in WO-38; the largest file is now `dashboard_handler.go` at 2.1k, then `loan_repository.go` at 1.1k |
+| Next web | 141 TS/TSX files, 26.7k lines |
 | Go routes | 63 under `/v1` |
-| Next route handlers | 15 (plus 16 empty folders) |
+| Next route handlers | 13, of which **7 have no caller anywhere in the app** — see [WO-44](work-orders.md). Empty folders are gone |
 | Prisma models | 21, 30 indexes |
 | `.git` | 53 MB — **~112 MB of raw blobs** in history: 39 member-record files, three stray binaries and a 24 MB `react` blob (SEC-06, SEC-10) |
+
+---
+
+## Phase −1 — Ledger integrity defects
+
+Found 2026-08-17. Each was **reproduced against a real Postgres 17**, not
+inferred from reading. Every one of them silently produces a wrong balance, and
+every one of them is cheap to fix now and unfixable later: once a wrong balance
+is a member's savings figure, correcting it is a conversation, not a commit.
+
+Execution specs: [WO-41 → WO-44](work-orders.md#batch-l--ledger-integrity).
+
+### LEDGER-01 · Concurrent postings destroy money `[!]` — **critical**
+
+`AddMemberDeposit` and `AddMemberWithdrawal`
+([transaction_repository.go](../apps/api/internal/repositories/transaction_repository.go))
+read the account balance **from the pool, outside the transaction and without a
+lock**, compute a new absolute total in Go, and write that total back inside the
+transaction. Two concurrent postings both read the old balance and the second
+overwrites the first.
+
+Measured, 20 concurrent deposits of ৳1,000 into an empty account:
+
+```
+balance      =  1,000     ← 19 deposits vanished
+ledger sum   = 20,000     ← all 20 transaction rows written
+```
+
+The transaction rows are correct and the balance is not, so **the passbook and
+the account disagree** — which is the one failure a cooperative cannot explain
+to a member. Ten concurrent ৳5,000 withdrawals against a ৳10,000 balance *all
+succeeded*: ৳50,000 paid out on ৳10,000 of savings.
+
+The fix is not a lock ordering puzzle. `loan_repository.go` already does it
+right — `SET "savingsBalance" = "savingsBalance" - $1` — and the waterfall has
+been correct all along for exactly that reason.
+
+Two callers are affected today (`POST /v1/dashboard/worker/members/{id}/deposit`
+and `/withdrawal`), and `ApproveWithdrawal`'s DEPOSIT branch has a weaker form of
+the same bug: it reads inside the transaction but without `FOR UPDATE`, so it is
+safe against itself only because it locks the `transactions` row first.
+
+### LEDGER-02 · Defaulting a loan with no guarantor recovers nothing `[!]` — **critical**
+
+`ProcessWaterfallRecovery` scans `loans."guarantorId"` into a Go `string`.
+The column is `String?` — nullable by design, because a loan below the guarantor
+threshold has none. pgx cannot scan NULL into a string, so the whole waterfall
+returns an error before step 1 runs.
+
+`MarkLoanDefaulted` **commits the DEFAULTED status in its own transaction and
+then calls the waterfall separately**, so the failure leaves the worst possible
+state:
+
+```
+loan status      = DEFAULTED   ← committed
+remainingAmount  = unchanged   ← nothing recovered
+borrower savings = untouched   ← ৳8,000 sat there, ৳5,000 was owed
+```
+
+The admin sees an error and the loan is already defaulted. Retrying re-runs a
+waterfall that will fail the same way. Every waterfall integration test seeds a
+guarantor, which is why 17 green tests never touched this path.
+
+The two-transaction split is the second half of the defect: recovery must happen
+in the same transaction as the status change, or a default can be recorded that
+was never settled.
+
+### LEDGER-03 · Loan approval notification divides by 100 `[!]` — **high**
+
+[loan_repository.go:123](../apps/api/internal/repositories/loan_repository.go) —
+`float64(principalAmount)/100` in the member-facing "loan approved" message. A
+৳50,000 loan is announced as **BDT 500.00**.
+
+Money is whole taka ([ADR-002](decisions.md)); there is no paisa to divide by.
+It is the last surviving ×100 from the pre-ADR-002 era and it is in the one
+place a member reads a number and believes it. Every other notification on the
+same path formats `float64(amount)` correctly, so this is a single-character
+class of fix — and a reminder that the migration was never linted for.
+
+### LEDGER-04 · Donations are numbered by wall clock, not by sequence `[~]` — **medium**
+
+`RecordDonation` builds `DON-20260817143022` from `time.Now()`, bypassing
+`document_sequences` entirely. That contradicts [ADR-013](decisions.md), which
+exists because a receipt number is read aloud at a counter and copied into a
+paper passbook. Two donations recorded in the same second collide, and
+`DON-` is not one of the four declared series.
+
+`RecordDonation` also writes **no `audit_logs` row**, which makes it the only
+balance-changing method in the Go API that does not — a direct CLAUDE.md rule-2
+violation that the audit-coverage integration test misses because it does not
+cover donations.
 
 ---
 
 ## Phase 0 — Security defects (do these first)
 
 These are live. Everything else on this page can wait behind them.
+
+### SEC-11 · The Next.js surface ignores token revocation `[!]` — **high**
+
+Found 2026-08-17. The Go API checks `token_blacklist` on every request. The
+Next route handlers do not: `lib/auth.ts` (`requireAuth`) and `lib/server-auth.ts`
+(`authenticateRequest`) verify the HS256 signature and `exp`, and stop there.
+
+So after **logout**, after a **password change**, and after an **admin revokes a
+user**, the old token still works against every Next handler — `PUT /api/v1/settings`,
+the gallery CMS, worker CRUD, registration listing, dispute. Revocation is
+advertised in [architecture.md](architecture.md) and in the README, and it is
+half-true: it binds on the Go side only.
+
+`server-auth.ts` has a `fetchUserFromApi` fallback that *would* be
+blacklist-checked, but it only runs when `JWT_SECRET` is unset or verification
+throws — i.e. never in a correctly configured deployment.
+
+Blast radius is bounded by what those handlers do (no balance mutation after the
+WO-42 cleanup) but it includes changing loan policy, which is not a small thing
+to leave reachable with a revoked token.
+
+### SEC-12 · `GET /api/v1/settings` is unauthenticated `[~]` — **low**
+
+The whole `system_config` table is returned to anyone who asks. It has to be
+partly public — the marketing pages and login screen read branding from it — but
+it currently ships loan policy, org contact details and support retention
+settings to unauthenticated callers in the same payload. Split it into a public
+subset and an admin-only remainder rather than gating the whole route, which
+would break the public site.
 
 ### SEC-01 · Token revocation does not work `[x]` — **critical**
 

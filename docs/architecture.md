@@ -24,9 +24,16 @@ Two backends share one database. That is deliberate but bounded — see [ADR-001
 | Support chat (incl. SSE stream) | **Go**, proxied through Next at `/api/v1/dashboard/support/*` | avoids mixed-content/CORS on the stream |
 | Public registration submit | **Next** | needs Cloudinary upload + Prisma in one request |
 | Gallery, system settings, audit-log viewer, worker CRUD | **Next** | CMS-style admin, no ledger impact |
-| Transaction confirm / dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
+| Transaction dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
 
 Rule of thumb: **if it changes a balance, it belongs in Go.**
+
+That rule was broken twice and both handlers were removed on 2026-08-17: a
+worker-process route that mutated balances *and* wrote a display name into
+`transactions.processedBy` — a foreign key to `users.id`, so every call 500'd —
+and a member-confirm route that carried the same lost-update bug as
+[LEDGER-01](production-readiness.md). Neither had a caller. If you are adding a
+balance write to Next, the answer is Go; see [WO-44](work-orders.md).
 
 ## Request path from the browser
 
@@ -40,6 +47,7 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 - `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
+- **Revocation is Go-only.** The Next handlers check signature and `exp` and never consult `token_blacklist`, so a logged-out token still works against the settings, gallery, worker-CRUD and registration routes — [SEC-11](production-readiness.md). Do not describe revocation as platform-wide until that is fixed.
 - `security_service.go` handles rate limiting and lockout via the `rate_limits` table.
 
 ## Frontend structure
@@ -99,6 +107,33 @@ internal/utils            response envelope, validation, member-ID + receipt gen
 | API | `:8081` | Render → api.hasnahenafoundation.com |
 | DB | Docker postgres `:5432` | Neon (pooled URL at runtime, direct URL for `db push`) |
 
+## Balance writes — the one rule the SQL must follow
+
+Every statement that changes `accounts."savingsBalance"` or `"loanBalance"` must
+either write **relatively**:
+
+```sql
+SET "savingsBalance" = "savingsBalance" + $1   -- Postgres does the arithmetic
+```
+
+or read the row **inside the same transaction with `FOR UPDATE`** before
+computing a new total in Go. Reading from the pool and writing back an absolute
+figure is a lost update, and it is a live defect today
+([LEDGER-01](production-readiness.md)) — `loan_repository.go` is the file to copy
+from, not `transaction_repository.go`.
+
+The reason to care is specific to this domain: `Transaction` rows carry
+`savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted. When the
+balance races, the snapshots and the balance disagree, and the printed passbook
+becomes evidence against the account.
+
 ## Known structural debt
 
-Tracked in [tasks.md](tasks.md): empty stub route folders under `app/api`, legacy `PENDING`/`APPROVED` loan statuses kept beside the spec-aligned ones, and a UUID regex guarding a cuid primary key in the guarantor-approval route.
+Tracked in [tasks.md](tasks.md): legacy `PENDING`/`APPROVED` loan statuses kept
+beside the spec-aligned ones (and `PENDING` is still the schema default), four
+Next route handlers with no caller ([WO-44](work-orders.md)), and FR-10/FR-11
+endpoints that no UI reaches ([WO-45](work-orders.md)).
+
+Fixed since this section was written: the empty stub folders under `app/api` are
+gone, and the UUID-regex-vs-cuid check in the guarantor-approval route was
+corrected by WO-29.

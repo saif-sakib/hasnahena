@@ -21,7 +21,8 @@
 
 export const SYSTEM_CONFIG_KEYS = [
   // Loan policy. The first four are read by the Go API in
-  // internal/repositories/user_repository.go and seeded by scripts/seed.mjs.
+  // internal/repositories/repository.go (getLoanPolicy) and seeded by
+  // scripts/seed.mjs.
   'loan.minDepositForLoan',
   'loan.maxLoanMultiplier',
   'loan.maxInstallmentMonths',

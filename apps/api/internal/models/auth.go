@@ -1,14 +1,14 @@
 package models
 
 type User struct {
-	ID           string `json:"id"`
-	Email        string `json:"email,omitempty"`
-	Phone        string `json:"phone"`
-	PasswordHash string `json:"-"`
-	Role         string `json:"role"`
-	Status       string `json:"status"`
-	NameEn       string `json:"name"`
-	MustChangePassword bool `json:"mustChangePassword"`
+	ID                 string `json:"id"`
+	Email              string `json:"email,omitempty"`
+	Phone              string `json:"phone"`
+	PasswordHash       string `json:"-"`
+	Role               string `json:"role"`
+	Status             string `json:"status"`
+	NameEn             string `json:"name"`
+	MustChangePassword bool   `json:"mustChangePassword"`
 }
 
 type LoginRequest struct {

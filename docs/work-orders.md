@@ -45,6 +45,178 @@ session to find.
 
 ---
 
+# Batch L — Ledger integrity `[ ]` — **do this batch first**
+
+Found in the 2026-08-17 audit, each reproduced against a real Postgres 17. The
+*why* is [Phase −1](production-readiness.md#phase-1--ledger-integrity-defects).
+
+These come before Batch H and before the git-history purge. A history rewrite is
+expensive to delay; a wrong balance is expensive to *have*, and one of these is
+already capable of paying out five times an account's savings.
+
+## WO-41 · Make balance writes race-proof `[ ]` — **critical** (LEDGER-01)
+
+**Files:** `apps/api/internal/repositories/transaction_repository.go`
+
+Three call sites read a balance and write back an absolute total. Two read from
+the pool entirely outside the transaction.
+
+| Function | Line | Problem |
+|---|---|---|
+| `AddMemberDeposit` | ~708 | reads via `r.db.QueryRow` before `Begin`; writes `SET "savingsBalance" = $1` |
+| `AddMemberWithdrawal` | ~800 | same, plus the balance/guarantor/active-loan checks are made against the unlocked read |
+| `ApproveWithdrawal` (DEPOSIT branch) | ~57 | reads inside the tx but with no `FOR UPDATE` on `accounts` |
+| `ProcessDeposit` | ~670 | same as above; also writes **no audit row** and takes its receipt number from the caller instead of `document_sequences` |
+
+**The change.** Write relatively and let Postgres do the arithmetic, returning
+the new value — the pattern `loan_repository.go` already uses:
+
+```sql
+UPDATE accounts
+SET "savingsBalance" = "savingsBalance" + $1, "updatedAt" = NOW()
+WHERE id = $2
+RETURNING "savingsBalance"::bigint
+```
+
+For withdrawals the guard has to move into the statement too, so the check and
+the write are one atomic step rather than two:
+
+```sql
+UPDATE accounts
+SET "savingsBalance" = "savingsBalance" - $1, "updatedAt" = NOW()
+WHERE id = $2 AND "savingsBalance" >= $1
+RETURNING "savingsBalance"::bigint
+```
+
+`pgx.ErrNoRows` from that statement means insufficient funds — return the
+existing `errors.New("insufficient balance")` so the handler contract does not
+change. The eligibility reads (status, active loan, guarantor) must move inside
+the transaction and select `FOR UPDATE OF a`, matching `CreateMemberLoan`.
+
+Do **not** solve this with `SERIALIZABLE` or an advisory lock. The relative
+update is one statement, needs no retry loop, and is what the rest of the file
+already does.
+
+**Done when** 20 concurrent `AddMemberDeposit` calls of ৳1,000 leave a ৳20,000
+balance and a ৳20,000 ledger sum, and 10 concurrent ৳5,000 withdrawals against
+৳10,000 leave exactly two successes and a ৳0 balance. Write both as integration
+tests — the suite has no concurrency coverage at all today, which is why this
+survived 17 green tests.
+
+## WO-42 · Fix the default waterfall for loans with no guarantor `[ ]` — **critical** (LEDGER-02)
+
+**Files:** `apps/api/internal/repositories/loan_repository.go`
+
+Two independent bugs in one flow.
+
+**1. The NULL scan.** `ProcessWaterfallRecovery`'s loan query scans
+`"guarantorId"` into a `string`. `Loan.guarantorId` is `String?`. Use
+`COALESCE("guarantorId", '')` — the code below already treats `""` as "no
+guarantor", so nothing else changes. Add `FOR UPDATE` to that query and to both
+`accounts` reads while you are there; the waterfall currently takes no locks.
+
+**2. The transaction split.** `MarkLoanDefaulted` commits `status = 'DEFAULTED'`
+and *then* calls `ProcessWaterfallRecovery`, which opens its own transaction. A
+failure in recovery leaves a loan permanently defaulted with nothing recovered
+and no way to retry cleanly.
+
+Merge them: take the `tx` as a parameter so the status change, all three
+recovery legs and the audit row commit or roll back together. Keep
+`ProcessWaterfallRecovery` exported if anything else calls it, but give it a
+`…Tx` variant that does not begin its own transaction.
+
+Also unchecked in this function: `tx.Exec` for the audit insert at ~685 and
+~813, both bare `tx.Exec(...)` with no assignment. These are two of the findings
+WO-40 counts.
+
+**Done when** defaulting a loan with `guarantorId IS NULL` recovers from the
+borrower's savings and returns nil, and a forced failure in the donation-pool
+leg leaves the loan **not** defaulted. Add both as integration tests; every
+existing waterfall test seeds a guarantor.
+
+## WO-43 · Remove the last ÷100 and fix donation numbering `[ ]` — **high** (LEDGER-03/04)
+
+Two small independent changes.
+
+**LEDGER-03.** `loan_repository.go:123` —
+`fmt.Sprintf("… BDT %.2f …", float64(principalAmount)/100)`. Drop the `/100`.
+Money is whole taka ([ADR-002](decisions.md)); a ৳50,000 loan currently tells
+the member "BDT 500.00". Then grep the tree for `/ 100` and `/100` and confirm
+the only remaining hits are percentage maths (`admin_repository.go:121`,
+`loan_repository.go:520`) and unrelated unit conversions in `apps/web/lib`.
+
+**LEDGER-04.** `RecordDonation` in `transaction_repository.go`:
+- replace `fmt.Sprintf("DON-%s", time.Now().Format(…))` with
+  `r.nextDocumentNumber(ctx, tx, utils.SeriesDonation)`, adding `SeriesDonation`
+  to `internal/utils` alongside the existing four ([ADR-013](decisions.md));
+- add the missing `insertAuditLogTx` call. It is the only balance-changing
+  method in the Go API without one (CLAUDE.md rule 2).
+
+**Done when** two donations recorded in the same second get distinct sequential
+numbers, and `TestEveryBalanceChangeWritesAnAuditRow` is extended to cover
+`RecordDonation` — it currently does not, which is why the gap survived.
+
+## WO-44 · Delete the dead Next route handlers `[~]` — **medium**
+
+Seven of thirteen Next route handlers have **no caller anywhere** in
+`app/`, `components/`, `lib/`, `hooks/` or `e2e/`. Verified by exhaustive grep
+for every `/api/v1/...` literal, including the dynamically-built ones.
+
+**Already deleted in the 2026-08-17 audit** (both mutated balances from Next, in
+direct violation of [ADR-001](decisions.md)):
+
+| Route | Why it went |
+|---|---|
+| `worker/transactions/[id]/process` | **Provably broken** — wrote `processedBy: workerName`, a display name, into a column that is a foreign key to `users.id`. Every call violated `transactions_processedBy_fkey` and 500'd. Also duplicated the Go worker-deposit path |
+| `member/transactions/[id]/confirm` | Read the balance and wrote back an absolute total from a Next handler — LEDGER-01's bug, in the backend that is not allowed to hold it |
+
+**Still present, still uncalled — decide per route:**
+
+| Route | Recommendation |
+|---|---|
+| `transactions/deposit-requests` | **Delete.** Superseded by Go `POST /v1/dashboard/member/requests/deposit`, which the member deposits page actually calls |
+| `transactions/withdrawal-requests` | **Delete.** No withdrawal-request UI exists; when one is built it belongs in Go beside the deposit twin |
+| `admin/approvals/registration` | **Delete.** The approvals page calls the Go route of the same name |
+| `loans/applications` | **Keep.** FR-10's only implementation, and the member loan-application UI is unbuilt — see WO-45 |
+| `loans/[id]/guarantor-approval` | **Keep.** FR-11's only implementation; WO-29 fixed it, and WO-45 gives it a caller |
+| `admin/audit-logs` | **Keep.** OBS-08's backend; the viewer UI is the missing half |
+
+**Done when** the three deletions are gone, `pnpm build` still enumerates every
+remaining route, and `docs/api.md` lists exactly what is on disk. Delete
+`apps/web/.next` before typechecking — Next caches generated route types and
+will report a removed route as a missing module.
+
+## WO-45 · Give FR-10 and FR-11 a user interface `[ ]` — **high**
+
+The audit's most surprising finding: **a member cannot apply for a loan, and a
+guarantor cannot approve one, from anywhere in the app.**
+
+- `app/[locale]/dashboard/member/loans/page.tsx` posts only to
+  `/v1/dashboard/member/requests/loan-repayment`. There is no application form.
+- No file under `app/[locale]/` calls `guarantor-approval`. The string
+  `guarantor` appears in the member/admin UI only as a *status label* and a
+  read-only field.
+
+So loans exist solely because a worker creates one via
+`POST /v1/dashboard/worker/members/{id}/loan`, which skips
+`PENDING_GUARANTOR` → `PENDING_APPROVAL` entirely and writes `status = 'ACTIVE'`
+directly. The documented loan lifecycle is real in the schema and in the Go API
+and unreachable from the product.
+
+This is why [tasks.md](tasks.md) marking FR-11 `[x]` was wrong: WO-29 fixed the
+endpoint and verified it with curl, which is a true statement about the endpoint
+and a false one about the feature.
+
+**Scope:** a member-side application form posting to `/api/v1/loans/applications`,
+and a guarantor action on the member dashboard posting to
+`/api/v1/loans/{id}/guarantor-approval`. Both routes exist and work; this is UI
+plus `messages/{en,bn}.json` copy.
+
+**Done when** a member can apply, a nominated guarantor sees and approves the
+request, and the loan reaches `PENDING_APPROVAL` without anyone touching SQL.
+
+---
+
 # Batch H — Live defects `[~]`
 
 Found by auditing the code on **2026-08-16**, not by reading the docs.
@@ -537,18 +709,23 @@ fake data, so the question is no longer "what is most urgent" but **"what gets
 more expensive once real member data exists"** — a different ordering. Read that
 file first.
 
-The short version:
+The short version, as revised by the 2026-08-17 audit:
 
-1. **WO-28** — purge git history. Cheap while one person is affected.
-2. **Settle the data model** — the legacy `LoanStatus` values, donation fund
-   types (FR-15/16), the `audit_logs` trigger ([WO-33](#)), the withdrawal notice
-   period (FR-08). Each is a migration today and a migration *plus a backfill*
-   after launch.
-3. **WO-39, WO-30, WO-31** — settings allow-list, enumeration, HSTS. All small,
-   all about members, so they should exist before there are any.
-4. **Prove the restore** against the real host while the data is still
+1. **Batch L — WO-41 → WO-43.** The ledger defects. These jumped the queue: a
+   history rewrite gets more expensive with time, but a balance that is wrong is
+   expensive *now*, and WO-41 can pay out five times an account's savings today.
+2. **WO-28** — purge git history. Cheap while one person is affected.
+3. **Settle the data model** — the legacy `LoanStatus` values, donation fund
+   types (FR-15/16), the withdrawal notice period (FR-08). Each is a migration
+   today and a migration *plus a backfill* after launch.
+4. **SEC-11** — make the Next handlers honour the token blacklist. Small, and it
+   makes a claim the README already makes true.
+5. **WO-45** — the loan-application and guarantor UI. The largest gap between
+   what the docs describe and what a member can do.
+6. **Prove the restore** against the real host while the data is still
    disposable.
-5. Then cut over — see [go-live.md](go-live.md) Stage 2.
+7. Then cut over — see [go-live.md](go-live.md) Stage 2.
 
-Done since this list was written: **WO-29** (guarantor approval, verified end to
-end) and **Batch G is merged to `main`**.
+Done since this list was first written: **WO-29** (guarantor approval endpoint),
+**WO-33** (audit trigger), **WO-39** (settings allow-list), **WO-30/31/32**, and
+**Batch G is merged to `main`**.

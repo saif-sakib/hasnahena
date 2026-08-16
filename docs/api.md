@@ -77,23 +77,34 @@ The SSE stream takes an `Authorization` header when the caller can set one. A br
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-| Methods | Path | Purpose |
-|---|---|---|
-| GET·POST | `/api/v1/registrations` | public registration submit + admin listing |
-| POST | `/api/v1/auth/login` | legacy login path, kept for older clients |
-| POST | `/api/v1/admin/approvals/registration` | approve a pending registration |
-| GET | `/api/v1/admin/audit-logs` | audit viewer feed |
-| POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD |
-| GET·PUT | `/api/v1/settings` | `system_config` read / upsert (admin) |
-| GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS |
-| POST | `/api/v1/loans/applications` | member loan application |
-| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects |
-| POST | `/api/v1/transactions/deposit-requests` | member deposit request |
-| POST | `/api/v1/transactions/withdrawal-requests` | member withdrawal request |
-| POST | `/api/v1/worker/transactions/{id}/process` | worker marks processed |
-| POST | `/api/v1/member/transactions/{id}/confirm` | member confirms |
-| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount |
-| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints |
+Thirteen handlers, of which **six have a caller in the app and seven do not**.
+The "called by" column is the audited answer, not an intention — verified
+2026-08-17 by grepping every `/api/v1/...` literal in `app/`, `components/`,
+`lib/`, `hooks/` and `e2e/`. An uncalled route is not automatically dead (some
+are a built feature's missing half), but it is never exercised, so treat it as
+untested.
+
+| Methods | Path | Purpose | Called by |
+|---|---|---|---|
+| GET·POST | `/api/v1/registrations` | public registration submit + admin listing | register page |
+| POST | `/api/v1/auth/login` | legacy login path, kept for older clients | login page |
+| GET·PUT | `/api/v1/settings` | `system_config` read / upsert | login, member loans, admin settings/members, `lib/documents/org-settings.ts`. **GET is unauthenticated** — SEC-12 |
+| GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | admin gallery + settings |
+| POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD | admin workers |
+| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount | member transactions |
+| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints | `lib/api.ts` rewrite |
+| POST | `/api/v1/loans/applications` | member loan application | **nothing** — FR-10's missing UI ([WO-45](work-orders.md)) |
+| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | **nothing** — FR-11's missing UI ([WO-45](work-orders.md)) |
+| GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
+| POST | `/api/v1/admin/approvals/registration` | approve a pending registration | **nothing** — superseded by the Go route ([WO-44](work-orders.md)) |
+| POST | `/api/v1/transactions/deposit-requests` | member deposit request | **nothing** — superseded by Go `/v1/dashboard/member/requests/deposit` ([WO-44](work-orders.md)) |
+| POST | `/api/v1/transactions/withdrawal-requests` | member withdrawal request | **nothing** ([WO-44](work-orders.md)) |
+
+**Removed 2026-08-17** — both mutated balances from Next, which
+[ADR-001](decisions.md) forbids, and neither had a caller:
+`POST /api/v1/worker/transactions/{id}/process` (also 500'd on every call — it
+wrote a display name into `processedBy`, a foreign key to `users.id`) and
+`POST /api/v1/member/transactions/{id}/confirm`.
 
 ## Adding an endpoint
 

@@ -6,10 +6,12 @@
 
 1. **All money is `BigInt`, whole taka.** `savingsBalance`, `loanBalance`, `amount`, `principalAmount`, `remainingAmount`, `installmentAmount`, `maxLoanAmount`. No paisa, no decimals, no floats ([ADR-002](decisions.md)).
 2. **Balance changes and their `Transaction` row are written in one DB transaction**, and every transaction stores `savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted exactly.
+2a. **A balance is written relatively, or read `FOR UPDATE` inside the same transaction.** `SET "savingsBalance" = "savingsBalance" + $1` is always safe. Reading the balance first — especially from the pool, outside the transaction — and writing back a total computed in Go is a lost update: concurrent postings overwrite each other, the balance stops matching the sum of `transactions`, and the `savingsAfter` snapshots become wrong on paper. This is live in `transaction_repository.go` today ([LEDGER-01](production-readiness.md)); `loan_repository.go` is the correct model.
 3. **`audit_logs` is append-only.** Corrections append; nothing updates or deletes.
 4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
-6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)).
+6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)). One method still breaks this: `RecordDonation` builds `DON-<timestamp>` from the wall clock ([LEDGER-04](production-readiness.md)).
+7. **`transactions."processedBy"` is a foreign key to `users.id`, not a name.** It looks like a display field and is not; writing a person's name into it raises `transactions_processedBy_fkey`. A deleted Next handler did exactly that and 500'd on every call. Render the name by joining `users`, the way `member_repository.go` does.
 
 ## Entities
 
@@ -43,7 +45,15 @@
 
 ## `system_config` keys
 
-Read by the Go API through `getLoanPolicy()`, edited from the admin settings page.
+The complete allow-list lives in
+[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 20 keys —
+and is the single source of truth. `PUT /api/v1/settings` **rejects** any key not
+declared there ([WO-39](work-orders.md)); it used to upsert anything, so a typo
+became a permanent row that looked like a real setting while the code read the
+correctly-spelled one.
+
+The four the Go API reads, through `getLoanPolicy()` in
+`internal/repositories/repository.go`:
 
 | Key | Default | Effect |
 |---|---|---|
@@ -52,7 +62,14 @@ Read by the Go API through `getLoanPolicy()`, edited from the admin settings pag
 | `loan.maxInstallmentMonths` | `24` | longest repayment schedule |
 | `loan.allowActiveLoanWithdrawal` | off | permit withdrawal while a loan is active |
 
-Unknown keys are tolerated — the settings endpoint upserts whatever it is given, so typos silently create dead config. Add new keys here when you introduce them.
+The other sixteen are read by the web app only: `org.*` (letterhead on generated
+documents and the public site), `hero.*` (landing page), `support.chatRetentionDays`,
+`loan.missedPaymentsForDefault`, and `loan.noticePeriodMonths` — **settable and
+read by nothing**, because FR-08 is unimplemented.
+
+Adding a key is a three-step job and the allow-list entry is the *last* one: make
+something read it, seed a default in `scripts/seed.mjs`, then declare it. A key
+nothing reads is a note, not a setting.
 
 ## Indexes
 

@@ -17,14 +17,24 @@ pnpm test:integration   # Go + real Postgres; needs TEST_DATABASE_URL and a push
 cd apps/api && go build ./...                  # Go check
 ```
 
-`pnpm typecheck` must exit **clean, zero errors**. Any error is yours.
+`pnpm typecheck` must exit **clean, zero errors**. Any error is yours. If it reports a missing `app/api/**/route.js`, delete `apps/web/.next` first — those are stale generated route types, not your bug.
 
-No Go toolchain on this machine. Unpack a pinned Go 1.25 tarball into the session scratchpad and put it on `PATH` — `go build`, `go vet` and `go test` then all work.
+Go **is** installed (`go1.26.5`). `go build`, `go vet`, `go test` work directly. `golangci-lint` 2.6.1 panics on a 1.26 toolchain — use `GOTOOLCHAIN=go1.25.3`, which is what CI pins.
+
+Integration tests need a database:
+```bash
+docker run -d --name hn-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=hasnahena_test -p 55432:5432 postgres:17
+DATABASE_URL='postgresql://postgres:postgres@localhost:55432/hasnahena_test' pnpm db:migrate
+cd apps/api && TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55432/hasnahena_test' \
+  go test ./... -tags=integration -count=1 -p 1
+```
 
 ## Rules
 
 1. Money is **BigInt whole taka**. No paisa, no float, no ×100.
 2. **Balance changes go in the Go API** — `internal/repositories/transaction_repository.go` (deposits, withdrawals, donations) or `loan_repository.go` (lending), one DB transaction, plus an `audit_logs` row. Never from a Next route handler.
+2a. **Read the balance you are about to write inside the transaction, with `FOR UPDATE`** — or write it relatively (`SET "savingsBalance" = "savingsBalance" + $1`). Reading from the pool and writing back an absolute total is a lost update: it silently destroys money and makes the ledger disagree with the balance. This is a live defect today ([LEDGER-01](docs/production-readiness.md)); do not copy the surrounding code without checking which pattern it uses.
 3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).

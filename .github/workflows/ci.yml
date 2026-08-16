@@ -87,12 +87,10 @@ jobs:
 
       - name: Formatting
         run: |
-          # Only files this pipeline is responsible for keeping clean. Three
-          # pre-existing files are excluded until someone reformats them
-          # deliberately, rather than as a drive-by in an unrelated PR.
-          unformatted=$(gofmt -l . \
-            | grep -vE 'internal/models/auth.go|internal/services/security_service.go|internal/utils/member_id.go' \
-            || true)
+          # The whole tree, with no exclusions. The three files that used to be
+          # carved out here were reformatted in the 2026-08-16 audit, so an
+          # exclusion list is no longer carrying anything.
+          unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
           fi

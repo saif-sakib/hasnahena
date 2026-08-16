@@ -18,7 +18,7 @@ import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv } from './lib/env.mjs';
 
 // Only keys the application actually reads. Defaults match the fallbacks
-// hardcoded in the Go repository (user_repository.go) and lib/documents/theme.ts
+// hardcoded in the Go repository (repositories/repository.go) and lib/documents/theme.ts
 // — seeding them makes the effective policy visible in the admin settings page
 // instead of invisible in two codebases.
 const CONFIG_DEFAULTS = [
