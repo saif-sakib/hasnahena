@@ -59,7 +59,7 @@ this file requires you to run the whole stack.
 | Image | Base | On disk | Compressed |
 |---|---|---|---|
 | `apps/api/Dockerfile` | `gcr.io/distroless/static-debian12:nonroot` | 26.9 MB | 6.0 MB |
-| `apps/web/Dockerfile` | `node:24-bookworm-slim` | 535 MB | 119.6 MB |
+| `apps/web/Dockerfile` | `node:24-bookworm-slim` | 488 MB | 113.8 MB |
 
 Both columns are real, measured from built images. `docker images` reports the
 uncompressed on-disk size; what actually crosses the network on a push or pull

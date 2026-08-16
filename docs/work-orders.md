@@ -689,8 +689,41 @@ musl. Alpine would need a `binaryTargets` change in `schema.prisma`, and the
 failure mode is a container that starts cleanly and dies on the first query —
 the kind of bug that reaches production because the health check is green.
 
-Verified without a Docker daemon (the daemon on this machine refuses the current
-user, see below): the static binary builds and is confirmed
+**Update 2026-08-16, after the images were actually built and run.** The
+original Batch F verification was static — the daemon refused this user, so
+nothing was ever built. Three defects survived that gap, and every one of them
+only appears when you run the image:
+
+1. **`.dockerignore` used git's matching rules, not Docker's.** Docker matches
+   each pattern against the full path from the context root, so a bare `.env`
+   covers only the repository root — `apps/web/.env` was still in the context.
+   It surfaced as a *build failure*, and only by luck: that path is a symlink to
+   the root `.env.local`, which was excluded, so Docker copied a dangling link
+   and `next build` died on `stat()`. A real file there would have gone into an
+   image layer instead, quietly. Every pattern now carries an explicit `**/`.
+2. **Prisma had no OpenSSL to detect.** `node:24-bookworm-slim` ships neither
+   `libssl` nor the `openssl` binary, so Prisma warned and fell back to
+   `openssl-1.1.x` — wrong for bookworm. `openssl` is now installed in the deps
+   and runtime stages, and the image is confirmed to carry OpenSSL 3.0.20 and
+   `libquery_engine-debian-openssl-3.0.x.so.node`.
+3. **`@swc/helpers` was only half-traced.** Next 16 resolves it through the
+   package's `exports` map at `./esm/*`; the tracer follows the CommonJS entry
+   and copies `cjs/` only. The container died at startup with "Cannot find
+   module .../@swc/helpers/esm/_interop_require_default.js" before serving a
+   single request. Added to `outputFileTracingIncludes`.
+
+Now verified by running it: the container starts, reports `healthy` from its own
+HEALTHCHECK, and serves `/en`, `/bn`, `/en/gallery`, `/bn/gallery`, `/en/about`,
+`/bn/terms` and `/en/login` — all 200, with the gallery pages proving a real
+Prisma query against Postgres. No Prisma errors, no libssl warning, no module
+errors. Web image 488 MB on disk / 113.8 MB compressed; API image 26.9 MB /
+6.0 MB.
+
+The lesson worth keeping: a Dockerfile that has never been built is a
+hypothesis. Static review caught none of these three.
+
+Originally verified without a Docker daemon (the daemon refused this user at the
+time): the static binary builds and is confirmed
 `statically linked, stripped`; all four `-healthcheck` paths behave (no listener
 → 1, 200 → 0, 503 → 1, and no config fatal without `DATABASE_URL`); the
 standalone tree was assembled by hand exactly as the Dockerfile's three `COPY`
