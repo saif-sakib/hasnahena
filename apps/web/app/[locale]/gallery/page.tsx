@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
-import { unstable_setRequestLocale } from 'next-intl/server';
+import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { locales } from '@/i18n';
 import { Header } from '@/components/layout/header';
@@ -32,7 +32,7 @@ export default async function GalleryPage({ params }: PageProps) {
     notFound();
   }
 
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
   const tGallery = await getTranslations({locale, namespace: 'gallery'});
 
   // Fetch gallery items from DB
