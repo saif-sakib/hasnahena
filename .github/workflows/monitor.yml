@@ -1,0 +1,178 @@
+name: Monitor
+
+# Business-threshold alerting (OBS-06).
+#
+# This job deliberately does NOT do uptime checking, and the reason is money.
+# GitHub gives a private repository 2,000 Actions minutes a month, and every run
+# is billed rounded up to a whole minute. A five-minute uptime check is 8,640
+# runs — four times the entire free allowance, for something UptimeRobot does
+# for nothing at a one-minute interval. So:
+#
+#   * "Is the API up?"  -> UptimeRobot, free tier, hits /v1/ready.
+#   * "Is the error rate high?" -> Sentry, free tier, its own alert rules.
+#   * "Is a member waiting on money?" -> here. Nothing else can see it.
+#
+# That last one is the whole point. A transaction sitting unconfirmed for three
+# days throws no exception and returns no error status; every technical monitor
+# in the stack reports green while a member waits. Twice a day is the right
+# cadence for it — it is a queue, not an outage.
+#
+# Cost: ~60 runs a month.
+
+on:
+  schedule:
+    - cron: '0 4,14 * * *' # 10:00 and 20:00 Asia/Dhaka
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # opens/updates the alert issue
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+jobs:
+  thresholds:
+    name: Business thresholds
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check metrics
+        id: check
+        env:
+          API_URL: ${{ vars.MONITOR_API_URL || 'https://api.hasnahenafoundation.com' }}
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
+          # Tuned to the lifecycle in docs/product.md: a posting should be
+          # confirmed within a day or two, so 5 waiting is a backlog, not noise.
+          MAX_UNCONFIRMED: ${{ vars.MONITOR_MAX_UNCONFIRMED || 5 }}
+          MAX_DISPUTES: ${{ vars.MONITOR_MAX_DISPUTES || 3 }}
+          MAX_POOL_UTILISATION: ${{ vars.MONITOR_MAX_POOL_UTILISATION || 80 }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${METRICS_TOKEN:-}" ]; then
+            echo "METRICS_TOKEN secret is not set; cannot scrape /metrics" >&2
+            exit 1
+          fi
+
+          if ! curl -sSf --max-time 30 \
+              -H "Authorization: Bearer $METRICS_TOKEN" \
+              "$API_URL/metrics" -o metrics.txt; then
+            echo "problems=Could not scrape $API_URL/metrics. The API may be down — check UptimeRobot." >> "$GITHUB_OUTPUT"
+            echo "alert=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          value() {
+            # Prometheus values may be scientific notation; awk normalises them.
+            awk -v k="$1" '$1 == k { printf "%.0f", $2; found=1 } END { if (!found) print "0" }' metrics.txt
+          }
+
+          UNCONFIRMED=$(value hasnahena_transactions_unconfirmed_over_48h)
+          DISPUTES=$(value hasnahena_transactions_disputed_open)
+          POOL_USED=$(value hasnahena_db_pool_connections_acquired)
+          POOL_MAX=$(value hasnahena_db_pool_connections_max)
+          LAST_REFRESH=$(value hasnahena_business_metrics_last_refresh_timestamp_seconds)
+
+          PROBLEMS=""
+          add() { PROBLEMS="${PROBLEMS}- $1"$'\n'; }
+
+          [ "$UNCONFIRMED" -gt "$MAX_UNCONFIRMED" ] && \
+            add "**$UNCONFIRMED transactions unconfirmed for over 48 hours** (threshold $MAX_UNCONFIRMED). Members are waiting on postings."
+          [ "$DISPUTES" -gt "$MAX_DISPUTES" ] && \
+            add "**$DISPUTES open disputes** (threshold $MAX_DISPUTES). Each one is a member who says our number is wrong."
+
+          if [ "${POOL_MAX:-0}" -gt 0 ]; then
+            UTIL=$(( POOL_USED * 100 / POOL_MAX ))
+            [ "$UTIL" -gt "$MAX_POOL_UTILISATION" ] && \
+              add "**Database pool ${UTIL}% used** ($POOL_USED/$POOL_MAX, threshold ${MAX_POOL_UTILISATION}%). Requests will start queueing."
+          fi
+
+          # A frozen gauge looks identical to a calm system, so check the clock
+          # on the numbers rather than trusting them.
+          NOW=$(date -u +%s)
+          if [ "${LAST_REFRESH:-0}" -gt 0 ] && [ $(( NOW - LAST_REFRESH )) -gt 900 ]; then
+            add "**Business metrics are stale** (last refreshed $(( (NOW - LAST_REFRESH) / 60 )) minutes ago). The figures above cannot be trusted."
+          fi
+
+          {
+            echo "### Monitor"
+            echo
+            echo "| Metric | Value | Threshold |"
+            echo "|---|---|---|"
+            echo "| Unconfirmed > 48h | $UNCONFIRMED | $MAX_UNCONFIRMED |"
+            echo "| Open disputes | $DISPUTES | $MAX_DISPUTES |"
+            echo "| Pool in use | $POOL_USED / $POOL_MAX | ${MAX_POOL_UTILISATION}% |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$PROBLEMS" ]; then
+            {
+              echo "problems<<EOF"
+              echo "$PROBLEMS"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "alert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "alert=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A GitHub issue is the notification channel because it needs no third
+      # party and no secret: GitHub emails the repo owner when an issue is
+      # opened or commented. One issue is reused while a problem persists, so a
+      # week-long backlog is one thread rather than fourteen emails.
+      - name: Open or update the alert issue
+        if: steps.check.outputs.alert == 'true'
+        uses: actions/github-script@v7
+        env:
+          PROBLEMS: ${{ steps.check.outputs.problems }}
+        with:
+          script: |
+            const title = 'Monitor: thresholds exceeded';
+            const body = `${process.env.PROBLEMS}\n\n` +
+              `Checked at ${new Date().toISOString()} — [run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).\n\n` +
+              `Close this issue once resolved; it will reopen if the thresholds trip again.`;
+
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'monitor',
+            });
+
+            if (open.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['monitor'],
+              });
+            }
+
+      - name: Close the alert issue when clear
+        if: steps.check.outputs.alert == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'monitor',
+            });
+            for (const issue of open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: 'All thresholds back within limits. Closing automatically.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed',
+              });
+            }

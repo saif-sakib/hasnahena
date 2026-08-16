@@ -12,17 +12,22 @@ import (
 )
 
 type Config struct {
-	Port                string
-	DatabaseURL         string
-	JWTSecret           string
-	JWTExpiry           int64
-	CORSOrigins         []string
-	BrevoAPIKey         string
-	BrevoAPIURL         string
-	EmailFrom           string
-	EmailFromName       string
-	AppURL              string
-	LogLevel            string
+	Port          string
+	DatabaseURL   string
+	JWTSecret     string
+	JWTExpiry     int64
+	CORSOrigins   []string
+	BrevoAPIKey   string
+	BrevoAPIURL   string
+	EmailFrom     string
+	EmailFromName string
+	AppURL        string
+	LogLevel      string
+	// MetricsToken gates /metrics. Empty disables the endpoint entirely —
+	// the exposition carries business figures, so it is not public.
+	MetricsToken string
+	// Environment tags Sentry events and separates local noise from production.
+	Environment         string
 	DBMaxConns          int32
 	DBMinConns          int32
 	DBMaxConnIdleTime   time.Duration
@@ -42,6 +47,9 @@ type Config struct {
 
 	// How often expired token_blacklist and rate_limits rows are swept (RUN-06).
 	CleanupInterval time.Duration
+	// MetricsRefreshInterval controls how often the business gauges are
+	// recomputed. They are aggregate queries, so this is DB load, not free.
+	MetricsRefreshInterval time.Duration
 }
 
 func Load() Config {
@@ -71,6 +79,8 @@ func Load() Config {
 		EmailFromName:       getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
 		AppURL:              resolvePublicAppURL(),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
+		MetricsToken:        getEnv("METRICS_TOKEN", ""),
+		Environment:         getFirstNonEmpty(getEnv("ENVIRONMENT", ""), getEnv("RENDER_SERVICE_NAME", ""), "development"),
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
 		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
@@ -81,10 +91,11 @@ func Load() Config {
 		ServerReadTimeout:       getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second),
 		// Generous because report and document endpoints do real work. The SSE
 		// stream clears this deadline for itself; see DashboardHandler.SupportStream.
-		ServerWriteTimeout:    getEnvDuration("SERVER_WRITE_TIMEOUT", 60*time.Second),
-		ServerIdleTimeout:     getEnvDuration("SERVER_IDLE_TIMEOUT", 120*time.Second),
-		ServerShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second),
-		CleanupInterval:       getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
+		ServerWriteTimeout:     getEnvDuration("SERVER_WRITE_TIMEOUT", 60*time.Second),
+		ServerIdleTimeout:      getEnvDuration("SERVER_IDLE_TIMEOUT", 120*time.Second),
+		ServerShutdownTimeout:  getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second),
+		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
+		MetricsRefreshInterval: getEnvDuration("METRICS_REFRESH_INTERVAL", 1*time.Minute),
 	}
 }
 

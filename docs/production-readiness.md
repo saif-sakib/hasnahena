@@ -225,7 +225,7 @@ Free-tier hosts hide these. A VPS will not.
 | RUN-05 `[x]` | Scrub PII from logs | **Done.** All three sites now log the user ID. The staff-welcome path has no user yet, so it logs only the role and leans on the request ID to tie the line back to the caller. The access log records `r.URL.Path` and never `RawQuery`, which would otherwise carry thread IDs and stream tickets |
 | RUN-06 `[x]` | Schedule the cleanup jobs | **Done.** `startCleanupLoop` in `main.go`: sweeps at boot and then every `CLEANUP_INTERVAL` (default 1h), each sweep bounded at 1 minute, tied to the shutdown context, logging rows deleted only when there are any. `sse_tickets` needs no entry here — it sweeps itself on the issue path |
 | RUN-07 | Global rate limiting | Login is throttled; nothing else is. Add per-IP limits on all mutating routes |
-| RUN-08 | Panic reporting | `middleware.Recoverer` prevents a crash but the panic goes to stdout and nowhere else — wire it to OBS-03 |
+| ~~RUN-08~~ | ~~Panic reporting~~ | **Done** (WO-18) — `observability.Recoverer` sits inside chi's Recoverer and reports the panic before re-raising. |
 | RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support |
 | RUN-10 | ~~Delete the empty API folders~~ `[x]` | Done — 27 empty directories removed (they were untracked, so local-only clutter) |
 
@@ -238,12 +238,12 @@ prove what happened without a database console?*
 
 | ID | Task | Free-tier option |
 |---|---|---|
-| OBS-01 | Metrics endpoint | `prometheus/client_golang` on `/metrics`: request rate, latency histogram, error rate, DB pool saturation |
-| OBS-02 | Business metrics | Deposits posted, loans disbursed, unconfirmed transactions over 48 h, disputes open. These are what actually page you |
-| OBS-03 | Error tracking | Sentry free tier, both apps. Release tags so a spike maps to a deploy |
-| OBS-04 | Uptime monitoring | UptimeRobot on `/v1/ready` and the web root. Render free instances sleep — this also tells you cold-start frequency |
+| ~~OBS-01~~ | ~~Metrics endpoint~~ | **Done** (WO-17), token-gated. |
+| ~~OBS-02~~ | ~~Business metrics~~ | **Done** (WO-17). |
+| ~~OBS-03~~ | ~~Error tracking~~ | **Done** (WO-18), Sentry both apps, PII stripped. |
+| ~~OBS-04~~ | ~~Uptime monitoring~~ | **Done** (WO-18) — needs the UptimeRobot account created. |
 | OBS-05 | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
-| OBS-06 | Alerting | Route to email/Telegram: API down 5 min, error rate >5%, DB pool exhausted, unconfirmed transactions over threshold |
+| ~~OBS-06~~ | ~~Alerting~~ | **Done** (WO-19), split across UptimeRobot/Sentry/Actions on cost grounds. |
 | OBS-07 | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
 | OBS-08 | Audit log viewer UI | FR-22 gap. The data is complete; nobody can read it without SQL |
 
@@ -353,7 +353,7 @@ Do them in this order. Each block is genuinely blocked by the one above it.
 | 2 | **Safety net** | CI-09 only — branch protection, a GitHub setting (CI-01 → CI-08 done) | 5 minutes |
 | 3 | **Runtime hardening** | RUN-07, RUN-08 (RUN-01 → RUN-06 done) | ½ day |
 | ~~4~~ | ~~**Backups that work**~~ | ~~DATA-01, DATA-02, DATA-03~~ | **Done** |
-| 5 | **Can see it** | OBS-01 → OBS-06 | 2–3 days |
+| ~~5~~ | ~~**Can see it**~~ | ~~OBS-01 → OBS-06~~ (OBS-05 log aggregation still open) | **Done** |
 | 6 | **Migrations + seed** | DATA-08 only (DATA-04, DATA-05 done) | ½ day |
 | 7 | **Containerise** | PKG-01 → PKG-08 | 2–3 days |
 | 8 | **Code health** | RUN-09, RUN-10, OBS-07, OBS-08 | 1 week |
