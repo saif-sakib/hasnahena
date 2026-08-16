@@ -24,6 +24,67 @@ pnpm dev:api        # or: cd apps/api && go run cmd/server/main.go
 
 Verify: `curl localhost:8081/v1/health` → `{"success":true,"data":{"status":"ok",…}}`, then open http://localhost:3000.
 
+## Run it in containers
+
+The pnpm workflow above is the fast one and stays the default for day-to-day
+work. The container path exists for a clean-machine reproduction, for onboarding
+someone without a Go or Node toolchain, and as the thing that makes a host
+migration boring rather than exciting.
+
+```bash
+docker compose --env-file .env.local up --build
+```
+
+That builds three images and starts four services: Postgres, a one-shot
+`migrate` container that applies migrations and seeds the first admin, then the
+Go API on :8081 and the web app on :3000. The API waits for `migrate` to
+*complete*, so the app never starts against a schema that is not there yet.
+
+**`--env-file .env.local` is not optional.** Compose reads a file called `.env`
+by default, and this repo does not have one at the root — the local file is
+`.env.local`. Without the flag, `SEED_ADMIN_PASSWORD` arrives empty and the
+`migrate` container stops with "refusing to invent an admin password", which is
+the seed script doing its job. Every service in the file also has a working
+default for local use, so the only variable you genuinely must supply is that
+password.
+
+Compose services connect to Postgres on the hostname `postgres`, not
+`localhost` — the value in `.env.local` is overridden per service in
+`docker-compose.yml` for exactly that reason, so pointing your local
+`DATABASE_URL` at Neon does not make the containers talk to production.
+
+`docker compose up -d postgres` still does only what it always did — nothing in
+this file requires you to run the whole stack.
+
+| Image | Base | Size |
+|---|---|---|
+| `apps/api/Dockerfile` | `gcr.io/distroless/static-debian12:nonroot` | ~17 MB |
+| `apps/web/Dockerfile` | `node:24-bookworm-slim` | ~250 MB |
+
+Three things about these images that are easy to get wrong:
+
+- **Both build from the repository root**, not from `apps/*`. The pnpm lockfile
+  and workspace manifest live at the root, and `--frozen-lockfile` needs them:
+  `docker build -f apps/web/Dockerfile -t hasnahena-web .`
+- **`NEXT_PUBLIC_*` values are build arguments, not runtime environment.** They
+  are compiled into the browser bundle. Changing the API URL means rebuilding
+  the web image, not restarting it.
+- **The web image must stay on a glibc base.** Prisma loads a query engine
+  matched to the runtime's libc; on bookworm that is
+  `debian-openssl-3.0.x`, which is what the build traces in. Moving to Alpine
+  needs `binaryTargets = ["linux-musl-openssl-3.0.x"]` in `schema.prisma`, or
+  the container starts cleanly and then fails on the first query.
+
+Base images are pinned by digest, not by tag, so a rebuild six months from now
+produces the same image. Refresh them deliberately — roughly quarterly, or when
+an advisory lands:
+
+```bash
+docker pull node:24-bookworm-slim && docker inspect --format='{{index .RepoDigests 0}}' node:24-bookworm-slim
+```
+
+Paste the new digest into the Dockerfile, rebuild, and check the app still boots.
+
 ## Environment
 
 **Three places, and they share almost nothing.** This is the single most common

@@ -82,6 +82,34 @@ Signed uploads through a `hasnahena-docs` preset: formats `jpg,jpeg,png,pdf`, ma
 
 Remove conflicting old records, add both apex and www in Vercel, add `api.hasnahenafoundation.com` in Render, wait for SSL, then confirm `NEXT_PUBLIC_API_URL` points at the custom API domain and redeploy.
 
+### The API has two hostnames. Use the custom one.
+
+`api.hasnahenafoundation.com` and `hasnahena-api.onrender.com` reach the **same
+Render service, the same process and the same database**. Verified identical:
+both return `{"status":"ready"}` with a `x-render-origin-server: Render` header.
+The difference is only what sits in front.
+
+| | `hasnahena-api.onrender.com` | `api.hasnahenafoundation.com` |
+|---|---|---|
+| Owner | Render | You |
+| Survives a host move | No — it dies with the Render service | Yes — repoint the CNAME |
+| Survives a service rename | No | Yes |
+| Behind your Cloudflare | No | Yes |
+
+Use the custom domain everywhere: `NEXT_PUBLIC_API_URL`, uptime checks, the
+monitor workflow, and the `/metrics` scrape. The Render subdomain is a fallback
+for exactly one situation — diagnosing whether a problem is DNS/Cloudflare or
+the application. If the custom domain fails and the `onrender.com` one works,
+the app is fine and the problem is in front of it.
+
+**Know this about the Render hostname:** it stays publicly reachable and it
+bypasses Cloudflare. Any rate limiting, WAF rule or bot protection added at
+Cloudflare can be sidestepped by an attacker who addresses the origin directly —
+and the `onrender.com` name is guessable from the service name. Render's free
+tier has no origin-locking, so the fix, if it ever matters, is in the
+application: reject requests whose `Host` header is not the custom domain.
+Not urgent while the platform is small; do not forget it exists.
+
 ## Environment
 
 Render and Vercel are **separate stores that share nothing automatically**. Copy
@@ -115,6 +143,39 @@ Point the host's health check at `/v1/health` and its load-balancer check at `/v
 Deploys are drained, not killed: the API catches `SIGTERM`, stops accepting new connections, and gives in-flight requests up to `SERVER_SHUTDOWN_TIMEOUT` (default 30 s) to finish, so a deploy no longer lands mid money-movement. Give the platform a stop-timeout **longer** than that value, or it will `SIGKILL` during the drain and defeat the point. Render's default grace period is 30 s, so either lower `SERVER_SHUTDOWN_TIMEOUT` to ~25 s there or raise the platform's.
 
 Rotate any secret that has ever appeared in a screenshot, chat, or commit — in Neon, Vercel, and Render together, since they are isolated stores. Keep dev and production credentials separate. Watch free-tier limits on all four services.
+
+## Container images
+
+**Nothing in production uses these yet.** Vercel and Render both build from
+source and ignore the Dockerfiles. They exist so that a host move is a
+configuration change rather than a project, and so the stack can be reproduced
+on any machine — see [setup.md](setup.md#run-it-in-containers) for how to run
+them.
+
+| File | Produces | Base |
+|---|---|---|
+| `apps/api/Dockerfile` | Go API, ~17 MB | `gcr.io/distroless/static-debian12:nonroot` |
+| `apps/web/Dockerfile` | Next standalone, ~250 MB | `node:24-bookworm-slim` |
+| `docker-compose.yml` | Postgres + migrate + api + web | — |
+| `.dockerignore` | Governs both build contexts | — |
+
+Two properties worth keeping when someone edits them:
+
+**`.dockerignore` is a secret control, not a speed tweak.** Next's file tracer
+copies whatever it finds beside the app into `.next/standalone/`, and it was
+observed pulling `.env.local` and the `apps/web/.env` symlink straight in. Those
+would land in an image layer — readable by anyone who can pull the image, and
+still readable after a later layer deletes them. The env rules at the top of
+`.dockerignore` are what prevents that. Do not weaken them.
+
+**`output: 'standalone'` is gated behind `DOCKER_BUILD=1`.** Vercel builds its
+own output and does not need it, and two Vercel deploys have already been broken
+this month by build-config changes. The Docker build opts in; every other build
+is byte-for-byte what it was before.
+
+Not done yet: building and pushing these to a registry in CI (PKG-06). Until
+that exists, an image is something you build locally, not a deployable artifact
+per commit.
 
 ## Schema changes
 
