@@ -39,7 +39,7 @@ export async function uploadSettingsImageAction(
 ): Promise<UploadSettingsImageResult> {
   try {
     const authTokenFromForm = formData.get('authToken');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
         ? authTokenFromForm.trim()
@@ -133,7 +133,7 @@ export async function deleteSettingsImageAction(
   authTokenFromClient?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
       cookieStore.get('auth-token')?.value;

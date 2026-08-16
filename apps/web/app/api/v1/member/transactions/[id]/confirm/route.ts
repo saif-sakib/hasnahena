@@ -4,7 +4,8 @@ import { requireAuth } from '@/lib/auth';
 import { serializeTransaction } from '@/lib/api-utils';
 import { TransactionStatus, TransactionType, UserRole } from '@prisma/client';
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
     const auth = requireAuth(req);
 
@@ -16,7 +17,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
 
     const tx = await prisma.transaction.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true, type: true, amount: true, status: true, userId: true, accountId: true, receiptNumber: true },
     });
     if (!tx) return NextResponse.json({ ok: false, error: 'Transaction not found' }, { status: 404 });
