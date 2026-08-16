@@ -39,7 +39,7 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 | | |
 |---|---|
-| Go API | 15 files, 8.8k lines — `user_repository.go` alone is 4.9k (55%) |
+| Go API | 23 files, 8.8k lines. The 4.9k-line `user_repository.go` was split by domain in WO-38; the largest file is now `loan_repository.go` at 1.1k |
 | Next web | 189 TS/TSX files, 34.7k lines |
 | Go routes | 63 under `/v1` |
 | Next route handlers | 15 (plus 16 empty folders) |
@@ -305,7 +305,7 @@ Free-tier hosts hide these. A VPS will not.
 | RUN-06 `[x]` | Schedule the cleanup jobs | **Done.** `startCleanupLoop` in `main.go`: sweeps at boot and then every `CLEANUP_INTERVAL` (default 1h), each sweep bounded at 1 minute, tied to the shutdown context, logging rows deleted only when there are any. `sse_tickets` needs no entry here — it sweeps itself on the issue path |
 | RUN-07 `[x]` | Global rate limiting | **Done 2026-08-16.** Per-client throttle on mutating methods, `RATE_LIMIT_REQUESTS`/`RATE_LIMIT_WINDOW` (60/1m). Reads, `/v1/health`, `/v1/ready` and `/metrics` are exempt so a probe cannot be throttled into looking like an outage. In memory, not in `rate_limits`: it counts *every* request, so a table would mean an UPDATE on the same hot path the money transactions already contend on. **Tradeoff stated:** with N instances the effective limit is N×; Render runs one. **The load-bearing part is `clientIP`** — chi's `RealIP` is deprecated and spoofable, so keying on `RemoteAddr` would let a caller mint a fresh quota per request by varying a header. Set `TRUSTED_PROXIES=1` on Render or this is decorative |
 | ~~RUN-08~~ | ~~Panic reporting~~ | **Done** (WO-18) — `observability.Recoverer` sits inside chi's Recoverer and reports the panic before re-raising. |
-| RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support. Pure refactor and the 17 integration tests make it verifiable — but it conflicts with everything, so do it when nothing else is in flight ([WO-38](work-orders.md)) |
+| ~~RUN-09~~ | ~~Split `user_repository.go`~~ | **Done 2026-08-16** (WO-38). 4,894 lines → nine files by domain, largest 1.1k. Verified as a **pure move**: all 91 declarations extracted from both versions and compared brace-to-brace, byte-identical, same SHA-256. Plus build, vet, golangci-lint, unit tests and the 17 integration tests against a real Postgres |
 | RUN-10 | ~~Delete the empty API folders~~ `[x]` | Done — 27 empty directories removed (they were untracked, so local-only clutter) |
 
 ---

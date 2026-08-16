@@ -97,7 +97,7 @@ Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth v
 
 ## Adding an endpoint
 
-Changes a balance → Go: route in `main.go`, HTTP shape in `dashboard_handler.go`, SQL + rules in `user_repository.go`, wrapped in a transaction, with an `audit_logs` append. Otherwise a Next route handler is fine. Either way, document it here in the same commit.
+Changes a balance → Go: route in `main.go`, HTTP shape in `dashboard_handler.go`, SQL + rules in the matching `internal/repositories/*_repository.go`, wrapped in a transaction, with an `audit_logs` append. Otherwise a Next route handler is fine. Either way, document it here in the same commit.
 
 ## Smoke test
 

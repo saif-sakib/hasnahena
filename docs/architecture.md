@@ -81,7 +81,9 @@ internal/config           env loading (walks up for .env), fails fast if JWT_SEC
 internal/middleware       CORS (allow-list from CORS_ORIGINS), request logging
 internal/handlers         auth_handler.go, dashboard_handler.go (HTTP shape only)
 internal/services         auth (JWT, bcrypt), security (rate limit, blacklist), email (Brevo)
-internal/repositories     user_repository.go — all SQL, all business calculation
+internal/repositories     all SQL and business calculation, split by domain (WO-38):
+                          repository.go (shared helpers), transaction_ (deposits/withdrawals/
+                          donations), loan_, member_, worker_, admin_, auth_, support_, report_
 internal/utils            response envelope, validation, member-ID + receipt generators
 ```
 

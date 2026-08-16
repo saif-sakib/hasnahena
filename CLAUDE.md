@@ -24,7 +24,7 @@ No Go toolchain on this machine. Unpack a pinned Go 1.25 tarball into the sessio
 ## Rules
 
 1. Money is **BigInt whole taka**. No paisa, no float, no ×100.
-2. **Balance changes go in the Go API** — `internal/repositories/user_repository.go`, one DB transaction, plus an `audit_logs` row. Never from a Next route handler.
+2. **Balance changes go in the Go API** — `internal/repositories/transaction_repository.go` (deposits, withdrawals, donations) or `loan_repository.go` (lending), one DB transaction, plus an `audit_logs` row. Never from a Next route handler.
 3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
@@ -43,7 +43,17 @@ No Go toolchain on this machine. Unpack a pinned Go 1.25 tarball into the sessio
 
 ```
 apps/api/cmd/server/main.go       every Go route — read first
-apps/api/internal/repositories/   user_repository.go: all SQL (~4.8k lines)
+apps/api/internal/repositories/   all SQL, split by domain (WO-38):
+    repository.go                 the type + shared helpers: audit/notification inserts, id and
+                                  document-number allocation, system_config readers
+    transaction_repository.go     deposits, withdrawals, donations — balance changes live here
+    loan_repository.go            lending end to end, incl. the default waterfall. ZERO interest
+    member_repository.go          what a member sees about their own money (read-only)
+    worker_repository.go          the field worker's view and the postings they process
+    admin_repository.go           approvals, admin dashboard, member list
+    auth_repository.go            identity, passwords, reset tokens
+    support_repository.go         support chat + SSE tickets
+    report_repository.go          aggregate reporting
 apps/api/internal/money/          pure loan/installment/waterfall arithmetic — tested, no DB. Put new money maths HERE, not inline in SQL
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, confirm/dispute

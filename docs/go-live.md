@@ -59,16 +59,24 @@ nothing else. Afterwards, every one of them needs a backfill.
 whether you need a `deletedAt`, an anonymisation path, or nothing — and that is a
 schema question. Deciding it after launch means discovering you needed a column.
 
-### 1.3 Fix what is known broken
+### 1.3 Fix what is known broken — **done 2026-08-16**
 
-- **[WO-29](work-orders.md) guarantor approval** — done 2026-08-16. Verified end
-  to end: a real cuid id now returns 200 and moves the loan
+All four shipped. Kept here because each was Stage 1 work for a reason, and that
+reasoning is what to reuse when the next one appears.
+
+- **Guarantor approval** ([WO-29](work-orders.md)) — validated loan ids against a
+  UUID regex while every id is `@default(cuid())`, so FR-11 had never worked for
+  any loan. Verified end to end: a real cuid returns 200 and moves the loan
   `PENDING_GUARANTOR` → `PENDING_APPROVAL`.
 - **Settings key allow-list** ([WO-39](work-orders.md)) — `PUT /api/v1/settings`
-  accepts any key. Config typos made now become permanent mystery rows.
-- **[WO-30](work-orders.md) / [WO-31](work-orders.md)** — SEC-08 enumeration and
-  SEC-09 HSTS. Both are cheap and both are about *members*, so they should exist
-  before there are any.
+  accepted any key, so a typo became a permanent row that looked like a real
+  setting while the code read the correctly-spelled one. Config typos made before
+  launch are the ones nobody remembers making.
+- **SEC-08 / SEC-09** ([WO-30](work-orders.md), [WO-31](work-orders.md)) — the
+  registration enumeration oracle and HSTS. Both are about *members*, so they
+  needed to exist before there were any.
+- **RUN-07** ([WO-32](work-orders.md)) — rate limiting on every mutating route,
+  not just login.
 
 ### 1.4 Prove the backup works, on data you can afford to lose
 
@@ -181,12 +189,13 @@ Then stop and watch for a day before adding members in bulk.
 
 These cost the same whenever they are done, so they should not delay launch.
 
-| Item | Order | Why it can wait |
+| Item | Order | Status / why it can wait |
 |---|---|---|
-| React Compiler lint cleanup | [WO-27](work-orders.md) | The compiler is not enabled; the 20 remaining findings change nothing at runtime |
-| Build and push images in CI | [WO-34](work-orders.md) | Needed for the host move, not for running on Vercel and Render |
-| Split `user_repository.go` | [WO-38](work-orders.md) | Pure refactor. Do it when a second person needs to work in it |
-| Web unit tests | [WO-36](work-orders.md) | Genuinely valuable, genuinely not blocking |
+| React Compiler lint cleanup | [WO-27](work-orders.md) | **Still deferred.** The compiler is not enabled, so the 20 remaining findings change nothing at runtime, and the obvious fix was tried and measured — it does not clear the rule. Needs these screens moved onto a data-fetching library |
+| Enable `errcheck` + `staticcheck` | [WO-40](work-orders.md) | **The one to do first.** 21 of the 44 findings are real, including 2 unchecked `tx.Exec` of the exact shape that made debt vanish once already |
+| ~~Build and push images in CI~~ | [WO-34](work-orders.md) | **Done 2026-08-16** — GHCR, tagged by commit SHA |
+| ~~Split `user_repository.go`~~ | [WO-38](work-orders.md) | **Done 2026-08-16** — nine files by domain, verified byte-identical |
+| ~~Web unit tests~~ | [WO-36](work-orders.md) | **Done 2026-08-16** — 32 tests, ~1s, in CI |
 | Log aggregation, dashboard, audit viewer | OBS-05/07/08 | You have metrics and Sentry. These make them nicer to read |
 | Cloudinary asset backup | DATA-06 | **The exception — do this as soon as real NID images exist.** It is Stage 1 work that simply cannot be done before there is anything to back up |
 | Host move | INF-01 → INF-12 | Only once everything above is quiet |

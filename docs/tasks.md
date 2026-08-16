@@ -87,8 +87,6 @@ Verified against the source on 2026-08-16. Security defects carry `SEC-` ids in
   dump covers the database and nothing else. **The largest remaining data gap.**
 - `[ ]` **No data retention or erasure policy** (`DATA-07`) — decide now what a
   member's erasure request means when the audit log is append-only by design.
-- `[ ]` `user_repository.go` is **4,868 lines**, 55% of the Go codebase in one
-  file (`RUN-09`).
 - `[ ]` No audit viewer UI (`OBS-08`, FR-22) — the data is complete; nobody can
   read it without SQL.
 

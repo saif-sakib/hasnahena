@@ -1,0 +1,1115 @@
+package repositories
+
+// Lending, end to end: request, approval, disbursement, repayment, default and
+// the guarantor recovery waterfall.
+//
+// ZERO INTEREST. Nothing here may compute a rate, a markup or a fee — that is a
+// Shariah violation, not a feature (CLAUDE.md rule 3). The arithmetic lives in
+// internal/money and is unit-tested; this file is the SQL around it.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"hasnahena/apps/api/internal/money"
+	"hasnahena/apps/api/internal/utils"
+)
+
+func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var principalAmount int64
+	var borrowerID, accountID, loanStatus, loanNumber string
+	const loanQuery = `
+		SELECT
+			"principalAmount"::bigint,
+			"borrowerId",
+			"accountId",
+			status::text,
+			COALESCE("loanNumber", '')
+		FROM loans
+		WHERE id = $1
+		FOR UPDATE
+	`
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &accountID, &loanStatus, &loanNumber); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("loan request not found")
+		}
+		return err
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
+		return errors.New("only pending loan requests can be approved")
+	}
+
+	const updateLoanQuery = `
+		UPDATE loans
+		SET status = 'ACTIVE',
+			"disbursementDate" = NOW(),
+			"approvedAt" = NOW(),
+			"approvedBy" = $2,
+			"remainingAmount" = $3,
+			"updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateLoanQuery, loanID, approverID, principalAmount); err != nil {
+		return err
+	}
+
+	var updatedLoanBalance, savingsBalance int64
+	const updateAccountQuery = `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" + $2,
+			"updatedAt" = NOW()
+		WHERE id = $1
+		RETURNING "loanBalance"::bigint, "savingsBalance"::bigint
+	`
+	if err := tx.QueryRow(ctx, updateAccountQuery, accountID, principalAmount).Scan(&updatedLoanBalance, &savingsBalance); err != nil {
+		return err
+	}
+
+	const txnQuery = `
+		INSERT INTO transactions (
+			id,
+			type,
+			amount,
+			description,
+			status,
+			"createdAt",
+			"processedAt",
+			"confirmedAt",
+			"accountId",
+			"userId",
+			"loanId",
+			"processedBy",
+			"savingsAfter",
+			"loanAfter"
+		)
+		VALUES (
+			gen_random_uuid()::text,
+			'LOAN_DISBURSEMENT',
+			$1,
+			'Loan approved and disbursed',
+			'CONFIRMED',
+			NOW(),
+			NOW(),
+			NOW(),
+			$2,
+			$3,
+			$4,
+			$5,
+			$6,
+			$7
+		)
+	`
+	if _, err := tx.Exec(ctx, txnQuery, principalAmount, accountID, borrowerID, loanID, approverID, savingsBalance, updatedLoanBalance); err != nil {
+		return err
+	}
+
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan approved",
+		fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.", loanNumber, float64(principalAmount)/100),
+		&borrowerID,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify member: %w", err)
+	}
+
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt")
+		VALUES (gen_random_uuid()::text, 'APPROVE_LOAN', 'LOAN', $1, $2, NOW())
+	`
+	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID)
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, reason string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var borrowerID, loanStatus, loanNumber string
+	if err := tx.QueryRow(ctx, `
+		SELECT "borrowerId", status::text, COALESCE("loanNumber", '')
+		FROM loans
+		WHERE id = $1
+		FOR UPDATE
+	`, loanID).Scan(&borrowerID, &loanStatus, &loanNumber); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("loan request not found")
+		}
+		return err
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
+		return errors.New("only pending loan requests can be rejected")
+	}
+
+	const updateQuery = `
+		UPDATE loans
+		SET status = 'REJECTED', "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, loanID); err != nil {
+		return err
+	}
+
+	reason = strings.TrimSpace(reason)
+	memberMessage := fmt.Sprintf("Your loan request %s has been rejected.", loanNumber)
+	if reason != "" {
+		memberMessage = fmt.Sprintf("%s Reason: %s", memberMessage, reason)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan request rejected",
+		memberMessage,
+		&borrowerID,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify member: %w", err)
+	}
+
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'REJECT_LOAN', 'LOAN', $1, $2, NOW(), $3)
+	`
+	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID, reason)
+
+	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, memberID, loanID string, amount int64, bkashReference, notes string) (string, error) {
+	reference := strings.TrimSpace(bkashReference)
+	if reference == "" {
+		return "", errors.New("bkash reference is required")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var memberStatus, accountID, memberName string
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
+			a.id::text,
+			COALESCE(u."nameEn", '')
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1
+		  AND u.role = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&memberStatus, &accountID, &memberName); err != nil {
+		return "", errors.New("member not found")
+	}
+	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+
+	var remainingAmount int64
+	var loanStatus, loanNumber string
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			"remainingAmount"::bigint,
+			status::text,
+			COALESCE("loanNumber", '')
+		FROM loans
+		WHERE id = $1
+		  AND "borrowerId" = $2
+		FOR UPDATE
+	`, loanID, memberID).Scan(&remainingAmount, &loanStatus, &loanNumber); err != nil {
+		return "", errors.New("loan not found")
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "ACTIVE" {
+		return "", errors.New("loan is not active")
+	}
+	if amount > remainingAmount {
+		return "", errors.New("repayment exceeds remaining balance")
+	}
+
+	var existingRequestID string
+	dupErr := tx.QueryRow(ctx, `
+		SELECT t.id::text
+		FROM transactions t
+		WHERE t."userId" = $1
+		  AND t.type = 'LOAN_REPAYMENT'
+		  AND t.status = 'PENDING'
+		  AND t."loanId" = $2
+		  AND t.amount = $3
+		  AND COALESCE(t."receiptNumber", '') = $4
+		ORDER BY t."createdAt" DESC
+		LIMIT 1
+	`, memberID, loanID, amount, reference).Scan(&existingRequestID)
+	if dupErr == nil {
+		return "", errors.New("duplicate pending loan repayment request")
+	}
+	if !errors.Is(dupErr, pgx.ErrNoRows) {
+		return "", dupErr
+	}
+
+	description := strings.TrimSpace(notes)
+	if description == "" {
+		description = "Member-submitted bKash loan repayment request"
+	}
+
+	var requestID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO transactions (
+			id,
+			type,
+			amount,
+			"receiptNumber",
+			description,
+			status,
+			"createdAt",
+			"accountId",
+			"userId",
+			"loanId"
+		) VALUES (
+			gen_random_uuid()::text,
+			'LOAN_REPAYMENT',
+			$1,
+			$2,
+			$3,
+			'PENDING',
+			NOW(),
+			$4,
+			$5,
+			$6
+		)
+		RETURNING id::text
+	`, amount, reference, description, accountID, memberID, loanID).Scan(&requestID); err != nil {
+		return "", err
+	}
+
+	amountTaka := float64(amount)
+	requestSummary := fmt.Sprintf("%s submitted a loan repayment request for BDT %.2f (Loan %s, bKash ref: %s).", memberName, amountTaka, loanNumber, reference)
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New loan repayment request",
+		requestSummary,
+		nil,
+		normalizedRolePtr("ADMIN"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify admins: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"New loan repayment request",
+		requestSummary,
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to notify staff: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Loan repayment request submitted",
+		fmt.Sprintf("Your loan repayment request for BDT %.2f has been submitted and is awaiting review.", amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to notify member: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+
+	return requestID, nil
+}
+
+// ==================== DEPOSIT & TRANSACTION MANAGEMENT ====================
+
+func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]interface{}) ([]map[string]interface{}, error) {
+	query := `
+		SELECT
+			l.id,
+			l."loanNumber",
+			COALESCE(l."approvedAt", '0001-01-01'::timestamp),
+			COALESCE(l."disbursementDate", '0001-01-01'::timestamp),
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l."totalInstallments",
+			l."installmentAmount"::bigint,
+			l."paidInstallments",
+			COALESCE(l."expectedEndDate", '0001-01-01'::timestamp),
+			COALESCE(l."completedAt", '0001-01-01'::timestamp),
+			l.purpose,
+			l.status::text,
+			l."createdAt",
+			COALESCE(approver."nameEn", approver."nameBn", ''),
+			COALESCE(ac."savingsBalance", 0)::bigint,
+			COALESCE(b.id, ''),
+			COALESCE(b."nameEn", ''),
+			COALESCE(b."nameBn", ''),
+			COALESCE(b."memberId", ''),
+			COALESCE(g.id, ''),
+			COALESCE(g."nameEn", ''),
+			COALESCE(g."memberId", '')
+		FROM loans l
+		JOIN accounts ac ON ac.id = l."accountId"
+		JOIN users b ON b.id = l."borrowerId"
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		LEFT JOIN users approver ON approver.id = l."approvedBy"
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
+	if statusFilter, ok := filters["status"].(string); ok && statusFilter != "" {
+		argCount++
+		query += fmt.Sprintf(` AND l.status = $%d`, argCount)
+		args = append(args, statusFilter)
+	}
+
+	if search, ok := filters["search"].(string); ok && search != "" {
+		argCount++
+		query += fmt.Sprintf(` AND (b."nameEn" ILIKE $%d OR b."memberId" ILIKE $%d OR l."loanNumber" ILIKE $%d)`, argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+
+	page := 1
+	limit := 100
+	if rawPage, ok := filters["page"].(string); ok && rawPage != "" {
+		if parsed, err := strconv.Atoi(rawPage); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	if rawLimit, ok := filters["limit"].(string); ok && rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			if parsed > 200 {
+				parsed = 200
+			}
+			limit = parsed
+		}
+	}
+	offset := (page - 1) * limit
+
+	query += fmt.Sprintf(` ORDER BY l."createdAt" DESC LIMIT $%d OFFSET $%d`, argCount+1, argCount+2)
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	loans := []map[string]interface{}{}
+	for rows.Next() {
+		var id, loanNumber, purpose, status, approvedBy, borrowerID, borrowerName, borrowerNameBn, borrowerMemberId, guarantorID, guarantorName, guarantorMemberId string
+		var principalAmount, remainingAmount, installmentAmount, memberDeposit int64
+		var totalInstallments, paidInstallments int
+		var approvedAt, disbursementDate, expectedEndDate, completedAt, createdAt time.Time
+
+		if err := rows.Scan(&id, &loanNumber, &approvedAt, &disbursementDate, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
+			&expectedEndDate, &completedAt, &purpose, &status, &createdAt, &approvedBy, &memberDeposit,
+			&borrowerID, &borrowerName, &borrowerNameBn, &borrowerMemberId, &guarantorID, &guarantorName, &guarantorMemberId); err != nil {
+			continue
+		}
+
+		loan := map[string]interface{}{
+			"id":                 id,
+			"loanNumber":         loanNumber,
+			"status":             status,
+			"amount":             principalAmount,
+			"paidAmount":         (principalAmount - remainingAmount),
+			"remainingAmount":    remainingAmount,
+			"installmentsPaid":   paidInstallments,
+			"totalInstallments":  totalInstallments,
+			"monthlyInstallment": installmentAmount,
+			"purpose":            purpose,
+			"member": map[string]interface{}{
+				"id":       borrowerID,
+				"memberId": borrowerMemberId,
+				"name": func() string {
+					if borrowerNameBn != "" {
+						return borrowerNameBn
+					}
+					return borrowerName
+				}(),
+			},
+			"guarantor": map[string]interface{}{
+				"id":   guarantorID,
+				"name": guarantorName,
+			},
+			"memberDeposit":  memberDeposit,
+			"missedPayments": 0,
+			"createdAt":      createdAt.Format(time.RFC3339),
+			"approvedBy":     approvedBy,
+
+			// Backward-compat fields
+			"principalAmount":         principalAmount,
+			"totalInstallmentsLegacy": totalInstallments,
+			"paidInstallments":        paidInstallments,
+			"borrowerName":            borrowerName,
+			"borrowerNameBn":          borrowerNameBn,
+			"borrowerMemberId":        borrowerMemberId,
+			"guarantorName":           guarantorName,
+			"guarantorMemberId":       guarantorMemberId,
+		}
+
+		if !approvedAt.IsZero() && approvedAt.Year() > 1 {
+			loan["approvedDate"] = approvedAt.Format(time.RFC3339)
+		}
+		if !disbursementDate.IsZero() {
+			loan["disbursedDate"] = disbursementDate.Format(time.RFC3339)
+			loan["disbursementDate"] = disbursementDate.Format(time.RFC3339)
+		}
+		if !expectedEndDate.IsZero() {
+			loan["dueDate"] = expectedEndDate.Format(time.RFC3339)
+			loan["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
+		}
+		if !completedAt.IsZero() && completedAt.Year() > 1 {
+			loan["completedAt"] = completedAt.Format(time.RFC3339)
+		}
+
+		loans = append(loans, loan)
+	}
+
+	return loans, nil
+}
+
+func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface{}, error) {
+	const query = `
+		SELECT
+			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN "principalAmount" ELSE 0 END)::bigint, 0) as total_disbursed,
+			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
+			COALESCE(COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int, 0) as active_loans,
+			COALESCE(COUNT(CASE WHEN status = 'DEFAULTED' THEN 1 END)::int, 0) as defaulted_loans,
+			COALESCE(COUNT(CASE WHEN status = 'PENDING' THEN 1 END)::int, 0) as pending_loans,
+			COALESCE(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int, 0) as completed_loans
+		FROM loans
+	`
+
+	var totalDisbursed, totalRecovered int64
+	var activeLoans, defaultedLoans, pendingLoans, completedLoans int
+
+	if err := r.db.QueryRow(ctx, query).Scan(&totalDisbursed, &totalRecovered, &activeLoans, &defaultedLoans, &pendingLoans, &completedLoans); err != nil {
+		return nil, err
+	}
+
+	// Calculate recovery rate - CRITICAL FIX for hardcoded 98.5%
+	var recoveryRate float64 = 100.0
+	if totalDisbursed > 0 {
+		recoveryRate = float64(totalRecovered) / float64(totalDisbursed) * 100
+		// Round to 1 decimal place
+		recoveryRate = float64(int(recoveryRate*10)) / 10
+	}
+
+	return map[string]interface{}{
+		"totalDisbursed": totalDisbursed,
+		"totalRecovered": totalRecovered,
+		"recoveryRate":   recoveryRate,
+		"activeLoans":    activeLoans,
+		"defaultedLoans": defaultedLoans,
+		"pendingLoans":   pendingLoans,
+		"completedLoans": completedLoans,
+	}, nil
+}
+
+func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[string]interface{}, error) {
+	const loanQuery = `
+		SELECT
+			l.id,
+			l."loanNumber",
+			l."principalAmount"::bigint,
+			l."remainingAmount"::bigint,
+			l."totalInstallments",
+			l."installmentAmount"::bigint,
+			l."paidInstallments",
+			l."disbursementDate",
+			l."installmentStartDate",
+			l."expectedEndDate",
+			COALESCE(l."completedAt", '0001-01-01'::timestamp),
+			l.purpose,
+			l.status::text,
+			l."createdAt",
+			COALESCE(b."nameEn", ''),
+			COALESCE(b."nameBn", ''),
+			COALESCE(b."memberId", ''),
+			COALESCE(b.phone, ''),
+			COALESCE(g."nameEn", ''),
+			COALESCE(g."nameBn", ''),
+			COALESCE(g."memberId", ''),
+			COALESCE(g.phone, '')
+		FROM loans l
+		JOIN users b ON b.id = l."borrowerId"
+		LEFT JOIN users g ON g.id = l."guarantorId"
+		WHERE l.id = $1
+	`
+
+	var id, loanNumber, purpose, status, borrowerName, borrowerNameBn, borrowerMemberId, borrowerPhone string
+	var guarantorName, guarantorNameBn, guarantorMemberId, guarantorPhone string
+	var principalAmount, remainingAmount, installmentAmount int64
+	var totalInstallments, paidInstallments int
+	var disbursementDate, installmentStartDate, expectedEndDate, completedAt, createdAt time.Time
+
+	if err := r.db.QueryRow(ctx, loanQuery, loanID).Scan(
+		&id, &loanNumber, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
+		&disbursementDate, &installmentStartDate, &expectedEndDate, &completedAt, &purpose, &status, &createdAt,
+		&borrowerName, &borrowerNameBn, &borrowerMemberId, &borrowerPhone,
+		&guarantorName, &guarantorNameBn, &guarantorMemberId, &guarantorPhone); err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"id":                id,
+		"loanNumber":        loanNumber,
+		"principalAmount":   principalAmount,
+		"remainingAmount":   remainingAmount,
+		"totalInstallments": totalInstallments,
+		"installmentAmount": installmentAmount,
+		"paidInstallments":  paidInstallments,
+		"purpose":           purpose,
+		"status":            status,
+		"createdAt":         createdAt.Format(time.RFC3339),
+		"borrower": map[string]interface{}{
+			"name":     borrowerName,
+			"nameBn":   borrowerNameBn,
+			"memberId": borrowerMemberId,
+			"phone":    borrowerPhone,
+		},
+	}
+
+	if guarantorName != "" {
+		result["guarantor"] = map[string]interface{}{
+			"name":     guarantorName,
+			"nameBn":   guarantorNameBn,
+			"memberId": guarantorMemberId,
+			"phone":    guarantorPhone,
+		}
+	}
+
+	if !disbursementDate.IsZero() {
+		result["disbursementDate"] = disbursementDate.Format(time.RFC3339)
+	}
+	if !installmentStartDate.IsZero() {
+		result["installmentStartDate"] = installmentStartDate.Format(time.RFC3339)
+	}
+	if !expectedEndDate.IsZero() {
+		result["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
+	}
+	if !completedAt.IsZero() && completedAt.Year() > 1 {
+		result["completedAt"] = completedAt.Format(time.RFC3339)
+	}
+
+	// Get repayment history
+	const repaymentQuery = `
+		SELECT
+			t.id,
+			t.amount::bigint,
+			t."receiptNumber",
+			t.description,
+			t."createdAt",
+			COALESCE(u."nameEn", '') as processed_by
+		FROM transactions t
+		LEFT JOIN users u ON u.id = t."processedBy"
+		WHERE t."loanId" = $1 AND t.type = 'LOAN_REPAYMENT'
+		ORDER BY t."createdAt" ASC
+	`
+
+	rows, err := r.db.Query(ctx, repaymentQuery, loanID)
+	if err == nil {
+		defer rows.Close()
+		repayments := []map[string]interface{}{}
+		for rows.Next() {
+			var txId, receipt, description, processedBy string
+			var amount int64
+			var createdAt time.Time
+			if err := rows.Scan(&txId, &amount, &receipt, &description, &createdAt, &processedBy); err != nil {
+				continue
+			}
+			repayments = append(repayments, map[string]interface{}{
+				"id":          txId,
+				"amount":      amount,
+				"receipt":     receipt,
+				"description": description,
+				"date":        createdAt.Format(time.RFC3339),
+				"processedBy": processedBy,
+			})
+		}
+		result["repaymentHistory"] = repayments
+	}
+
+	return result, nil
+}
+
+func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update loan status to DEFAULTED
+	const updateQuery = `
+		UPDATE loans
+		SET status = 'DEFAULTED', "updatedAt" = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateQuery, loanID); err != nil {
+		return err
+	}
+
+	// Create audit log
+	const auditQuery = `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
+	`
+	tx.Exec(ctx, auditQuery, loanID, adminID, notes)
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Process waterfall recovery
+	return r.ProcessWaterfallRecovery(ctx, loanID)
+}
+
+func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Get loan details
+	var remainingAmount int64
+	var borrowerID, guarantorID, accountID string
+	const loanQuery = `
+		SELECT "remainingAmount", "borrowerId", "guarantorId", "accountId"
+		FROM loans
+		WHERE id = $1
+	`
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&remainingAmount, &borrowerID, &guarantorID, &accountID); err != nil {
+		return err
+	}
+
+	amountToRecover := remainingAmount
+	recoverySteps := []string{}
+
+	// Step 1: Try to recover from borrower's savings
+	if amountToRecover > 0 {
+		var borrowerSavings int64
+		var borrowerAccountID string
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
+		if err == nil && borrowerSavings > 0 {
+			deduction := money.RecoverFrom(amountToRecover, borrowerSavings)
+
+			// Deduct from borrower
+			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, borrowerAccountID)
+			if err == nil {
+				// Create transaction record
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - ঋণগ্রহীতা', NOW(), $2, $3, $4)
+				`, deduction, borrowerAccountID, borrowerID, loanID); err != nil {
+					return err
+				}
+
+				amountToRecover -= deduction
+				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from borrower", deduction))
+			}
+		}
+	}
+
+	// Step 2: Try to recover from guarantor's savings
+	if amountToRecover > 0 && guarantorID != "" {
+		var guarantorSavings int64
+		var guarantorAccountID string
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
+		if err == nil && guarantorSavings > 0 {
+			deduction := money.RecoverFrom(amountToRecover, guarantorSavings)
+
+			// Deduct from guarantor
+			_, err = tx.Exec(ctx, `UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE id = $2`, deduction, guarantorAccountID)
+			if err == nil {
+				// Create transaction record
+				if _, err := tx.Exec(ctx, `
+					INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+					VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - জামিনদাতা', NOW(), $2, $3, $4)
+				`, deduction, guarantorAccountID, guarantorID, loanID); err != nil {
+					return err
+				}
+
+				amountToRecover -= deduction
+				recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from guarantor", deduction))
+			}
+		}
+	}
+
+	// Step 3: Use donation pool
+	if amountToRecover > 0 {
+		// The pool is what has been donated MINUS what earlier defaults already
+		// drew from it. Summing donations alone let the same taka settle an
+		// unlimited number of defaults, because nothing ever depleted the pool.
+		var donationBalance int64
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(SUM(
+				CASE WHEN type = 'DONATION' THEN amount ELSE -amount END
+			)::bigint, 0)
+			FROM transactions
+			WHERE type = 'DONATION'
+			   OR (type = 'FEE' AND "loanId" IS NOT NULL)
+		`).Scan(&donationBalance); err != nil {
+			return err
+		}
+
+		if donationBalance > 0 {
+			deduction := money.RecoverFrom(amountToRecover, donationBalance)
+
+			// "accountId" is NOT NULL, and this insert used to omit it — the row
+			// silently failed while the loan was still written down, so the debt
+			// vanished with no ledger entry behind it. The loan's own account
+			// carries the entry, which keeps the draw traceable from the loan it
+			// settled. The error is checked for the same reason.
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId", "loanId")
+				VALUES (gen_random_uuid()::text, 'FEE', $1, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', NOW(), $2, $3, $4)
+			`, deduction, accountID, borrowerID, loanID); err != nil {
+				return err
+			}
+
+			amountToRecover -= deduction
+			recoverySteps = append(recoverySteps, fmt.Sprintf("Recovered %d from donation pool", deduction))
+		}
+	}
+
+	// Update loan remaining amount
+	newRemaining := amountToRecover
+	_, err = tx.Exec(ctx, `UPDATE loans SET "remainingAmount" = $1 WHERE id = $2`, newRemaining, loanID)
+	if err != nil {
+		return err
+	}
+
+	// Create audit log
+	recoveryDetails := fmt.Sprintf("Waterfall recovery completed. Steps: %v. Remaining: %d", recoverySteps, newRemaining)
+	tx.Exec(ctx, `
+		INSERT INTO audit_logs (id, action, "entityType", "entityId", "createdAt", details)
+		VALUES (gen_random_uuid()::text, 'WATERFALL_RECOVERY', 'LOAN', $1, NOW(), $2)
+	`, loanID, recoveryDetails)
+
+	return tx.Commit(ctx)
+}
+
+// ==================== DONATION MANAGEMENT ====================
+
+// CreateMemberLoan creates a loan for a member (worker action)
+func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
+	minDepositRequired, maxLoanMultiplier, maxInstallmentMonths := r.getLoanPolicy(ctx)
+	if installments < 1 || installments > maxInstallmentMonths {
+		return "", errors.New("invalid installments")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Verify member exists, lock account row for consistent balance/eligibility checks.
+	var status, accountID string
+	var currentBalance, activeLoan int64
+	err = tx.QueryRow(ctx, `
+		SELECT
+			u.status::text,
+			a.id::text,
+			COALESCE(a."savingsBalance", 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan)
+	if err != nil {
+		return "", fmt.Errorf("member not found: %w", err)
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return "", errors.New("member not active")
+	}
+	if activeLoan > 0 {
+		return "", errors.New("has active loan")
+	}
+
+	minDeposit := minDepositRequired
+	if currentBalance < minDeposit {
+		return "", errors.New("not eligible - insufficient deposit")
+	}
+
+	maxLoanAmount := money.MaxLoanAmount(currentBalance, maxLoanMultiplier)
+	if amount > maxLoanAmount {
+		return "", errors.New("exceeds limit")
+	}
+
+	loanNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoan)
+	if err != nil {
+		return "", err
+	}
+	// The stored figure is the regular installment; the rounding remainder goes
+	// into the final one, which the loan agreement PDF prints. See money.InstallmentPlan.
+	installmentAmount, _ := money.InstallmentPlan(amount, installments)
+
+	var loanID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO loans (
+			id, "loanNumber", "accountId", "borrowerId", "principalAmount", "remainingAmount",
+			"totalInstallments", "paidInstallments", "installmentAmount",
+			purpose, status, "disbursementDate", "approvedAt", "approvedBy", "createdAt", "updatedAt"
+		) VALUES (
+			gen_random_uuid()::text, $1, $2, $3, $4, $5,
+			$6, 0, $7,
+			$8, 'ACTIVE', NOW(), NOW(), $9, NOW(), NOW()
+		)
+		RETURNING id
+	`, loanNumber, accountID, memberID, amount, amount, installments, installmentAmount, purpose, workerID).Scan(&loanID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create loan: %w", err)
+	}
+
+	var updatedLoanBalance int64
+	err = tx.QueryRow(ctx, `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW()
+		WHERE id = $2
+		RETURNING "loanBalance"::bigint
+	`, amount, accountID).Scan(&updatedLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to update account loan balance: %w", err)
+	}
+
+	description := purpose
+	if strings.TrimSpace(description) == "" {
+		description = "ঋণ বিতরণ"
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "loanId", "processedBy",
+			"loanAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7,
+			$8, NOW(), NOW(), NOW()
+		)
+	`, amount, loanNumber, description, accountID, memberID, loanID, workerID, updatedLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
+	}
+
+	amountTaka := float64(amount)
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"LOAN_APPROVED",
+		"Loan disbursed",
+		fmt.Sprintf("Your loan %s for BDT %.2f has been disbursed.", loanNumber, amountTaka),
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Loan %s disbursed for member %s.", loanNumber, strings.ToUpper(memberID)),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "LOAN_DISBURSED", "LOAN", loanID, workerID,
+		fmt.Sprintf("Loan %s of %d BDT disbursed to member %s over %d installments of %d", loanNumber, amount, memberID, installments, installmentAmount),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("failed to commit loan creation: %w", err)
+	}
+
+	return loanNumber, nil
+}
+
+// AddMemberLoanPayment records a loan payment for a member
+
+// AddMemberLoanPayment records a loan payment for a member
+func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, processedByID, loanID string, amount int64, notes string) (string, error) {
+	// Verify member exists and is active
+	var userId, accountId string
+	var status string
+	err := r.db.QueryRow(ctx, `
+		SELECT u.id, u.status::text, a.id
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+	`, memberID).Scan(&userId, &status, &accountId)
+	if err != nil {
+		return "", fmt.Errorf("member not found")
+	}
+	if status != "ACTIVE" {
+		return "", fmt.Errorf("member account not active")
+	}
+
+	// Verify loan exists, is active, and belongs to this member
+	var loanId string
+	var remainingAmount int64
+	var loanStatus string
+	err = r.db.QueryRow(ctx, `
+		SELECT id, "remainingAmount", status::text
+		FROM loans
+		WHERE id = $1 AND "borrowerId" = $2
+	`, loanID, memberID).Scan(&loanId, &remainingAmount, &loanStatus)
+	if err != nil {
+		return "", fmt.Errorf("loan not found")
+	}
+	if loanStatus != "ACTIVE" {
+		return "", fmt.Errorf("loan is not active")
+	}
+	if amount > remainingAmount {
+		return "", fmt.Errorf("payment amount exceeds remaining balance")
+	}
+
+	// Start transaction
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)
+	if err != nil {
+		return "", err
+	}
+
+	// Update loan remaining amount and paid installments
+	newRemaining := remainingAmount - amount
+	var loanUpdateStatus string
+	if newRemaining <= 0 {
+		loanUpdateStatus = "COMPLETED"
+	} else {
+		loanUpdateStatus = "ACTIVE"
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE loans
+		SET "remainingAmount" = $1,
+			"paidInstallments" = "paidInstallments" + 1,
+			status = $2::"LoanStatus",
+			"completedAt" = CASE WHEN $2 = 'COMPLETED' THEN NOW() ELSE "completedAt" END,
+			"updatedAt" = NOW()
+		WHERE id = $3
+	`, newRemaining, loanUpdateStatus, loanID)
+	if err != nil {
+		return "", fmt.Errorf("failed to update loan: %w", err)
+	}
+
+	// Update account loan balance
+	_, err = tx.Exec(ctx, `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" - $1,
+			"updatedAt" = NOW()
+		WHERE id = $2
+	`, amount, accountId)
+	if err != nil {
+		return "", fmt.Errorf("failed to update account balance: %w", err)
+	}
+
+	// Get new loan balance after payment
+	var newLoanBalance int64
+	err = tx.QueryRow(ctx, `SELECT "loanBalance" FROM accounts WHERE id = $1`, accountId).Scan(&newLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch new balance: %w", err)
+	}
+
+	// Create transaction record
+	description := "Loan repayment"
+	if notes != "" {
+		description = notes
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "loanId", "processedBy",
+			"loanAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'LOAN_REPAYMENT', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7,
+			$8, NOW(), NOW(), NOW()
+		)
+	`, amount, receiptNumber, description, accountId, memberID, loanID, processedByID, newLoanBalance)
+	if err != nil {
+		return "", fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	amountTaka := float64(amount)
+	memberTitle := "Loan repayment received"
+	memberMessage := fmt.Sprintf("A loan repayment of BDT %.2f has been recorded.", amountTaka)
+	if loanUpdateStatus == "COMPLETED" {
+		memberTitle = "Loan completed"
+		memberMessage = fmt.Sprintf("Your loan has been completed with a final repayment of BDT %.2f.", amountTaka)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		memberTitle,
+		memberMessage,
+		&memberID,
+		nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	if err := r.insertNotificationTx(
+		ctx,
+		tx,
+		"SYSTEM_ALERT",
+		"Daily task update",
+		fmt.Sprintf("Loan repayment recorded for member %s (BDT %.2f).", strings.ToUpper(memberID), amountTaka),
+		nil,
+		normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "LOAN_REPAYMENT_POSTED", "LOAN", loanID, processedByID,
+		fmt.Sprintf("Repayment %d BDT on loan %s by member %s, receipt %s", amount, loanID, memberID, receiptNumber),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return receiptNumber, nil
+}
