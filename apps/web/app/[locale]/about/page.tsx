@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function AboutPage({ params }: PageProps) {
   const { locale } = await params;
   if (!locales.includes(locale as any)) notFound();
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
 
   const t = await getTranslations({ locale });
   const settingsResult = await prisma.systemConfig.findMany();

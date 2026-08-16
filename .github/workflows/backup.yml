@@ -83,6 +83,22 @@ jobs:
             sudo apt-get install -y -qq postgresql-client
           fi
 
+          # /usr/bin/pg_dump is not a binary — it is pg_wrapper, which picks a
+          # version from the local cluster configuration. GitHub's runner image
+          # already ships a PostgreSQL 16 client, and the wrapper kept choosing
+          # it even after 17+ was installed alongside, which is how this job
+          # ended up reporting "pg_dump version: 16.14" against a 17.10 server.
+          # Resolve the real newest binary directory and put it ahead of
+          # /usr/bin on PATH for every later step in this job.
+          newest="$(find /usr/lib/postgresql -maxdepth 2 -name bin -type d 2>/dev/null \
+                    | sort -V | tail -1)"
+          if [ -z "$newest" ]; then
+            echo "no versioned PostgreSQL client directory found" >&2; exit 1
+          fi
+          echo "$newest" >> "$GITHUB_PATH"
+          export PATH="$newest:$PATH"
+
+          echo "selected client: $newest"
           pg_dump --version
 
       # Printed before the dump so that if this job ever fails again, the log
@@ -93,9 +109,24 @@ jobs:
         run: |
           echo "runner:   $(lsb_release -ds)"
           echo "client:   $(pg_dump --version)"
+          echo "which:    $(command -v pg_dump)"
           echo "gpg:      $(gpg --version | head -1)"
           URL="${DIRECT_DATABASE_URL//-pooler/}"
-          echo "server:   $(psql "$URL" -tAc 'SHOW server_version;' 2>&1 | head -1)"
+          server_version="$(psql "$URL" -tAc 'SHOW server_version;' 2>&1 | head -1)"
+          echo "server:   $server_version"
+
+          # pg_dump refuses to dump a server newer than itself. Assert it here
+          # so the failure names the actual problem, instead of surfacing 40
+          # minutes of nightly red as "exit code 1". Neon upgrades Postgres on
+          # its own schedule, so this WILL drift again — when it does, the fix
+          # is to add the new major to the install loop above.
+          client_major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+          server_major="${server_version%%.*}"
+          echo "majors:   client=$client_major server=$server_major"
+          if [ "$client_major" -lt "$server_major" ]; then
+            echo "::error::pg_dump $client_major cannot dump a PostgreSQL $server_major server. Add postgresql-client-$server_major to the install loop in this workflow."
+            exit 1
+          fi
 
       - name: Dump and encrypt
         env:
