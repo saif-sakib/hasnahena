@@ -65,8 +65,15 @@ rm -f "$BUILD_LOG"
 if command -v go >/dev/null 2>&1; then
   echo "pre-push: go build…"
   (cd apps/api && go build ./...) || fail "go build"
+
+  # vet, not just build. CI runs `go vet ./...` and fails on a non-zero exit,
+  # and vet reports things build does not — self-assignments, printf mismatches,
+  # lost struct tags. Skipping it here is how a red CI run gets discovered from
+  # an email instead of from this hook.
+  echo "pre-push: go vet…"
+  (cd apps/api && go vet ./...) || fail "go vet"
 else
-  echo "pre-push: go not installed — skipping Go build (CI still checks it)"
+  echo "pre-push: go not installed — skipping Go build and vet (CI still checks both)"
 fi
 
 echo "pre-push: OK"
