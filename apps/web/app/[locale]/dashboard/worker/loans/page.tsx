@@ -136,7 +136,6 @@ export default function WorkerLoansPage() {
 
   useEffect(() => {
     void loadLoans();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDownloadLoan = async (loan: ActiveLoan) => {
