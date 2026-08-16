@@ -22,16 +22,18 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > and [WO-28](work-orders.md). This is the only open item that is a disclosure
 > rather than a risk.
 >
-> **`[!]` Guarantor approval has never worked.** `guarantor-approval/route.ts`
-> validates the loan id against a **UUID** regex; `schema.prisma` uses
-> `@default(cuid())` 14 times and `@default(uuid())` zero times. Every request
-> 400s before reaching the loan. FR-11 is dead, not partial. One-line fix in
-> [WO-29](work-orders.md).
+> **Going to production?** Read [go-live.md](go-live.md) first. It orders the
+> remaining work by *what gets more expensive once real member data exists*,
+> which is a different order from this page.
 >
-> **Batch G is unmerged.** Next 16 / React 19 / Tailwind 4 / next-intl 4 live on
-> `wo-23-next15-react19` — five commits, `pnpm audit` 41 → 0. **How it looks was
-> never verified**, and neither were the authenticated dashboards. Walk the Vercel
-> preview in both locales before merging.
+> **`[x]` Guarantor approval is fixed (2026-08-16).** It validated loan ids
+> against a UUID regex while every id is `@default(cuid())`, so FR-11 had never
+> worked for any loan. Verified end to end against a real database: a real cuid
+> now returns 200 and moves the loan `PENDING_GUARANTOR` → `PENDING_APPROVAL`; a
+> junk id returns 404 instead of 400.
+>
+> **`[x]` Batch G is merged to `main`** (PR #13). Next 16 / React 19 / Tailwind 4
+> / next-intl 4, `pnpm audit` 41 → 0.
 >
 > **Run `pnpm db:migrate` before deploying** — schema changes ship as migrations,
 > not `db push` ([ADR-014](decisions.md)).
@@ -50,7 +52,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-08 | Withdrawal request with notice period | `[~]` | request + approval work; **3-month notice not validated — confirmed, no notice-period code exists anywhere in either app** |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
 | FR-10 | Max loan from configured caps | `[~]` | personal cap only — fairness and solvency caps missing |
-| FR-11 | Guarantor request + approval | `[!]` | **dead** — UUID regex against cuid ids, 400s every request ([WO-29](work-orders.md)) |
+| FR-11 | Guarantor request + approval | `[x]` | fixed 2026-08-16 (WO-29) — was 400ing every request on a UUID regex vs cuid ids. **No automated test covers this route**; verified by hand |
 | FR-12 | Approve → disburse → confirm | `[x]` | Go admin/worker endpoints |
 | FR-13 | Installments and late fees | `[~]` | installments recorded; **no late-fee logic at all** |
 | FR-14 | Default settlement waterfall | `[x]` | `ProcessWaterfallRecovery`: borrower → guarantor → donation pool |
@@ -63,7 +65,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
-**13 complete, 8 partial, 1 dead.**
+**14 complete, 8 partial.**
 
 ## Open bugs
 
@@ -73,7 +75,6 @@ Verified against the source on 2026-08-16. Security defects carry `SEC-` ids in
 
 | | Bug | Evidence |
 |---|---|---|
-| `[!]` | Guarantor approval 400s on every real loan id | UUID regex vs 14 × `@default(cuid())`, 0 × `uuid()`. [WO-29](work-orders.md) |
 | `[ ]` | Withdrawal notice period is not validated (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema |
 | `[ ]` | `audit_logs` append-only is convention, not a constraint | No trigger in any migration. Tests prove the app appends; nothing stops an `UPDATE` from a console. DATA-08 / [WO-33](work-orders.md) |
 | `[ ]` | `/api/v1/settings` `PUT` upserts **any** key it receives | No allow-list in the file — a typo creates dead config that looks real in the admin UI. [WO-39](work-orders.md) |

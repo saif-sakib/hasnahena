@@ -18,7 +18,7 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Area | State | One-line verdict |
 |---|---|---|
 | **Git history** | `[!]` | **39 files of member records are recoverable from history** — see SEC-10. The only item on this page that is a disclosure rather than a risk |
-| Product features | `[~]` | 13 of 22 FRs complete, 7 partial — see [tasks.md](tasks.md). **FR-11 is not partial, it is dead**: guarantor approval validates cuid ids against a UUID regex and 400s every request |
+| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-11 (guarantor approval) was dead on a UUID-vs-cuid id check and was fixed 2026-08-16 |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, request→process→confirm, append-only audit |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
@@ -397,6 +397,11 @@ What makes it *stay* production-ready after you stop looking at it daily.
 
 Do them in this order. Each block is genuinely blocked by the one above it.
 
+**Superseded for sequencing purposes by [go-live.md](go-live.md).** The platform
+is deployed and holding fake data, so the useful ordering is *what gets more
+expensive once real member data exists*, not *what is most urgent*. This table
+remains the backlog; that file is the order to do it in.
+
 Rewritten 2026-08-16 after re-verifying every claim against the source. Blocks
 that were entirely done have been removed rather than left struck through — the
 [work-orders.md](work-orders.md) completion table is the record.
@@ -404,9 +409,9 @@ that were entirely done have been removed rather than left struck through — th
 | # | Block | Tasks | Order | Rough effort |
 |---|---|---|---|---|
 | 1 | **Purge git history** | SEC-10 + SEC-06 | WO-28 | ½ day + GitHub Support |
-| 2 | **Live product defect** | FR-11 guarantor approval | WO-29 | 20 minutes |
-| 3 | **Land Batch G** | Merge `wo-23-next15-react19` after a Vercel-preview walk | — | ½ day, mostly manual checking |
-| 4 | **Lint debt from Batch G** | 26 React Compiler findings | WO-27 | 1–2 days |
+| ~~2~~ | ~~**Live product defect**~~ | ~~FR-11 guarantor approval~~ | WO-29 | **Done 2026-08-16** |
+| ~~3~~ | ~~**Land Batch G**~~ | ~~Merge `wo-23-next15-react19`~~ | — | **Done — PR #13** |
+| 4 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-08, FR-08 | WO-33 + [go-live.md](go-live.md) 1.2 | 2–3 days, **and only cheap before launch** |
 | 5 | **Security remainder** | SEC-08, SEC-09 | WO-30, WO-31 | ½ day |
 | 6 | **Hardening remainder** | RUN-07, DATA-08 | WO-32, WO-33 | ½ day |
 | 7 | **Deployable artifacts** | PKG-06, PKG-08 | WO-34, WO-35 | 1 day |

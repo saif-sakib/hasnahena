@@ -28,8 +28,6 @@ export default function GalleryManagementPage() {
 
   const getAuthToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
 
-  useEffect(() => { fetchItems(); }, []);
-
   const fetchItems = async () => {
     setIsLoading(true);
     setFetchError(null);
@@ -44,6 +42,11 @@ export default function GalleryManagementPage() {
       setIsLoading(false);
     }
   };
+
+  // Below fetchItems, not above it. `const` declarations are in the temporal
+  // dead zone until evaluated, so an effect placed earlier only works because
+  // effects run after the whole body has. It is legal and it is fragile.
+  useEffect(() => { fetchItems(); }, []);
 
   const handleImageUpload = async (formDataWithImage: FormData) => {
     const file = formDataWithImage.get('image');

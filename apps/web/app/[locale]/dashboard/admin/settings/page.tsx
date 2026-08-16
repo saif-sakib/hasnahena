@@ -113,10 +113,6 @@ export default function AdminSettingsPage() {
     'hero.partnerLogo3': '',
   });
 
-  useEffect(() => {
-    void Promise.all([fetchSettings(), fetchGalleryItems()]);
-  }, []);
-
   const getAuthToken = () =>
     typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
 
@@ -250,6 +246,13 @@ export default function AdminSettingsPage() {
       });
     }
   };
+
+  // Below both fetchers, not above them. `const` bindings sit in the temporal
+  // dead zone until evaluated; an effect declared earlier only works because
+  // effects run after the component body has finished.
+  useEffect(() => {
+    void Promise.all([fetchSettings(), fetchGalleryItems()]);
+  }, []);
 
   const handleSettingsImageUpload = (imageType: SettingImageType) => async (formData: FormData) => {
     const authToken = getAuthToken();

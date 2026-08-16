@@ -53,6 +53,37 @@ interface StatCardProps {
   alert?: boolean;
 }
 
+// Defined at module scope, not inside AdminDashboard. It used to live in the
+// component body, which gave React a new component *type* on every render — so
+// each of the four cards was unmounted and remounted whenever any state changed,
+// including on every data refresh. That threw away the `transition-all` and
+// `animate-in` animations mid-flight and did the DOM work again for nothing.
+// It closes over no state, so hoisting it is behaviour-preserving.
+const StatCard = ({ title, value, subValue, icon: Icon, trend = 'neutral', alert = false }: StatCardProps) => (
+  <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+    <div className="flex items-center justify-between mb-4">
+      <span className="text-[13px] font-medium text-neutral-500 tracking-wide">{title}</span>
+      <div className={`p-2.5 rounded-xl ${alert ? 'bg-red-500/10 text-red-600' : 'bg-neutral-100 text-neutral-700'}`}>
+        <Icon className="h-[18px] w-[18px]" strokeWidth={2.5} />
+      </div>
+    </div>
+    <h3 className="text-2xl font-bold text-neutral-900 tracking-tight">{value}</h3>
+    {subValue ? (
+      <span
+        className={`mt-2 inline-flex w-fit items-center rounded-md px-2.5 py-1 text-[12px] font-semibold ${
+          trend === 'up'
+            ? 'bg-emerald-500/10 text-emerald-700'
+            : trend === 'down'
+              ? 'bg-red-500/10 text-red-700'
+              : 'bg-neutral-100 text-neutral-700'
+        }`}
+      >
+        {subValue}
+      </span>
+    ) : null}
+  </div>
+);
+
 const initialStats: DashboardStats = {
   totalMembers: 0,
   totalWorkers: 0,
@@ -148,31 +179,6 @@ export default function AdminDashboard() {
       tone: 'text-indigo-700 bg-indigo-50 border-indigo-200',
     },
   ];
-
-  const StatCard = ({ title, value, subValue, icon: Icon, trend = 'neutral', alert = false }: StatCardProps) => (
-    <div className="flex flex-col p-5 bg-white border border-neutral-200/60 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-[13px] font-medium text-neutral-500 tracking-wide">{title}</span>
-        <div className={`p-2.5 rounded-xl ${alert ? 'bg-red-500/10 text-red-600' : 'bg-neutral-100 text-neutral-700'}`}>
-          <Icon className="h-[18px] w-[18px]" strokeWidth={2.5} />
-        </div>
-      </div>
-      <h3 className="text-2xl font-bold text-neutral-900 tracking-tight">{value}</h3>
-      {subValue ? (
-        <span
-          className={`mt-2 inline-flex w-fit items-center rounded-md px-2.5 py-1 text-[12px] font-semibold ${
-            trend === 'up'
-              ? 'bg-emerald-500/10 text-emerald-700'
-              : trend === 'down'
-                ? 'bg-red-500/10 text-red-700'
-                : 'bg-neutral-100 text-neutral-700'
-          }`}
-        >
-          {subValue}
-        </span>
-      ) : null}
-    </div>
-  );
 
   return (
     <div className="max-w-6xl mx-auto space-y-7 pb-8 animate-in fade-in duration-500">

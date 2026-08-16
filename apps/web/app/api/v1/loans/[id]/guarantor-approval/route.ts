@@ -15,10 +15,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const auth = requireAuth(req);
     const payload = bodySchema.parse(await req.json());
 
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      return NextResponse.json({ ok: false, error: 'Invalid loan ID format' }, { status: 400 });
-    }
+    // No id-shape check here, deliberately. This route used to reject anything
+    // that did not match a UUID — but every id in this schema is `@default(cuid())`
+    // (14 models; `uuid()` appears zero times), so the regex matched nothing the
+    // database can produce and guarantor approval 400'd for every loan that has
+    // ever existed. FR-11 was dead from the day it was written.
+    //
+    // Validating the shape again with a cuid pattern would only move the trap:
+    // the id strategy is a schema decision, and this file would have to be
+    // revised the next time it changes. The lookup below already answers 404 for
+    // an id that does not resolve, which is the honest response for a malformed
+    // one too, and it cannot drift out of sync with the schema.
 
     const member = await prisma.user.findUnique({
       where: { id: auth.id },

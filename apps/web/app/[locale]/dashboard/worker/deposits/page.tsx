@@ -58,11 +58,6 @@ export default function WorkerDepositsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadTransactions();
-    loadMembers();
-  }, []);
-
   const loadTransactions = async () => {
     try {
       const data = await apiGet<any[]>('/v1/dashboard/worker/transactions');
@@ -118,6 +113,14 @@ export default function WorkerDepositsPage() {
       setMembers([]);
     }
   };
+
+  // Below both loaders, not above them. `const` bindings sit in the temporal
+  // dead zone until evaluated; an effect declared earlier only works because
+  // effects run after the component body has finished.
+  useEffect(() => {
+    loadTransactions();
+    loadMembers();
+  }, []);
 
   const formatTime = (dateString: string) => {
     return new Date(dateString).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB', {

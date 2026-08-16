@@ -25,7 +25,7 @@ session to find.
 | Batch | Orders | Theme | State |
 |---|---|---|---|
 | A–G | WO-01 → WO-26 | Security, hardening, tests, CI, backups, observability, containers, stack modernisation | **Done** |
-| **H** | WO-27 → WO-29 | **Live defects found in the 2026-08-16 audit** | **Open — start here** |
+| **H** | WO-27 → WO-29 | Live defects found in the 2026-08-16 audit | **WO-29 done · WO-28 open · WO-27 part-done** |
 | I | WO-30 → WO-33 | Remaining security + hardening | Open |
 | J | WO-34 → WO-35 | Deployable artifacts | Open |
 | K | WO-36 → WO-39 | Code health and product gaps | Open |
@@ -49,11 +49,42 @@ session to find.
 Found by auditing the code on **2026-08-16**, not by reading the docs. Two of
 these are things the docs recorded as smaller than they are.
 
-## WO-27 · React Compiler lint cleanup `[ ]`
+## WO-27 · React Compiler lint cleanup `[~]` — 9 of 31 done
 
-**Why:** `eslint-plugin-react-hooks` v7 arrived with `eslint-config-next` 16 and
-reports **26 findings across 18 dashboard files**, set to `warn` in WO-24 rather
-than fixed inside a framework migration.
+**Update 2026-08-16 — the premise was wrong, and it changes the order.**
+
+**The React Compiler is not enabled.** There is no `experimental.reactCompiler`
+in `next.config.js` and no `babel-plugin-react-compiler` in any manifest. These
+rules report "this component would bail out of optimisation *if* you turned the
+compiler on" — they are not defect reports, and fixing them changes nothing that
+runs today. That reframes the work into three very different piles:
+
+| Rule | Count | Verdict |
+|---|---|---|
+| `static-components` | 4 | **Real bug today. Fixed.** `StatCard` was declared inside `admin/page.tsx`'s body, so React saw a new component *type* every render and unmounted/remounted all four cards on every state change — throwing away the `transition-all` and `animate-in` animations mid-flight. Hoisted to module scope; it closes over nothing |
+| `immutability` | 5 | **Zero-risk. Fixed.** A mount `useEffect` placed *above* the `const` loaders it calls. Legal (effects run after the body) but temporal-dead-zone fragile. Effects moved below their declarations in `admin/gallery`, `admin/settings` and `worker/deposits` |
+| `set-state-in-effect` | 20 | **Deferred, deliberately — see below** |
+
+**Total went 32 → 26 warnings, not 32 → 23.** Fixing the 5 `immutability`
+findings *revealed* 3 new `set-state-in-effect` ones in the same three files: the
+compiler bails at the first error per component, so the TDZ errors were masking
+them. That is worth knowing before someone reads the count as a regression.
+
+**Why the remaining 20 are deferred.** The dominant shape is a data-loading
+`refresh()` whose synchronous prefix calls `setIsLoading(true)` on a state that
+already initialises to `true` — a redundant render on mount, not a bug. The
+others (`dashboard-layout:402`, `profile-editor:97`) are conditional setState
+responding to a URL or prop, which is ordinary React. **None marks a behaviour
+change**, and clearing them means restructuring the data-loading of 15 screens
+that move members' money, with no fixtures, for no runtime benefit while the
+compiler is off.
+
+**Do them as part of enabling the React Compiler, not before it.** At that point
+the rules mean something and the risk buys a real optimisation. Doing it now is
+the trade this batch was structured to avoid.
+
+**Files still reporting:** `pnpm lint` — 20 `set-state-in-effect` across 13 pages
+and 2 components.
 
 **Files:** run `pnpm lint` for the current list. The rules are
 `set-state-in-effect`, `immutability` and `static-components`, configured in
@@ -392,20 +423,23 @@ than at build time. They are grouped by what you have to be touching to hit them
 
 # Recommended order
 
-1. **WO-28** — member records are recoverable from git history. Nothing else here
-   is a disclosure that has already happened.
-2. **WO-29** — one deleted regex restores a core lending flow that has never
-   worked.
-3. **Merge Batch G** after the Vercel-preview walk. It is 5 commits of framework
-   migration sitting unmerged; every day it waits, `main` drifts further from it.
-4. **WO-27** — the lint debt Batch G deliberately deferred. Do it while the
-   migration is fresh.
-5. **Batch I** (WO-30 → WO-33) — the security and hardening remainder.
-6. **WO-34** — deployable artifacts, the prerequisite for the host move.
-7. **Batch K** and the policy items — code health, DATA-06/07, the FR gaps.
-8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws),
-   only after all of the above.
+**Superseded by [go-live.md](go-live.md).** The platform is deployed and holding
+fake data, so the question is no longer "what is most urgent" but **"what gets
+more expensive once real member data exists"** — a different ordering. Read that
+file first.
 
-If you only ever do part of this list: **WO-28 and WO-29.** One is a disclosure
-that already happened; the other is a feature members are told exists and that
-has never once worked.
+The short version:
+
+1. **WO-28** — purge git history. Cheap while one person is affected.
+2. **Settle the data model** — the legacy `LoanStatus` values, donation fund
+   types (FR-15/16), the `audit_logs` trigger ([WO-33](#)), the withdrawal notice
+   period (FR-08). Each is a migration today and a migration *plus a backfill*
+   after launch.
+3. **WO-39, WO-30, WO-31** — settings allow-list, enumeration, HSTS. All small,
+   all about members, so they should exist before there are any.
+4. **Prove the restore** against the real host while the data is still
+   disposable.
+5. Then cut over — see [go-live.md](go-live.md) Stage 2.
+
+Done since this list was written: **WO-29** (guarantor approval, verified end to
+end) and **Batch G is merged to `main`**.
