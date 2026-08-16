@@ -33,8 +33,8 @@ on the quoted code, not the number.
 
 ### Standing rules for every order
 
-- `pnpm typecheck` must end with only the 2 known `e2e/admin-dashboard.spec.ts` errors (until WO-10 removes them).
-- `go build ./...` **cannot run on this machine** — no Go toolchain. Every Go order ends with "run `go build ./...` yourself".
+- `pnpm typecheck` must exit clean, zero errors. WO-10 removed the two known `e2e/admin-dashboard.spec.ts` errors.
+- No Go toolchain is installed system-wide. Unpack a pinned Go 1.25 tarball into the session scratchpad and put it on `PATH`; `go build`, `go vet` and `go test` then all work, so Go orders can be verified here rather than handed back.
 - Money changes stay in the Go API, one transaction, with an `audit_logs` row (CLAUDE.md rules 1, 2, 6).
 - Update `docs/tasks.md` and tick the order here in the same commit.
 
@@ -744,15 +744,19 @@ deposit — in **both** locales.
 
 1. ~~**Batch A** — the live defects.~~ Done.
 2. ~~**Batch B** — hardening.~~ Done (taken early; it was one session and it stops deploys landing mid-transaction).
-3. **WO-10** — makes `pnpm typecheck` a clean signal, which every later order relies on.
+3. ~~**WO-10** — makes `pnpm typecheck` a clean signal.~~ Done.
 4. ~~**WO-14 + WO-15** — backups.~~ Done.
-5. **WO-11 → WO-13** — tests and CI, so regressions stop being silent.
+5. ~~**WO-11 → WO-13** — tests and CI, so regressions stop being silent.~~ Done.
 6. ~~**WO-16** — migrations.~~ Done.
 7. ~~**Batch E**~~ done. ~~**Batch F**~~ done. **Batch G** is what remains.
 8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws), only after all of the above.
 
 If you only ever do part of this list: **A, B, WO-14, WO-15**. That is the
 difference between "it works" and "it works, and if it breaks the members' money
-is still there." All four are done. What remains — Batch E and F — is about
-knowing something broke and being able to move hosts, not about losing the
-ledger.
+is still there." All four are done, and so is everything through Batch F.
+
+What remains is **Batch G**, and it is a different kind of risk from the rest of
+this file. A through F closed defects and built the equipment for finding the
+next one. G is a stack of unpatched advisories — including a Middleware bypass
+in the layer that runs the authentication redirects — that cannot be fixed
+without moving off Next 14. Nothing else on this list is now more urgent.
