@@ -144,15 +144,15 @@ export default function AdminDepositsPage() {
             placeholder={locale === 'bn' ? 'সদস্য, কর্মী, ট্রানজেকশন নম্বর দিয়ে খুঁজুন...' : 'Search member, processor, transaction number...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
           />
         </div>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব ধরন' : 'All Types'}</option>
           <option value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</option>
           <option value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</option>
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
           <option value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</option>
           <option value="PROCESSED">{locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}</option>

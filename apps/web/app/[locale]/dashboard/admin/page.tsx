@@ -293,7 +293,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="bg-white border border-neutral-200/60 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-neutral-200/60 rounded-2xl shadow-xs overflow-hidden">
         <div className="px-6 py-4 border-b border-neutral-100/80">
           <h2 className="text-[15px] font-semibold text-neutral-900 tracking-wide">
             {locale === 'bn' ? 'সাম্প্রতিক কার্যক্রম' : 'Recent Activity'}

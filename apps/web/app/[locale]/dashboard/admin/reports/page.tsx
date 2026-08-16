@@ -343,7 +343,7 @@ export default function AdminReportsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="h-8 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+          <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="h-8 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
             <option value="month">{locale === 'bn' ? 'এই মাস' : 'This Month'}</option>
             <option value="quarter">{locale === 'bn' ? 'শেষ ৩ মাস' : 'Last 3 Months'}</option>
             <option value="year">{locale === 'bn' ? 'এই বছর' : 'This Year'}</option>

@@ -150,10 +150,10 @@ export default function AdminLoansPage() {
             placeholder={locale === 'bn' ? 'সদস্য বা গ্যারান্টর দিয়ে খুঁজুন...' : 'Search member/guarantor...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
           <option value="PENDING_GUARANTOR">{locale === 'bn' ? 'জামিনদার অপেক্ষমাণ' : 'Awaiting Guarantor'}</option>
           <option value="PENDING_APPROVAL">{locale === 'bn' ? 'অনুমোদন অপেক্ষমাণ' : 'Pending Approval'}</option>

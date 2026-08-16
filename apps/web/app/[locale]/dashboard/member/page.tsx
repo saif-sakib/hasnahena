@@ -103,7 +103,7 @@ export default function MemberDashboard() {
             </div>
             {t('currentBalance')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
             {formatCurrency(data.stats.currentBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -118,7 +118,7 @@ export default function MemberDashboard() {
             </div>
             {t('totalDeposited')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
             {formatCurrency(data.stats.totalDeposited, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -133,7 +133,7 @@ export default function MemberDashboard() {
             </div>
             {t('loanBalance')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
             {formatCurrency(data.stats.loanBalance, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -148,7 +148,7 @@ export default function MemberDashboard() {
             </div>
             {t('loanEligibility')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight break-words leading-tight">
+          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
             {formatCurrency(data.stats.loanEligibility, locale)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -159,7 +159,7 @@ export default function MemberDashboard() {
 
       {/* Active Loan - Compact & Elegant */}
       {data.activeLoan && (
-        <div className="bg-white border border-emerald-200/60 rounded-xl shadow-sm shadow-emerald-100/30 overflow-hidden">
+        <div className="bg-white border border-emerald-200/60 rounded-xl shadow-xs shadow-emerald-100/30 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 bg-emerald-50/50 border-b border-emerald-100/50">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
@@ -241,7 +241,7 @@ export default function MemberDashboard() {
       </div>
 
       {/* Recent Transactions */}
-      <div className="bg-white border border-neutral-200/60 rounded-xl shadow-sm shadow-neutral-100/50 overflow-hidden">
+      <div className="bg-white border border-neutral-200/60 rounded-xl shadow-xs shadow-neutral-100/50 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-100">
           <h2 className="text-base font-medium text-neutral-900">{t('recentTransactions')}</h2>
           <Link href={`/${locale}/dashboard/member/transactions`}>

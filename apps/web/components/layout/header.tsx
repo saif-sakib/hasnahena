@@ -184,7 +184,7 @@ export function Header({ settings }: HeaderProps) {
 
       {/* Mobile Navigation Overlay */}
       <div 
-        className={`fixed inset-0 bg-gradient-to-b from-emerald-800 to-emerald-950 backdrop-blur-xl z-[49] md:hidden transition-all duration-300 ease-in-out ${
+        className={`fixed inset-0 bg-linear-to-b from-emerald-800 to-emerald-950 backdrop-blur-xl z-49 md:hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'
         }`}
         style={{ top: '0', paddingTop: '90px', height: '100dvh' }}

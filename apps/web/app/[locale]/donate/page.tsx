@@ -43,7 +43,7 @@ export default async function DonatePage({ params }: PageProps) {
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-sm font-semibold tracking-wide mb-8 border border-rose-200 dark:border-rose-900/50 shadow-sm shadow-rose-900/5">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-sm font-semibold tracking-wide mb-8 border border-rose-200 dark:border-rose-900/50 shadow-xs shadow-rose-900/5">
               <HandHeart className="w-4 h-4" />
               {locale === 'bn' ? 'অনুদান' : 'Donate'}
             </div>

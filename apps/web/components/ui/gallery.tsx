@@ -98,7 +98,7 @@ export function Gallery({ items, locale }: GalleryProps) {
             className="overflow-hidden cursor-pointer group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-700"
             onClick={() => openLightbox(index)}
           >
-            <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 dark:bg-slate-800">
+            <div className="relative aspect-4/3 overflow-hidden bg-slate-100 dark:bg-slate-800">
               {failedImages.has(item.id) ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
                   <ImageOff className="h-10 w-10 mb-2" />
@@ -114,7 +114,7 @@ export function Gallery({ items, locale }: GalleryProps) {
                   onError={() => handleImageError(item.id)}
                 />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </div>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground mb-2">
@@ -146,7 +146,7 @@ export function Gallery({ items, locale }: GalleryProps) {
       {/* Lightbox Modal */}
       {selectedImage !== null && (
         <div
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 md:p-4"
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 md:p-4"
           onClick={closeLightbox}
         >
           <Button

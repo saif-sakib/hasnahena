@@ -120,7 +120,7 @@ export default async function PrivacyPage({ params }: PageProps) {
 
         <div className="space-y-8">
           {t.sections.map((section, index) => (
-            <section key={index} className="bg-white dark:bg-slate-900 rounded-lg p-6 shadow-sm">
+            <section key={index} className="bg-white dark:bg-slate-900 rounded-lg p-6 shadow-xs">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
                 {section.title}
               </h2>

@@ -92,7 +92,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
   }
 
   return (
-    <section className="py-16 md:py-20 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white">
+    <section className="py-16 md:py-20 bg-linear-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white">
       <div className="container-wide text-center">
         <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">
           {locale === 'bn'

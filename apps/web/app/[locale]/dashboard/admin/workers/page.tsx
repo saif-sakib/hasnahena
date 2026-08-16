@@ -396,7 +396,7 @@ export default function AdminWorkersPage() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as 'all' | 'ACTIVE' | 'INACTIVE')}
-          className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+          className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
         >
           <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
           <option value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</option>
@@ -405,7 +405,7 @@ export default function AdminWorkersPage() {
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value as 'all' | 'WORKER' | 'ADMIN')}
-          className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+          className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
         >
           <option value="all">{locale === 'bn' ? 'সব ভূমিকা' : 'All Roles'}</option>
           <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Workers'}</option>
@@ -538,7 +538,7 @@ export default function AdminWorkersPage() {
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+              <select value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
                 <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
                 <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
               </select>
@@ -575,7 +575,7 @@ export default function AdminWorkersPage() {
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500">
+              <select value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
                 <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
                 <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
               </select>

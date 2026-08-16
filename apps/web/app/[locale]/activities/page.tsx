@@ -42,7 +42,7 @@ export default async function ActivitiesPage({ params }: PageProps) {
       <main className="flex-1 bg-white dark:bg-zinc-950 pt-32 pb-24 z-10 w-full flex flex-col items-center">
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-sm font-semibold tracking-wide mb-8 border border-blue-100 dark:border-blue-900/50 shadow-sm shadow-blue-900/5">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-sm font-semibold tracking-wide mb-8 border border-blue-100 dark:border-blue-900/50 shadow-xs shadow-blue-900/5">
               <HandHeart className="w-4 h-4" />
               {locale === 'bn' ? 'আমাদের কার্যক্রম' : 'Our Activities'}
             </div>
@@ -84,7 +84,7 @@ export default async function ActivitiesPage({ params }: PageProps) {
               }
             ].map((item, i) => (
               <div key={i} className="group p-8 rounded-[32px] bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/50 dark:border-zinc-800/80 hover:shadow-xl hover:-translate-y-1 hover:border-zinc-300 transition-all duration-300">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 shadow-sm border border-black/5 ${item.bg} ${item.darkBg} ${item.color} group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300`}>
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 shadow-xs border border-black/5 ${item.bg} ${item.darkBg} ${item.color} group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300`}>
                   <item.icon className="w-6 h-6" />
                 </div>
                 <h3 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 mb-3 tracking-tight">{item.title}</h3>
