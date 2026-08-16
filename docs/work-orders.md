@@ -26,7 +26,7 @@ on the quoted code, not the number.
 | ~~**B**~~ | WO-06 → WO-09 | Runtime hardening — **done** | — |
 | ~~**C**~~ | WO-10 → WO-13 | Test harness + CI — **done** | — |
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
-| **E** | WO-17 → WO-19 | Observability | ~1 session |
+| ~~**E**~~ | ~~WO-17 → WO-19~~ | ~~Observability~~ | **Done** |
 | **F** | WO-20 → WO-22 | Containerise | ~1 session |
 | **G** | WO-23 → WO-26 | Stack modernisation (security) | ~2–3 sessions |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
@@ -586,13 +586,63 @@ Neon URL and logs that it did.
 
 ---
 
-# Batch E — Observability
+# Batch E — Observability `[x]`
 
 | ID | Task | Spec |
 |---|---|---|
-| WO-17 `[ ]` | Metrics (OBS-01/02) | `prometheus/client_golang` on `/metrics`: request rate, latency histogram, error rate, DB pool saturation. Plus business gauges — unconfirmed transactions >48 h, open disputes |
-| WO-18 `[ ]` | Error tracking + uptime (OBS-03/04) | Sentry free tier both apps with release tags; UptimeRobot on `/v1/ready` (needs WO-07) |
-| WO-19 `[ ]` | Alerts (OBS-06) | API down 5 min, error rate >5%, DB pool exhausted, unconfirmed-transaction threshold. Route to email/Telegram |
+| WO-17 `[x]` | Metrics (OBS-01/02) | `prometheus/client_golang` on `/metrics`: request rate, latency histogram, error rate, DB pool saturation. Plus business gauges — unconfirmed transactions >48 h, open disputes |
+| WO-18 `[x]` | Error tracking + uptime (OBS-03/04) | Sentry free tier both apps with release tags; UptimeRobot on `/v1/ready` (needs WO-07) |
+| WO-19 `[x]` | Alerts (OBS-06) | API down 5 min, error rate >5%, DB pool exhausted, unconfirmed-transaction threshold. Route to email/Telegram |
+
+**Done.** Operational detail is in
+[deployment.md](deployment.md#observability); what is worth knowing here is what
+was decided differently from the spec, and one bug the work uncovered.
+
+**`/metrics` is authenticated.** The spec did not ask for this. The exposition
+carries how many members are waiting on postings, how many disputes are open and
+how many loans are outstanding — for a village cooperative that is commercially
+and personally sensitive, and it would otherwise be readable by anyone who
+guessed the URL. It is gated on `METRICS_TOKEN` and returns **404** when no token
+is configured, so probing it reveals nothing.
+
+**Route labels are chi route templates, never resolved paths.** A label per
+member ID would be both a cardinality explosion and a slow privacy leak into a
+metrics endpoint. Verified: no member ID appears in any label.
+
+**Business gauges refresh on a ticker, not per scrape.** They are aggregate
+queries over `transactions` and `loans`. Computing them per scrape ties database
+load to whatever interval a stranger configures in their scraper, which is how a
+monitoring system becomes the outage. `hasnahena_business_metrics_last_refresh_timestamp_seconds`
+is exported alongside them because a frozen gauge otherwise looks exactly like a
+calm system.
+
+**Alerting is split three ways, and the split is a cost decision.** A private
+repository gets 2,000 GitHub Actions minutes a month, billed per whole minute. A
+5-minute uptime check is 8,640 runs — four times the entire free allowance, to do
+worse what UptimeRobot does free at one-minute intervals. So uptime goes to
+UptimeRobot, error rate to Sentry's own alert rules, and only the business
+thresholds — the ones nothing else can see — run in Actions, twice daily, at
+about 60 minutes a month. Alerts open a GitHub issue rather than emailing
+directly: GitHub notifies the owner for free, and reusing one issue means a
+week-long backlog is one thread instead of fourteen emails.
+
+**Sentry is the current major (v10), not an older one pinned to Next 14.**
+`@sentry/nextjs@10` declares peer support for Next 13 through 16, so it survives
+the Batch G migration untouched. Session Replay is explicitly disabled — it would
+record a member's dashboard, balances and name and send them to a third party.
+
+## A latent bug this uncovered
+
+`main.go` had a bare `ctx` that was a **10-second startup timeout**, used for the
+database pool. Handing that context to any long-lived background loop makes the
+loop run exactly once and return — silently, with no error anywhere.
+
+The business-gauge refresher hit this immediately: gauges populated at boot and
+then froze forever, which is indistinguishable from a system where nothing is
+happening. `startCleanupLoop` was already correct (it takes `runCtx`), so nothing
+shipped was broken — but the trap was one careless call away for anything added
+later. The context is now named `startupCtx` and carries a comment saying exactly
+this.
 
 ---
 
@@ -657,7 +707,7 @@ deposit — in **both** locales.
 4. ~~**WO-14 + WO-15** — backups.~~ Done.
 5. **WO-11 → WO-13** — tests and CI, so regressions stop being silent.
 6. ~~**WO-16** — migrations.~~ Done.
-7. **Batch E**, then **Batch F**.
+7. ~~**Batch E**~~ done. **Batch F**, then **Batch G**.
 8. Host move — [production-readiness.md](production-readiness.md#phase-6--vps-or-aws), only after all of the above.
 
 If you only ever do part of this list: **A, B, WO-14, WO-15**. That is the

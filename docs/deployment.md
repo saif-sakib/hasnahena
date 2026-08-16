@@ -41,16 +41,18 @@ DATABASE_URL=<pooled Neon URL>
 CLOUDINARY_CLOUD_NAME=…
 CLOUDINARY_API_KEY=…
 CLOUDINARY_API_SECRET=…
+NEXT_PUBLIC_SENTRY_DSN=…
 ```
 
-No Brevo keys here — email is backend-only.
+No Brevo keys here — email is backend-only. Cloudinary keys are Vercel-only too: the Go API contains no Cloudinary code.
 
 ## Render
 
 Root Directory `apps/api`, runtime Go, build `go build -o app ./cmd/server`, start `./app`.
 
 ```dotenv
-API_PORT=10000
+# Do NOT set API_PORT — Render injects PORT and config.go falls back to it.
+# Setting it overrides Render's choice for no benefit.
 DATABASE_URL=<pooled Neon URL>
 JWT_SECRET=<same secret as Vercel>
 JWT_EXPIRY_SECONDS=86400
@@ -59,6 +61,9 @@ BREVO_API_KEY=…
 EMAIL_FROM=info@hasnahenafoundation.com
 EMAIL_FROM_NAME=Hasnahena Foundation
 NEXT_PUBLIC_APP_URL=https://www.hasnahenafoundation.com
+METRICS_TOKEN=<long random string, same value as the GitHub secret>
+SENTRY_DSN=…
+ENVIRONMENT=production
 ```
 
 Do not quote Render values — `KEY=value`, never `KEY="value"`. The `EMAIL_FROM` address must be a Brevo-verified sender. Free instances sleep, so the first request after idle is slow.
@@ -180,3 +185,62 @@ To promote a verified restore: point `DATABASE_URL` at it in Render and Vercel (
 Measured on 2026-08-16 against a 58 MB database (20,041 users, 200,008 transactions — well beyond the real member count): dump 1 s, restore and verify 2 s on local disk. Network transfer to and from Neon dominates in practice, not the database work.
 
 **A 24-hour RPO means a member's deposit can be lost.** That is a deliberate trade against the cost of continuous archiving, and it is only acceptable because the paper passbook is the reconciling record ([product.md](product.md)) — a lost posting can be re-entered from it. If the passbook ever stops being maintained, this number has to change. Neon's own point-in-time restore covers a shorter window on the free plan and dies with the account, so it narrows the gap but does not replace this.
+
+## Observability
+
+Three signals, deliberately split by what each is good at — and all on free tiers.
+
+| Question | Answered by | Cost |
+|---|---|---|
+| Is the API up? | UptimeRobot on `/v1/ready` | free, 1-minute checks |
+| Did something throw? | Sentry, both apps | free tier |
+| Is a member waiting on money? | `/metrics` + the Monitor workflow | ~60 Actions minutes/month |
+
+The third is the one nothing else can see. A transaction sitting unconfirmed for three days throws no exception and returns no error status — every technical monitor reports green while a member waits on their own savings. That is what `hasnahena_transactions_unconfirmed_over_48h` exists for.
+
+### `/metrics`
+
+Prometheus exposition, **behind a bearer token** (`METRICS_TOKEN` on Render). With no token set the endpoint returns 404 rather than 401, so a scanner cannot even confirm it exists.
+
+It is gated because the exposition is business data: how many members are waiting, how many disputes are open, how many loans are outstanding. For a village cooperative that is commercially and personally sensitive.
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.hasnahenafoundation.com/metrics
+```
+
+Route labels are chi **route templates** (`/v1/dashboard/worker/members/{memberId}/deposit`), never resolved paths — one series per endpoint rather than one per member, which is both a cardinality and a privacy decision.
+
+Business gauges refresh on a ticker (`METRICS_REFRESH_INTERVAL`, default 1m) rather than per scrape, so database load does not depend on how often somebody else's scraper runs. `hasnahena_business_metrics_last_refresh_timestamp_seconds` tells you the numbers are live — a frozen gauge otherwise looks exactly like a calm system.
+
+To graph it, point **Grafana Cloud** (free tier) at the endpoint with bearer auth. Nothing here requires that; the Monitor workflow reads the same endpoint directly.
+
+### Sentry
+
+Set `SENTRY_DSN` on Render and `NEXT_PUBLIC_SENTRY_DSN` on Vercel. Both apps are inert without one, and **a missing or invalid DSN never stops the API booting** — losing error reporting must not become losing the service.
+
+PII is off by everything: `sendDefaultPii: false`, cookies/headers/query strings stripped before send, and Session Replay explicitly disabled — it would otherwise record a member's dashboard, balances and name, and ship it to a third party.
+
+Releases are tagged from `RENDER_GIT_COMMIT` and `VERCEL_GIT_COMMIT_SHA` automatically, so an error spike points at a deploy rather than at a day.
+
+### UptimeRobot
+
+Two monitors, both free:
+
+1. `https://api.hasnahenafoundation.com/v1/ready` — 1 minute, alert after 2 failures.
+2. `https://hasnahenafoundation.com` — 5 minutes.
+
+Use `/v1/ready`, not `/v1/health`: readiness pings Postgres, so it catches "the process is alive but cannot reach the database", which is the failure that actually hurts. Render free instances sleep, so expect cold starts in the response-time graph — that is information, not a fault.
+
+### Alerts
+
+`.github/workflows/monitor.yml` runs twice daily and opens a **GitHub issue** when a threshold trips, updating the same issue while the problem persists rather than sending a fresh email every run. GitHub emails you on issue activity, so this needs no third-party service and no secret beyond `METRICS_TOKEN`.
+
+Thresholds are repository *variables*, changeable without editing the workflow:
+
+| Variable | Default | Trips when |
+|---|---|---|
+| `MONITOR_MAX_UNCONFIRMED` | 5 | postings unconfirmed > 48 h |
+| `MONITOR_MAX_DISPUTES` | 3 | open disputes |
+| `MONITOR_MAX_POOL_UTILISATION` | 80 | % of the pgx pool in use |
+
+**Uptime is deliberately not checked here.** A private repository gets 2,000 Actions minutes a month and every run bills a whole minute; a 5-minute uptime check is 8,640 runs — four times the free allowance, to do worse what UptimeRobot does free at 1-minute intervals.

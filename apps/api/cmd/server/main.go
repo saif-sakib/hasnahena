@@ -18,7 +18,9 @@ import (
 
 	cfg "hasnahena/apps/api/internal/config"
 	handlers "hasnahena/apps/api/internal/handlers"
+	"hasnahena/apps/api/internal/metrics"
 	appmw "hasnahena/apps/api/internal/middleware"
+	"hasnahena/apps/api/internal/observability"
 	repositories "hasnahena/apps/api/internal/repositories"
 	services "hasnahena/apps/api/internal/services"
 	"hasnahena/apps/api/internal/utils"
@@ -59,8 +61,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Startup only — this context is dead ten seconds after boot. Never hand it
+	// to anything that must outlive startup; use runCtx (below) for that. A
+	// background loop given this one runs exactly once and then returns.
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStartup()
 
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
 	if err != nil {
@@ -87,7 +92,10 @@ func main() {
 	// the only reason production has not hit this; a VPS would not be so kind.
 	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
 
-	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	flushSentry := observability.Init(config.Environment)
+	defer flushSentry()
+
+	dbPool, err := pgxpool.NewWithConfig(startupCtx, poolConfig)
 	if err != nil {
 		slog.Error("failed to connect db", "error", err)
 		os.Exit(1)
@@ -128,8 +136,18 @@ func main() {
 	// Logging sits outside Recoverer so a panic is turned into a 500 while still
 	// inside the access-log wrapper, and therefore gets logged with that status.
 	r.Use(appmw.Logging)
+	r.Use(appmw.Metrics)
 	r.Use(middleware.Recoverer)
+	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter
+	// registered outside it would never see one (RUN-08).
+	r.Use(observability.Recoverer)
 	r.Use(appmw.CORS(config.CORSOrigins))
+
+	metrics.Register(dbPool)
+
+	// Not under /v1: this is an operational surface, not part of the member
+	// API, and it is versioned by the exposition format rather than by us.
+	r.Handle("/metrics", metrics.Handler(config.MetricsToken))
 
 	// Liveness: is the process up? Deliberately touches nothing — a restart is
 	// never the right answer to a database being briefly unreachable.
@@ -267,6 +285,9 @@ func main() {
 	defer stopSignals()
 
 	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
+	// runCtx, not startupCtx: this must keep running for the life of the
+	// process, and is cancelled by the same SIGTERM that drains the server.
+	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
 
 	srv := &http.Server{
 		Addr:    ":" + config.Port,
