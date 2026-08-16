@@ -733,7 +733,7 @@ export default function AdminSettingsPage() {
                             toast({ title: 'Upload Error', description: error, variant: 'destructive' })
                           }
                           maxSizeMB={5}
-                          aspectRatio="aspect-[3/1]"
+                          aspectRatio="aspect-3/1"
                         />
                         {landingSettings['branding.logo'] && (
                           <Button
@@ -761,7 +761,7 @@ export default function AdminSettingsPage() {
                             toast({ title: 'Upload Error', description: error, variant: 'destructive' })
                           }
                           maxSizeMB={5}
-                          aspectRatio="aspect-[3/1]"
+                          aspectRatio="aspect-3/1"
                         />
                         {landingSettings['branding.dashboardLogo'] && (
                           <Button
@@ -844,7 +844,7 @@ export default function AdminSettingsPage() {
                               toast({ title: 'Upload Error', description: error, variant: 'destructive' })
                             }
                             maxSizeMB={5}
-                            aspectRatio="aspect-[4/3]"
+                            aspectRatio="aspect-4/3"
                           />
                           {landingSettings[key] && (
                             <Button
@@ -1387,7 +1387,7 @@ export default function AdminSettingsPage() {
                       onChange={(e) =>
                         setAppearanceSettings({ ...appearanceSettings, defaultLanguage: e.target.value })
                       }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
                     >
                       <option value="bn">বাংলা</option>
                       <option value="en">English</option>
@@ -1401,7 +1401,7 @@ export default function AdminSettingsPage() {
                       onChange={(e) =>
                         setAppearanceSettings({ ...appearanceSettings, theme: e.target.value })
                       }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
                     >
                       <option value="light">{locale === 'bn' ? 'লাইট' : 'Light'}</option>
                       <option value="dark">{locale === 'bn' ? 'ডার্ক' : 'Dark'}</option>
@@ -1416,7 +1416,7 @@ export default function AdminSettingsPage() {
                       onChange={(e) =>
                         setAppearanceSettings({ ...appearanceSettings, dateFormat: e.target.value })
                       }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
                     >
                       <option value="dd/mm/yyyy">DD/MM/YYYY</option>
                       <option value="mm/dd/yyyy">MM/DD/YYYY</option>
@@ -1431,7 +1431,7 @@ export default function AdminSettingsPage() {
                       onChange={(e) =>
                         setAppearanceSettings({ ...appearanceSettings, currencyFormat: e.target.value })
                       }
-                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 w-full md:w-64"
+                      className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500 w-full md:w-64"
                     >
                       <option value="bn-BD">৳ 1,00,000 (বাংলাদেশি)</option>
                       <option value="en-BD">BDT 100,000 (English)</option>

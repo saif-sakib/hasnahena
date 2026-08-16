@@ -247,7 +247,7 @@ export default function WorkerDepositsPage() {
           placeholder={locale === 'bn' ? 'সদস্য খুঁজুন...' : 'Search member...'}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full h-9 pl-10 pr-3 text-sm border border-gray-200 focus:outline-none focus:border-blue-500"
+          className="w-full h-9 pl-10 pr-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
         />
       </div>
 

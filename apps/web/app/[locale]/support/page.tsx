@@ -61,7 +61,7 @@ export default async function SupportPage({ params }: PageProps) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <article className="rounded-xl border bg-white p-5 shadow-sm dark:bg-slate-900">
+            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
               <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
                 <Phone className="h-5 w-5" />
               </div>
@@ -69,7 +69,7 @@ export default async function SupportPage({ params }: PageProps) {
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{supportPhone}</p>
             </article>
 
-            <article className="rounded-xl border bg-white p-5 shadow-sm dark:bg-slate-900">
+            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
               <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
                 <Mail className="h-5 w-5" />
               </div>
@@ -77,7 +77,7 @@ export default async function SupportPage({ params }: PageProps) {
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{supportEmail}</p>
             </article>
 
-            <article className="rounded-xl border bg-white p-5 shadow-sm dark:bg-slate-900">
+            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
               <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
                 <MessageCircle className="h-5 w-5" />
               </div>

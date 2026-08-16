@@ -673,7 +673,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Role Badge - Simple */}
           <div className="px-5 py-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#E5E7EB] rounded-md shadow-sm">
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#E5E7EB] rounded-md shadow-xs">
                 <div className={`w-1.5 h-1.5 rounded-full ${role === 'admin' ? 'bg-indigo-500' : role === 'worker' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
                 <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">
                   {roleLabels[role]}
@@ -801,7 +801,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             <Button 
               variant="outline" 
               size="sm"
-              className="w-full justify-start gap-2.5 text-zinc-600 border-[#E5E7EB] hover:text-zinc-900 bg-white hover:bg-zinc-50 shadow-sm"
+              className="w-full justify-start gap-2.5 text-zinc-600 border-[#E5E7EB] hover:text-zinc-900 bg-white hover:bg-zinc-50 shadow-xs"
               onClick={handleLogout}
             >
               <LogOut className="h-[18px] w-[18px]" strokeWidth={2} />
@@ -931,17 +931,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 <>
                   {/* Mobile Backdrop */}
                   <div
-                    className="fixed inset-0 bg-black/30 z-[60] sm:hidden"
+                    className="fixed inset-0 bg-black/30 z-60 sm:hidden"
                     onClick={closeSupportPopup}
                   />
 
                   {/* Support Popup */}
                   <div
-                    className="fixed inset-0 z-[70] flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-80 sm:h-auto sm:max-h-[28rem] sm:border sm:border-neutral-200/60 sm:shadow-xl sm:shadow-black/5 sm:rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
+                    className="fixed inset-0 z-70 flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-80 sm:h-auto sm:max-h-112 sm:border sm:border-neutral-200/60 sm:shadow-xl sm:shadow-black/5 sm:rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
                     style={{ height: '100dvh' }}
                   >
                     {/* Header */}
-                    <div className="flex items-center justify-between h-14 px-4 border-b border-neutral-100 bg-white/80 backdrop-blur-xl flex-shrink-0 z-10">
+                    <div className="flex items-center justify-between h-14 px-4 border-b border-neutral-100 bg-white/80 backdrop-blur-xl shrink-0 z-10">
                       {/* Back button / Title */}
                       {(activeSupportThreadId && role !== 'member') ? (
                         <Button
@@ -957,7 +957,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         </Button>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-sm">
+                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-xs">
                             <MessageCircle className="w-4 h-4 text-white" />
                           </div>
                           <div className="flex flex-col">
@@ -1009,7 +1009,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                           className="flex-1 overflow-y-auto px-4 py-4"
                         >
                           {supportMessages.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full min-h-[180px] text-center p-6 bg-white border border-neutral-100 shadow-sm rounded-2xl mx-2 my-auto">
+                            <div className="flex flex-col items-center justify-center h-full min-h-[180px] text-center p-6 bg-white border border-neutral-100 shadow-xs rounded-2xl mx-2 my-auto">
                               <div className="h-12 w-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-3">
                                 <MessageCircle className="w-6 h-6" />
                               </div>
@@ -1033,13 +1033,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                     className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-4' : 'mt-1'}`}
                                   >
                                     <div
-                                      className={`relative max-w-[85%] px-3.5 py-2 text-[13px] leading-relaxed shadow-sm ${
+                                      className={`relative max-w-[85%] px-3.5 py-2 text-[13px] leading-relaxed shadow-xs ${
                                         isMe
                                           ? 'bg-emerald-500 text-white rounded-2xl rounded-tr-sm'
                                           : 'bg-white border border-neutral-200/60 text-neutral-800 rounded-2xl rounded-tl-sm'
                                       }`}
                                     >
-                                      <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                                      <p className="whitespace-pre-wrap wrap-break-word">{msg.message}</p>
                                       <p className={`mt-1 text-[9px] font-medium text-right ${isMe ? 'text-emerald-100' : 'text-neutral-400'}`}>
                                         {formatSupportTime(msg.createdAt)}
                                       </p>
@@ -1053,12 +1053,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
                         {/* Mark Processed Button (for workers/admins) */}
                         {role !== 'member' && activeSupportThread?.status !== 'PROCESSED' && (
-                          <div className="px-4 py-2 border-t border-neutral-100 bg-white flex-shrink-0 z-10">
+                          <div className="px-4 py-2 border-t border-neutral-100 bg-white shrink-0 z-10">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={markSupportThreadProcessed}
-                              className="w-full h-8 text-xs font-semibold gap-1.5 shadow-sm rounded-full text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                              className="w-full h-8 text-xs font-semibold gap-1.5 shadow-xs rounded-full text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             >
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               {locale === 'bn' ? 'সমাধান' : 'Mark Resolved'}
@@ -1067,7 +1067,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         )}
 
                         {/* Input Area */}
-                        <div className="p-3 border-t border-neutral-100 bg-white flex-shrink-0 z-10">
+                        <div className="p-3 border-t border-neutral-100 bg-white shrink-0 z-10">
                           <div className="flex gap-2 items-end">
                             <textarea
                               rows={1}
@@ -1094,9 +1094,9 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               onClick={sendSupportMessage}
                               disabled={isSupportSending || !supportInput.trim() || (!activeSupportThreadId && role !== 'member')}
                               size="icon"
-                              className="shrink-0 h-[38px] w-[38px] rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-sm transition-colors text-white disabled:opacity-50"
+                              className="shrink-0 h-[38px] w-[38px] rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-xs transition-colors text-white disabled:opacity-50"
                             >
-                              <Send className={`h-4 w-4 ${isSupportSending ? '-translate-y-0.5 -translate-x-[-0.5px] opacity-70' : 'translate-x-px'} transition-transform`} />
+                              <Send className={`h-4 w-4 ${isSupportSending ? '-translate-y-0.5 translate-x-[0.5px] opacity-70' : 'translate-x-px'} transition-transform`} />
                             </Button>
                           </div>
                         </div>
@@ -1106,7 +1106,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                       <div className="flex-1 overflow-y-auto bg-neutral-50/50">
                         {supportThreads.length === 0 ? (
                           <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center px-4 py-6">
-                            <div className="w-12 h-12 bg-white border border-neutral-100 rounded-full flex items-center justify-center shadow-sm mb-3">
+                            <div className="w-12 h-12 bg-white border border-neutral-100 rounded-full flex items-center justify-center shadow-xs mb-3">
                               <MessageCircle className="w-5 h-5 text-neutral-300" />
                             </div>
                             <p className="text-sm font-medium text-neutral-600 mb-1">
@@ -1128,12 +1128,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   onClick={() => openThread(thread)}
                                 >
                                   <div className="flex gap-3">
-                                    <div className="relative flex-shrink-0 mt-0.5">
-                                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm group-hover:shadow-md transition-shadow">
+                                    <div className="relative shrink-0 mt-0.5">
+                                      <div className="w-10 h-10 rounded-full bg-linear-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-semibold text-sm shadow-xs group-hover:shadow-md transition-shadow">
                                         {thread.memberName ? thread.memberName.charAt(0).toUpperCase() : '?'}
                                       </div>
                                       {showBadge && (
-                                        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full shadow-sm" />
+                                        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full shadow-xs" />
                                       )}
                                     </div>
                                     <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -1141,7 +1141,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                         <span className="text-sm font-semibold text-neutral-900 truncate">
                                           {thread.memberName || (locale === 'bn' ? 'সদস্য' : 'Member')}
                                         </span>
-                                        <span className="text-[10px] font-medium text-neutral-400 flex-shrink-0">
+                                        <span className="text-[10px] font-medium text-neutral-400 shrink-0">
                                           {formatSupportTime(thread.latestAt)}
                                         </span>
                                       </div>
@@ -1163,12 +1163,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </div>
 
             {/* User Avatar - Clickable to Profile */}
-            <div className="h-6 w-[1px] bg-black/10 mx-1"></div>
+            <div className="h-6 w-px bg-black/10 mx-1"></div>
             <Link
               href={`${basePath}/profile`}
               className="flex items-center gap-2.5 ml-1 pl-2 hover:bg-black/5 py-1.5 px-2.5 rounded-lg transition-colors"
             >
-              <div className="relative h-8 w-8 rounded-full overflow-hidden flex-shrink-0ring-1 ring-black/5 shadow-sm">
+              <div className="relative h-8 w-8 rounded-full overflow-hidden shrink-0 ring-1 ring-black/5 shadow-xs">
                 {userInfo?.avatarUrl ? (
                   <Image
                     src={userInfo.avatarUrl}

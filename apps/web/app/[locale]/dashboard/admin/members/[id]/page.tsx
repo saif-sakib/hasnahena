@@ -695,7 +695,7 @@ export default function MemberDetailPage() {
         <div className="space-y-2">
           {!canWithdraw && member.currentDeposit > 0 && (
             <div className="rounded-sm bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
                 {member.isGuarantorForActiveLoan
                   ? (locale === 'bn' ? 'অন্যের ঋণের জামিনদার থাকায় উত্তোলন করা যাবে না।' : 'Withdrawal blocked because member is a guarantor.')
@@ -707,7 +707,7 @@ export default function MemberDetailPage() {
           )}
           {!canGetLoan && member.loanEligibility.reason && (
             <div className="rounded-sm bg-amber-50 border border-amber-200 p-3 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
                 {locale === 'bn' ? 'ঋণ যোগ্যতা:' : 'Loan eligibility:'} {member.loanEligibility.reason}
               </p>

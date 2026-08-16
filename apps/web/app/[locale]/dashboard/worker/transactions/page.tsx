@@ -277,7 +277,7 @@ export default function WorkerTransactionsPage() {
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <Card className="rounded-2xl border-slate-200 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -288,7 +288,7 @@ export default function WorkerTransactionsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <Card className="rounded-2xl border-slate-200 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -299,7 +299,7 @@ export default function WorkerTransactionsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <Card className="rounded-2xl border-slate-200 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -313,7 +313,7 @@ export default function WorkerTransactionsPage() {
       </div>
 
       {/* Filters */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardContent className="p-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
@@ -355,7 +355,7 @@ export default function WorkerTransactionsPage() {
       </Card>
 
       {/* Transactions List */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
