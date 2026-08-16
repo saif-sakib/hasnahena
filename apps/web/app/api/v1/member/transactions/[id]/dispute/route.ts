@@ -10,7 +10,8 @@ const bodySchema = z.object({
   correctAmount: z.number().optional(),
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
     const auth = requireAuth(req);
     const payload = bodySchema.parse(await req.json());
@@ -23,7 +24,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
 
     const tx = await prisma.transaction.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true, userId: true, status: true },
     });
     if (!tx) return NextResponse.json({ ok: false, error: 'Transaction not found' }, { status: 404 });

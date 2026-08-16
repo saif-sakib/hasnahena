@@ -22,10 +22,11 @@ const hindSiliguri = Hind_Siliguri({
 
 interface RootLayoutProps {
   children: React.ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 }
 
-export function generateMetadata({ params: { locale } }: RootLayoutProps): Metadata {
+export async function generateMetadata({ params }: RootLayoutProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   const localizedMetadata = createLocalizedMetadata({
     locale: activeLocale,
@@ -62,8 +63,10 @@ export function generateMetadata({ params: { locale } }: RootLayoutProps): Metad
 
 export default async function RootLayout({
   children,
-  params: { locale },
+  params,
 }: RootLayoutProps) {
+  const { locale } = await params;
+
   // Validate locale
   if (!locales.includes(locale as Locale)) {
     notFound();

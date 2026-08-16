@@ -9,9 +9,10 @@ import { prisma } from '@/lib/prisma';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -24,7 +25,8 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function ContactPage({ params: { locale } }: PageProps) {
+export default async function ContactPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as any)) notFound();
   unstable_setRequestLocale(locale);
 
