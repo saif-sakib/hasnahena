@@ -371,21 +371,15 @@ export default function AdminSettingsPage() {
         'loan.missedPaymentsForDefault': String(normalizedLoanSettings.missedPaymentsForDefault),
         'loan.noticePeriodMonths': String(normalizedLoanSettings.noticePeriodMonths),
         'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
-        'notification.emailNotifications': String(notificationSettings.emailNotifications),
-        'notification.smsNotifications': String(notificationSettings.smsNotifications),
-        'notification.loanApprovalNotify': String(notificationSettings.loanApprovalNotify),
-        'notification.depositConfirmationNotify': String(notificationSettings.depositConfirmationNotify),
-        'notification.paymentReminderNotify': String(notificationSettings.paymentReminderNotify),
-        'notification.newMemberNotify': String(notificationSettings.newMemberNotify),
-        'security.twoFactorAuth': String(securitySettings.twoFactorAuth),
-        'security.sessionTimeout': String(normalizedSecuritySettings.sessionTimeout),
-        'security.passwordExpiry': String(normalizedSecuritySettings.passwordExpiry),
-        'security.loginAttempts': String(normalizedSecuritySettings.loginAttempts),
-        'appearance.defaultLanguage': appearanceSettings.defaultLanguage,
-        'appearance.theme': appearanceSettings.theme,
-        'appearance.dateFormat': appearanceSettings.dateFormat,
-        'appearance.currencyFormat': appearanceSettings.currencyFormat,
         'support.chatRetentionDays': String(normalizedSupportRetentionDays),
+
+        // The notification.*, security.* and appearance.* keys are deliberately
+        // NOT posted. Nothing in either backend reads them, and because this
+        // endpoint rejects the entire request on one unrecognised key, sending
+        // them made every save 400 — the admin could not change loan policy,
+        // organisation details or landing copy either. See
+        // UNIMPLEMENTED_CONFIG_KEYS in lib/system-config.ts for what governs
+        // each of those behaviours instead.
       };
 
       setLoanSettings(normalizedLoanSettings);
