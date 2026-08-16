@@ -273,10 +273,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	if err != nil {
 		stats = DashboardStats{}
 	}
-	stats.CurrentBalance = stats.CurrentBalance
-	stats.TotalDeposited = stats.TotalDeposited
-	stats.LoanBalance = stats.LoanBalance
-	stats.LoanEligibility = stats.LoanEligibility
 	data.Stats = stats
 
 	const pendingQuery = `
@@ -302,7 +298,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := pendingRows.Scan(&item.ID, &item.Type, &item.Amount, &createdAt, &item.Receipt); scanErr != nil {
 				continue
 			}
-			item.Amount = item.Amount
 			item.Date = createdAt.Format(time.RFC3339)
 			data.PendingConfirmations = append(data.PendingConfirmations, item)
 		}
@@ -331,7 +326,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := guarantorRows.Scan(&item.ID, &item.BorrowerName, &item.LoanAmount, &createdAt); scanErr != nil {
 				continue
 			}
-			item.LoanAmount = item.LoanAmount
 			item.RequestDate = createdAt.Format(time.RFC3339)
 			data.GuarantorRequests = append(data.GuarantorRequests, item)
 		}
@@ -361,8 +355,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		&activeLoan.PaidInstallments,
 		&activeLoan.TotalInstallments,
 	); err == nil {
-		activeLoan.RemainingAmount = activeLoan.RemainingAmount
-		activeLoan.NextInstallment = activeLoan.NextInstallment
 		if nextDueDate != nil {
 			activeLoan.NextDueDate = nextDueDate.Format(time.RFC3339)
 		}
@@ -390,7 +382,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			if scanErr := recentRows.Scan(&tx.ID, &tx.Type, &tx.Amount, &createdAt, &tx.Receipt); scanErr != nil {
 				continue
 			}
-			tx.Amount = tx.Amount
 			tx.Date = createdAt.Format(time.RFC3339)
 			data.RecentTransactions = append(data.RecentTransactions, tx)
 		}

@@ -1,0 +1,34 @@
+title = "Hasnahena secret scanning"
+
+# Start from gitleaks' full default ruleset and only subtract from it. Never
+# replace it — a hand-written ruleset is a list of the leaks you already thought
+# of, which is not the useful kind.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation placeholders, which are not secrets"
+
+# Match against the whole line rather than the extracted secret, so the
+# surrounding `KEY=<...>` shape is visible to the pattern.
+regexTarget = "line"
+
+regexes = [
+  # `JWT_SECRET=<same secret as Vercel>` and friends. The angle brackets are
+  # this repo's placeholder convention throughout docs/ and .env.*.example, and
+  # gitleaks' generic-api-key rule scores the prose inside them as high-entropy.
+  #
+  # This is narrow on purpose: a real leaked secret is a bare value, never one
+  # wrapped in angle brackets and containing spaces. Nothing that looks like an
+  # actual credential is allowlisted here.
+  '''=\s*<[^>]+>''',
+  # `…=…` inside a fenced example that points at localhost.
+  '''postgresql://postgres:postgres@(localhost|127\.0\.0\.1)''',
+]
+
+paths = [
+  # Deleted in a documentation cleanup but still reachable in history, where it
+  # trips the same placeholder pattern. Rewriting history to satisfy a false
+  # positive would be a far worse trade than an allowlist entry.
+  '''docs/DEPLOYMENT_FREE_HOSTING\.md''',
+]
