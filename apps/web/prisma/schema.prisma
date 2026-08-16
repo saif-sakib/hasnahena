@@ -368,6 +368,12 @@ model DocumentSequence {
   @@map("document_sequences")
 }
 
+// DATA-08: a BEFORE UPDATE OR DELETE trigger enforces append-only on this table
+// at the database level. Prisma cannot model triggers, so it lives in
+// prisma/migrations/20260816120000_audit_logs_append_only/migration.sql and is
+// invisible to `migrate diff`. Regenerating a baseline with --from-empty WILL
+// drop it. UPDATE is never permitted; DELETE only inside a transaction that has
+// set hasnahena.allow_audit_purge (scripts/db-clear-preserve-core.mjs).
 model AuditLog {
   id         String  @id @default(cuid())
   action     String

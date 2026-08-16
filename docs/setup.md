@@ -158,6 +158,9 @@ removed.
 | `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | Render | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
 | `SERVER_SHUTDOWN_TIMEOUT` | Render | 30s. Must be **shorter** than Render's stop grace period (also 30s by default) or Render `SIGKILL`s mid-drain |
 | `CLEANUP_INTERVAL` | Render | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables |
+| `ENABLE_HSTS` | Render | **off** locally, **on** in production (SEC-09). A browser remembers HSTS for the full `max-age` — sending it from a plain-HTTP localhost API pins `localhost` to HTTPS for two years, in every project on that machine |
+| `TRUSTED_PROXIES` | Render | `0` locally, **`1` on Render**. How many reverse proxies sit in front. This picks which `X-Forwarded-For` entry the rate limiter trusts; set it to `0` in production and the limiter keys on a value the caller chooses, which makes it decorative |
+| `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Render | 60 per 1m per client, on mutating methods only (RUN-07). `GET`/`HEAD`/`OPTIONS`, `/v1/health`, `/v1/ready` and `/metrics` are exempt |
 | `KEEP_ADMIN_EMAIL` | local | which admin `pnpm db:clear` preserves |
 | `E2E_BASE_URL`, `E2E_ADMIN_IDENTIFIER`, `E2E_ADMIN_PASSWORD` | local | `pnpm test:e2e` skips every spec unless the last two are set. Seeded **local** database only — the specs move money |
 

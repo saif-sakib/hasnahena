@@ -26,15 +26,16 @@ session to find.
 |---|---|---|---|
 | A–G | WO-01 → WO-26 | Security, hardening, tests, CI, backups, observability, containers, stack modernisation | **Done** |
 | **H** | WO-27 → WO-29 | Live defects found in the 2026-08-16 audit | **WO-29 done · WO-28 open · WO-27 part-done** |
-| I | WO-30 → WO-33 | Remaining security + hardening | Open |
+| ~~I~~ | ~~WO-30 → WO-33~~ | ~~Remaining security + hardening~~ | **Done 2026-08-16** |
 | J | WO-34 → WO-35 | Deployable artifacts | Open |
 | K | WO-36 → WO-39 | Code health and product gaps | Open |
 
 ### Standing rules for every order
 
 - `pnpm typecheck` must exit clean, zero errors.
-- `pnpm lint` must exit 0. It currently reports **32 warnings** — 26 of them are
-  the React Compiler findings WO-27 owns. Do not let that count grow.
+- `pnpm lint` must exit 0. It currently reports **26 warnings** — 20 of them are
+  the `set-state-in-effect` findings WO-27 owns, and 6 are pre-existing
+  `@next/next` ones. Do not let that count grow.
 - No Go toolchain is installed system-wide. Unpack a pinned Go 1.25 tarball into
   the session scratchpad and put it on `PATH`; `go build`, `go vet` and `go test`
   then all work, so Go orders can be verified here rather than handed back.
@@ -44,10 +45,14 @@ session to find.
 
 ---
 
-# Batch H — Live defects `[ ]`
+# Batch H — Live defects `[~]`
 
-Found by auditing the code on **2026-08-16**, not by reading the docs. Two of
-these are things the docs recorded as smaller than they are.
+Found by auditing the code on **2026-08-16**, not by reading the docs.
+
+**WO-29 is done** and verified end to end. **WO-27 is 9 of 31** — the rest is
+deferred on the reasoning below, not forgotten. **WO-28 is prepared but not run**:
+the rewrite is irreversible and changes every commit hash, so it is the owner's
+call. The runbook is below and has been dry-checked.
 
 ## WO-27 · React Compiler lint cleanup `[~]` — 9 of 31 done
 
@@ -83,24 +88,18 @@ compiler is off.
 the rules mean something and the risk buys a real optimisation. Doing it now is
 the trade this batch was structured to avoid.
 
-**Files still reporting:** `pnpm lint` — 20 `set-state-in-effect` across 13 pages
-and 2 components.
+**When you do pick this up** — run `pnpm lint` for the current list; the rules are
+configured in [apps/web/eslint.config.mjs](../apps/web/eslint.config.mjs) with the
+rationale. Work **screen by screen**, not rule by rule: these files move members'
+money and have no fixtures, so a batch rewrite cannot be verified. For each
+screen, fix it, then load it against a seeded database and drive the flow it owns.
 
-**Files:** run `pnpm lint` for the current list. The rules are
-`set-state-in-effect`, `immutability` and `static-components`, configured in
-[apps/web/eslint.config.mjs](../apps/web/eslint.config.mjs) with the rationale.
-
-**Change:** work **screen by screen**, not rule by rule. Each of these files
-renders or moves members' money and there are no fixtures for them, so a batch
-rewrite cannot be verified. For each screen: fix, then load it against a seeded
-database and drive the flow it owns.
-
-**Watch:** `set-state-in-effect` findings are usually a `useEffect` that should
+**Watch:** a `set-state-in-effect` finding usually marks a `useEffect` that should
 be derived state or an event handler. Deleting the effect is normally correct;
-adding a guard is normally the wrong fix and hides the problem from the rule.
+adding a guard is normally the wrong fix and only hides it from the rule.
 
-**Verify:** `pnpm lint` warning count drops to 6 and no rule is silenced. Manual
-walk of each touched screen in both locales.
+**Verify:** `pnpm lint` reaches 6 warnings with no rule silenced, and a manual
+walk of every touched screen in both locales.
 
 ## WO-28 · Purge member data and binaries from git history `[ ]`
 
@@ -223,7 +222,25 @@ integration coverage stops at the Go API — so a manual pass is the only eviden
 
 ---
 
-# Batch I — Remaining security and hardening `[ ]`
+# Batch I — Remaining security and hardening `[x]`
+
+**Done 2026-08-16.** SEC-08, SEC-09, RUN-07 and DATA-08 are closed; the detail and
+the reasoning are in [production-readiness.md](production-readiness.md) under each
+id. Three things are worth carrying forward here:
+
+- **chi's `RealIP` is deprecated and spoofable**, and it is still mounted in
+  `main.go`. It overwrites `RemoteAddr` with the *leftmost* `X-Forwarded-For`
+  entry, which the caller supplies. Nothing else in the codebase keys security
+  decisions on the client address today — but anything that starts to must use
+  `clientIP` in `internal/middleware/ratelimit.go`, not `r.RemoteAddr`.
+- **`TRUSTED_PROXIES=1` must be set on Render.** At the default of 0 the rate
+  limiter falls back to `RemoteAddr` and one caller can mint a fresh quota per
+  request. The limiter still runs, still logs, still looks fine.
+- **The audit trigger has one escape hatch** and it exists for `pnpm db:clear`.
+  Anything else that needs to delete an audit row is a design mistake.
+
+The original specs follow, kept because they record why each was worth doing.
+
 
 ## WO-30 · Close the registration-enumeration oracle `[ ]`
 

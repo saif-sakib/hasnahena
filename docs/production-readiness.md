@@ -176,15 +176,35 @@ now fails as a decode error, which every call site already surfaces as
 400 `INVALID_REQUEST`. `http.MaxBytesReader` would have been the tidier wrapper
 but needs the `ResponseWriter`, which `ParseJSON` does not take.
 
-### SEC-08 · Unauthenticated registration enumeration `[ ]` — **low**
+### SEC-08 · Unauthenticated registration enumeration `[x]` — **low**
 
 `GET /api/v1/registrations?email=…` answers whether an address or phone is
 registered. It exists for the signup form's live validation, so it cannot simply
 be closed — but it is unauthenticated and unthrottled, which makes it a bulk
 membership-disclosure oracle for a religious-finance cooperative.
 
-**Fix.** Rate-limit per IP through the existing `rate_limits` table, and return
-a uniform response shape so timing does not distinguish the cases.
+**Done 2026-08-16.** 20 checks per 10 minutes per caller address, through the
+existing `rate_limits` table (`apps/web/lib/rate-limit.ts`). Generous for someone
+filling in the form once, useless for walking a number range: Bangladeshi mobile
+numbers are an 8-digit space behind a known prefix, which at this rate takes
+centuries rather than an afternoon. Verified — request 21 returns 429 with
+`Retry-After: 599`, and a different address is unaffected.
+
+The counter is in the database rather than in memory **because this runs on
+Vercel**: a route handler is a serverless function whose instances the platform
+creates and discards, so an in-memory counter resets at intervals the caller can
+provoke. That is the opposite of the Go API's limiter (RUN-07), and the reason is
+written at the top of both files.
+
+The single upsert is deliberate — read-then-write would let two concurrent
+requests both observe `attempts = limit` and both proceed, which is exactly the
+case a limiter exists to stop and only appears under the load that matters. It
+fails **open** on a database error: a blip must not stop people registering.
+
+**Not done, and deliberately:** the response timing is not equalised. Both
+branches are one indexed lookup and the difference is not a practical oracle at
+20 requests per 10 minutes; padding every response to a fixed duration would add
+latency for every real user to close a channel the rate limit already closes.
 
 ### SEC-10 · Member records are recoverable from git history `[!]` — **highest**
 
@@ -231,13 +251,22 @@ repository and always has: it looks for credential *patterns*, not for documents
 that should never have been committed. A green secret scan is not evidence that
 history is clean, and this is the example.
 
-### SEC-09 · HSTS is commented out in the API `[ ]` — **low**
+### SEC-09 · HSTS is commented out in the API `[x]` — **low**
 
 [cors.go](../apps/api/internal/middleware/cors.go) sets a good header set but
 leaves `Strict-Transport-Security` disabled. Next sends it; the API does not.
 
-**Fix.** Enable it behind an `ENABLE_HSTS` env flag (off locally, on in
-production). Required before any VPS move, where you own TLS termination.
+**Done 2026-08-16.** Behind `ENABLE_HSTS`, **off by default**. That default is
+the point: a browser remembers HSTS for the whole `max-age`, so sending it from a
+plain-HTTP localhost API pins `localhost` to HTTPS for two years — in every
+project on that developer's machine, with no obvious way to undo it. Verified
+both ways: header present with the flag on, absent with it unset.
+
+`preload` is included, which is close to irreversible once the domain is
+submitted to the browser preload list. It is honest here because
+`api.hasnahenafoundation.com` is permanently HTTPS behind Render.
+
+**Action:** set `ENABLE_HSTS=true` in Render. It is in `.env.render.example`.
 
 ---
 
@@ -274,7 +303,7 @@ Free-tier hosts hide these. A VPS will not.
 | RUN-04 `[x]` | Structured JSON logging | **Done.** `log/slog` JSON to stdout, level from `LOG_LEVEL`. One `http_request` line per request with request ID, method, path, status, bytes, duration, IP and — via a context holder filled in `verifyActiveRole` — the user ID. `slog.SetDefault` also routes the standard `log` package through the same handler, so a stray `log.Printf` in a dependency still emits JSON |
 | RUN-05 `[x]` | Scrub PII from logs | **Done.** All three sites now log the user ID. The staff-welcome path has no user yet, so it logs only the role and leans on the request ID to tie the line back to the caller. The access log records `r.URL.Path` and never `RawQuery`, which would otherwise carry thread IDs and stream tickets |
 | RUN-06 `[x]` | Schedule the cleanup jobs | **Done.** `startCleanupLoop` in `main.go`: sweeps at boot and then every `CLEANUP_INTERVAL` (default 1h), each sweep bounded at 1 minute, tied to the shutdown context, logging rows deleted only when there are any. `sse_tickets` needs no entry here — it sweeps itself on the issue path |
-| RUN-07 `[ ]` | Global rate limiting | **Confirmed open** — `main.go` references rate limiting only in the cleanup sweep. Login is throttled; nothing else is ([WO-32](work-orders.md)) |
+| RUN-07 `[x]` | Global rate limiting | **Done 2026-08-16.** Per-client throttle on mutating methods, `RATE_LIMIT_REQUESTS`/`RATE_LIMIT_WINDOW` (60/1m). Reads, `/v1/health`, `/v1/ready` and `/metrics` are exempt so a probe cannot be throttled into looking like an outage. In memory, not in `rate_limits`: it counts *every* request, so a table would mean an UPDATE on the same hot path the money transactions already contend on. **Tradeoff stated:** with N instances the effective limit is N×; Render runs one. **The load-bearing part is `clientIP`** — chi's `RealIP` is deprecated and spoofable, so keying on `RemoteAddr` would let a caller mint a fresh quota per request by varying a header. Set `TRUSTED_PROXIES=1` on Render or this is decorative |
 | ~~RUN-08~~ | ~~Panic reporting~~ | **Done** (WO-18) — `observability.Recoverer` sits inside chi's Recoverer and reports the panic before re-raising. |
 | RUN-09 | Split `user_repository.go` | 4.9 k lines in one file is the single biggest obstacle to anyone else contributing. Split by domain: members, deposits, loans, reports, support |
 | RUN-10 | ~~Delete the empty API folders~~ `[x]` | Done — 27 empty directories removed (they were untracked, so local-only clutter) |
@@ -313,7 +342,7 @@ source.
 | ~~DATA-05~~ | ~~Seed script~~ | **Done** (WO-16). `pnpm db:seed` — idempotent, refuses to invent a password |
 | DATA-06 | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **Now the largest remaining data gap** — the nightly dump covers the database and nothing else |
 | DATA-07 | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path — the audit log is append-only by design, so decide now what a member's erasure request means |
-| DATA-08 `[ ]` | Verify audit-log immutability at the DB level | **Confirmed open** — no trigger in any migration. Rule 6 is enforced by convention; a `BEFORE UPDATE OR DELETE` trigger that raises makes it true ([WO-33](work-orders.md)) |
+| DATA-08 `[x]` | Verify audit-log immutability at the DB level | **Done 2026-08-16**, before real data exists — a guarantee in place since the first row is provable; one added later covers only the rows after it. `BEFORE UPDATE OR DELETE` trigger: **UPDATE is never permitted**; DELETE only inside a transaction that sets `hasnahena.allow_audit_purge`, which exists for `pnpm db:clear` alone — without that hatch the trigger would break the go-live cutover it protects. TRUNCATE is untouched, which is what keeps the Go suite working. Verified across 7 cases including that the flag does not leak between transactions, that it does **not** unlock UPDATE, and that **the trigger survives a dump/restore round trip**. Prisma cannot model triggers, so a `--from-empty` baseline would drop it; `schema.prisma` says so above `model AuditLog` |
 
 ---
 
@@ -411,9 +440,9 @@ that were entirely done have been removed rather than left struck through — th
 | 1 | **Purge git history** | SEC-10 + SEC-06 | WO-28 | ½ day + GitHub Support |
 | ~~2~~ | ~~**Live product defect**~~ | ~~FR-11 guarantor approval~~ | WO-29 | **Done 2026-08-16** |
 | ~~3~~ | ~~**Land Batch G**~~ | ~~Merge `wo-23-next15-react19`~~ | — | **Done — PR #13** |
-| 4 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-08, FR-08 | WO-33 + [go-live.md](go-live.md) 1.2 | 2–3 days, **and only cheap before launch** |
-| 5 | **Security remainder** | SEC-08, SEC-09 | WO-30, WO-31 | ½ day |
-| 6 | **Hardening remainder** | RUN-07, DATA-08 | WO-32, WO-33 | ½ day |
+| 4 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, FR-08 (DATA-08 done) | [go-live.md](go-live.md) 1.2 | 2–3 days, **and only cheap before launch** |
+| ~~5~~ | ~~**Security remainder**~~ | ~~SEC-08, SEC-09~~ | WO-30, WO-31 | **Done 2026-08-16** |
+| ~~6~~ | ~~**Hardening remainder**~~ | ~~RUN-07, DATA-08~~ | WO-32, WO-33 | **Done 2026-08-16** |
 | 7 | **Deployable artifacts** | PKG-06, PKG-08 | WO-34, WO-35 | 1 day |
 | 8 | **Code health** | CI-04, CI-06, RUN-09, settings allow-list | WO-36 → WO-39 | 1 week |
 | 9 | **Remaining data + ops** | DATA-06, DATA-07, OBS-05/07/08, OPS-01 → OPS-09 | — | 1 week |

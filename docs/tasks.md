@@ -60,12 +60,12 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, but no separate pool accounting |
 | FR-17 | Member raises dispute | `[x]` | `/api/v1/member/transactions/{id}/dispute` |
 | FR-18 | Freeze disputed txn, notify admin | `[~]` | status freezes; admin correction flow is manual |
-| FR-19 | Append-only audit log | `[~]` | `audit_logs` written by both backends, but **convention only** — no DB trigger (DATA-08) |
+| FR-19 | Append-only audit log | `[x]` | `audit_logs` written by both backends and **enforced by a database trigger** since 2026-08-16 — UPDATE is rejected outright (DATA-08) |
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
-**14 complete, 8 partial.**
+**15 complete, 7 partial.**
 
 ## Open bugs
 
@@ -76,7 +76,6 @@ Verified against the source on 2026-08-16. Security defects carry `SEC-` ids in
 | | Bug | Evidence |
 |---|---|---|
 | `[ ]` | Withdrawal notice period is not validated (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema |
-| `[ ]` | `audit_logs` append-only is convention, not a constraint | No trigger in any migration. Tests prove the app appends; nothing stops an `UPDATE` from a console. DATA-08 / [WO-33](work-orders.md) |
 | `[ ]` | `/api/v1/settings` `PUT` upserts **any** key it receives | No allow-list in the file — a typo creates dead config that looks real in the admin UI. [WO-39](work-orders.md) |
 | `[ ]` | `LoanStatus` carries legacy `PENDING`/`APPROVED` beside the spec states | Two vocabularies for one concept, both live in the enum |
 | `[ ]` | Support chat has no SSE client | **Confirmed: `EventSource` appears nowhere in `apps/web`.** The stream and its ticket endpoint are live and authenticated; the UI still polls. A client must `POST …/support/stream/ticket` and pass `?ticket=` on every connect |

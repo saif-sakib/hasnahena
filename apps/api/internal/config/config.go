@@ -12,17 +12,28 @@ import (
 )
 
 type Config struct {
-	Port          string
-	DatabaseURL   string
-	JWTSecret     string
-	JWTExpiry     int64
-	CORSOrigins   []string
-	BrevoAPIKey   string
-	BrevoAPIURL   string
-	EmailFrom     string
-	EmailFromName string
-	AppURL        string
-	LogLevel      string
+	Port        string
+	DatabaseURL string
+	JWTSecret   string
+	JWTExpiry   int64
+	CORSOrigins []string
+	// SEC-09. Off by default: a browser remembers HSTS for the whole max-age, so
+	// sending it from a plain-HTTP localhost API pins `localhost` to HTTPS for
+	// two years across every project on that machine.
+	EnableHSTS bool
+	// RUN-07. Per-client throttle on mutating requests.
+	RateLimitRequests int
+	RateLimitWindow   time.Duration
+	// How many reverse proxies sit in front of this process. Render is 1. This
+	// decides which X-Forwarded-For entry is trustworthy — set it wrong and the
+	// limiter keys on a value the caller controls.
+	TrustedProxies int
+	BrevoAPIKey    string
+	BrevoAPIURL    string
+	EmailFrom      string
+	EmailFromName  string
+	AppURL         string
+	LogLevel       string
 	// MetricsToken gates /metrics. Empty disables the endpoint entirely —
 	// the exposition carries business figures, so it is not public.
 	MetricsToken string
@@ -73,6 +84,10 @@ func Load() Config {
 		JWTSecret:           jwtSecret,
 		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
 		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		EnableHSTS:          getEnvBool("ENABLE_HSTS", false),
+		RateLimitRequests:   getEnvInt("RATE_LIMIT_REQUESTS", 60),
+		RateLimitWindow:     getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute),
+		TrustedProxies:      getEnvInt("TRUSTED_PROXIES", 0),
 		BrevoAPIKey:         getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
 		BrevoAPIURL:         getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
 		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
@@ -186,6 +201,20 @@ func getEnv(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// getEnvBool accepts the spellings an operator actually types in a dashboard.
+// Anything unrecognised falls back rather than guessing — for ENABLE_HSTS a
+// wrong guess is a two-year commitment in every visitor's browser.
+func getEnvBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func getEnvInt64(key string, fallback int64) int64 {

@@ -178,7 +178,18 @@ func main() {
 	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter
 	// registered outside it would never see one (RUN-08).
 	r.Use(observability.Recoverer)
-	r.Use(appmw.CORS(config.CORSOrigins))
+	r.Use(appmw.CORS(config.CORSOrigins, config.EnableHSTS))
+
+	// RUN-07. Mounted after CORS so a throttled request still carries the
+	// headers a browser needs to read the 429 — a rejection the browser reports
+	// as a CORS failure tells the member nothing.
+	limiterStop := make(chan struct{})
+	defer close(limiterStop)
+	r.Use(appmw.RateLimit(appmw.RateLimitConfig{
+		Requests:       config.RateLimitRequests,
+		Window:         config.RateLimitWindow,
+		TrustedProxies: config.TrustedProxies,
+	}, limiterStop))
 
 	metrics.Register(dbPool)
 

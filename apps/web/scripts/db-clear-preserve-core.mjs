@@ -120,6 +120,13 @@ async function main() {
     const before = await getCounts(prisma);
 
     await prisma.$transaction(async (tx) => {
+      // DATA-08: audit_logs carries a trigger that rejects UPDATE always and
+      // DELETE unless a transaction opts in. This script is the one legitimate
+      // caller — it resets a test environment. SET LOCAL scopes the permission
+      // to this transaction and this connection, so it cannot leak to the
+      // application's own queries running on a neighbouring pooled connection.
+      await tx.$executeRawUnsafe("SET LOCAL hasnahena.allow_audit_purge = 'on'");
+
       await tx.user.update({
         where: { id: admin.id },
         data: {

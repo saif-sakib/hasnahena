@@ -11,6 +11,7 @@ import {
   MEMBER_ID_ADVISORY_LOCK_SQL,
   NEXT_MEMBER_ID_SQL,
 } from '@/lib/member-id';
+import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -71,8 +72,33 @@ function isFileEntry(value: FormDataEntryValue | null): value is File {
   );
 }
 
+// SEC-08. This endpoint answers "is this address a member?" to anyone who asks.
+// It exists for the signup form's live validation and cannot simply be closed —
+// but unthrottled it is a bulk membership-disclosure oracle, and for a
+// religious-finance cooperative in one town, *membership itself* is the
+// sensitive fact. A list of who banks here is worth more to the wrong person
+// than any single balance.
+//
+// 20 checks per 10 minutes per address is generous for someone filling in a form
+// once (two fields, plus retries and typos) and useless for walking a phone-number
+// range: Bangladeshi mobile numbers are an 8-digit space behind a known prefix,
+// which at this rate takes centuries instead of an afternoon.
+const AVAILABILITY_RATE_LIMIT = { limit: 20, windowSeconds: 600 };
+
 export async function GET(req: Request) {
   try {
+    const limit = await consumeRateLimit(
+      'registration-availability',
+      callerAddress(req),
+      AVAILABILITY_RATE_LIMIT,
+    );
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { ok: false, error: 'Too many availability checks. Please try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } },
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const email = searchParams.get('email')?.trim().toLowerCase() || '';
     const phone = searchParams.get('phone')?.trim() || '';
