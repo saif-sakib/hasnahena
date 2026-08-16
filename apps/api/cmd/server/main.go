@@ -50,7 +50,44 @@ func applyLogLevel(name string) {
 	}
 }
 
+// selfProbe is the container HEALTHCHECK. The runtime image is distroless: no
+// shell, no curl, no wget, so the only thing available to probe the server is
+// the server binary itself. Costs nothing in image size — net/http is already
+// linked in.
+//
+// It deliberately does not call cfg.Load: that exits when DATABASE_URL is
+// missing, and a liveness probe reporting "unhealthy" because of unset
+// configuration would be reporting on the wrong thing.
+func selfProbe() int {
+	port := os.Getenv("API_PORT")
+	if port == "" {
+		port = os.Getenv("PORT")
+	}
+	if port == "" {
+		port = "8081"
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/v1/ready")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+
+	// /v1/ready pings Postgres and answers 503 when it cannot reach it, which
+	// is exactly the state this probe exists to catch.
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
 func main() {
+	// Must run before anything else: cfg.Load exits on missing variables.
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		os.Exit(selfProbe())
+	}
+
 	setupLogging()
 
 	config := cfg.Load()

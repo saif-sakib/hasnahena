@@ -24,9 +24,9 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
 | Automated tests | `[x]` | Unit tests on money maths, IDs, logging and revocation timing; 17 integration tests against real Postgres covering all five financial-integrity scenarios; Playwright wired up |
 | CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, gitleaks. Branch protection is still a manual GitHub setting |
-| Containerisation | `[ ]` | No Dockerfile. Cannot run anywhere but Vercel + Render |
-| Observability | `[~]` | Structured JSON access logs with request + user IDs (RUN-04/05). Still no metrics, traces, error tracking or alerts |
-| Backups | `[ ]` | Documented as an intention; nothing scheduled, never restore-tested |
+| Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Images are not built in CI yet (PKG-06), and nothing in production uses them |
+| Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
+| Backups | `[x]` | Nightly encrypted `pg_dump` in GitHub Actions, 30-day retention and 90-day monthlies, with a restore drill that runs on every push to main (DATA-01/02/03) |
 | Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups (RUN-01→06). RUN-07/08 open |
 | Secrets management | `[~]` | Env vars per host, no rotation record, no central store |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops |
@@ -274,13 +274,13 @@ for Phase 6. Do it *before* you need to move, so the move is not also a rewrite.
 
 | ID | Task | Notes |
 |---|---|---|
-| PKG-01 | Dockerfile for the Go API | Multi-stage, distroless or alpine final, non-root user, `CGO_ENABLED=0`. Target <20 MB |
-| PKG-02 | Dockerfile for the Next app | Multi-stage with `output: 'standalone'` in `next.config.js`. Note Prisma's engine binaries need the right base image |
-| PKG-03 | Extend `docker-compose.yml` to the whole stack | It runs Postgres only. `docker compose up` should give a working platform — this doubles as onboarding and as the CI integration-test environment |
-| PKG-04 | `.dockerignore` for both | Keep `node_modules`, `.next`, `.git` out of the build context |
-| PKG-05 | Pin versions everywhere | Go toolchain, Node, pnpm, base images by digest. Reproducible builds are what make a rollback real |
-| PKG-06 | Build and push images in CI | GHCR, tagged by commit SHA. **A deployable artifact per commit is what turns a rollback into one command** |
-| PKG-07 | Health checks in the images | `HEALTHCHECK` wired to RUN-03 |
+| PKG-01 `[x]` | Dockerfile for the Go API | Done. Multi-stage, `CGO_ENABLED=0`, `distroless/static-debian12:nonroot`, ~17 MB |
+| PKG-02 `[x]` | Dockerfile for the Next app | Done. Standalone output gated behind `DOCKER_BUILD=1` so the Vercel build is unchanged. Stayed on a glibc base — Prisma's traced engine is `debian-openssl-3.0.x`, and Alpine would need a `binaryTargets` change |
+| PKG-03 `[x]` | Extend `docker-compose.yml` to the whole stack | Done. Postgres → one-shot migrate/seed → api → web. `docker compose up -d postgres` still works on its own |
+| PKG-04 `[x]` | `.dockerignore` for both | Done, and it matters more than it looks: Next's tracer was observed copying `.env.local` into `.next/standalone/`, which would bake production credentials into an image layer |
+| PKG-05 `[x]` | Pin versions everywhere | Done. Go 1.25, Node 24, pnpm 8.15.4, all four base images by digest |
+| PKG-06 | Build and push images in CI | **Still open.** GHCR, tagged by commit SHA. **A deployable artifact per commit is what turns a rollback into one command** |
+| PKG-07 `[x]` | Health checks in the images | Done. The Go image has no shell, so the server probes itself: `/server -healthcheck` → `/v1/ready`. The web image uses `node -e` with `fetch` |
 | PKG-08 | Document the full env-var contract | `.env.example` is good; add which are build-time vs runtime, and which differ between the two apps |
 
 ---

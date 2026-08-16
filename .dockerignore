@@ -1,0 +1,76 @@
+# =============================================================================
+#  Docker build context  —  WO-22 (PKG-05)
+# =============================================================================
+#  Both images build from the repository root, so this one file governs both.
+#
+#  This is not only a speed optimisation. Next's standalone output tracer copies
+#  whatever it finds next to the app, and it was verified to pull `.env.local`
+#  and the `apps/web/.env` symlink straight into `.next/standalone/`. Without
+#  the env rules below, a built image would carry the production Neon URL and
+#  JWT_SECRET in a layer — readable by anyone who can `docker pull` it, and
+#  still readable after a later layer deletes the file.
+# =============================================================================
+
+# --- Secrets. Keep this block first and do not weaken it. --------------------
+.env
+.env.*
+!.env.example
+!.env.render.example
+!.env.vercel.example
+.envrc
+.sentryclirc
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# --- Database dumps: member PII, and large. ----------------------------------
+backups/
+*.dump
+*.dump.gpg
+*.sqlite
+*.sqlite3
+
+# --- Reinstalled inside the image from the lockfile. -------------------------
+node_modules
+**/node_modules
+.pnpm-store
+
+# --- Build outputs. A host .next/ leaking in produces a container serving a
+#     stale build that no source change explains. ----------------------------
+.next
+**/.next
+out
+dist
+build
+**/*.tsbuildinfo
+
+# --- Go build artefacts. Rebuilt in the builder stage. -----------------------
+bin/
+apps/api/server
+apps/api/app
+**/*.test
+**/*.out
+
+# --- Not needed to build or run. ---------------------------------------------
+.git
+.gitignore
+.github
+.githooks
+.gitleaks.toml
+docs
+*.md
+!apps/web/README.md
+LICENSE
+test-results
+playwright-report
+playwright/.cache
+coverage
+.vscode
+.idea
+.claude
+.agents
+docker-compose.yml
+docker-compose.override.yml

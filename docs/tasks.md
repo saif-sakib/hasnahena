@@ -107,8 +107,8 @@ Operational gaps now have ids and an ordering in [production-readiness.md](produ
 - [x] ~~No graceful shutdown or server timeouts~~ (`RUN-01`, `RUN-02`). Fixed in Batch B.
 - [x] ~~No seed script~~ (`DATA-05`). Fixed in Batch D — `pnpm db:seed`.
 - [x] ~~Prisma has no migration history~~ (`DATA-04`). Fixed in Batch D — [ADR-014](decisions.md) supersedes ADR-004.
-- [ ] No Dockerfiles — the platform cannot run anywhere but Vercel + Render (`PKG-01`, `PKG-02`). This is the blocker for any VPS/AWS move.
-- [ ] No observability: no metrics, error tracking, uptime monitoring, or alerts (`OBS-01`…`OBS-06`).
+- [x] ~~No Dockerfiles~~ (`PKG-01`…`PKG-05`, `PKG-07`). Fixed in Batch F — `apps/api/Dockerfile` (~17 MB distroless), `apps/web/Dockerfile` (Next standalone), `.dockerignore`, full-stack `docker-compose.yml`, base images digest-pinned. **Not yet built by a Docker daemon** — see the Batch F note in [work-orders.md](work-orders.md). PKG-06 (push images from CI) is still open.
+- [x] ~~No observability~~ (`OBS-01`…`OBS-06`). Fixed in Batch E — Prometheus `/metrics` behind a bearer token, Sentry on both apps, a twice-daily monitor workflow that opens a GitHub issue on threshold breach.
 - [ ] No 48-hour unconfirmed-transaction sweep (needs a scheduled job — `OPS-08`).
 - [ ] Withdrawal notice period is unimplemented (`FR-08`) — the policy exists in [product.md](product.md); nothing enforces it.
 - [ ] `audit_logs` append-only is convention, not a database constraint (`DATA-08`). A `BEFORE UPDATE OR DELETE` trigger would make rule 6 true rather than intended.

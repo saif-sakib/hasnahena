@@ -1,8 +1,31 @@
-version: '3.8'
+# =============================================================================
+#  Hasnahena — full local stack  (WO-22 / PKG-03, PKG-04, PKG-05)
+# =============================================================================
+#      docker compose up --build          the whole platform on :3000
+#      docker compose up -d postgres      just the database, for `pnpm dev`
+#
+#  `postgres` is its own profile-free service precisely so the second command
+#  keeps working: the pnpm workflow is still the fast one for day-to-day work,
+#  and this file must not break it.
+#
+#  Not a production deployment. Web and API run on Vercel and Render — see
+#  docs/deployment.md. What this gives you is a clean-machine reproduction of
+#  the whole system, and the thing that makes a host migration boring.
+#
+#  Base images are digest-pinned; refresh them deliberately, see docs/setup.md.
+#
+#  DATABASE_URL is hard-coded to the `postgres` service in every service below,
+#  and that is deliberate — do NOT change it to ${DATABASE_URL}. The documented
+#  way to start this stack is `--env-file .env.local`, and .env.local holds the
+#  production Neon URL. Interpolating it here would point the one-shot migrate
+#  container at production and run db:seed against real member data.
+# =============================================================================
+
+name: hasnahena
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
     container_name: hasnahena-db
     environment:
       POSTGRES_USER: postgres
@@ -18,6 +41,89 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # One-shot. Applies migrations and seeds the first SUPER_ADMIN, then exits.
+  # The API waits for this to *complete*, not merely to start, so the app never
+  # comes up against a schema that is not there yet.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: build
+    container_name: hasnahena-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hasnahena_dev
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@hasnahena.local}
+      # Passed through empty rather than defaulted, and NOT declared with `:?`.
+      # Compose interpolates the entire file even for `up -d postgres`, so a
+      # required-variable marker here would break the database-only workflow
+      # that everyone uses daily. seed.mjs already refuses to invent a password
+      # and rejects anything under 12 characters — the check belongs there, in
+      # one place, not duplicated into a compose expression.
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    working_dir: /src
+    command: sh -c "pnpm db:migrate && pnpm db:seed"
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: hasnahena-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hasnahena_dev
+      # Matches .env.example. Local only — production secrets live in Render.
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-at-least-32-characters-long}
+      API_PORT: "8081"
+      CORS_ORIGINS: http://localhost:3000
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      # Unset by default: uploads and email are the two features that degrade
+      # cleanly without credentials, and a local stack should not need any.
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Build-time, not run-time: NEXT_PUBLIC_* is compiled into the browser
+        # bundle. Changing these means rebuilding the image, not restarting it.
+        NEXT_PUBLIC_API_URL: http://localhost:8081
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+        NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    container_name: hasnahena-web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hasnahena_dev
+      # Must be byte-identical to the API's, or every token the Next handlers
+      # verify will be rejected. Same default, same variable.
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-at-least-32-characters-long}
+      # Server-side calls go container-to-container; the browser uses the
+      # NEXT_PUBLIC_API_URL baked in above.
+      API_URL: http://api:8081
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 
 volumes:
   hasnahena_postgres_data:
