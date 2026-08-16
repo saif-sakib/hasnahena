@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
@@ -8,9 +8,10 @@ import { HandHeart, HeartPulse, Building2, QrCode } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -23,9 +24,10 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function DonatePage({ params: { locale } }: PageProps) {
+export default async function DonatePage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as any)) notFound();
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
 
   const t = await getTranslations({ locale });
   const settingsResult = await prisma.systemConfig.findMany();
@@ -41,7 +43,7 @@ export default async function DonatePage({ params: { locale } }: PageProps) {
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-sm font-semibold tracking-wide mb-8 border border-rose-200 dark:border-rose-900/50 shadow-sm shadow-rose-900/5">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-sm font-semibold tracking-wide mb-8 border border-rose-200 dark:border-rose-900/50 shadow-xs shadow-rose-900/5">
               <HandHeart className="w-4 h-4" />
               {locale === 'bn' ? 'অনুদান' : 'Donate'}
             </div>

@@ -334,8 +334,8 @@ export default function ProfilePage() {
       )}
 
       {/* Profile Header */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm overflow-hidden">
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-8">
+      <Card className="rounded-2xl border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-linear-to-r from-emerald-600 to-teal-600 px-6 py-8">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="h-24 w-24 rounded-full bg-white/20 flex items-center justify-center text-white text-4xl font-bold border-4 border-white/30">
               <AvatarUpload
@@ -379,7 +379,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Personal Information */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <User className="h-5 w-5 text-emerald-600" />
@@ -457,7 +457,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Nominee Information */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
@@ -554,7 +554,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Account Summary */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-emerald-600" />
@@ -592,7 +592,7 @@ export default function ProfilePage() {
 
             {/* Info Notice */}
             <div className="flex items-start gap-3 rounded-lg bg-blue-50 p-4 text-blue-800">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm">
                   {locale === 'bn'
@@ -606,7 +606,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Documents */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-emerald-600" />

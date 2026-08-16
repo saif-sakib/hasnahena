@@ -1,3 +1,5 @@
+// next-intl still ships this under /middleware — that is its module path,
+// unrelated to Next 16 renaming the file convention to proxy.ts.
 import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
 import { locales, defaultLocale } from './i18n';
@@ -9,7 +11,7 @@ const intlMiddleware = createMiddleware({
   localePrefix: 'always',
 });
 
-export default function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const dashboardPrefix = /^\/(en|bn)\/dashboard(\/|$)/;

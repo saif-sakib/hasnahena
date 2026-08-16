@@ -12,19 +12,35 @@
 # =============================================================================
 
 # --- Secrets. Keep this block first and do not weaken it. --------------------
+#
+#  IMPORTANT: .dockerignore is NOT .gitignore. Docker matches each pattern
+#  against the full path relative to the build context, so a bare `.env`
+#  matches ONLY the root `.env` — it does not match `apps/web/.env`. Every
+#  pattern here needs an explicit `**/` prefix to apply at depth. This was
+#  originally written with git's semantics in mind and left `apps/web/.env`
+#  and `apps/web/.env.*` in the build context.
+#
+#  It surfaced as a build failure rather than a leak, and only by luck:
+#  `apps/web/.env` is a symlink to the root `.env.local`, which *was* excluded,
+#  so Docker copied a dangling symlink and `next build` died on stat(). Had it
+#  been a real file, it would have gone into an image layer instead — silently.
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
 !.env.render.example
 !.env.vercel.example
 .envrc
+**/.envrc
 .sentryclirc
-*.pem
-*.key
-*.p12
-*.pfx
-secrets/
-credentials/
+**/.sentryclirc
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/secrets/
+**/credentials/
 
 # --- Database dumps: member PII, and large. ----------------------------------
 backups/

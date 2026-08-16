@@ -136,7 +136,6 @@ export default function WorkerLoansPage() {
 
   useEffect(() => {
     void loadLoans();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDownloadLoan = async (loan: ActiveLoan) => {
@@ -283,7 +282,7 @@ export default function WorkerLoansPage() {
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <Card className="rounded-2xl border-slate-200 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -294,7 +293,7 @@ export default function WorkerLoansPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-red-200 bg-red-50/50 shadow-sm">
+        <Card className="rounded-2xl border-red-200 bg-red-50/50 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -305,7 +304,7 @@ export default function WorkerLoansPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
+        <Card className="rounded-2xl border-slate-200 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -316,7 +315,7 @@ export default function WorkerLoansPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl border-amber-200 bg-amber-50/50 shadow-sm">
+        <Card className="rounded-2xl border-amber-200 bg-amber-50/50 shadow-xs">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -330,7 +329,7 @@ export default function WorkerLoansPage() {
       </div>
 
       {/* Search and Filter */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardContent className="p-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
@@ -360,7 +359,7 @@ export default function WorkerLoansPage() {
       </Card>
 
       {/* Loans List */}
-      <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <Card className="rounded-2xl border-slate-200 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HandCoins className="h-5 w-5" />

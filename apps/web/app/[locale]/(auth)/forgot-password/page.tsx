@@ -78,7 +78,7 @@ export default function ForgotPasswordPage() {
 
   if (emailSent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
         <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -124,7 +124,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
       <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto">
@@ -154,7 +154,7 @@ export default function ForgotPasswordPage() {
                 }}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   inputType === 'email'
-                    ? 'bg-white shadow-sm text-emerald-700'
+                    ? 'bg-white shadow-xs text-emerald-700'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -169,7 +169,7 @@ export default function ForgotPasswordPage() {
                 }}
                 className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
                   inputType === 'phone'
-                    ? 'bg-white shadow-sm text-emerald-700'
+                    ? 'bg-white shadow-xs text-emerald-700'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >

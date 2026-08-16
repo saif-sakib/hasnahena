@@ -28,7 +28,7 @@ on the quoted code, not the number.
 | ~~**D**~~ | ~~WO-14 → WO-16~~ | ~~Backups, migrations, seed~~ | **Done** |
 | ~~**E**~~ | ~~WO-17 → WO-19~~ | ~~Observability~~ | **Done** |
 | ~~**F**~~ | ~~WO-20 → WO-22~~ | ~~Containerise~~ — done 2026-08-16 | ~1 session |
-| **G** | WO-23 → WO-26 | Stack modernisation (security) | ~2–3 sessions |
+| ~~**G**~~ | ~~WO-23 → WO-26~~ | ~~Stack modernisation (security)~~ — done 2026-08-16, **41 advisories → 0** | WO-27 follow-up open |
 | Later | see [production-readiness.md](production-readiness.md) | Code health, ops, host move | — |
 
 ### Standing rules for every order
@@ -657,8 +657,8 @@ any VPS/AWS work and the thing that makes a migration boring.
 | WO-21 `[x]` | Next Dockerfile (PKG-02) | Multi-stage with `output: 'standalone'` in `next.config.js`. Prisma engine binaries need a matching base image — this is the fiddly one |
 | WO-22 `[x]` | Full-stack compose (PKG-03/04/05) | Extend `docker-compose.yml` beyond Postgres so `docker compose up` gives a working platform. Doubles as onboarding and as the WO-12 test environment. Add `.dockerignore`, pin base images by digest |
 
-**Done 2026-08-16.** `apps/api/Dockerfile` (~17 MB: 15 MB static binary on a
-2 MB distroless base), `apps/web/Dockerfile`, `.dockerignore`, and a
+**Done 2026-08-16.** `apps/api/Dockerfile` (26.9 MB on disk / 6.0 MB compressed —
+see the size note below), `apps/web/Dockerfile`, `.dockerignore`, and a
 `docker-compose.yml` extended to Postgres → migrate → api → web.
 
 Four things that were not obvious going in:
@@ -689,8 +689,41 @@ musl. Alpine would need a `binaryTargets` change in `schema.prisma`, and the
 failure mode is a container that starts cleanly and dies on the first query —
 the kind of bug that reaches production because the health check is green.
 
-Verified without a Docker daemon (the daemon on this machine refuses the current
-user, see below): the static binary builds and is confirmed
+**Update 2026-08-16, after the images were actually built and run.** The
+original Batch F verification was static — the daemon refused this user, so
+nothing was ever built. Three defects survived that gap, and every one of them
+only appears when you run the image:
+
+1. **`.dockerignore` used git's matching rules, not Docker's.** Docker matches
+   each pattern against the full path from the context root, so a bare `.env`
+   covers only the repository root — `apps/web/.env` was still in the context.
+   It surfaced as a *build failure*, and only by luck: that path is a symlink to
+   the root `.env.local`, which was excluded, so Docker copied a dangling link
+   and `next build` died on `stat()`. A real file there would have gone into an
+   image layer instead, quietly. Every pattern now carries an explicit `**/`.
+2. **Prisma had no OpenSSL to detect.** `node:24-bookworm-slim` ships neither
+   `libssl` nor the `openssl` binary, so Prisma warned and fell back to
+   `openssl-1.1.x` — wrong for bookworm. `openssl` is now installed in the deps
+   and runtime stages, and the image is confirmed to carry OpenSSL 3.0.20 and
+   `libquery_engine-debian-openssl-3.0.x.so.node`.
+3. **`@swc/helpers` was only half-traced.** Next 16 resolves it through the
+   package's `exports` map at `./esm/*`; the tracer follows the CommonJS entry
+   and copies `cjs/` only. The container died at startup with "Cannot find
+   module .../@swc/helpers/esm/_interop_require_default.js" before serving a
+   single request. Added to `outputFileTracingIncludes`.
+
+Now verified by running it: the container starts, reports `healthy` from its own
+HEALTHCHECK, and serves `/en`, `/bn`, `/en/gallery`, `/bn/gallery`, `/en/about`,
+`/bn/terms` and `/en/login` — all 200, with the gallery pages proving a real
+Prisma query against Postgres. No Prisma errors, no libssl warning, no module
+errors. Web image 488 MB on disk / 113.8 MB compressed; API image 26.9 MB /
+6.0 MB.
+
+The lesson worth keeping: a Dockerfile that has never been built is a
+hypothesis. Static review caught none of these three.
+
+Originally verified without a Docker daemon (the daemon refused this user at the
+time): the static binary builds and is confirmed
 `statically linked, stripped`; all four `-healthcheck` paths behave (no listener
 → 1, 200 → 0, 503 → 1, and no config fatal without `DATABASE_URL`); the
 standalone tree was assembled by hand exactly as the Dockerfile's three `COPY`
@@ -727,14 +760,140 @@ that a failure tells you which one caused it.
 
 | ID | Task | Notes |
 |---|---|---|
-| WO-23 `[ ]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
-| WO-24 `[ ]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
-| WO-25 `[ ]` | next-intl 3 → 4 | Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
-| WO-26 `[ ]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
+| WO-23 `[x]` | Next 14 → 15, React 18 → 19 | `npx @next/codemod@latest upgrade` does the mechanical part. The async request APIs are the real work. Verify every dashboard route by hand, not just `pnpm build` |
+| WO-24 `[x]` | Next 15 → 16, `eslint-config-next` to match | Smaller than WO-23. Do it only once WO-23 is deployed and quiet |
+| WO-25 `[x]` | next-intl 3 → 4 | **Must run BEFORE WO-24** — next-intl 3's peer range ends at Next ^15. Config and middleware shape changed. This is what serves every Bengali string — check both locales on every page |
+| WO-26 `[x]` | Tailwind 3 → 4 | Configuration moves from `tailwind.config.ts` into CSS `@theme`, and the PostCSS plugin becomes `@tailwindcss/postcss`. Purely visual risk: nothing will fail to build once configured, it will just look wrong. Compare screens side by side |
+| WO-27 `[ ]` | React Compiler lint cleanup | 26 `react-hooks` findings across 18 dashboard files, downgraded to warnings in WO-24. Do them screen by screen with a manual walk — these files move members' money and have no fixtures |
 
 **Not in this batch, and not urgent:** Prisma 5 → 7. It has no advisory against
 it, the schema is stable, and the Go API does not use the Prisma client at all —
 only `apps/web` does. Take it when something needs it.
+
+### WO-23 outcome — done 2026-08-16, on branch `wo-23-next15-react19`
+
+Next 14.2.35 → **15.5.23**, React 18.3 → **19.2.8**, `eslint-config-next` and
+the React types to match. next-intl stayed on 3.26.5 deliberately: its peer
+range already accepts Next 15 and React 19, so WO-25 is still a separate order.
+
+**`pnpm audit`: 23 vulnerabilities → 3.** High-severity: 8 → 1. That was the
+entire point of Batch G, and most of it is now banked.
+
+The three that remain:
+
+| Package | Severity | Fixed by |
+|---|---|---|
+| `next-intl` open redirect | moderate | WO-25 (needs 4.9.1+) |
+| `next-intl` prototype pollution | moderate | WO-25 (needs 4.9.2+) |
+| `sharp` — inherited libvips | high | see below |
+
+**`sharp` was deliberately not fixed here.** Next 15.5.23 pins it as an
+*optional* dependency at `^0.34.3`; the patched release is 0.35.0, so closing it
+means a `pnpm.overrides` entry forcing a version Next has not tested against.
+That is exactly the kind of change that broke two Vercel deploys this month, and
+this batch is explicitly ordered so a failure names its own cause. Practical
+exposure today is close to zero: sharp only does image optimisation for a
+self-hosted server, and in production Vercel does that on its own infrastructure
+rather than through sharp. Do it as its own small commit once WO-23 is deployed
+and quiet — not bundled into a framework migration.
+
+**What actually changed in the code.** The async request APIs, and nothing else:
+
+- 7 `cookies()` call sites in `app/actions/upload-*.ts` → `await cookies()`
+- 11 pages + `layout.tsx`: `params` is now `Promise<{ locale: string }>`, and
+  every `generateMetadata` became `async` returning `Promise<Metadata>`
+- 5 route handlers: `params` awaited. `[...path]` needed it in all three of its
+  GET/POST/PUT handlers
+- `next.config.js`: `experimental.outputFileTracingIncludes` → top-level
+  `outputFileTracingIncludes` (Next 15 promoted it, and only *warns* if you
+  leave it behind — which would silently ship a Docker image with no Prisma
+  engine, so Batch F depended on catching this)
+- `next.config.js`: Sentry's deprecated `disableLogger` → `webpack.treeshake.removeDebugLogging`
+- `global-error.tsx`: Next 15 promoted `no-html-link-for-pages` to an **error**.
+  The plain `<a>` there is correct and is now an explicit eslint-disable with the
+  reasoning — `global-error` replaces the root layout *because the layout threw*,
+  so a client-side navigation would ask the broken tree to render the next page.
+  A full document load is the point.
+
+**Verification.** Typecheck clean, lint zero errors, build clean with no config
+warnings, and `--frozen-lockfile` install verified (the failure mode that broke
+Vercel twice). Then, against a real seeded Postgres with both apps running:
+
+- 24 marketing and auth routes, both locales, all 200
+- **Locale correctness proved, not assumed.** `<html lang>` correct per locale,
+  Bengali glyph counts dominate `/bn` on every page (5.5k–9.9k vs ~60–140 on
+  `/en`), and async `generateMetadata` emits per-locale `<title>`. A botched
+  `params` migration's signature failure is every page returning 200 in the
+  wrong language, so 200s alone would not have been evidence.
+- **Dynamic route ids proved by discrimination.** `guarantor-approval` with
+  `not-a-uuid` → "Invalid loan ID format"; with a well-formed UUID → past the
+  regex to the role check. Two different ids, two different outcomes. If
+  `params` were unawaited, `id` would be `undefined` and both would return the
+  format error.
+- Catch-all `[...path]`: `support/config` → 200 with real data,
+  `support/threads` → 200 `[]`, `support/nonexistent` → 404. Three paths, three
+  outcomes.
+- Batch F still holds: `DOCKER_BUILD=1` still emits `standalone/`, and the
+  Prisma engine is still traced into it.
+
+**Not verified here:** the authenticated dashboards under `/dashboard/{member,
+worker,admin}`. The seeded database has one SUPER_ADMIN and no member, worker,
+loan or transaction fixtures, so those routes were reachable only as far as
+their role gates. They contain no `params` usage — the migration surface does
+not touch them — but "no reason to break" is not the same as "checked". Walk
+them on the Vercel preview before merging.
+
+### Batch G outcome — done 2026-08-16
+
+**`pnpm audit`: 41 vulnerabilities → 0.** That was the point of the batch.
+
+| Order | Landed | Advisories closed |
+|---|---|---|
+| WO-23 | Next 14.2.35 → 15.5.23, React 18.3 → 19.2.8 | 23 → 3 |
+| WO-25 | next-intl 3.26.5 → 4.13.6 | 3 → 1 |
+| WO-24 | Next 15 → 16.3.1, ESLint 8 → 9, `middleware.ts` → `proxy.ts` | 1 → 0 |
+| WO-26 | Tailwind 3.4 → 4.3.3 | none — no security payoff |
+
+**The documented order was wrong, and the fix matters.** This file said WO-24
+before WO-25. next-intl 3's peer range ends at `next ^15.0.0` — it does not
+support Next 16 at all, so WO-24 was blocked behind WO-25, not the reverse.
+Corrected in the table above.
+
+**`sharp` closed itself.** It was carried as the one high-severity item WO-23
+deliberately left alone, because Next 15 pinned it as an optional dependency at
+`^0.34.3` while the patch was 0.35.0. Next 16 pins `^0.35.3`. No override was
+ever needed — which is the argument for not forcing one during WO-23.
+
+**Two things the tooling would have shipped broken, silently:**
+
+- The Tailwind 4 codemod deletes `tailwind.config.ts` and does **not** carry
+  `plugins:` across. `tailwindcss-animate` therefore stopped loading, and
+  Tailwind compiles unknown utilities away without complaint. 81 classes across
+  17 files — every Radix dialog, dropdown, select and toast animation — would
+  have become dead strings. Restored with `@plugin` in `globals.css`.
+- Next 16 removed `next lint`. It does not fail usefully either: it reads
+  `lint` as a directory name and reports "no such directory .../lint", which
+  would have been a confusing red CI step rather than an obvious one.
+
+**Deliberately deferred to WO-27:** `eslint-plugin-react-hooks` v7 arrives with
+`eslint-config-next` 16 and reports 26 React Compiler findings across 18
+dashboard files. They are set to `warn`. None marks a behaviour change — this
+code ran unmodified on Next 15 — and rewriting that many `useEffect` bodies
+inside a framework migration is the trap this batch was structured to avoid.
+
+**What was verified, and what was not.** Every order was checked against a real
+seeded Postgres with both apps running, not just `pnpm build`: 28 routes across
+both locales, the dashboard auth redirect in `proxy.ts` still intact,
+`await params` still discriminating between a malformed and a well-formed id,
+the catch-all resolving three paths to three outcomes, and — for WO-26 — every
+one of 923 class tokens resolved against the CSS actually served over HTTP.
+
+Not verified: **how any of it looks**, and the authenticated dashboards. The
+seed has one SUPER_ADMIN and no member, worker, loan or transaction fixtures, so
+those screens were reachable only as far as their role gates. Tailwind 4 also
+changes defaults this codebase never names — border colour is now `currentColor`
+rather than `gray-200`, and ring width drops 3px → 1px. Walk the dashboards on
+the Vercel preview, in both locales, before merging.
 
 **Verify each order with:** `pnpm build`, `pnpm typecheck`, `pnpm lint`,
 `pnpm test:e2e`, and a manual pass over login, the member dashboard, and one

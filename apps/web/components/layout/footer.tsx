@@ -101,15 +101,15 @@ export function Footer({ settings }: FooterProps) {
             </h3>
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-primary" />
+                <MapPin className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
                 <span>{settings?.['org.address'] || 'Vekutia, Jashore, Bangladesh'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
-                <Phone className="h-4 w-4 flex-shrink-0 text-primary" />
+                <Phone className="h-4 w-4 shrink-0 text-primary" />
                 <span>{settings?.['org.phone'] || '+880 1XXX-XXXXXX'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
-                <Mail className="h-4 w-4 flex-shrink-0 text-primary" />
+                <Mail className="h-4 w-4 shrink-0 text-primary" />
                 <span>{settings?.['org.email'] || 'contact@hasnahena.org'}</span>
               </li>
             </ul>

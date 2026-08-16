@@ -719,7 +719,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50">
+    <div className="min-h-dvh bg-slate-50">
       {/* Header with Navigation */}
       <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/95 backdrop-blur-md safe-area-top">
         <div className="container-wide flex h-14 items-center justify-between">
@@ -790,9 +790,9 @@ export default function RegisterPage() {
           </div>
 
           <Card className="border-0 shadow-2xl shadow-emerald-900/10 dark:shadow-black/40 overflow-hidden bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
-            <div className="h-2 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+            <div className="h-2 w-full bg-linear-to-r from-emerald-500 via-teal-500 to-emerald-600" />
             <CardHeader className="pb-8 text-center border-b border-slate-100 dark:border-slate-800/50">
-              <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
+              <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-linear-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
                 {locale === 'bn' ? 'হাসনাহেনায় নিবন্ধন' : 'Register for Hasnahena'}
               </CardTitle>
               <CardDescription className="text-lg mt-2 text-slate-500 dark:text-slate-400">

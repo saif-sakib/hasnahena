@@ -9,13 +9,14 @@ const bodySchema = z.object({
   accepted: z.boolean(),
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
     const auth = requireAuth(req);
     const payload = bodySchema.parse(await req.json());
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(params.id)) {
+    if (!uuidRegex.test(id)) {
       return NextResponse.json({ ok: false, error: 'Invalid loan ID format' }, { status: 400 });
     }
 
@@ -27,7 +28,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
 
     const loan = await prisma.loan.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         borrower: { select: { nameEn: true, memberId: true } },
       },

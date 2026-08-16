@@ -9,9 +9,10 @@ import { Footer } from '@/components/layout/footer';
 import { prisma } from '@/lib/prisma';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -24,7 +25,8 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function FaqPage({ params: { locale } }: PageProps) {
+export default async function FaqPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
@@ -94,7 +96,7 @@ export default async function FaqPage({ params: { locale } }: PageProps) {
 
           <div className="space-y-4">
             {faqItems.map((item) => (
-              <article key={item.q} className="rounded-xl border bg-white p-5 shadow-sm dark:bg-slate-900">
+              <article key={item.q} className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{item.q}</h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-300">{item.a}</p>
               </article>

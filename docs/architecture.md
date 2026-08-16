@@ -37,7 +37,7 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 ## Auth
 
 - Login posts to Go `/v1/auth/login`; on success the JWT is stored in the `hn_access_token` cookie and read client-side by `lib/client-auth.ts`.
-- `apps/web/middleware.ts` guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job.
+- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
 - `security_service.go` handles rate limiting and lockout via the `rate_limits` table.

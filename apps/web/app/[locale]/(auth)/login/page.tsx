@@ -278,12 +278,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col relative w-full items-center justify-center bg-zinc-50 overflow-hidden">
+    <div className="min-h-dvh flex flex-col relative w-full items-center justify-center bg-zinc-50 overflow-hidden">
       {/* Immersive Nature Background */}
       <div className="absolute inset-0 z-0 bg-slate-50">
         <div className="absolute top-0 right-0 -mr-20 -mt-20 h-[500px] w-[500px] rounded-full bg-emerald-200/40 blur-3xl" />
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 h-[500px] w-[500px] rounded-full bg-teal-200/40 blur-3xl" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]" />
       </div>
 
       {/* Top Navigation Bar - Floating & Glassy */}
@@ -315,13 +315,13 @@ export default function LoginPage() {
         <div className="bg-white/70 backdrop-blur-xl sm:bg-white border border-white/20 shadow-2xl shadow-emerald-900/30 rounded-[28px] overflow-hidden">
           
           {/* Decorative Top Accent */}
-          <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-400" />
+          <div className="h-1.5 w-full bg-linear-to-r from-emerald-400 via-emerald-500 to-teal-400" />
           
           <div className="p-6 sm:p-10">
             {/* Form Header */}
             <div className="text-center mb-4 flex flex-col items-center">
               <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
-                <span className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 shadow-sm ring-1 ring-black/5">
+                <span className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 shadow-xs ring-1 ring-black/5">
                   <Logo size="lg" priority />
                 </span>
               </Link>
@@ -356,7 +356,7 @@ export default function LoginPage() {
                     <Input
                       id="newPassword"
                       type={showNewPassword ? 'text' : 'password'}
-                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-xs"
                       placeholder="••••••••"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
@@ -380,7 +380,7 @@ export default function LoginPage() {
                     <Input
                       id="confirmPassword"
                       type={showConfirmPassword ? 'text' : 'password'}
-                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                      className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-xs"
                       placeholder="••••••••"
                       value={confirmPassword}
                       onChange={(event) => setConfirmPassword(event.target.value)}
@@ -397,7 +397,7 @@ export default function LoginPage() {
                 </div>
 
                 {submitError && (
-                  <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-sm shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                  <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-xs shadow-xs animate-in fade-in zoom-in-95 duration-200">
                     <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
                   </div>
                 )}
@@ -443,7 +443,7 @@ export default function LoginPage() {
                 <Input
                   id="identifier"
                   type="text"
-                  className="h-12 bg-white/60 border-slate-200/60 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                  className="h-12 bg-white/60 border-slate-200/60 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-xs"
                   placeholder={locale === 'bn' ? 'ইমেইল বা ফোন নম্বর' : 'name@example.com'}
                   {...register('identifier')}
                 />
@@ -469,7 +469,7 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     data-no-native-password-toggle
-                    className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-sm"
+                    className="h-12 bg-white/60 border-slate-200/60 pr-12 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-xs"
                     placeholder="••••••••"
                     {...register('password')}
                   />
@@ -488,7 +488,7 @@ export default function LoginPage() {
               </div>
 
               {submitError && (
-                <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-sm shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-xs shadow-xs animate-in fade-in zoom-in-95 duration-200">
                   <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
                 </div>
               )}

@@ -19,6 +19,15 @@ ARG NODE_IMAGE=node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /src
 
+# The slim image carries no libssl and no openssl binary, so Prisma cannot
+# detect a version and falls back to "openssl-1.1.x" — the wrong engine for
+# bookworm, which is openssl-3.0.x. It says so during install and then carries
+# on, which means the failure surfaces at the first query rather than at build
+# time. Installing openssl makes the detection correct instead of lucky.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
 
 # Manifests only, so this layer survives every source-only change.
@@ -63,6 +72,12 @@ RUN pnpm --filter @hasnahena/web build
 # --- Stage 3: runtime --------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
+
+# Same reason as the deps stage: this is where the query engine is actually
+# dlopen'd at runtime, so libssl has to exist here, not only at build time.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 # HOSTNAME matters: the standalone server binds 127.0.0.1 unless told
 # otherwise, which from outside the container is indistinguishable from the

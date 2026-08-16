@@ -263,7 +263,7 @@ export default function LoansPage() {
         </div>
         {!isEligible && (
           <div className="px-4 py-2 border-t border-gray-100 bg-amber-50 flex items-center gap-2 text-xs text-amber-800">
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
             {locale === 'bn'
               ? `ঋণের জন্য আবেদন করতে আপনার আমানত কমপক্ষে ${formatCurrency(minDepositRequired, locale)} হতে হবে।`
               : `You need at least ${formatCurrency(minDepositRequired, locale)} in deposits to apply for a loan.`}

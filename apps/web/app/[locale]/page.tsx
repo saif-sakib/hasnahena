@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { useTranslations } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
-import { unstable_setRequestLocale } from 'next-intl/server';
+import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Shield, Users, Eye, Lock, Wallet, HandHeart, FileText, HeadphonesIcon, BookOpen, Quote, Phone, Mail, MapPin, GraduationCap, Heart, Briefcase, Calendar, Image as ImageIcon, LayoutDashboard } from 'lucide-react';
@@ -17,9 +17,10 @@ import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { prisma } from '@/lib/prisma';
 import { GalleryItem as DbGalleryItem } from '@prisma/client';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -35,12 +36,13 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function HomePage({ params: { locale } }: PageProps) {
+export default async function HomePage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
 
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
   const t = await getTranslations({locale, namespace: 'common'});
   const tFeatures = await getTranslations({locale, namespace: 'features'});
   const tActivities = await getTranslations({locale, namespace: 'activities'});
@@ -152,7 +154,7 @@ export default async function HomePage({ params: { locale } }: PageProps) {
       <Header settings={settings} />
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center">
+        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center">
           {settings['hero.backgroundImage'] && (
             <div className="absolute inset-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -166,7 +168,7 @@ export default async function HomePage({ params: { locale } }: PageProps) {
           <div className="container-wide py-16 md:py-24 lg:py-32 relative z-10">
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
               <div className="space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
-                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-sm">
+                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-xs">
                   <span className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2 animate-pulse"></span>
                   {settings['hero.tagline'] || tHero('tagline') || (locale === 'bn' ? 'ইসলামী শরীয়াহ সম্মত' : 'Shariah Compliant Finance')}
                 </div>
@@ -218,7 +220,7 @@ export default async function HomePage({ params: { locale } }: PageProps) {
 
               {/* Stats Cards - Floating layout */}
               <div className="relative mx-auto w-full max-w-[500px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
-                <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
+                <div className="absolute inset-0 bg-linear-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
                 
                 <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
                   <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
@@ -255,12 +257,12 @@ export default async function HomePage({ params: { locale } }: PageProps) {
           </div>
 
           {/* Background decoration */}
-          <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-gradient-to-b from-emerald-100/30 to-transparent blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-gradient-to-t from-teal-100/30 to-transparent blur-3xl" />
+          <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-linear-to-b from-emerald-100/30 to-transparent blur-3xl" />
+          <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-linear-to-t from-teal-100/30 to-transparent blur-3xl" />
         </section>
 
         {/* Islamic Teachings Section - Quran & Hadith */}
-        <section className="py-16 md:py-20 bg-gradient-to-b from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-background">
+        <section className="py-16 md:py-20 bg-linear-to-b from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-background">
           <div className="container-wide">
             {/* Quran Section - First */}
             <div className="mb-16">
@@ -278,9 +280,9 @@ export default async function HomePage({ params: { locale } }: PageProps) {
 
               <div className="grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="relative overflow-hidden border-emerald-100 dark:border-emerald-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                  <Card key={num} className="relative overflow-hidden border-emerald-100 dark:border-emerald-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
                     <CardContent className="pt-8 pb-8 px-6 relative">
-                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-emerald-100 dark:text-emerald-900/50 rotate-180 -z-0 opacity-40 pointer-events-none" />
+                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-emerald-100 dark:text-emerald-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
                       <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
                         {tQuran(`ayah${num}.text`)}
                       </p>
@@ -309,9 +311,9 @@ export default async function HomePage({ params: { locale } }: PageProps) {
 
               <div className="grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="relative overflow-hidden border-amber-100 dark:border-amber-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                  <Card key={num} className="relative overflow-hidden border-amber-100 dark:border-amber-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
                     <CardContent className="pt-8 pb-8 px-6 relative">
-                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-amber-100 dark:text-amber-900/50 rotate-180 -z-0 opacity-40 pointer-events-none" />
+                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-amber-100 dark:text-amber-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
                       <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
                         {tHadith(`hadith${num}.text`)}
                       </p>
@@ -439,7 +441,7 @@ export default async function HomePage({ params: { locale } }: PageProps) {
                         {step.step}
                       </div>
                       {index < steps.length - 1 && (
-                        <div className="hidden lg:block absolute top-8 left-full w-full h-0.5 bg-gradient-to-r from-primary/50 to-primary/10" />
+                        <div className="hidden lg:block absolute top-8 left-full w-full h-0.5 bg-linear-to-r from-primary/50 to-primary/10" />
                       )}
                     </div>
                     <h3 className="font-semibold mb-2 text-lg">{step.title}</h3>
@@ -563,7 +565,7 @@ function StatCard({
             {icon}
           </div>
         )}
-        <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
+        <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-2 bg-clip-text text-transparent bg-linear-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
           {value}
         </div>
         <div className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">{label}</div>

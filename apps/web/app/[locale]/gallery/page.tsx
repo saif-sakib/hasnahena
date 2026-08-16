@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
-import { unstable_setRequestLocale } from 'next-intl/server';
+import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { locales } from '@/i18n';
 import { Header } from '@/components/layout/header';
@@ -10,9 +10,10 @@ import { prisma } from '@/lib/prisma';
 import { Image as ImageIcon } from 'lucide-react';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -25,12 +26,13 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function GalleryPage({ params: { locale } }: PageProps) {
+export default async function GalleryPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as (typeof locales)[number])) {
     notFound();
   }
 
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
   const tGallery = await getTranslations({locale, namespace: 'gallery'});
 
   // Fetch gallery items from DB

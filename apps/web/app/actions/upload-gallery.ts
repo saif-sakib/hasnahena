@@ -40,7 +40,7 @@ export async function uploadGalleryAction(
 ): Promise<UploadGalleryResult> {
   try {
     const authTokenFromForm = formData.get('authToken');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
         ? authTokenFromForm.trim()
@@ -126,7 +126,7 @@ export async function deleteGalleryAction(
   authTokenFromClient?: string
 ): Promise<DeleteGalleryResult> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
       cookieStore.get('auth-token')?.value;
@@ -188,7 +188,7 @@ export async function updateGalleryImageAction(
 ): Promise<UploadGalleryResult> {
   try {
     const authTokenFromForm = formData.get('authToken');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
         ? authTokenFromForm.trim()

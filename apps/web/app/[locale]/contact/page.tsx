@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getTranslations, unstable_setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
@@ -9,9 +9,10 @@ import { prisma } from '@/lib/prisma';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -24,9 +25,10 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default async function ContactPage({ params: { locale } }: PageProps) {
+export default async function ContactPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as any)) notFound();
-  unstable_setRequestLocale(locale);
+  setRequestLocale(locale);
 
   const t = await getTranslations({ locale });
   const settingsResult = await prisma.systemConfig.findMany();
@@ -42,7 +44,7 @@ export default async function ContactPage({ params: { locale } }: PageProps) {
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-sm font-semibold tracking-wide mb-8 border border-emerald-100 dark:border-emerald-900/50 shadow-sm shadow-emerald-900/5">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-sm font-semibold tracking-wide mb-8 border border-emerald-100 dark:border-emerald-900/50 shadow-xs shadow-emerald-900/5">
               <Mail className="w-4 h-4" />
               {locale === 'bn' ? 'যোগাযোগ' : 'Contact'}
             </div>
@@ -59,7 +61,7 @@ export default async function ContactPage({ params: { locale } }: PageProps) {
           <div className="grid md:grid-cols-3 gap-6 md:gap-10">
             {/* Contact Details */}
             <div className="col-span-1 space-y-6">
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
                 <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
                   <Phone className="w-5 h-5" />
                 </div>
@@ -67,7 +69,7 @@ export default async function ContactPage({ params: { locale } }: PageProps) {
                 <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.phone'] || '+8801234567890'}</p>
               </div>
               
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
                 <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
                   <Mail className="w-5 h-5" />
                 </div>
@@ -75,7 +77,7 @@ export default async function ContactPage({ params: { locale } }: PageProps) {
                 <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.email'] || 'contact@example.com'}</p>
               </div>
 
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
                 <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
                   <MapPin className="w-5 h-5" />
                 </div>

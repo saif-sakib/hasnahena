@@ -7,9 +7,10 @@ import { Logo } from '@/components/ui/logo';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-type PageProps = { params: { locale: string } };
+type PageProps = { params: Promise<{ locale: string }> };
 
-export function generateMetadata({ params: { locale } }: PageProps): Metadata {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
   return createLocalizedMetadata({
     locale: activeLocale,
@@ -22,7 +23,8 @@ export function generateMetadata({ params: { locale } }: PageProps): Metadata {
   });
 }
 
-export default function TermsPage({ params: { locale } }: PageProps) {
+export default async function TermsPage({ params }: PageProps) {
+  const { locale } = await params;
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
@@ -142,7 +144,7 @@ export default function TermsPage({ params: { locale } }: PageProps) {
 
         <div className="space-y-8">
           {t.sections.map((section, index) => (
-            <section key={index} className="bg-white dark:bg-slate-900 rounded-lg p-6 shadow-sm">
+            <section key={index} className="bg-white dark:bg-slate-900 rounded-lg p-6 shadow-xs">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
                 {section.title}
               </h2>

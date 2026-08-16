@@ -21,7 +21,7 @@ export async function uploadAvatarAction(
 ): Promise<UploadAvatarResult> {
   try {
     const authTokenFromForm = formData.get('authToken');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
         ? authTokenFromForm.trim()
@@ -106,7 +106,7 @@ export async function deleteAvatarAction(
   authTokenFromClient?: string
 ): Promise<UploadAvatarResult> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const authToken =
       (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
       cookieStore.get('auth-token')?.value;

@@ -125,7 +125,7 @@ export default function ResetPasswordPage() {
   // Loading state
   if (isValidating) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
         <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
           <CardContent className="py-12 text-center">
             <Loader2 className="h-12 w-12 animate-spin mx-auto text-emerald-600" />
@@ -141,7 +141,7 @@ export default function ResetPasswordPage() {
   // Invalid token state
   if (!isValid && !isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
         <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-red-100 flex items-center justify-center">
@@ -175,7 +175,7 @@ export default function ResetPasswordPage() {
   // Success state
   if (isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
         <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -204,7 +204,7 @@ export default function ResetPasswordPage() {
 
   // Reset form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
       <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto">
