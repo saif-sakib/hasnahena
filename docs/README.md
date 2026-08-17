@@ -12,8 +12,9 @@
 | [decisions.md](decisions.md) | Why the code contradicts an older assumption |
 | [tasks.md](tasks.md) | What is done, what is partial, what is broken |
 | [production-readiness.md](production-readiness.md) | Operational backlog: security defects, tests, CI, containers, backups, observability, and the path to a VPS/AWS — the *why* |
-| [work-orders.md](work-orders.md) | The same backlog as execution specs — exact files, changes and verification. Prompt with `do WO-01` |
-| [testing.md](testing.md) | **The staged plan to test the whole codebase**, measured coverage, and what each suite is for. Prompt with `do TEST-01` |
+| [work-orders.md](work-orders.md) | **Open** orders as execution specs — exact files, changes and verification. Prompt with `do WO-01`. Also holds the traps that each cost a session to find |
+| [testing.md](testing.md) | The testing guide: where a new test goes, the fixture contract, how to run each suite, and what all eight phases found |
+| [changelog.md](changelog.md) | What is already done, one line per batch — WO-01 → WO-50 and TEST-01 → TEST-38 |
 
 New to the project: [product.md](product.md) → [architecture.md](architecture.md) → [setup.md](setup.md).
 
@@ -21,6 +22,6 @@ Changing something: [changing-things.md](changing-things.md) for the how, then [
 
 Going to production: [go-live.md](go-live.md) for the order, [tasks.md](tasks.md) for what is still broken.
 
-Writing tests: [testing.md](testing.md). It measures where coverage actually is — the money arithmetic is at 93%, and the 86 HTTP endpoints in front of it are at **zero**.
+Writing tests: [testing.md](testing.md) — start at **Working in the suites**, which says where a new test goes and what the fixtures guarantee. Four suites fail the build when the code grows a route, a balance writer or a requirement they do not know about; that is deliberate, and CLAUDE.md lists them.
 
 [CLAUDE.md](../CLAUDE.md) at the repo root is the compact entry point for AI agents and doubles as a cheat sheet.

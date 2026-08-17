@@ -31,6 +31,7 @@ interface HeaderProps {
 export function Header({ settings }: HeaderProps) {
   const t = useTranslations('navigation');
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -171,7 +172,7 @@ export function Header({ settings }: HeaderProps) {
             size="icon"
             className={`md:hidden relative z-50 ${mobileMenuOpen ? 'text-white hover:bg-emerald-800' : ''}`}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle menu"
+            aria-label={tA11y('toggleMenu')}
           >
             {mobileMenuOpen ? (
               <X className="h-6 w-6" />

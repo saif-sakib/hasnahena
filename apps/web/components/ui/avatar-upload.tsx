@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { Camera, Loader2, X } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ export function AvatarUpload({
   size = 'md',
   editable = true,
 }: AvatarUploadProps) {
+  const tA11y = useTranslations('dashboard.a11y');
   const [avatarUrl, setAvatarUrl] = useState(currentAvatarUrl);
   const [isUploading, setIsUploading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -196,6 +198,7 @@ export function AvatarUpload({
           size="icon"
           className="absolute bottom-0 right-0 h-8 w-8 rounded-full shadow-none bg-emerald-600 hover:bg-emerald-700"
           onClick={handleClick}
+          aria-label={tA11y('changePhoto')}
         >
           <Camera className="h-4 w-4 text-white" />
         </Button>
@@ -209,6 +212,7 @@ export function AvatarUpload({
           variant="destructive"
           className="absolute top-0 right-0 h-6 w-6 rounded-full shadow-none"
           onClick={handleRemove}
+          aria-label={tA11y('removePhoto')}
         >
           <X className="h-3 w-3" />
         </Button>

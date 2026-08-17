@@ -665,6 +665,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               size="icon"
               className="lg:hidden h-8 w-8"
               onClick={() => setSidebarOpen(false)}
+              aria-label={t('a11y.closeMenu')}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -821,6 +822,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               size="icon"
               className="lg:hidden h-8 w-8 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-md"
               onClick={() => setSidebarOpen(true)}
+              aria-label={t('a11y.openMenu')}
             >
               <Menu className="h-[18px] w-[18px]" strokeWidth={2} />
             </Button>
@@ -845,11 +847,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
             {/* Notifications */}
             <div className="relative" ref={notificationRef}>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="relative h-8 w-8"
                 onClick={() => setShowNotifications(!showNotifications)}
+                aria-label={
+                  unreadCount > 0
+                    ? `${t('a11y.notifications')} (${unreadCount})`
+                    : t('a11y.notifications')
+                }
+                aria-expanded={showNotifications}
               >
                 <Bell className="h-4 w-4 text-zinc-600" />
                 {unreadCount > 0 && (
@@ -907,7 +915,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 variant="ghost"
                 size="icon"
                 className="relative h-8 w-8"
-                aria-label="Support inbox"
+                aria-label={t('a11y.supportInbox')}
                 onClick={() => {
                   if (showSupportPopup) {
                     closeSupportPopup();
@@ -971,25 +979,18 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                           {activeSupportThread?.memberName || ''}
                         </span>
                       )}
-                      {role !== 'member' || !activeSupportThreadId ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
-                          onClick={closeSupportPopup}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
-                          onClick={closeSupportPopup}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
+                      {/* Both branches of the ternary that used to be here were
+                          character-for-character identical, so the condition
+                          decided nothing. Collapsed 2026-08-17 (TEST-30). */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
+                        onClick={closeSupportPopup}
+                        aria-label={t('a11y.closeSupport')}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
 
                     {supportLoading ? (

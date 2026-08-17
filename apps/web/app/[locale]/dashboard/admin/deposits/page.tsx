@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -35,6 +35,7 @@ type DepositsResponse = { deposits: Deposit[] };
 
 export default function AdminDepositsPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -147,12 +148,12 @@ export default function AdminDepositsPage() {
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
           />
         </div>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+        <select aria-label={tA11y('filterByType')} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব ধরন' : 'All Types'}</option>
           <option value="DEPOSIT">{locale === 'bn' ? 'জমা' : 'Deposit'}</option>
           <option value="WITHDRAWAL">{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</option>
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+        <select aria-label={tA11y('filterByStatus')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
           <option value="PENDING">{locale === 'bn' ? 'অপেক্ষমাণ' : 'Pending'}</option>
           <option value="PROCESSED">{locale === 'bn' ? 'প্রক্রিয়াকৃত' : 'Processed'}</option>

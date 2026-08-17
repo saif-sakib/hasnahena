@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   HandCoins,
   Search,
@@ -69,6 +69,7 @@ interface ActiveLoan {
 
 export default function WorkerLoansPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedLoan, setSelectedLoan] = useState<ActiveLoan | null>(null);
@@ -342,7 +343,7 @@ export default function WorkerLoansPage() {
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-40">
+              <SelectTrigger className="w-full md:w-40" aria-label={tA11y('filterByStatus')}>
                 <SelectValue placeholder={locale === 'bn' ? 'স্ট্যাটাস' : 'Status'} />
               </SelectTrigger>
               <SelectContent>

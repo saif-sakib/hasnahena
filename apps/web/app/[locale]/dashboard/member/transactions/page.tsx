@@ -69,6 +69,7 @@ function getMemberDisplayPhone(profile: MemberProfileResponse | null): string {
 export default function TransactionsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
@@ -374,7 +375,7 @@ export default function TransactionsPage() {
             className="pl-9 h-8 text-sm"
           />
         </div>
-        <select
+        <select aria-label={tA11y('filterByType')}
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as TransactionType | 'ALL')}
           className="h-8 px-3 border border-gray-200 bg-white text-sm"

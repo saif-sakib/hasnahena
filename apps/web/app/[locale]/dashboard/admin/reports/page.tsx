@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { RefreshCw, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
@@ -131,6 +131,7 @@ function monthLabel(monthNumber: number, locale: string): string {
 
 export default function AdminReportsPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [activeReport, setActiveReport] = useState<ReportType>('financial');
   const [period, setPeriod] = useState<Period>('month');
   const [isLoading, setIsLoading] = useState(true);
@@ -343,7 +344,7 @@ export default function AdminReportsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="h-8 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+          <select aria-label={tA11y('filterByPeriod')} value={period} onChange={(e) => setPeriod(e.target.value as Period)} className="h-8 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
             <option value="month">{locale === 'bn' ? 'এই মাস' : 'This Month'}</option>
             <option value="quarter">{locale === 'bn' ? 'শেষ ৩ মাস' : 'Last 3 Months'}</option>
             <option value="year">{locale === 'bn' ? 'এই বছর' : 'This Year'}</option>
@@ -351,6 +352,7 @@ export default function AdminReportsPage() {
           </select>
           <Button variant="outline" size="sm" className="h-8" onClick={() => void loadReportsData()} disabled={isLoading}>
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="sr-only">{tA11y('refresh')}</span>
           </Button>
         </div>
       </div>

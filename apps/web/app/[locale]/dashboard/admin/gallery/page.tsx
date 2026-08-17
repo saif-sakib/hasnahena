@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Plus, Trash2, Edit2, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ interface GalleryItem { id: string; imageUrl: string; captionEn: string | null; 
 
 export default function GalleryManagementPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -121,6 +122,7 @@ export default function GalleryManagementPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => void fetchItems()} disabled={isLoading} className="h-8">
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="sr-only">{tA11y('refresh')}</span>
           </Button>
           <Button size="sm" onClick={() => setIsDialogOpen(true)} className="h-8">
             <Plus className="h-3.5 w-3.5 mr-1" />{locale === 'bn' ? 'যোগ' : 'Add'}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -38,6 +38,7 @@ interface Loan {
 
 export default function AdminLoansPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
@@ -153,7 +154,7 @@ export default function AdminLoansPage() {
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+        <select aria-label={tA11y('filterByStatus')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
           <option value="all">{locale === 'bn' ? 'সব স্ট্যাটাস' : 'All Status'}</option>
           <option value="PENDING_GUARANTOR">{locale === 'bn' ? 'জামিনদার অপেক্ষমাণ' : 'Awaiting Guarantor'}</option>
           <option value="PENDING_APPROVAL">{locale === 'bn' ? 'অনুমোদন অপেক্ষমাণ' : 'Pending Approval'}</option>

@@ -44,6 +44,7 @@ function getRolePath(role: string | undefined, locale: string) {
 export default function LoginPage() {
   const t = useTranslations('auth');
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -365,7 +366,7 @@ export default function LoginPage() {
                       type="button"
                       onClick={() => setShowNewPassword((prev) => !prev)}
                       className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
-                      aria-label="Toggle new password visibility"
+                      aria-label={tA11y('togglePassword')}
                     >
                       {showNewPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                     </button>
@@ -389,7 +390,7 @@ export default function LoginPage() {
                       type="button"
                       onClick={() => setShowConfirmPassword((prev) => !prev)}
                       className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
-                      aria-label="Toggle confirm password visibility"
+                      aria-label={tA11y('togglePassword')}
                     >
                       {showConfirmPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                     </button>
@@ -477,7 +478,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     className="absolute right-1 top-1 h-10 w-10 flex items-center justify-center z-10 text-slate-400 hover:text-slate-600 hover:bg-slate-100/50 rounded-lg transition-colors"
-                    aria-label="Toggle password visibility"
+                    aria-label={tA11y('togglePassword')}
                   >
                     {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                   </button>

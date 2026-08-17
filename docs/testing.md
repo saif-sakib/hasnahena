@@ -7,8 +7,8 @@ measured coverage, not impressions.
 Read the phases in order. Each is a batch with an ID (`TEST-01`), a definition
 of done, and the bugs it is expected to surface. Prompt with **`do TEST-10`**.
 
-> **Phases 0 through 5 are done (2026-08-17).** Fourteen defects found and
-> fixed, two of which moved money incorrectly: `AddMemberLoanPayment` accepted
+> **All eight phases are done (2026-08-17).** Eighteen defects found and
+> fixed, three of which moved or misreported money: `AddMemberLoanPayment` accepted
 > concurrent overpayments and drove an account's loan balance to −5000
 > ([Phase 2](#what-phase-2-found)), and `MarkLoanDefaulted` re-ran the whole
 > recovery waterfall on a second click, taking a borrower's savings twice for one
@@ -18,9 +18,14 @@ of done, and the bugs it is expected to surface. Prompt with **`do TEST-10`**.
 > wrapped mid-digit, so the reference a member quotes at a counter was wrong on
 > **every statement** ([Phase 5](#what-phase-5-found)).
 >
-> Counts: web unit 131 → **336**, Next route contracts **266**, Go integration
-> 26 tests → **~700 assertions**, plus 400,000 property iterations over the loan
-> arithmetic. **Next up: `do TEST-26`** (Phase 6, interface).
+> Phase 6 added the third money-related one: the member dashboard rendered a
+> **fabricated `BDT 0`** while loading and kept it forever if the fetch failed,
+> so a member could be shown a zero balance that was not theirs.
+>
+> Counts: web unit **336**, Next route contracts **266**, Go integration ~800
+> assertions, 400,000 property iterations over the loan arithmetic, and **143
+> browser specs** across six files. This file is now the standing guide rather
+> than a plan — see [Working in the suites](#working-in-the-suites).
 
 ---
 
@@ -455,7 +460,7 @@ ship.
 
 ---
 
-## Phase 6 — Interface `TEST-26 … TEST-30`
+## Phase 6 — Interface `TEST-26 … TEST-30` — **done**
 
 Two specs exist. 39 pages do not have one.
 
@@ -467,12 +472,54 @@ Two specs exist. 39 pages do not have one.
 | **TEST-29** | The matrix: mobile *and* desktop × `en` *and* `bn` × light *and* dark. Bengali is longer than English and breaks layouts English does not |
 | **TEST-30** | Accessibility: keyboard-only completion of every flow · visible focus · form labels · contrast · screen-reader announcement of errors |
 
-**Expected findings:** layout breakage in `bn`, dark-mode contrast, and forms
-that lose state on the back button.
+**Done 2026-08-17.** `e2e/matrix.spec.ts`, `e2e/accessibility.spec.ts`,
+`e2e/journeys.spec.ts` and `e2e/forms.spec.ts`, on fixtures in `e2e/fixtures/`.
+
+The fixtures seed three accounts straight through Prisma rather than driving
+sign-up first — the journeys under test start *after* approval — and
+`assertDisposableDatabase` refuses to run against anything but localhost,
+because these specs write balances and the mistake is one pasted environment
+variable away.
+
+### What Phase 6 found
+
+**The expected findings did not appear.** All 75 layout cells — 13 public pages
+and 23 dashboard pages × phone/desktop × `en`/`bn` — passed first run, and the
+`/bn` dashboards measure 84–97% Bengali. The Bengali layouts hold up. Worth
+stating plainly rather than dressing up.
+
+What it found instead was worse:
+
+1. **The member dashboard showed a fabricated `BDT 0`.** Its initial state was
+   four zeros, so for the ~1.5 s before the fetch resolved a member saw
+   "Current Balance: BDT 0" — and the catch block was
+   `catch { setData(prev => ({ ...prev })) }`, which discards the error and
+   keeps those zeros **forever** on a failed fetch. A member whose savings are
+   ৳73,500 could be told their balance is zero, with no error, no retry and
+   nothing to distinguish it from the truth. Now a dash while loading, and a
+   live-region error with a retry on failure.
+2. **Twenty-plus icon-only controls had no accessible name** across every
+   dashboard page — the mobile menu, the notification bell, the support close
+   button, row-action menus, refresh buttons, and seven filter `<select>`s.
+   Announced as "button" and "combo box" with no indication of what they do.
+3. **Eight labels on the settings page were not associated with their inputs.**
+   The visible text was right there; nothing linked it, so a screen reader
+   announced "edit text" for the organisation's name, address, phone and email.
+4. **Five aria-labels were hardcoded English**, including all three
+   password-visibility toggles — a Bengali member hears English for a control
+   whose surroundings are Bengali (rule 5). Now in `messages/{en,bn}.json`.
+5. **A ternary whose two branches were character-for-character identical**, so
+   the condition decided nothing. Collapsed.
+
+Two of my own tests were wrong in instructive ways, both recorded in
+[work-orders.md](work-orders.md#traps-that-cost-a-session): reading `innerText`
+once races a page that fills in its figures, and `nextjs-portal` — the dev-tools
+overlay — sits in the tab order and reports no focus ring, so it has to be
+excluded explicitly.
 
 ---
 
-## Phase 7 — Non-functional `TEST-31 … TEST-35`
+## Phase 7 — Non-functional `TEST-31 … TEST-35` — **done**
 
 | ID | Target |
 |---|---|
@@ -482,9 +529,64 @@ that lose state on the back button.
 | **TEST-34** | The restore drill: back up, destroy, restore, reconcile. Run against the real host while the data is still disposable |
 | **TEST-35** | Budgets: bundle size, cold start, p95 latency — recorded now so regressions are visible later |
 
+**Done 2026-08-17.** `internal/repositories/nonfunctional_integration_test.go`
+and `failure_injection_integration_test.go`.
+
+### What Phase 7 found
+
+**One harness defect, and it was masquerading as flakiness.** The e2e suite
+comes from a single address and the API's rate limiter allows 60 requests a
+minute (`RATE_LIMIT_REQUESTS`), so partway through a run the limiter starts
+answering 429 and the *later* specs render empty pages. It reproduced only in a
+full run — the failing spec passed three times in isolation — and the obvious
+fix was a retry, which would have hidden it permanently. What settled it was
+`grep -c 429 .test-stack/api.log`: **91 rejections**. `test-stack.sh` and the CI
+e2e job now raise the limit, with the reasoning written down beside it.
+
+**The application itself held up under all of it:**
+
+- **TEST-31.** 240 sustained mixed postings from six goroutines against four
+  members, at ~180/s. Every account reconciles *exactly* against its own ledger,
+  every posting left exactly one audit row, and no two postings shared a receipt
+  number.
+- **TEST-32.** Query counts measured with a `pgx.QueryTracer` — which counts
+  what *this call* issued, unlike `pg_stat_statements`. Every list read is flat:
+  one or two queries for ten rows and the same for forty. The member dashboard
+  is five queries whether the member has three transactions or twenty-five.
+- **TEST-33.** Cancelled contexts, an unreachable pool, an over-withdrawal, a
+  member who does not exist: every one leaves the balance untouched, no audit
+  row, and no transaction row. Including the subtle one — **a failed posting
+  gives its receipt number back**, so the printed sequence has no gaps to
+  explain during an audit.
+- **The email service is not on the money path and cannot become one.** The
+  repository takes no email service at all; a worker at a member's door with
+  Brevo down still records the deposit, and the in-app notification is written
+  in the same transaction.
+
+**TEST-34 was already built and is not duplicated here.** The restore drill runs
+on every push to `main` — `scripts/backup.sh` then `scripts/restore-check.sh`
+into a scratch database — as the `restore` job in
+[ci.yml](../.github/workflows/ci.yml). An untested backup is a rumour, and that
+job is what stops it becoming one; re-implementing it as a Go test would test a
+copy rather than the script an operator would actually run.
+
+**TEST-35, measured on this machine** so a regression has something to be
+compared against. These are observations, not thresholds — a budget invented
+before anything is slow is a number nobody trusts:
+
+| Budget | Measured 2026-08-17 |
+|---|---|
+| Sustained postings | ~180/s, six concurrent writers, four contended accounts |
+| List read | 1–2 queries, flat in row count |
+| Member dashboard read | 5 queries, flat in history length |
+| Go integration suite | ~8 s for every package |
+| Web unit suite | ~2 s for 336 tests |
+| Next route contracts | ~3 s for 266 assertions |
+| Browser suite | ~12 min for 143 specs, one worker |
+
 ---
 
-## Phase 8 — Documentation `TEST-36 … TEST-38`
+## Phase 8 — Documentation `TEST-36 … TEST-38` — **done**
 
 4,291 lines across 16 files, and the two largest are growing without bound.
 
@@ -494,11 +596,24 @@ that lose state on the back button.
 | **TEST-37** | `production-readiness.md` (701) and `tasks.md` (207) repeat the same banners. One owns *operational* state, the other *product* state; delete the overlap and cross-link instead |
 | **TEST-38** | This file becomes the permanent testing guide: how to run each suite, how to add a case, the fixture contract. Add the suite inventory to [CLAUDE.md](../CLAUDE.md) so the next session finds it |
 
-**Nothing is deleted without being read.** Compress, don't discard.
+**Done 2026-08-17.**
+
+- **TEST-36.** `work-orders.md` holds open orders and the traps. Everything
+  finished is one line per batch in the new [changelog.md](changelog.md), for
+  both WO-01 → WO-50 and TEST-01 → TEST-38. The file had reached 1,023 lines,
+  most of it narrative about work finished months earlier; it stops growing now
+  because a completed batch becomes a row somewhere else.
+- **TEST-37.** `tasks.md` and `production-readiness.md` both opened with the
+  same git-history banner, and had already drifted apart in how they described
+  it. Operational state is stated once, where it lives; `tasks.md` links to it.
+- **TEST-38.** This file, plus the four enumerating suites listed in
+  [CLAUDE.md](../CLAUDE.md) so the next session finds them without reading this.
+
+**Nothing was deleted without being read.** Compress, don't discard.
 
 ---
 
-## Order, and why
+## The order it was done in, and why
 
 ```
 Phase 0  harness           ── everything is gated on this
@@ -521,6 +636,78 @@ the existing convention — Phase 8 is the consolidation, not the write-up.
 
 ---
 
+## Working in the suites
+
+The part to read if you are adding a test rather than reviewing what was found.
+
+### Where a new test goes
+
+| What you are testing | Put it here | Needs |
+|---|---|---|
+| a pure function in `lib/` | `apps/web/lib/<module>.test.ts` | nothing |
+| pure Go arithmetic | `apps/api/internal/<pkg>/*_test.go` | nothing |
+| SQL, a transaction, a race | `apps/api/internal/repositories/*_integration_test.go` | Postgres |
+| a Go HTTP contract | `apps/api/cmd/server/routes_integration_test.go` | Postgres |
+| a Next route handler | `apps/web/test/routes/routes.contract.test.ts` | Postgres |
+| a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
+| a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
+
+The split is load-bearing: `pnpm test:unit` and `pnpm test:go` must stay fast
+enough to run on every save, so nothing that needs a database belongs in them.
+That is also why `test:routes` is a second vitest project rather than an addition
+to the first.
+
+### The fixture contract
+
+1. **Namespace everything you seed to your own suite.** Ids, phone numbers,
+   emails, `memberId`, account numbers. Both contract suites originally seeded a
+   member with `memberId = 'RT-MEMBER'`, and whichever ran second died on
+   `users_memberId_key` — invisible when either ran alone, so invisible until CI
+   ran both.
+2. **Seed what you need; never depend on what another suite left.** The Go
+   suites truncate every table between tests. A test that passes because a
+   neighbouring package created a row passes or fails on package ordering.
+3. **Upsert rather than truncate** in the browser fixtures — they share the
+   database with the Go suites, and clearing it out from under them is the same
+   ordering bug from the other direction.
+4. **Never suppress stderr on a setup step.** A failed fixture insert that looks
+   like success turns into an auth failure blamed on the token. That has already
+   cost this project an afternoon.
+5. **The browser fixtures refuse a non-localhost `DATABASE_URL`**
+   (`assertDisposableDatabase`). They write balances; the mistake is one pasted
+   environment variable away.
+
+### Adding an assertion that stays true
+
+- **Enumerate, do not list.** Four suites derive their coverage from the source:
+  `chi.Walk` for the Go routes, a filesystem walk for the Next ones, a regex
+  census for balance writers, and `product.md` for the requirements. Each fails
+  the build when the code grows something the table does not know about. Prefer
+  that shape over any list a human maintains — the ADR-015 fix was applied to the
+  four balance writers someone thought of, and the fifth kept the bug for months.
+- **A regression test must be seen to fail first.** Revert the fix, watch it fail
+  with the symptom it describes, restore, watch it pass. And revert the *whole*
+  fix: restore the file from `git show HEAD:<path>` rather than editing back what
+  you remember changing.
+- **In a browser, use the retrying matchers.** `await expect(locator).toContainText(x)`
+  retries; `expect(await locator.innerText()).toContain(x)` reads once and races
+  every page that fills in its figures after mount.
+- **Flaky is failing.** Fix the cause or delete the test. When a spec passes
+  alone and fails in the suite, suspect shared state or a limit — the e2e rate
+  limiting in Phase 7 read exactly like flaky ordering, and a retry would have
+  buried it.
+
+### When something fails and you cannot see why
+
+- `.test-stack/api.log` and `.test-stack/web.log` hold the server output. Start
+  with `grep -c 429 .test-stack/api.log`.
+- `playwright-report/` and `test-results/` carry a screenshot, a video and a
+  trace for every failed spec.
+- Go integration failures print the seeded ids; query the database directly with
+  `docker exec hn-test psql -U postgres -d hasnahena_test`.
+
+---
+
 ## Suites, and what each is for
 
 | Command | Needs | Covers |
@@ -529,7 +716,7 @@ the existing convention — Phase 8 is the consolidation, not the write-up.
 | `pnpm test:go` | nothing | pure Go: money arithmetic (including 400k property iterations), utils, middleware |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps |
 | `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server |
-| `pnpm test:e2e` | full stack | browser journeys, on a phone viewport |
+| `pnpm test:e2e` | full stack | 143 browser specs: journeys, forms, the layout matrix (phone/desktop × en/bn), accessibility |
 
 The split is deliberate: the first two must stay fast enough to run on every
 save, so nothing that needs a database belongs in them. `test:routes` is a

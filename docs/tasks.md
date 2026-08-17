@@ -14,35 +14,31 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
 ## Read this first
 
-> **`[!]` Member records are recoverable from git history.** 39 files under
-> `Official Infos/` — member details, savings and loan ledgers, check books — were
-> committed in `f152f0c` and deleted in `9306120`. Deleting a file removes it from
-> the working tree and from nothing else. This is the only open item that is a
-> disclosure rather than a risk: [SEC-10](production-readiness.md) ·
-> [WO-28](work-orders.md).
+> **One open defect, and it is operational, not product.** Member records are
+> recoverable from git history. It is stated once, in full, where operational
+> state lives: [SEC-10](production-readiness.md) · [WO-28](work-orders.md).
+> Repeating it here is how the two pages used to disagree about it.
 >
-> **`[x]` The boundaries are under contract now.** [testing.md](testing.md)
-> Phases 0–5 are done. All 64 Go routes and all 21 Next route methods have an
-> enumerated access contract that fails the build if a route is added without
-> one; every balance-writing repository method has a concurrency test and an
-> audit test. Eleven defects found and fixed, **two of them money-moving**:
-> loan repayment accepted concurrent overpayments (LEDGER-05) and defaulting a
-> loan twice recovered twice (LEDGER-06). A third was inert but fatal on first
-> use — the `HN-ACC-DONATION` account was never created by anything, so
-> recording a donation would have failed the first time anyone tried.
-> Phases 4 and 5 added a three-way check between this table, `product.md` and
-> the code — **a requirement marked `[~]` here now has to still be incomplete in
-> the source**, or the suite fails naming the file that implements it. It caught
-> three rows on this page that were wrong. Phase 5 found the statement PDF
-> printing every receipt number wrapped mid-digit.
-> Next up: **`do TEST-26`** (interface).
+> **`[x]` The boundaries are under contract.** All 64 Go routes, all 21 Next
+> route methods, every balance-writing repository method, both document
+> renderers and every FR row on this page are covered by suites that fail the
+> build when the code grows something they do not know about. Phases 0–8 of
+> [testing.md](testing.md) are done and found **eighteen** defects, three of
+> which moved or misreported money.
 >
-> **Recently fixed, with regression tests confirmed red first:** the four ledger
-> defects that destroyed money under concurrent postings (Batch L); the admin
-> settings page, which could not save *any* setting; the document-number
-> allocator, which made loan applications impossible; and registration on a
-> phone (Batch M). Details in
-> [work-orders.md](work-orders.md#completed--wo-01--wo-50).
+> **Two of those bear directly on this table.** A requirement marked `[~]` here
+> must *still* be unimplemented in the source, or
+> `apps/web/test/unit/requirements.test.ts` fails and names the file that
+> implements it — so this page cannot quietly fall behind the code. And it
+> caught three rows here that were already wrong.
+>
+> **Recently fixed, each with a regression test confirmed red first:** the six
+> ledger defects that destroyed or misreported money; the admin settings page,
+> which could not save *any* setting; the document-number allocator, which made
+> loan applications impossible; the statement PDF, which printed every receipt
+> number wrapped mid-digit; and the member dashboard, which showed a fabricated
+> `BDT 0` while loading and kept it forever on a failed fetch. One line per
+> batch in [changelog.md](changelog.md).
 >
 > **Going to production?** Read [go-live.md](go-live.md) first. It orders the
 > remaining work by *what gets more expensive once real member data exists*,
@@ -50,6 +46,15 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 >
 > **Run `pnpm db:migrate` before deploying** — schema changes ship as migrations,
 > not `db push` ([ADR-014](decisions.md)).
+
+### UI gaps found by the browser suite (2026-08-17)
+
+Recorded rather than fixed, because each is a decision rather than a defect.
+
+| Gap | Detail |
+|---|---|
+| `[ ]` No client-side role guard on the dashboards | A member who types `/en/dashboard/worker` sees the worker shell with no data in it. The API refuses every request (TEST-15/16 prove it), so nothing leaks — it is confusing, not dangerous. A redirect in the dashboard layout would fix it. `e2e/journeys.spec.ts` asserts the safety property (no other account's name or balance appears) and deliberately does *not* pin the current behaviour, which would make the gap harder to fix |
+| `[ ]` Admin and worker screens keep their copy inline | Those pages use `locale === 'bn' ? … : …` throughout rather than `messages/{en,bn}.json` (rule 5). They *are* translated — the `/bn` dashboards measure 84–97% Bengali — so this is a maintainability gap, not a member-facing one. New copy added in Phase 6 went into the message files |
 
 ## Requirements
 
@@ -180,7 +185,7 @@ SEC-11 is high but is an auth defect, not a financial one.
 ## Changelog
 
 Compressed 2026-08-16. Full narratives are in
-[work-orders.md](work-orders.md#completed-wo-01--wo-26); the durable lessons are
+[changelog.md](changelog.md); the durable lessons are
 in [Traps](work-orders.md#traps-that-cost-a-session); the decisions are in
 [decisions.md](decisions.md).
 

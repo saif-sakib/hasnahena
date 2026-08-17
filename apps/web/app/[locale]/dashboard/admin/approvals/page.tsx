@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   Loader2,
@@ -128,6 +128,7 @@ function RegistrationRow({
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const tA11y = useTranslations('dashboard.a11y');
   const [expanded, setExpanded] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<RegistrationDocument | null>(null);
   const [downloadingDocumentKey, setDownloadingDocumentKey] = useState<string | null>(null);

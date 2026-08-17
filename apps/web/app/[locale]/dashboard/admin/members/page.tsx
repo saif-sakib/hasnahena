@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Search, ChevronDown, ChevronUp } from 'lucide-react';
@@ -31,6 +31,7 @@ const INITIAL_DISPLAY_COUNT = 15;
 
 export default function AdminMembersPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const pathname = usePathname();
   const roleSegment = pathname.includes('/dashboard/worker') ? 'worker' : 'admin';
   const [searchQuery, setSearchQuery] = useState('');
@@ -133,7 +134,7 @@ export default function AdminMembersPage() {
             className="pl-9 h-9 text-sm"
           />
         </div>
-        <select
+        <select aria-label={tA11y('filterByStatus')}
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setDisplayCount(INITIAL_DISPLAY_COUNT); }}
           className="h-9 px-3 text-sm border border-gray-200 rounded bg-white"

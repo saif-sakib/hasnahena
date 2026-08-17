@@ -11,6 +11,7 @@ export function Footer({ settings }: FooterProps) {
   const t = useTranslations('footer');
   const tNav = useTranslations('navigation');
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
 
   return (
     <footer className="border-t bg-slate-50/50 dark:bg-slate-900/50">
@@ -33,7 +34,7 @@ export function Footer({ settings }: FooterProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                aria-label="Hasnahena Facebook page"
+                aria-label={tA11y('facebookPage')}
               >
                 <Facebook className="h-4 w-4" />
               </a>

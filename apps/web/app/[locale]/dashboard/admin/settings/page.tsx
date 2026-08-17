@@ -496,15 +496,15 @@ export default function AdminSettingsPage() {
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'প্রতিষ্ঠানের নাম (বাংলা)' : 'Organization Name (Bengali)'}</Label>
-                    <Input
+                    <Label htmlFor="org-name-bn">{locale === 'bn' ? 'প্রতিষ্ঠানের নাম (বাংলা)' : 'Organization Name (Bengali)'}</Label>
+                    <Input id="org-name-bn"
                       value={orgSettings.name}
                       onChange={(e) => setOrgSettings({ ...orgSettings, name: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>{locale === 'bn' ? 'প্রতিষ্ঠানের নাম (ইংরেজি)' : 'Organization Name (English)'}</Label>
-                    <Input
+                    <Label htmlFor="org-name-en">{locale === 'bn' ? 'প্রতিষ্ঠানের নাম (ইংরেজি)' : 'Organization Name (English)'}</Label>
+                    <Input id="org-name-en"
                       value={orgSettings.nameEn}
                       onChange={(e) => setOrgSettings({ ...orgSettings, nameEn: e.target.value })}
                     />
@@ -515,22 +515,22 @@ export default function AdminSettingsPage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
+                    <Label htmlFor="org-email" className="flex items-center gap-2">
                       <Mail className="h-4 w-4" />
                       {locale === 'bn' ? 'ইমেইল' : 'Email'}
                     </Label>
-                    <Input
+                    <Input id="org-email"
                       type="email"
                       value={orgSettings.email}
                       onChange={(e) => setOrgSettings({ ...orgSettings, email: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
+                    <Label htmlFor="org-phone" className="flex items-center gap-2">
                       <Phone className="h-4 w-4" />
                       {locale === 'bn' ? 'ফোন' : 'Phone'}
                     </Label>
-                    <Input
+                    <Input id="org-phone"
                       value={orgSettings.phone}
                       onChange={(e) => setOrgSettings({ ...orgSettings, phone: e.target.value })}
                     />
@@ -538,30 +538,30 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
+                  <Label htmlFor="org-address" className="flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
                     {locale === 'bn' ? 'ঠিকানা' : 'Address'}
                   </Label>
-                  <Input
+                  <Input id="org-address"
                     value={orgSettings.address}
                     onChange={(e) => setOrgSettings({ ...orgSettings, address: e.target.value })}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
+                  <Label htmlFor="org-website" className="flex items-center gap-2">
                     <Globe className="h-4 w-4" />
                     {locale === 'bn' ? 'ওয়েবসাইট' : 'Website'}
                   </Label>
-                  <Input
+                  <Input id="org-website"
                     value={orgSettings.website}
                     onChange={(e) => setOrgSettings({ ...orgSettings, website: e.target.value })}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>{locale === 'bn' ? 'রেজিস্ট্রেশন নম্বর' : 'Registration Number'}</Label>
-                  <Input
+                  <Label htmlFor="org-reg-number">{locale === 'bn' ? 'রেজিস্ট্রেশন নম্বর' : 'Registration Number'}</Label>
+                  <Input id="org-reg-number"
                     value={orgSettings.regNumber}
                     onChange={(e) => setOrgSettings({ ...orgSettings, regNumber: e.target.value })}
                     placeholder="e.g. 1234-5678"
@@ -569,8 +569,8 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>{locale === 'bn' ? 'বিবরণ' : 'Description'}</Label>
-                  <Textarea
+                  <Label htmlFor="org-description">{locale === 'bn' ? 'বিবরণ' : 'Description'}</Label>
+                  <Textarea id="org-description"
                     value={orgSettings.description}
                     onChange={(e) => setOrgSettings({ ...orgSettings, description: e.target.value })}
                     rows={3}

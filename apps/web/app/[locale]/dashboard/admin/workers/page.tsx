@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   Search,
   UserPlus,
@@ -93,6 +93,7 @@ async function requestWorkersApi<T>(path: string, method: 'POST' | 'PUT' | 'PATC
 
 export default function AdminWorkersPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [roleFilter, setRoleFilter] = useState<'all' | 'WORKER' | 'ADMIN'>('all');
@@ -362,6 +363,7 @@ export default function AdminWorkersPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => void loadWorkers()} disabled={isLoading || isMutating} className="h-8">
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="sr-only">{tA11y('refresh')}</span>
           </Button>
           <Button size="sm" onClick={() => setShowAddModal(true)} className="h-8">
             <UserPlus className="h-3.5 w-3.5 mr-1" />
@@ -394,6 +396,7 @@ export default function AdminWorkersPage() {
           />
         </div>
         <select
+          aria-label={tA11y('filterByStatus')}
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as 'all' | 'ACTIVE' | 'INACTIVE')}
           className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
@@ -403,6 +406,7 @@ export default function AdminWorkersPage() {
           <option value="INACTIVE">{locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive'}</option>
         </select>
         <select
+          aria-label={tA11y('filterByRole')}
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value as 'all' | 'WORKER' | 'ADMIN')}
           className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
@@ -457,6 +461,7 @@ export default function AdminWorkersPage() {
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isMutating}>
                           <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">{tA11y('rowActions')}</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -538,7 +543,7 @@ export default function AdminWorkersPage() {
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+              <select aria-label={tA11y('staffRole')} value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
                 <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
                 <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
               </select>
@@ -575,7 +580,7 @@ export default function AdminWorkersPage() {
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
+              <select aria-label={tA11y('staffRole')} value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
                 <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
                 <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
               </select>

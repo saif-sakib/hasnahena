@@ -207,6 +207,10 @@ jobs:
       JWT_SECRET: ci-only-secret-at-least-thirty-two-chars
       NEXT_PUBLIC_API_URL: http://localhost:8081
       E2E_BASE_URL: http://localhost:3000
+      # The whole suite comes from one address and far exceeds the production
+      # default of 60 requests a minute, so the limiter would 429 the later
+      # specs and they would render empty pages. See scripts/test-stack.sh.
+      RATE_LIMIT_REQUESTS: '100000'
 
     steps:
       - uses: actions/checkout@v7

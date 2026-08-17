@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Search, Download, Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +44,7 @@ function exportDonationsCsv(rows: Donation[], locale: string) {
 
 export default function AdminDonationsPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [donations, setDonations] = useState<Donation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -111,6 +112,7 @@ export default function AdminDonationsPage() {
           </Button>
           <Button variant="outline" size="sm" onClick={() => void loadDonations()} disabled={isLoading} className="h-8">
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="sr-only">{tA11y('refresh')}</span>
           </Button>
           <Button size="sm" onClick={() => setShowAddDonationModal(true)} className="h-8">
             <Plus className="h-3.5 w-3.5 mr-1" />{locale === 'bn' ? 'যোগ' : 'Add'}

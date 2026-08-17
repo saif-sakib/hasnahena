@@ -45,9 +45,19 @@ interface MemberDashboardResponse {
   recentTransactions: RecentTransaction[];
 }
 
+/** The one place this screen's data comes from, so the effect and the retry
+ *  button cannot drift apart. */
+const fetchMemberDashboard = () => apiGet<MemberDashboardResponse>('/v1/dashboard/member');
+
 export default function MemberDashboard() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
+  // 'loading' until the first fetch resolves, so the figures below can render a
+  // placeholder rather than a fabricated zero. A member glancing at their phone
+  // during the fetch used to be told their balance was BDT 0 — and on a failed
+  // fetch they were told that permanently, because the catch below discarded
+  // the error and kept the initial state (TEST-26).
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [data, setData] = useState<MemberDashboardResponse>({
     stats: {
       currentBalance: 0,
@@ -59,18 +69,55 @@ export default function MemberDashboard() {
     recentTransactions: [],
   });
 
+  // The loader is declared *inside* the effect, and the retry handler calls the
+  // same module-level fetch separately.
+  //
+  // Not a style preference: `react-hooks/set-state-in-effect` fires when an
+  // effect body calls a function that sets state, so hoisting this into a
+  // `useCallback` and calling it from the effect added a 21st instance of the
+  // warning class WO-27 already owns. The shape below is the one that passes,
+  // and it is what the file had before.
   useEffect(() => {
-    const loadDashboard = async () => {
+    let cancelled = false;
+    const load = async () => {
       try {
-        const response = await apiGet<MemberDashboardResponse>('/v1/dashboard/member');
+        const response = await fetchMemberDashboard();
+        if (cancelled) return;
         setData(response);
+        setStatus('ready');
       } catch {
-        setData((prev) => ({ ...prev }));
+        // Never fall back to zeros. "Your balance is 0" is the most alarming
+        // thing this screen can say, and it is indistinguishable from the truth.
+        if (!cancelled) setStatus('error');
       }
     };
-
-    loadDashboard();
+    void load();
+    // A member who navigates away mid-fetch must not have state written back
+    // into an unmounted tree.
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  const retry = async () => {
+    setStatus('loading');
+    try {
+      setData(await fetchMemberDashboard());
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  /**
+   * A figure, or a placeholder while it is unknown.
+   *
+   * An em dash rather than a zero: a member can tell the difference between
+   * "not loaded yet" and "you have nothing", and only one of those is ever true
+   * before the fetch returns.
+   */
+  const amount = (value: number) =>
+    status === 'ready' ? formatCurrency(value, locale) : '—';
 
   const transactionLabels: Record<string, { bn: string; en: string; color: string }> = {
     DEPOSIT: { bn: 'জমা', en: 'Deposit', color: 'text-green-600' },
@@ -94,6 +141,24 @@ export default function MemberDashboard() {
         </div>
       </div>
 
+      {/* A failed load says so, rather than showing four zeros. Announced in a
+          live region so it reaches a screen reader too (TEST-30). */}
+      {status === 'error' && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="text-sm font-medium text-red-700">
+            {locale === 'bn'
+              ? 'আপনার হিসাব লোড করা যায়নি। এটি আপনার স্থিতি শূন্য বোঝায় না।'
+              : 'Your account summary could not be loaded. This does not mean your balance is zero.'}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void retry()}>
+            {locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try again'}
+          </Button>
+        </div>
+      )}
+
       {/* Account Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
@@ -104,7 +169,7 @@ export default function MemberDashboard() {
             {t('currentBalance')}
           </div>
           <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
-            {formatCurrency(data.stats.currentBalance, locale)}
+            {amount(data.stats.currentBalance)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             {locale === 'bn' ? 'সঞ্চয় স্থিতি' : 'Savings Balance'}
@@ -119,7 +184,7 @@ export default function MemberDashboard() {
             {t('totalDeposited')}
           </div>
           <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
-            {formatCurrency(data.stats.totalDeposited, locale)}
+            {amount(data.stats.totalDeposited)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             {locale === 'bn' ? 'মোট জমা' : 'Total deposits'}
@@ -134,7 +199,7 @@ export default function MemberDashboard() {
             {t('loanBalance')}
           </div>
           <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
-            {formatCurrency(data.stats.loanBalance, locale)}
+            {amount(data.stats.loanBalance)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             {locale === 'bn' ? 'ঋণ স্থিতি' : 'Outstanding loan'}
@@ -149,7 +214,7 @@ export default function MemberDashboard() {
             {t('loanEligibility')}
           </div>
           <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
-            {formatCurrency(data.stats.loanEligibility, locale)}
+            {amount(data.stats.loanEligibility)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
             {locale === 'bn' ? 'সর্বোচ্চ ঋণ' : 'Max loan limit'}

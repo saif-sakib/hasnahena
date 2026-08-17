@@ -28,7 +28,10 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // Video costs an ffmpeg process per test — around 30% of a core — and the
+    // screenshot plus trace already say what failed. `PWVIDEO=1` turns it back
+    // on for a spec that needs to be watched.
+    video: process.env.PWVIDEO ? 'retain-on-failure' : 'off',
   },
 
   projects: [

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   Receipt,
   Search,
@@ -62,6 +62,7 @@ interface Transaction {
 
 export default function WorkerTransactionsPage() {
   const locale = useLocale();
+  const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
@@ -326,7 +327,7 @@ export default function WorkerTransactionsPage() {
               />
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full md:w-40">
+              <SelectTrigger className="w-full md:w-40" aria-label={tA11y('filterByType')}>
                 <SelectValue placeholder={locale === 'bn' ? 'ধরন' : 'Type'} />
               </SelectTrigger>
               <SelectContent>
@@ -338,7 +339,7 @@ export default function WorkerTransactionsPage() {
               </SelectContent>
             </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-full md:w-40">
+              <SelectTrigger className="w-full md:w-40" aria-label={tA11y('filterByPeriod')}>
                 <Calendar className="h-4 w-4 mr-2" />
                 <SelectValue placeholder={locale === 'bn' ? 'তারিখ' : 'Date'} />
               </SelectTrigger>

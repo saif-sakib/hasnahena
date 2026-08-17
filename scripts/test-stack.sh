@@ -77,9 +77,21 @@ serve() {
   mkdir -p "$RUNDIR"
 
   say "starting Go API on ${API_PORT}"
+  # RATE_LIMIT_REQUESTS is raised far above the production default of 60/min.
+  #
+  # The whole browser suite comes from one address, and a single spec logs in and
+  # then loads a dashboard that fetches four endpoints. Forty specs comfortably
+  # exceed sixty requests a minute, so the limiter starts answering 429 partway
+  # through a run and the *later* pages render empty — which looks exactly like
+  # flakiness and is order-dependent, so it reproduces only in a full run.
+  #
+  # Found the hard way: an admin-member-list spec that passed three times alone
+  # and failed inside the suite, with 91 rejections sitting in api.log. The
+  # tempting fix was a retry, which would have hidden it permanently.
   ( cd "$ROOT/apps/api" && \
     DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" API_PORT="$API_PORT" \
     CORS_ORIGINS="http://localhost:${WEB_PORT}" \
+    RATE_LIMIT_REQUESTS="${HN_TEST_RATE_LIMIT:-100000}" \
     go run cmd/server/main.go > "$RUNDIR/api.log" 2>&1 & echo $! > "$RUNDIR/api.pid" )
 
   say "starting Next on ${WEB_PORT}"

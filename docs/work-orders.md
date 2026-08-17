@@ -9,11 +9,11 @@ Prompt with just the ID: **`do WO-28`** · `do WO-27 and WO-40`.
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Three orders are open.** Everything else is in
-[Completed](#completed--wo-01--wo-50), one line each. What was *learned* doing
-them is in [Traps](#traps-that-cost-a-session) — read that before any work
-touching Docker, Prisma, migrations or the build config. Every entry there cost
-at least one session to find.
+**Three orders are open.** Everything finished is one line per batch in
+[changelog.md](changelog.md). What was *learned* doing them is in
+[Traps](#traps-that-cost-a-session) below — read that before any work touching
+Docker, Prisma, migrations or the build config. Every entry there cost at least
+one session to find.
 
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
 TEST-38`.
@@ -189,39 +189,13 @@ flip both linters on in `apps/api/.golangci.yml`. The 23 conventional findings
 ---
 ---
 
-# Completed — WO-01 → WO-50
+---
 
-Full narratives were compressed once each order was verified. The durable parts
-are in [Traps](#traps-that-cost-a-session); decisions in
-[decisions.md](decisions.md); *why* each existed in
-[production-readiness.md](production-readiness.md) under its SEC/RUN/CI/DATA/
-OBS/PKG id.
+# Completed work
 
-| Batch | Orders | Outcome |
-|---|---|---|
-| **A** Security | WO-01 → 05 | SEC-01→05, SEC-07. Token revocation actually revokes; `/v1/dashboard/admin` gated at the router, so a new handler is protected by *where it is mounted*; gallery writes admin-only; one origin-checked CORS helper; `?access_token=` replaced by 60 s single-purpose SSE tickets; bodies bounded at 1 MB |
-| **B** Hardening | WO-06 → 09 | RUN-01→06. Real `http.Server` timeouts, drained `SIGTERM` shutdown, `/v1/ready` against the pool, hourly cleanup sweeps, `log/slog` JSON with member emails replaced by user IDs |
-| **C** Tests + CI | WO-10 → 13 | CI-01/02/03/05/07/08. `internal/money` extracted and table-tested, 17 integration tests on real Postgres, GitHub Actions, gitleaks, Dependabot. **Found: no money method wrote an `audit_logs` row, and the donation-pool waterfall leg was broken two ways** |
-| **D** Data safety | WO-14 → 16 | DATA-01→05. Encrypted nightly `pg_dump`, a restore *script* rather than a procedure, drilled on every push. `db push` retired (ADR-014), `pnpm db:seed` |
-| **E** Observability | WO-17 → 19 | OBS-01→04, OBS-06, RUN-08. Token-gated `/metrics` with business gauges, Sentry both apps, alerting split across UptimeRobot/Sentry/Actions on cost grounds |
-| **F** Containers | WO-20 → 22 | PKG-01→05, 07. API image 26.9 MB, web 488 MB. Verified by **running** them — three defects survived static review, all in [Traps](#traps-that-cost-a-session) |
-| **G** Stack | WO-23 → 26 | Next 14 → 16.3.1, React 18 → 19.2.8, next-intl 3 → 4.13.6, ESLint 8 → 9, Tailwind 3 → 4.3.3, `middleware.ts` → `proxy.ts`. **`pnpm audit` 41 → 0.** WO-25 had to run before WO-24 — next-intl 3's peers end at Next ^15, so the documented order was backwards. Merged to `main` |
-| **H** Live defects | WO-29 | Guarantor approval validated loan ids against a **UUID regex while every id is `cuid()`**, so FR-11 had never worked for any loan. WO-27 and WO-28 from this batch are still open, above |
-| **I** Security | WO-30 → 33 | Registration-enumeration oracle rate-limited (20/10 min per address), `ENABLE_HSTS`, global rate limiting at the router, `audit_logs` made append-only by a database trigger |
-| **J** Artifacts | WO-34 → 35 | Images built and pushed by CI tagged by commit SHA; the env-var contract in `.env.render.example` and `.env.vercel.example` |
-| **K** Code health | WO-36 → 39 | Vitest wired into CI; `golangci-lint` with `govet`/`ineffassign`/`unused` clean; `user_repository.go` 4,894 lines → nine domain files, **verified as a pure move** by hashing all 91 declarations brace-to-brace; the `system_config` allow-list |
-| **L** Ledger integrity | WO-41 → 45 | **Four defects that destroyed or misreported money.** Balance writes made relative and locked (ADR-015) — 20 concurrent ৳1,000 deposits used to leave ৳1,000; the default waterfall fixed for loans with **no guarantor**, which previously marked a loan DEFAULTED and recovered nothing; the last `÷100`; donation numbering. Plus the loan-application and guarantor UI (FR-10/11), and SEC-13 — `availableGuarantors` returned the 50 wealthiest members' names and savings balances to any signed-in member |
-| **M** Admin + registration | WO-46 → 50 | **The settings page could not save anything** — 48 keys posted against a 21-key allow-list, and the endpoint rejects the whole request on one unknown key. **No loan application could ever be created** — the TypeScript document-number allocator omitted a `NOT NULL` column, so the first `INSERT` of a series each year failed and the `ON CONFLICT` branch was never reached. Three settings tabs controlled nothing. `minDepositForLoan = 0` meant different things to the two backends. Registration rebuilt for Android |
+Moved to [changelog.md](changelog.md) — one line per batch, for WO-01 → WO-50
+and TEST-01 → TEST-38. The lessons that outlived the work are below.
 
-### What each batch is remembered for
-
-- **C, L and M were all found by running the code, not reading it.** Every audit
-  that reviewed these files by eye passed them.
-- **A green suite bounds only the cases it contains.** 17 integration tests were
-  green while two defects destroyed money, because the suite never ran two
-  postings concurrently and never seeded a loan without a guarantor.
-- **Two backends over one schema drift.** WO-49 was a fix applied to the Go
-  allocator months earlier and never carried to the TypeScript one. Grep both.
 # Traps that cost a session
 
 Each of these was found by something breaking, most of them at runtime rather
@@ -347,6 +321,37 @@ clean tree).
   and no code path consults it — so the UI reports a policy the system does not
   apply. When checking whether a feature exists, search the *enforcement*
   surface, not the settings.
+- **Never initialise a money figure to zero.** The member dashboard's initial
+  state was four zeros, so it displayed "Current Balance: BDT 0" for the second
+  and a half before the fetch resolved — and its `catch` discarded the error and
+  kept those zeros permanently on failure. "Your balance is 0" is the most
+  alarming thing this application can say and is indistinguishable from the
+  truth. Use a placeholder and a `loading | ready | error` status.
+- **`nextjs-portal` is in the DOM and in the tab order, and is not the
+  application.** `next dev` injects a dev-tools overlay that is absent from a
+  production build. It has now cost two sessions: once by matching a `"Next"`
+  button locator, once by absorbing Tab presses and reporting no focus ring.
+  Exclude it explicitly in any DOM sweep.
+- **Reading `innerText` once races every page that fills in its figures.** Use
+  Playwright's retrying matchers (`await expect(locator).toContainText(x)`).
+  Reading once made four working specs fail — and, usefully, is what surfaced the
+  fabricated `BDT 0` above.
+- **A spec that passes alone and fails in the suite is shared state or a
+  limit, not luck.** The e2e run tripped the API's 60-requests-per-minute
+  limiter partway through, so the *later* specs rendered empty pages. It read as
+  flaky ordering; `grep -c 429 .test-stack/api.log` said 91. A retry would have
+  buried it permanently. `test-stack.sh` raises the limit now.
+- **Radix `Select` renders a hidden native `<select aria-hidden tabindex="-1">`**
+  for plain-form submission. An accessibility sweep must respect `aria-hidden`,
+  or it reports a false positive on every page with a filter — and a suite that
+  cries wolf is a suite people stop reading.
+- **Generous per-page waits multiply.** A browser helper that waits up to 25 s
+  for a page to settle is fine once and fatal in a loop: a spec walking ten
+  admin pages blew the 30 s test timeout and reported as a broken page rather
+  than a slow one. Keep the helper's waits short and let the *retrying
+  assertions* do the waiting, then raise `test.setTimeout()` on the sweeps.
+  `next dev` compiles each route on first visit, so the first pass is slow in a
+  way a production build never is — that is a harness allowance, not a budget.
 
 ### Go
 

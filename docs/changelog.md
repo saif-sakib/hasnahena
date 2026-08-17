@@ -1,0 +1,66 @@
+# Changelog
+
+What has already been done, one line per batch. Split out of
+[work-orders.md](work-orders.md) on 2026-08-17 (TEST-36) so that file holds only
+work still to do and stops growing without bound — it had reached 1,023 lines,
+most of it narrative about orders finished months earlier.
+
+**Nothing here was discarded, only compressed.** The durable lessons live in
+[work-orders.md](work-orders.md#traps-that-cost-a-session); the reasoning behind
+each design choice in [decisions.md](decisions.md); *why* each item existed in
+[production-readiness.md](production-readiness.md) under its
+SEC/RUN/CI/DATA/OBS/PKG id; and the testing phases in
+[testing.md](testing.md).
+
+---
+
+## Work orders — WO-01 → WO-50
+
+Full narratives were compressed once each order was verified. The durable parts
+are in [Traps](#traps-that-cost-a-session); decisions in
+[decisions.md](decisions.md); *why* each existed in
+[production-readiness.md](production-readiness.md) under its SEC/RUN/CI/DATA/
+OBS/PKG id.
+
+| Batch | Orders | Outcome |
+|---|---|---|
+| **A** Security | WO-01 → 05 | SEC-01→05, SEC-07. Token revocation actually revokes; `/v1/dashboard/admin` gated at the router, so a new handler is protected by *where it is mounted*; gallery writes admin-only; one origin-checked CORS helper; `?access_token=` replaced by 60 s single-purpose SSE tickets; bodies bounded at 1 MB |
+| **B** Hardening | WO-06 → 09 | RUN-01→06. Real `http.Server` timeouts, drained `SIGTERM` shutdown, `/v1/ready` against the pool, hourly cleanup sweeps, `log/slog` JSON with member emails replaced by user IDs |
+| **C** Tests + CI | WO-10 → 13 | CI-01/02/03/05/07/08. `internal/money` extracted and table-tested, 17 integration tests on real Postgres, GitHub Actions, gitleaks, Dependabot. **Found: no money method wrote an `audit_logs` row, and the donation-pool waterfall leg was broken two ways** |
+| **D** Data safety | WO-14 → 16 | DATA-01→05. Encrypted nightly `pg_dump`, a restore *script* rather than a procedure, drilled on every push. `db push` retired (ADR-014), `pnpm db:seed` |
+| **E** Observability | WO-17 → 19 | OBS-01→04, OBS-06, RUN-08. Token-gated `/metrics` with business gauges, Sentry both apps, alerting split across UptimeRobot/Sentry/Actions on cost grounds |
+| **F** Containers | WO-20 → 22 | PKG-01→05, 07. API image 26.9 MB, web 488 MB. Verified by **running** them — three defects survived static review, all in [Traps](#traps-that-cost-a-session) |
+| **G** Stack | WO-23 → 26 | Next 14 → 16.3.1, React 18 → 19.2.8, next-intl 3 → 4.13.6, ESLint 8 → 9, Tailwind 3 → 4.3.3, `middleware.ts` → `proxy.ts`. **`pnpm audit` 41 → 0.** WO-25 had to run before WO-24 — next-intl 3's peers end at Next ^15, so the documented order was backwards. Merged to `main` |
+| **H** Live defects | WO-29 | Guarantor approval validated loan ids against a **UUID regex while every id is `cuid()`**, so FR-11 had never worked for any loan. WO-27 and WO-28 from this batch are still open, above |
+| **I** Security | WO-30 → 33 | Registration-enumeration oracle rate-limited (20/10 min per address), `ENABLE_HSTS`, global rate limiting at the router, `audit_logs` made append-only by a database trigger |
+| **J** Artifacts | WO-34 → 35 | Images built and pushed by CI tagged by commit SHA; the env-var contract in `.env.render.example` and `.env.vercel.example` |
+| **K** Code health | WO-36 → 39 | Vitest wired into CI; `golangci-lint` with `govet`/`ineffassign`/`unused` clean; `user_repository.go` 4,894 lines → nine domain files, **verified as a pure move** by hashing all 91 declarations brace-to-brace; the `system_config` allow-list |
+| **L** Ledger integrity | WO-41 → 45 | **Four defects that destroyed or misreported money.** Balance writes made relative and locked (ADR-015) — 20 concurrent ৳1,000 deposits used to leave ৳1,000; the default waterfall fixed for loans with **no guarantor**, which previously marked a loan DEFAULTED and recovered nothing; the last `÷100`; donation numbering. Plus the loan-application and guarantor UI (FR-10/11), and SEC-13 — `availableGuarantors` returned the 50 wealthiest members' names and savings balances to any signed-in member |
+| **M** Admin + registration | WO-46 → 50 | **The settings page could not save anything** — 48 keys posted against a 21-key allow-list, and the endpoint rejects the whole request on one unknown key. **No loan application could ever be created** — the TypeScript document-number allocator omitted a `NOT NULL` column, so the first `INSERT` of a series each year failed and the `ON CONFLICT` branch was never reached. Three settings tabs controlled nothing. `minDepositForLoan = 0` meant different things to the two backends. Registration rebuilt for Android |
+
+### What each batch is remembered for
+
+- **C, L and M were all found by running the code, not reading it.** Every audit
+  that reviewed these files by eye passed them.
+- **A green suite bounds only the cases it contains.** 17 integration tests were
+  green while two defects destroyed money, because the suite never ran two
+  postings concurrently and never seeded a loan without a guarantor.
+- **Two backends over one schema drift.** WO-49 was a fix applied to the Go
+  allocator months earlier and never carried to the TypeScript one. Grep both.
+---
+
+## Testing phases — TEST-01 → TEST-38
+
+Full findings, with the reasoning, are in [testing.md](testing.md).
+
+| Phase | Ids | Outcome |
+|---|---|---|
+| **0** Harness | TEST-01 → 04 | `pnpm test:stack` brings up Postgres, migrates, seeds and optionally serves both apps. Go handler harness; Next route harness (`pnpm test:routes`); Playwright in CI on a phone viewport. Extracting `mountRoutes` from `main()` is what made the route contract testable at all |
+| **1** Auth | TEST-05 → 09 | Three defects: malformed tokens crashed with a `RangeError` instead of being refused; six of eight auth failures answered 500 instead of 401; **SEC-11** — the Next handlers ignored `token_blacklist`, so a token kept working after logout, after a password change and after an admin revoked the user |
+| **2** Money | TEST-10 → 14 | **LEDGER-05** — loan repayment had LEDGER-01's exact lost-update shape, and ten concurrent payments against one loan drove `accounts."loanBalance"` to −5,000. **The `HN-ACC-DONATION` account was never created by anything**, so the first real donation would have failed. A source-derived census now demands a concurrency test and an audit test for every balance writer |
+| **3** HTTP contracts | TEST-15 → 19 | Eight defects. **LEDGER-06** — defaulting a loan twice re-ran the recovery waterfall and took a borrower's savings twice. Malformed JSON was a 500 on almost every Next route; `/api/v1/admin/workers` answered 500 to an expired session; `GET /api/v1/settings` returned the whole config table to anonymous callers; a NUL byte in a query parameter was a 500; `{"amount":1e400}` crashed loan applications; four routes validated the body before checking the role |
+| **4** Domain rules | TEST-20 → 22 | No defect in the state machines — every illegal transition across six `TransactionStatus` and nine `LoanStatus` values was already refused. Found three wrong rows on the status board, which is what the new three-way check between `product.md`, `tasks.md` and the code exists to catch. The reserved-but-unimplemented late fee is flagged, not resolved (rule 3) |
+| **5** Documents | TEST-23 → 25 | Three rendering defects. The PDF silently dropped typographic punctuation — turning two possessives into plurals in the loan agreement's default clause and blanking `orDash`'s placeholder. **Every receipt number on every statement wrapped mid-digit**, printing `DEP-2026-00000` with a stray `1` below. A second column overflowed into its neighbour. Column widths are measured against content now |
+| **6** Interface | TEST-26 → 30 | The member dashboard rendered a **fabricated "BDT 0"** while loading, and kept it forever if the fetch failed — a member could be shown a zero balance that was not theirs. Twenty-plus icon-only controls across the dashboards had no accessible name; eight settings labels were not associated with their inputs; five aria-labels were hardcoded English. A dead identical ternary collapsed. All 75 layout cells (phone/desktop × en/bn) already passed |
+| **7** Non-functional | TEST-31 → 35 | 240 sustained postings reconcile exactly against the ledger, with no receipt collisions and one audit row each. Every list read is flat in query count. Every failure path leaves nothing behind — including receipt numbers, which a rolled-back posting gives back. **The e2e suite was silently rate-limited**: 60 requests/minute per address, 91 rejections in one run, which read as flaky ordering |
+| **8** Documentation | TEST-36 → 38 | This file. `work-orders.md` 1,023 → open orders plus traps; the duplicated banners in `production-readiness.md` and `tasks.md` cross-linked instead of repeated; `testing.md` became the permanent guide and the four enumerating suites are listed in CLAUDE.md |

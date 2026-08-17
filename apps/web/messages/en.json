@@ -339,7 +339,26 @@
     "guarantorSubmitting": "Saving…",
     "guarantorAccepted": "You are now the guarantor. The loan has gone to an admin for approval.",
     "guarantorDeclined": "You have declined this guarantee.",
-    "guarantorNone": "No guarantee requests right now."
+    "guarantorNone": "No guarantee requests right now.",
+    "a11y": {
+      "openMenu": "Open navigation menu",
+      "closeMenu": "Close navigation menu",
+      "notifications": "Notifications",
+      "closeSupport": "Close support chat",
+      "supportInbox": "Support inbox",
+      "refresh": "Refresh",
+      "filterByType": "Filter by transaction type",
+      "filterByStatus": "Filter by status",
+      "filterByRole": "Filter by role",
+      "filterByPeriod": "Filter by period",
+      "staffRole": "Staff role",
+      "rowActions": "More actions for this row",
+      "togglePassword": "Show or hide the password",
+      "toggleMenu": "Open navigation menu",
+      "facebookPage": "Hasnahena on Facebook",
+      "changePhoto": "Change profile photo",
+      "removePhoto": "Remove profile photo"
+    }
   },
   "footer": {
     "description": "A community-driven interest-free finance platform based on Islamic principles of Qard al-Hasan.",
