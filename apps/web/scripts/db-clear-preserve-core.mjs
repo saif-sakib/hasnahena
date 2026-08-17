@@ -100,6 +100,10 @@ async function resolveAdmin(prisma) {
   });
 }
 
+// Kept in step with scripts/seed.mjs, which creates them.
+const DONATION_ACCOUNT_NUMBER = 'HN-ACC-DONATION';
+const DONATION_OWNER_ID = 'system_donation_fund';
+
 async function main() {
   loadDatabaseEnv();
 
@@ -141,7 +145,20 @@ async function main() {
       await tx.notification.deleteMany({});
       await tx.transaction.deleteMany({});
       await tx.loan.deleteMany({});
-      await tx.account.deleteMany({});
+      // The donation pool account survives, at a zero balance. It is
+      // infrastructure rather than data: RecordDonation locks this exact row,
+      // so a cleared environment without it cannot record a donation at all,
+      // and the failure is an opaque 500 rather than anything that points at
+      // the missing row. `pnpm db:seed` recreates it, but this script is meant
+      // to leave a *working* environment behind, not one that needs a second
+      // command to be usable.
+      await tx.account.deleteMany({
+        where: { accountNumber: { not: DONATION_ACCOUNT_NUMBER } },
+      });
+      await tx.account.updateMany({
+        where: { accountNumber: DONATION_ACCOUNT_NUMBER },
+        data: { savingsBalance: BigInt(0), loanBalance: BigInt(0) },
+      });
       await tx.document.deleteMany({});
       await tx.nominee.deleteMany({});
       await tx.address.deleteMany({});
@@ -154,7 +171,7 @@ async function main() {
       await tx.user.deleteMany({
         where: {
           id: {
-            not: admin.id,
+            notIn: [admin.id, DONATION_OWNER_ID],
           },
         },
       });
@@ -165,6 +182,7 @@ async function main() {
     console.log('Database cleanup completed.');
     console.log(`Kept admin user: ${admin.email || admin.id} (${admin.role})`);
     console.log('Preserved tables: system_config, gallery_items');
+    console.log(`Preserved account: ${DONATION_ACCOUNT_NUMBER} (reset to 0)`);
     console.log('Counts (before -> after):');
 
     for (const key of Object.keys(after)) {

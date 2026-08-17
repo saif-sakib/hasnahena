@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
+import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { createAuditLog } from '@/lib/audit';
 import { TransactionStatus, UserRole } from '@prisma/client';
 
@@ -15,14 +16,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
     const auth = await requireActiveAuth(req);
-    const payload = bodySchema.parse(await req.json());
 
+    // Authorization before validation, so a caller who may not use this
+    // endpoint gets 403 rather than a 400 listing the fields it wants
+    // (TEST-16).
     const member = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true },
     });
     if (!member) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
     if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+
+    const payload = bodySchema.parse(await readJsonBody(req));
 
     const tx = await prisma.transaction.findUnique({
       where: { id },
@@ -64,10 +69,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
     }
-    const msg = typeof err?.message === 'string' ? err.message : 'Server error';
-    const authStatus = authErrorStatus(err);
-    if (authStatus) return NextResponse.json({ ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' }, { status: authStatus });
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    // Covers a malformed body and Prisma's "record not found" alongside auth,
+    // all of which used to reach the 500 below (TEST-18).
+    const status = routeErrorStatus(err);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(err, 'Failed to record the dispute') }, { status });
+    }
+    // Never the raw message: it carries table and column names.
+    console.error('[dispute] Error:', err);
+    return NextResponse.json({ ok: false, error: 'Failed to record the dispute' }, { status: 500 });
   }
 }
 

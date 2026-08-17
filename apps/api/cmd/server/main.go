@@ -197,13 +197,72 @@ func main() {
 	// API, and it is versioned by the exposition format rather than by us.
 	r.Handle("/metrics", metrics.Handler(config.MetricsToken))
 
+	mountRoutes(r, routerDeps{
+		auth:            authHandler,
+		dashboard:       dashboardHandler,
+		db:              dbPool,
+		emailConfigured: emailService.IsConfigured,
+	})
+
+	// Cancelled on SIGTERM/SIGINT. Everything that should stop when the process
+	// is asked to stop hangs off this.
+	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
+	// runCtx, not startupCtx: this must keep running for the life of the
+	// process, and is cancelled by the same SIGTERM that drains the server.
+	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
+
+	srv := &http.Server{
+		Addr:    ":" + config.Port,
+		Handler: r,
+		// Without these one slow client can hold a connection open forever (RUN-01).
+		ReadHeaderTimeout: config.ServerReadHeaderTimeout,
+		ReadTimeout:       config.ServerReadTimeout,
+		WriteTimeout:      config.ServerWriteTimeout,
+		IdleTimeout:       config.ServerIdleTimeout,
+	}
+
+	serverFailed := make(chan error, 1)
+	go func() {
+		slog.Info("api server listening", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverFailed <- err
+		}
+	}()
+
+	waitForShutdown(runCtx, srv, dashboardHandler, serverFailed, config.ServerShutdownTimeout)
+}
+
+// routerDeps is everything the route table needs. It exists so mountRoutes can
+// be called from a test with a real database and no Brevo, no Sentry and no
+// listening socket — see cmd/server/routes_integration_test.go.
+type routerDeps struct {
+	auth            *handlers.AuthHandler
+	dashboard       *handlers.DashboardHandler
+	db              *pgxpool.Pool
+	emailConfigured func() bool
+}
+
+// mountRoutes is the API's entire URL surface.
+//
+// It was inline in main() until 2026-08-17. Extracting it is what makes TEST-15
+// possible: a table-driven test can only assert "every route refuses an
+// anonymous caller" if it can enumerate the routes, and chi can only walk a
+// router something else has built. Nothing about the routing changed — the
+// global middleware stack stays in main(), because that is configuration rather
+// than surface.
+func mountRoutes(r chi.Router, d routerDeps) {
+	authHandler, dashboardHandler, dbPool := d.auth, d.dashboard, d.db
+
 	// Liveness: is the process up? Deliberately touches nothing — a restart is
 	// never the right answer to a database being briefly unreachable.
 	// emailConfigured stays here because the deployment.md release checklist reads it.
 	r.Get("/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		utils.Success(w, http.StatusOK, map[string]interface{}{
 			"status":          "ok",
-			"emailConfigured": emailService.IsConfigured(),
+			"emailConfigured": d.emailConfigured(),
 		})
 	})
 
@@ -224,6 +283,11 @@ func main() {
 	})
 
 	r.Route("/v1", func(v1 chi.Router) {
+		// Part of the route table rather than of main's middleware stack, so
+		// that the contract tests exercise it: a NUL byte in a query parameter
+		// used to reach PostgreSQL and come back as a 500 (TEST-18).
+		v1.Use(appmw.RejectNulBytes)
+
 		v1.Route("/auth", func(auth chi.Router) {
 			auth.Post("/login", authHandler.Login)
 			auth.Post("/logout", authHandler.Logout)
@@ -269,7 +333,16 @@ func main() {
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)
 			dashboard.Get("/worker/profile", dashboardHandler.WorkerProfile)
-			dashboard.Put("/worker/profile", dashboardHandler.UpdateProfile)
+			// UpdateProfile edits only the caller's own row, so it asks for a
+			// session and not a role — which left this PUT reachable by a
+			// MEMBER while the GET beside it was staff-only. No escalation was
+			// possible, but a route whose two halves disagree about who it is
+			// for is a route nobody can reason about. Gated here rather than
+			// inside the handler because the handler is shared with
+			// /admin/profile, which the adminOnly group already narrows
+			// further — mounting location is the answer (SEC-02, TEST-15).
+			dashboard.With(dashboardHandler.RequireRoles("WORKER", "ADMIN", "SUPER_ADMIN")).
+				Put("/worker/profile", dashboardHandler.UpdateProfile)
 			// POST /worker/{deposit,withdrawal} removed 2026-08-17 (WO-41):
 			// unused duplicates of the /worker/members/{memberId}/… routes
 			// above, one without an audit row and one that reported success
@@ -328,45 +401,27 @@ func main() {
 			})
 		})
 	})
+}
 
-	// Cancelled on SIGTERM/SIGINT. Everything that should stop when the process
-	// is asked to stop hangs off this.
-	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
-
-	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
-	// runCtx, not startupCtx: this must keep running for the life of the
-	// process, and is cancelled by the same SIGTERM that drains the server.
-	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
-
-	srv := &http.Server{
-		Addr:    ":" + config.Port,
-		Handler: r,
-		// Without these one slow client can hold a connection open forever (RUN-01).
-		ReadHeaderTimeout: config.ServerReadHeaderTimeout,
-		ReadTimeout:       config.ServerReadTimeout,
-		WriteTimeout:      config.ServerWriteTimeout,
-		IdleTimeout:       config.ServerIdleTimeout,
-	}
-
-	serverFailed := make(chan error, 1)
-	go func() {
-		slog.Info("api server listening", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverFailed <- err
-		}
-	}()
-
+// waitForShutdown blocks until the server dies or the process is asked to stop,
+// then drains.
+func waitForShutdown(
+	runCtx context.Context,
+	srv *http.Server,
+	dashboardHandler *handlers.DashboardHandler,
+	serverFailed <-chan error,
+	shutdownTimeout time.Duration,
+) {
 	select {
 	case err := <-serverFailed:
 		if errors.Is(err, syscall.EADDRINUSE) {
-			slog.Error("port is already in use; set API_PORT to a free port or stop the process using it", "port", config.Port)
+			slog.Error("port is already in use; set API_PORT to a free port or stop the process using it", "addr", srv.Addr)
 		} else {
 			slog.Error("api server failed", "error", err)
 		}
 		os.Exit(1)
 	case <-runCtx.Done():
-		slog.Info("shutdown signal received, draining in-flight requests", "timeout", config.ServerShutdownTimeout.String())
+		slog.Info("shutdown signal received, draining in-flight requests", "timeout", shutdownTimeout.String())
 	}
 
 	// End the SSE streams first. They never go idle, so Shutdown would otherwise
@@ -375,7 +430,7 @@ func main() {
 	// window is actually for.
 	dashboardHandler.BeginShutdown()
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), config.ServerShutdownTimeout)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -386,8 +441,8 @@ func main() {
 		slog.Info("shutdown complete")
 	}
 
-	// dbPool.Close is deferred above, so it runs after this — the pool outlives
-	// the requests that need it.
+	// dbPool.Close is deferred in main, so it runs after this — the pool
+	// outlives the requests that need it.
 }
 
 // startCleanupLoop sweeps expired token_blacklist and rate_limits rows on a

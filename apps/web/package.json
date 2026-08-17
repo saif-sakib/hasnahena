@@ -12,7 +12,8 @@
     "db:clear": "node scripts/db-clear-preserve-core.mjs",
     "postinstall": "prisma generate",
     "test:unit": "vitest run",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "test:routes": "vitest run --config vitest.routes.config.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

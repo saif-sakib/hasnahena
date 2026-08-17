@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsHeaders } from '@/lib/cors';
 import { authenticateRequest } from '@/lib/server-auth';
+import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    const body = await request.json();
+    const body = (await readJsonBody(request)) as any;
 
     if (!body.imageUrl) {
       return errorResponse(request, 'Image URL required', 'Missing imageUrl field', 400);
@@ -69,6 +70,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
+    // A malformed body, or an id that no longer exists, is the caller's
+    // fault; both used to be reported as a 500 (TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return errorResponse(request, routeErrorMessage(error, 'Failed to create gallery item'), msg, status);
+    }
     return errorResponse(request, 'Failed to create gallery item', msg, 500);
   }
 }
@@ -78,7 +85,7 @@ export async function PUT(request: NextRequest) {
   if (denied) return denied;
 
   try {
-    const body = await request.json();
+    const body = (await readJsonBody(request)) as any;
     const { id, ...data } = body;
 
     if (!id) {
@@ -97,6 +104,12 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
+    // A malformed body, or an id that no longer exists, is the caller's
+    // fault; both used to be reported as a 500 (TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return errorResponse(request, routeErrorMessage(error, 'Failed to update gallery item'), msg, status);
+    }
     return errorResponse(request, 'Failed to update gallery item', msg, 500);
   }
 }
@@ -117,6 +130,12 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
+    // A malformed body, or an id that no longer exists, is the caller's
+    // fault; both used to be reported as a 500 (TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return errorResponse(request, routeErrorMessage(error, 'Failed to delete gallery item'), msg, status);
+    }
     return errorResponse(request, 'Failed to delete gallery item', msg, 500);
   }
 }

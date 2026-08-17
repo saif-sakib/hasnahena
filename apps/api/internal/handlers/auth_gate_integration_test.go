@@ -155,6 +155,14 @@ func bearer(token string) string { return "Bearer " + token }
 
 func TestGateRejectsMissingAndMalformedCredentials(t *testing.T) {
 	h := newGate(t)
+	admin := seedUser(t, "ADMIN", "ACTIVE")
+
+	// A *valid* token presented without the scheme. Stronger than a hand-written
+	// token-shaped literal, because it proves the header is parsed rather than
+	// searched: this exact string authenticates when prefixed with "Bearer ".
+	// (It is also minted rather than pasted so no JWT-shaped literal sits in the
+	// source for a secret scanner to flag — see .gitleaks.toml.)
+	valid := mintToken(t, admin, "ADMIN", time.Now().Add(time.Hour))
 
 	cases := []struct {
 		name   string
@@ -163,7 +171,7 @@ func TestGateRejectsMissingAndMalformedCredentials(t *testing.T) {
 		{"no header at all", ""},
 		{"empty bearer", "Bearer "},
 		{"wrong scheme", "Basic dXNlcjpwYXNz"},
-		{"token with no scheme", "eyJhbGciOiJIUzI1NiJ9.e30.sig"},
+		{"valid token but no scheme", valid},
 		{"not a JWT", "Bearer nonsense"},
 		{"two dots, junk payload", "Bearer a.b.c"},
 	}

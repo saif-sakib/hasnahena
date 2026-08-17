@@ -12,8 +12,10 @@ pnpm dev        # api :8081 + web :3000        pnpm db:migrate # apply migration
 pnpm typecheck  # run before saying "done"     pnpm db:seed    # config defaults; admin only if none exists
 pnpm lint                                      pnpm db:clear   # keep admin+gallery+config only
                                                pnpm db:studio
-pnpm test:go    # Go unit tests, no DB needed  pnpm test:e2e   # Playwright; needs a running stack + seed
-pnpm test:integration   # Go + real Postgres; needs TEST_DATABASE_URL and a pushed schema
+pnpm test:unit  # web unit tests, no DB        pnpm test:e2e   # Playwright; needs a running stack + seed
+pnpm test:go    # Go unit tests, no DB needed  pnpm test:stack # bring the whole test rig up in one command
+pnpm test:integration   # Go + real Postgres: repositories, the 64-route contract, hostile input
+pnpm test:routes        # the 21 Next route methods + real Postgres; no browser, no server
 cd apps/api && go build ./...                  # Go check
 ```
 
@@ -23,14 +25,30 @@ cd apps/api && go build ./...                  # Go check
 
 Go **is** installed (`go1.26.5`). `go build`, `go vet`, `go test` work directly. `golangci-lint` 2.6.1 panics on a 1.26 toolchain — use `GOTOOLCHAIN=go1.25.3`, which is what CI pins.
 
-Integration tests need a database:
+The database-backed suites need a database, and `pnpm test:stack` is the one
+command that supplies it — Postgres on a non-default port, migrated, seeded,
+optionally serving both apps. Never point it at a development database: these
+suites truncate tables, and `down` destroys the volume.
+
 ```bash
-docker run -d --name hn-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=hasnahena_test -p 55432:5432 postgres:17
-DATABASE_URL='postgresql://postgres:postgres@localhost:55432/hasnahena_test' pnpm db:migrate
-cd apps/api && TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55432/hasnahena_test' \
-  go test ./... -tags=integration -count=1 -p 1
+scripts/test-stack.sh up          # database only
+eval "$(scripts/test-stack.sh env)"
+pnpm test:integration && pnpm test:routes
+scripts/test-stack.sh down
 ```
+
+Order does not matter: the Go suites truncate every table between tests, so each
+suite seeds what it needs under identifiers namespaced to itself. Keep it that
+way — a test depending on rows another suite left behind passes or fails on
+package ordering.
+
+Adding a route? Both contract suites enumerate rather than list, so a new route
+with no contract row **fails the build** until you say who may call it:
+`apps/api/cmd/server/routes_integration_test.go` (walks the chi router) and
+`apps/web/test/routes.contract.test.ts` (walks `app/api` on disk). Same for a
+new repository method that writes a balance —
+`TestBalanceWritersAreEnumerated` demands a concurrency test and an audit test
+for it. That is deliberate; see [docs/testing.md](docs/testing.md).
 
 ## Rules
 

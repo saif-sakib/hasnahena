@@ -7,6 +7,7 @@ import { requireActiveAuth } from '@/lib/auth-revocation';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
+import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 const createStaffSchema = z.object({
   name: z.string().min(2),
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
 
     const authorizationHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
 
-    const parsed = createStaffSchema.safeParse(await req.json());
+    const parsed = createStaffSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) {
       return NextResponse.json(
         { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
@@ -161,6 +162,12 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
+    // routeErrorStatus first: an expired session and a malformed body both
+    // used to land here and be reported as a 500 (TEST-16, TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to create staff account') }, { status });
+    }
     console.error('[Admin/CreateStaff] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to create staff account' }, { status: 500 });
   }
@@ -173,7 +180,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
-    const parsed = updateStaffSchema.safeParse(await req.json());
+    const parsed = updateStaffSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) {
       return NextResponse.json(
         { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
@@ -247,6 +254,12 @@ export async function PUT(req: Request) {
       },
     });
   } catch (error) {
+    // routeErrorStatus first: an expired session and a malformed body both
+    // used to land here and be reported as a 500 (TEST-16, TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to update staff account') }, { status });
+    }
     console.error('[Admin/UpdateStaff] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to update staff account' }, { status: 500 });
   }
@@ -259,7 +272,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
-    const parsed = updateStaffStatusSchema.safeParse(await req.json());
+    const parsed = updateStaffStatusSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) {
       return NextResponse.json(
         { ok: false, error: 'Validation failed', details: parsed.error.flatten() },
@@ -338,6 +351,12 @@ export async function PATCH(req: Request) {
       },
     });
   } catch (error) {
+    // routeErrorStatus first: an expired session and a malformed body both
+    // used to land here and be reported as a 500 (TEST-16, TEST-18).
+    const status = routeErrorStatus(error);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to update staff status') }, { status });
+    }
     console.error('[Admin/UpdateStaffStatus] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to update staff status' }, { status: 500 });
   }
@@ -464,6 +483,10 @@ export async function DELETE(req: Request) {
       },
     });
   } catch (error) {
+    const status = routeErrorStatus(error);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to delete staff account') }, { status });
+    }
     console.error('[Admin/DeleteStaff] Error:', error);
     return NextResponse.json({ ok: false, error: 'Failed to delete staff account' }, { status: 500 });
   }

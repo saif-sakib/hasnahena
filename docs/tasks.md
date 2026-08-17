@@ -21,13 +21,16 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > disclosure rather than a risk: [SEC-10](production-readiness.md) ·
 > [WO-28](work-orders.md).
 >
-> **`[~]` The boundaries are mostly untested.** The money arithmetic is at 93%;
-> 60 of 61 Go handlers and all 21 Next route methods have no test. Every defect
-> found in the last three audits lived at a boundary, not in the arithmetic.
-> [testing.md](testing.md) is the plan — Phases 0 and 1 are done and found three
-> more: malformed tokens crashed rather than being refused, an expired session
-> answered 500 instead of 401, and the Next handlers honoured revoked tokens
-> (SEC-11). Next up: **`do TEST-10`**.
+> **`[x]` The boundaries are under contract now.** [testing.md](testing.md)
+> Phases 0–3 are done. All 64 Go routes and all 21 Next route methods have an
+> enumerated access contract that fails the build if a route is added without
+> one; every balance-writing repository method has a concurrency test and an
+> audit test. Eleven defects found and fixed, **two of them money-moving**:
+> loan repayment accepted concurrent overpayments (LEDGER-05) and defaulting a
+> loan twice recovered twice (LEDGER-06). A third was inert but fatal on first
+> use — the `HN-ACC-DONATION` account was never created by anything, so
+> recording a donation would have failed the first time anyone tried.
+> Next up: **`do TEST-20`** (domain rules, FR-01…22).
 >
 > **Recently fixed, with regression tests confirmed red first:** the four ledger
 > defects that destroyed money under concurrent postings (Batch L); the admin

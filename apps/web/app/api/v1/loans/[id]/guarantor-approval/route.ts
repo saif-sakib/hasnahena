@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
+import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { serializeLoan } from '@/lib/api-utils';
 import { LoanStatus, UserRole } from '@prisma/client';
 
@@ -14,7 +15,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
     const auth = await requireActiveAuth(req);
-    const payload = bodySchema.parse(await req.json());
+
+    // Authorization before validation. The other order answered a WORKER's
+    // request with 400 and a list of the fields it wanted — telling someone who
+    // may not use this endpoint at all exactly how to call it, and giving the
+    // client a status that says "fix your request" when the answer is "not you"
+    // (TEST-16).
+    const member = await prisma.user.findUnique({
+      where: { id: auth.id },
+      select: { id: true, role: true, nameEn: true },
+    });
+    if (!member) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
+    if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
+
+    const payload = bodySchema.parse(await readJsonBody(req));
 
     // No id-shape check here, deliberately. This route used to reject anything
     // that did not match a UUID — but every id in this schema is `@default(cuid())`
@@ -27,13 +41,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // revised the next time it changes. The lookup below already answers 404 for
     // an id that does not resolve, which is the honest response for a malformed
     // one too, and it cannot drift out of sync with the schema.
-
-    const member = await prisma.user.findUnique({
-      where: { id: auth.id },
-      select: { id: true, role: true, nameEn: true },
-    });
-    if (!member) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
-    if (member.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
 
     const loan = await prisma.loan.findUnique({
       where: { id },
@@ -95,9 +102,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
     }
-    const msg = typeof err?.message === 'string' ? err.message : 'Server error';
-    const authStatus = authErrorStatus(err);
-    if (authStatus) return NextResponse.json({ ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' }, { status: authStatus });
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    // Covers a malformed body and Prisma's "record not found" alongside auth,
+    // all of which used to reach the 500 below (TEST-18).
+    const status = routeErrorStatus(err);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(err, 'Failed to record the guarantor decision') }, { status });
+    }
+    // Never the raw message: it carries table and column names.
+    console.error('[guarantor-approval] Error:', err);
+    return NextResponse.json({ ok: false, error: 'Failed to record the guarantor decision' }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
+import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { serializeLoan } from '@/lib/api-utils';
 import { SERIES, nextDocumentNumber } from '@/lib/document-numbers';
 import { LoanStatus, UserRole } from '@prisma/client';
@@ -13,11 +14,27 @@ const isDev = process.env.NODE_ENV === 'development';
 // not need one (product.md). The threshold is checked server-side below — an
 // application that omits a guarantor for a loan above it is rejected, not
 // quietly accepted.
+// `.int().finite()` on the amount, not just `.positive()`.
+//
+// `z.number()` accepts Infinity and JSON parses `1e400` as Infinity, so
+// `{"amount": 1e400}` passed validation and then threw
+// "The number Infinity cannot be converted to a BigInt" out of the BigInt
+// conversion below — a 500 for a request the schema was supposed to refuse
+// (TEST-18). `.int()` also removes the silent `Math.floor` that used to turn
+// 1000.9 into 1000: money is whole taka, so a fractional amount is a mistake to
+// report, not one to round away (rule 1).
+//
+// The cap mirrors utils.MaxLoanAmount in the Go API (1 crore, ADR-002); without
+// it, an amount inside float64 but outside anything sane reached the eligibility
+// arithmetic.
+const MAX_LOAN_AMOUNT = 1_00_00_000;
+const MAX_INSTALLMENTS = 600;
+
 const bodySchema = z.object({
-  amount: z.number().positive(),
-  installments: z.number().int().positive(),
-  purpose: z.string().min(3),
-  guarantorId: z.string().min(1).optional(),
+  amount: z.number().int().finite().positive().max(MAX_LOAN_AMOUNT),
+  installments: z.number().int().finite().positive().max(MAX_INSTALLMENTS),
+  purpose: z.string().min(3).max(500),
+  guarantorId: z.string().min(1).max(200).optional(),
 });
 
 async function getLoanPolicySettings() {
@@ -67,8 +84,10 @@ async function getLoanPolicySettings() {
 export async function POST(req: Request) {
   try {
     const auth = await requireActiveAuth(req);
-    const payload = bodySchema.parse(await req.json());
 
+    // Authorization before validation, so a caller who may not borrow gets 403
+    // rather than a 400 describing the fields a loan application takes
+    // (TEST-16).
     const borrower = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true, status: true },
@@ -76,6 +95,8 @@ export async function POST(req: Request) {
     if (!borrower) return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
     if (borrower.role !== UserRole.MEMBER) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     if (borrower.status !== 'ACTIVE') return NextResponse.json({ ok: false, error: 'Account is not active' }, { status: 403 });
+
+    const payload = bodySchema.parse(await readJsonBody(req));
 
     const borrowerAccount = await prisma.account.findFirst({
       where: { userId: auth.id },
@@ -93,7 +114,10 @@ export async function POST(req: Request) {
 
     const minDepositRequired = BigInt(loanPolicy.minDepositForLoan);
     const maxLoanMultiplier = BigInt(loanPolicy.maxLoanMultiplier);
-    const amountBig = BigInt(Math.floor(payload.amount));
+    // No Math.floor: the schema already requires a whole number, so anything
+    // reaching here is one. Flooring here was what let a fractional amount
+    // through silently.
+    const amountBig = BigInt(payload.amount);
     const maxAllowed = borrowerAccount.savingsBalance * maxLoanMultiplier;
     if (borrowerAccount.savingsBalance < minDepositRequired || amountBig > maxAllowed) {
       return NextResponse.json(
@@ -253,9 +277,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Validation failed', ...(isDev && { details: err.flatten() }) }, { status: 400 });
     }
     const msg = typeof (err as any)?.message === 'string' ? (err as any).message : 'Server error';
+    // Covers a malformed body and Prisma's request errors alongside auth, all
+    // of which used to fall through to the 500 below (TEST-18).
+    const status = routeErrorStatus(err);
+    if (status) {
+      return NextResponse.json({ ok: false, error: routeErrorMessage(err, 'Failed to create loan application') }, { status });
+    }
     console.error('[Loans/Applications] Error:', msg);
-    const authStatus = authErrorStatus(err);
-    if (authStatus) return NextResponse.json({ ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' }, { status: authStatus });
     return NextResponse.json({ ok: false, error: 'Failed to create loan application', ...(isDev && { details: msg }) }, { status: 500 });
   }
 }

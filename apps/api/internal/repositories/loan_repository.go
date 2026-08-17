@@ -21,6 +21,16 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
+// Sentinel errors so handlers can map a lending failure to the status code the
+// caller can act on. Before these, every one of them arrived as a generic 500,
+// which told an admin the server was broken when in fact they had clicked the
+// wrong loan (TEST-15, TEST-19).
+var (
+	ErrLoanIDRequired     = errors.New("loanId is required")
+	ErrLoanNotFound       = errors.New("loan not found")
+	ErrLoanNotDefaultable = errors.New("loan is not in a state that can be defaulted")
+)
+
 func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -670,14 +680,48 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 // every loan without a guarantor, see waterfallRecoveryTx — the loan was already
 // permanently defaulted with nothing recovered and no clean way to retry. A
 // default that was never settled is not a state this domain has a name for.
+// defaultableStatuses are the states a loan can be defaulted *from*. A loan
+// that was never disbursed has no money to recover, and one already settled has
+// nothing outstanding — in both cases marking it defaulted describes something
+// that did not happen.
+var defaultableStatuses = map[string]bool{
+	"ACTIVE":   true,
+	"APPROVED": true, // legacy value, still present in older rows
+}
+
 func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
+	if strings.TrimSpace(loanID) == "" {
+		return ErrLoanIDRequired
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
 
-	// Update loan status to DEFAULTED
+	// Lock the row and read its status *before* changing anything.
+	//
+	// This used to be a bare `UPDATE ... WHERE id = $1`, which affects zero rows
+	// and reports no error for a loan id that does not exist — so a typo wrote
+	// an audit row about a loan nobody has and then failed further down with an
+	// opaque 500. Worse, it did not look at the current status, so marking an
+	// already-DEFAULTED loan defaulted a second time re-ran the whole recovery
+	// waterfall: any savings the borrower or guarantor had deposited since the
+	// first default were taken again, for a debt that had already been settled
+	// against them. Two clicks on one button, and money left an account twice.
+	var currentStatus string
+	err = tx.QueryRow(ctx, `SELECT status::text FROM loans WHERE id = $1 FOR UPDATE`, loanID).Scan(&currentStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrLoanNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !defaultableStatuses[currentStatus] {
+		return fmt.Errorf("%w: loan is %s", ErrLoanNotDefaultable, currentStatus)
+	}
+
 	const updateQuery = `
 		UPDATE loans
 		SET status = 'DEFAULTED', "updatedAt" = NOW()
@@ -1003,92 +1047,104 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 // AddMemberLoanPayment records a loan payment for a member
 
 // AddMemberLoanPayment records a loan payment for a member
+// ErrRepaymentExceedsBalance means the payment is larger than what is still
+// owed. It is a sentinel because it is the outcome of a *race* as often as of a
+// mistake, and the two are indistinguishable to the caller.
+var ErrRepaymentExceedsBalance = errors.New("payment amount exceeds remaining balance")
+
 func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, processedByID, loanID string, amount int64, notes string) (string, error) {
-	// Verify member exists and is active
-	var userId, accountId string
-	var status string
-	err := r.db.QueryRow(ctx, `
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
+
+	// Every read that a write depends on happens inside the transaction now.
+	//
+	// This method used to read the member, the account and the loan from the
+	// pool *before* opening a transaction, check `amount > remainingAmount`
+	// against that stale read, and then write back an absolute
+	// `remainingAmount = remainingAmount - amount` computed in Go. That is
+	// LEDGER-01 exactly (ADR-015), in a method the 2026-08-17 pass did not
+	// reach: ten concurrent 1000-taka payments against a 5000-taka loan all
+	// passed the check, all committed, and left `accounts."loanBalance"` at
+	// -5000 with the loan's own remaining amount disagreeing with it. A member
+	// double-tapping a button on a bad connection paid twice for one debt.
+	var userId, accountId, status string
+	if err := tx.QueryRow(ctx, `
 		SELECT u.id, u.status::text, a.id
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
-	`, memberID).Scan(&userId, &status, &accountId)
-	if err != nil {
+		FOR UPDATE OF a
+	`, memberID).Scan(&userId, &status, &accountId); err != nil {
 		return "", fmt.Errorf("member not found")
 	}
 	if status != "ACTIVE" {
 		return "", fmt.Errorf("member account not active")
 	}
 
-	// Verify loan exists, is active, and belongs to this member
-	var loanId string
-	var remainingAmount int64
 	var loanStatus string
-	err = r.db.QueryRow(ctx, `
-		SELECT id, "remainingAmount", status::text
+	if err := tx.QueryRow(ctx, `
+		SELECT status::text
 		FROM loans
 		WHERE id = $1 AND "borrowerId" = $2
-	`, loanID, memberID).Scan(&loanId, &remainingAmount, &loanStatus)
-	if err != nil {
+		FOR UPDATE
+	`, loanID, memberID).Scan(&loanStatus); err != nil {
 		return "", fmt.Errorf("loan not found")
 	}
 	if loanStatus != "ACTIVE" {
 		return "", fmt.Errorf("loan is not active")
 	}
-	if amount > remainingAmount {
-		return "", fmt.Errorf("payment amount exceeds remaining balance")
-	}
-
-	// Start transaction
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
 
 	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)
 	if err != nil {
 		return "", err
 	}
 
-	// Update loan remaining amount and paid installments
-	newRemaining := remainingAmount - amount
-	var loanUpdateStatus string
-	if newRemaining <= 0 {
-		loanUpdateStatus = "COMPLETED"
-	} else {
-		loanUpdateStatus = "ACTIVE"
-	}
-
-	_, err = tx.Exec(ctx, `
+	// Relative, guarded, and RETURNING the result (ADR-015). The
+	// `"remainingAmount" >= $1` predicate is the overpayment check: it lives in
+	// the same statement as the write, so there is no window between deciding
+	// the payment fits and making it fit. Zero rows back means it no longer
+	// does — someone else's payment landed first.
+	var newRemaining int64
+	err = tx.QueryRow(ctx, `
 		UPDATE loans
-		SET "remainingAmount" = $1,
+		SET "remainingAmount" = "remainingAmount" - $1,
 			"paidInstallments" = "paidInstallments" + 1,
-			status = $2::"LoanStatus",
-			"completedAt" = CASE WHEN $2 = 'COMPLETED' THEN NOW() ELSE "completedAt" END,
+			status = CASE WHEN "remainingAmount" - $1 <= 0 THEN 'COMPLETED'::"LoanStatus" ELSE status END,
+			"completedAt" = CASE WHEN "remainingAmount" - $1 <= 0 THEN NOW() ELSE "completedAt" END,
 			"updatedAt" = NOW()
-		WHERE id = $3
-	`, newRemaining, loanUpdateStatus, loanID)
+		WHERE id = $2 AND "remainingAmount" >= $1
+		RETURNING "remainingAmount"::bigint
+	`, amount, loanID).Scan(&newRemaining)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrRepaymentExceedsBalance
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to update loan: %w", err)
 	}
+	loanUpdateStatus := "ACTIVE"
+	if newRemaining <= 0 {
+		loanUpdateStatus = "COMPLETED"
+	}
 
-	// Update account loan balance
-	_, err = tx.Exec(ctx, `
+	// The account's loanBalance moves by the same amount, in the same
+	// transaction, and RETURNING gives the value the receipt will carry —
+	// rather than a second SELECT that could read a different number.
+	var newLoanBalance int64
+	if err := tx.QueryRow(ctx, `
 		UPDATE accounts
 		SET "loanBalance" = "loanBalance" - $1,
 			"updatedAt" = NOW()
 		WHERE id = $2
-	`, amount, accountId)
-	if err != nil {
+		RETURNING "loanBalance"::bigint
+	`, amount, accountId).Scan(&newLoanBalance); err != nil {
 		return "", fmt.Errorf("failed to update account balance: %w", err)
-	}
-
-	// Get new loan balance after payment
-	var newLoanBalance int64
-	err = tx.QueryRow(ctx, `SELECT "loanBalance" FROM accounts WHERE id = $1`, accountId).Scan(&newLoanBalance)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch new balance: %w", err)
 	}
 
 	// Create transaction record

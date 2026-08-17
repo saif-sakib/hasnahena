@@ -178,6 +178,63 @@ async function seedConfig(prisma) {
   console.log(`config: ${CONFIG_DEFAULTS.length} keys ensured (${created} at default values)`);
 }
 
+// The donation pool is a real account in the ledger, not a computed total:
+// RecordDonation locks `accounts` where accountNumber = 'HN-ACC-DONATION' and
+// credits it, so without this row every attempt to record a donation failed
+// with a 500 and the message "Failed to record donation". Nothing in the schema,
+// the migrations or the application ever created it — only a test did — so it
+// would have been missing on the day the foundation recorded its first
+// donation (found by TEST-18, 2026-08-17).
+//
+// It is owned by a placeholder user because `accounts.userId` is NOT NULL. That
+// user must never be able to log in: `passwordHash` is a string bcrypt can
+// never produce a match for, and the status is INACTIVE, so the auth gate
+// refuses it even if someone later sets a password.
+const DONATION_ACCOUNT_NUMBER = 'HN-ACC-DONATION';
+const DONATION_OWNER_ID = 'system_donation_fund';
+
+async function seedDonationPool(prisma) {
+  const existing = await prisma.account.findUnique({
+    where: { accountNumber: DONATION_ACCOUNT_NUMBER },
+    select: { id: true },
+  });
+  if (existing) {
+    console.log('donation pool: already present — left unchanged');
+    return;
+  }
+
+  await prisma.user.upsert({
+    where: { id: DONATION_OWNER_ID },
+    update: {},
+    create: {
+      id: DONATION_OWNER_ID,
+      phone: '00000000000',
+      email: 'donation-fund@system.invalid',
+      // Not a hash of anything. bcrypt.compare against this always returns
+      // false, so the account cannot be logged into even by accident.
+      passwordHash: 'x-not-a-valid-bcrypt-hash-login-impossible',
+      role: UserRole.ADMIN,
+      status: UserStatus.INACTIVE,
+      nameEn: 'Donation Fund',
+      nameBn: 'দাতব্য তহবিল',
+      fatherName: '-',
+      motherName: '-',
+    },
+  });
+
+  await prisma.account.create({
+    data: {
+      accountNumber: DONATION_ACCOUNT_NUMBER,
+      savingsBalance: BigInt(0),
+      loanBalance: BigInt(0),
+      isLoanEligible: false,
+      maxLoanAmount: BigInt(0),
+      userId: DONATION_OWNER_ID,
+    },
+  });
+  console.log(`donation pool: created ${DONATION_ACCOUNT_NUMBER}`);
+}
+
 async function main() {
   loadDatabaseEnv();
   if (!process.env.DATABASE_URL) {
@@ -188,6 +245,7 @@ async function main() {
   try {
     await seedAdmin(prisma);
     await seedConfig(prisma);
+    await seedDonationPool(prisma);
     console.log('seed complete');
   } finally {
     await prisma.$disconnect();

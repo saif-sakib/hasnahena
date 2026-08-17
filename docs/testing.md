@@ -7,12 +7,19 @@ measured coverage, not impressions.
 Read the phases in order. Each is a batch with an ID (`TEST-01`), a definition
 of done, and the bugs it is expected to surface. Prompt with **`do TEST-10`**.
 
-> **Phase 1 is done and Phase 0 is done bar TEST-03 (2026-08-17).** The harness exists
-> (`pnpm test:stack`), the security primitives are tested, and the three defects
-> they turned up are fixed — see [What Phase 1 found](#what-phase-1-found).
-> Web unit tests went 59 → 131; `internal/handlers` went from no test file at
-> all to 29 assertions over the authorization gate. **Next up: `do TEST-10`**,
-> or Phase 3 if you would rather take the larger yield first.
+> **Phases 0, 1, 2 and 3 are done (2026-08-17).** Between them they found and
+> fixed **eleven defects**, two of which moved money incorrectly:
+> `AddMemberLoanPayment` accepted concurrent overpayments and drove an account's
+> loan balance to −5000 ([What Phase 2 found](#what-phase-2-found)), and
+> `MarkLoanDefaulted` re-ran the whole recovery waterfall on a second click,
+> taking a borrower's savings twice for one debt. A third was inert rather than
+> wrong: nothing in the schema, the migrations or the application ever created
+> the `HN-ACC-DONATION` account, so **recording a donation would have failed on
+> the first real attempt**.
+>
+> Counts: Go integration 26 → **~470 assertions**, web unit 131 → **156**,
+> and **266** new Next route-contract assertions. **Next up: `do TEST-20`**
+> (Phase 4, domain rules).
 
 ---
 
@@ -131,7 +138,7 @@ valid input, invalid input, hostile input, and concurrent input.
 
 ---
 
-## Phase 0 — Make testing cheap `TEST-01 … TEST-04` — **TEST-03 still open**
+## Phase 0 — Make testing cheap `TEST-01 … TEST-04` — **done**
 
 Everything after this is gated on it. Today, exercising an endpoint means hand-
 starting Postgres, running migrations, minting a JWT with a shell script and
@@ -141,7 +148,7 @@ tearing it all down — which is why it rarely happens.
 |---|---|---|
 | **TEST-01** | One command brings up Postgres, migrates, seeds deterministic fixtures, starts both servers, and tears down on exit. `pnpm test:stack` | A cold clone runs the full suite with one command |
 | **TEST-02** | Go handler harness: `httptest` server over the real router with a test database, plus a helper that mints tokens for each role | Any of the 65 routes can be exercised in ~5 lines |
-| **TEST-03** `[ ]` | Next route-handler harness: call the exported `GET`/`POST` with a constructed `Request`, against a test database | Any of the 21 methods testable without a browser |
+| **TEST-03** | Next route-handler harness: call the exported `GET`/`POST` with a constructed `Request`, against a test database | Any of the 21 methods testable without a browser |
 | **TEST-04** | CI runs Playwright; coverage is reported per package with a ratchet that can only go up | A PR that drops coverage fails |
 
 **Done 2026-08-17.** `scripts/test-stack.sh` brings up Postgres 17 on a
@@ -152,12 +159,18 @@ the database must be one nobody minds losing. The Go handler harness is
 `auth_gate_integration_test.go` — a real chi router, a real database, a token
 minted the way login mints one. Playwright now runs in CI on a Pixel 7 viewport.
 
-**TEST-03 was not built** and is deliberately left open. Phase 1 tested the
-`lib/` modules directly, which needed no route harness; the harness is only
-required once Phase 3 starts driving the 21 route methods, so it belongs there
-rather than as speculative scaffolding. **Do it as the first item of TEST-16.**
+**TEST-03 built with Phase 3**, as planned — `apps/web/test/route-harness.ts`,
+under `pnpm test:routes` and a `vitest.routes.config.ts` kept separate from the
+fast unit suite so `pnpm test:unit` never needs Postgres. It mints tokens the way
+the login endpoint does, so the interesting ones (expired, forged, for a deleted
+user) are reachable, which they are not if a test has to log in first.
 
-**Findings:** none. This was scaffolding, as expected.
+Building the Go harness needed one refactor: the 64-route table lived inline in
+`main()`, where nothing could enumerate it. It is now `mountRoutes(r, routerDeps)`
+in the same file, and `chi.Walk` is what drives TEST-15. That is rule 4 in
+action — the test being hard to write was the finding.
+
+**Findings:** none from the scaffolding itself.
 
 ---
 
@@ -202,7 +215,7 @@ Those are now pinned rather than assumed.
 
 ---
 
-## Phase 2 — Money `TEST-10 … TEST-14`
+## Phase 2 — Money `TEST-10 … TEST-14` — **done**
 
 The arithmetic is at 93%. The **paths around it** are the gap: 66 repository
 methods, 26 tests.
@@ -215,13 +228,45 @@ methods, 26 tests.
 | **TEST-13** | Default waterfall, exhaustively | no guarantor · guarantor with 0 · guarantor with less than the shortfall · exactly the shortfall · more · multiple loans against one guarantor · donation pool empty · residual debt arithmetic |
 | **TEST-14** | Audit completeness | **assert that every method that changes a balance writes exactly one `audit_logs` row**, driven off the same enumeration as TEST-10. Rule 6 in CLAUDE.md is currently enforced by review only |
 
-**Expected findings:** unaudited mutations, missing negative-amount guards on
-the less-travelled methods, and at least one lost-update variant in a method the
-2026-08-17 pass did not reach.
+**Done 2026-08-17.** `internal/repositories/money_paths_integration_test.go` and
+`replay_integration_test.go`.
+
+### What Phase 2 found
+
+**Predicted, and correct: a lost-update variant in a method the earlier pass did
+not reach.**
+
+1. **`AddMemberLoanPayment` accepted concurrent overpayments.** It read the
+   member, the account and the loan *from the pool*, before opening a
+   transaction; checked `amount > remainingAmount` against that stale read; then
+   wrote back an absolute `remainingAmount - amount` computed in Go. That is
+   LEDGER-01 exactly ([ADR-015](decisions.md)). Ten concurrent 1000-taka payments
+   against a 5000-taka loan **all committed**, leaving `accounts."loanBalance"`
+   at **−5000** and disagreeing with the loan's own remaining amount. A member
+   double-tapping a button on a bad connection paid twice for one debt. Now every
+   read is inside the transaction and locked, and the write is relative and
+   guarded: `SET "remainingAmount" = "remainingAmount" - $1 WHERE id = $2 AND
+   "remainingAmount" >= $1 RETURNING …`. The overpayment check and the write are
+   one statement, so there is no window between them. Verified failing against
+   the committed method.
+2. **The donation pool account did not exist.** `RecordDonation` locks
+   `accounts` where `accountNumber = 'HN-ACC-DONATION'`. Nothing in the schema,
+   the migrations or the application ever created that row — only a test did —
+   so the foundation's first real donation would have failed with a 500 and
+   "Failed to record donation". `pnpm db:seed` creates it now, `pnpm db:clear`
+   preserves it, and a missing row answers 503 naming the fix rather than 500
+   naming nothing.
+
+**Deliberately kept honest:** `TestBalanceWritersAreEnumerated` re-derives the
+list of balance-writing methods from the source on every run, so a ninth cannot
+be added without the suite demanding a concurrency test and an audit test for it.
+"At least one audit row" is *not* the assertion either — it is exactly one,
+because a duplicated log entry is indistinguishable from a duplicated posting to
+whoever is reconciling.
 
 ---
 
-## Phase 3 — Every HTTP contract `TEST-15 … TEST-19`
+## Phase 3 — Every HTTP contract `TEST-15 … TEST-19` — **done**
 
 86 endpoints, 0 tested. This is the largest batch and the most mechanical, so it
 should be **table-driven**: one table per route listing method, roles, required
@@ -236,9 +281,60 @@ twenty lines.
 | **TEST-18** | Hostile input: oversized bodies · deeply nested JSON · wrong content type · unicode and RTL in every string field · SQL metacharacters · `__proto__` pollution · duplicate JSON keys |
 | **TEST-19** | Idempotency and replay: double-submit of every money endpoint · out-of-order lifecycle transitions (confirm before process, approve twice) |
 
-**Expected findings:** the highest yield in the plan. Missing role checks,
-missing 404s, over-broad payloads, and lifecycle transitions the state machine
-does not actually guard.
+**Done 2026-08-17.** `apps/api/cmd/server/{routes,hostile_input}_integration_test.go`
+and `apps/web/test/routes.contract.test.ts`.
+
+**Both halves enumerate rather than list.** Go walks the router with `chi.Walk`;
+Next walks `app/api` on disk. A route with no contract row fails the suite, and
+so does a row with no route. That is the property that matters — a missing role
+check is a one-line diff that reads as correct.
+
+### What Phase 3 found
+
+**As predicted, the highest yield: eight defects.**
+
+1. **`MarkLoanDefaulted` re-ran the recovery waterfall on a second click.** It
+   never looked at the status it was changing *from*, so a second call recovered
+   again from whatever the borrower had saved since — for a debt already settled
+   against them. Money left an account twice for one default. Now the loan row is
+   locked and its status checked first: 404 for an unknown loan, 409 for one not
+   in a defaultable state. A table test walks all nine `LoanStatus` values, and a
+   concurrency test proves exactly one of six simultaneous defaults wins.
+2. **Malformed JSON was a 500 on almost every Next route.** Every handler did
+   `await req.json()` inside a try whose catch ended `return 500`. A truncated
+   POST from a phone that lost signal was reported as a server fault. Now
+   `lib/route-errors.ts` classifies it once, and every route uses it.
+3. **`/api/v1/admin/workers` answered 500 to an expired session** on all four
+   methods — the Phase 1 defect, in the one file Phase 1 did not reach.
+4. **`GET /api/v1/settings` returned the whole `system_config` table** to
+   anonymous callers. It has to stay unauthenticated (the marketing pages read
+   the org's contact details), but it now returns only the declared keys — the
+   same allowlist `PUT` validates against. The day a key holds something internal,
+   it will not become public with no code change.
+5. **A NUL byte in a query parameter was a 500.** PostgreSQL text cannot hold
+   U+0000, so `?threadId=%00` became a database error. Fixed once for every route
+   with `middleware.RejectNulBytes`, and for bodies in `utils.ParseJSON` — where
+   the escaped form is valid JSON and decodes to a real NUL. The scanner honours
+   escaping, so a literal backslash-u-0000 in text is not mistaken for one.
+6. **`{"amount": 1e400}` crashed loan applications.** `z.number()` accepts
+   Infinity, and `BigInt(Infinity)` throws. The schema is `.int().finite()` with a
+   cap now — which also removed a silent `Math.floor` that turned 1000.9 into
+   1000 rather than reporting it (rule 1).
+7. **Four routes validated the body before checking the role**, so a WORKER
+   posting to a member-only endpoint got a 400 listing the fields it wanted
+   rather than a 403. Authorization now precedes validation everywhere.
+8. **Prisma's "record not found" was a 500.** Deleting a gallery item that is
+   not there is a 404; a duplicate is a 409.
+
+Two smaller ones came out of the same sweep: a duplicate phone or email on
+`PUT /worker/profile` was a 500 rather than a 409 and left no audit row despite
+changing the address a password reset is delivered to; and that route accepted a
+MEMBER while the `GET` beside it was staff-only.
+
+**Assertions that did *not* fire, and are now pinned:** no response on any GET
+carries `passwordHash`, `resetToken` or any other credential material at any
+depth; every Go response is the `{success, data, error, meta}` envelope; and no
+route answers 5xx to any of the 21 hostile bodies or 10 hostile query strings.
 
 ---
 
@@ -337,10 +433,30 @@ the existing convention — Phase 8 is the consolidation, not the write-up.
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: validation, formatting, ids, document numbers |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers |
 | `pnpm test:go` | nothing | pure Go: money arithmetic, utils, middleware |
-| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency |
+| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps |
+| `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server |
 | `pnpm test:e2e` | full stack | browser journeys, on a phone viewport |
 
 The split is deliberate: the first two must stay fast enough to run on every
-save, so nothing that needs a database belongs in them.
+save, so nothing that needs a database belongs in them. `test:routes` is a
+second vitest project for exactly that reason — merging it into `test:unit`
+would make the fast suite require Postgres.
+
+**The database-backed ones share one database and can run in any order**, which
+is deliberate: the Go suites truncate every table between tests, so anything
+depending on rows another suite left behind would pass or fail on package
+ordering. Each seeds what it needs, under identifiers namespaced to itself.
+
+```bash
+scripts/test-stack.sh up
+eval "$(scripts/test-stack.sh env)"
+pnpm test:integration && pnpm test:routes
+scripts/test-stack.sh down
+```
+
+Namespacing is not cosmetic. Both contract suites originally seeded a member
+with `memberId = 'RT-MEMBER'`, and whichever ran second died on
+`users_memberId_key` — a collision invisible when either suite runs alone, and
+therefore invisible until CI runs both.

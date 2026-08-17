@@ -172,6 +172,18 @@ jobs:
         working-directory: apps/api
         run: go test ./... -tags=integration -count=1 -p 1
 
+      # TEST-16. Drives the exported GET/POST/PUT/PATCH/DELETE of all 11 Next
+      # route files directly, against this same database. It seeds its own
+      # fixtures, so it does not care that the Go suites just truncated
+      # everything. Separate from `test:unit` in the web job on purpose: that
+      # suite must stay runnable without Postgres.
+      - name: Next route contract tests
+        run: pnpm test:routes
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          JWT_SECRET: test-secret-at-least-thirty-two-characters
+          NEXT_PUBLIC_API_URL: http://localhost:8099
+
   e2e:
     name: Browser — Playwright on a phone viewport
     runs-on: ubuntu-latest

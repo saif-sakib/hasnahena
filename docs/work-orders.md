@@ -320,6 +320,19 @@ clean tree).
 - **Suppressing stderr on a setup step turns a broken fixture into a passing
   test.** A failed `INSERT` of test users looked like success, and the resulting
   auth failure was blamed on the token.
+- **A list of things to cover goes stale the day it is written; an enumeration
+  does not.** The ADR-015 fix was applied to the four balance writers someone
+  thought of. The fifth — loan repayment — kept the bug for months and was found
+  only once a test re-derived the list from the source. Three suites now do this:
+  `chi.Walk` for the Go routes, a filesystem walk for the Next ones, and a regex
+  census for balance writers. Each fails the build when the code grows something
+  the table does not know about. Prefer that over any list a human maintains.
+- **"Revert the fix and watch it fail" only counts if you reverted the whole
+  fix.** Removing the `WHERE "remainingAmount" >= $1` guard from the repayment
+  fix left the new `FOR UPDATE` in place, and the test still passed — which
+  briefly looked like the test being weak rather than the revert being partial.
+  Restore the method from `git show HEAD:<path>`, not by editing back what you
+  remember changing.
 
 ### Go
 

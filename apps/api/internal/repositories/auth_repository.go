@@ -7,10 +7,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 
 	"hasnahena/apps/api/internal/models"
@@ -117,38 +119,77 @@ func (r *UserRepository) UpdateUserStatus(ctx context.Context, userID string, st
 
 // ==================== APPROVAL MANAGEMENT ====================
 
+// ErrDuplicateContact is returned when a profile edit would give a member the
+// phone number or email address of an existing account. It exists so the
+// handler can answer 409 instead of 500: the caller made a correctable mistake,
+// and "Failed to update profile" tells them nothing about which field to change.
+var ErrDuplicateContact = errors.New("phone or email already in use")
+
+// profileFields is the allowlist. UpdateProfile takes a free-form map because
+// the client sends a partial object, and an allowlist is what stops that from
+// being mass assignment — a body carrying `role` or `status` changes nothing,
+// because nothing here reads those keys.
+var profileFields = []struct {
+	key    string
+	column string
+}{
+	{"nameEn", `"nameEn"`},
+	{"nameBn", `"nameBn"`},
+	{"phone", `phone`},
+	{"email", `email`},
+}
+
 func (r *UserRepository) UpdateProfile(ctx context.Context, userID string, data map[string]interface{}) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
 
-	// Update user basic info
-	if nameEn, ok := data["nameEn"].(string); ok {
-		_, err = tx.Exec(ctx, `UPDATE users SET "nameEn" = $1, "updatedAt" = NOW() WHERE id = $2`, nameEn, userID)
+	// `col IS DISTINCT FROM $1` makes each update a no-op when the client
+	// re-sends a value it never edited, which is what the profile form does on
+	// every save. RETURNING then reports whether anything actually changed, so
+	// the audit row below lists real changes rather than everything on screen.
+	changed := make([]string, 0, len(profileFields))
+	for _, f := range profileFields {
+		value, ok := data[f.key].(string)
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+
+		// An empty phone would violate NOT NULL and an empty email would make
+		// the account unrecoverable by password reset. Neither is a thing the
+		// UI can ask for, so treat it as "field not sent" rather than erroring.
+		if value == "" && (f.key == "phone" || f.key == "email") {
+			continue
+		}
+
+		tag, err := tx.Exec(ctx,
+			`UPDATE users SET `+f.column+` = $1, "updatedAt" = NOW()
+			 WHERE id = $2 AND `+f.column+` IS DISTINCT FROM $1`,
+			value, userID)
 		if err != nil {
+			var pgErr *pgconn.PgError
+			// 23505 unique_violation: phone and email both carry unique indexes.
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return ErrDuplicateContact
+			}
 			return err
+		}
+		if tag.RowsAffected() > 0 {
+			changed = append(changed, f.key)
 		}
 	}
 
-	if nameBn, ok := data["nameBn"].(string); ok {
-		_, err = tx.Exec(ctx, `UPDATE users SET "nameBn" = $1, "updatedAt" = NOW() WHERE id = $2`, nameBn, userID)
-		if err != nil {
-			return err
-		}
-	}
-
-	if phone, ok := data["phone"].(string); ok {
-		_, err = tx.Exec(ctx, `UPDATE users SET phone = $1, "updatedAt" = NOW() WHERE id = $2`, phone, userID)
-		if err != nil {
-			return err
-		}
-	}
-
-	if email, ok := data["email"].(string); ok {
-		_, err = tx.Exec(ctx, `UPDATE users SET email = $1, "updatedAt" = NOW() WHERE id = $2`, email, userID)
-		if err != nil {
+	// Email and phone are the addresses a password reset is delivered to, so a
+	// change to either is a change to who can take over the account. That is
+	// worth a row in the append-only log even though no money moved (rule 6),
+	// and the log is the only place it would ever be visible: the profile
+	// screen shows the new value and nothing remembers the old one.
+	if len(changed) > 0 {
+		if err := r.insertAuditLogTx(ctx, tx, "PROFILE_UPDATED", "USER", userID, userID,
+			"fields: "+strings.Join(changed, ", ")); err != nil {
 			return err
 		}
 	}

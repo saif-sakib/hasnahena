@@ -6,7 +6,11 @@ title = "Hasnahena secret scanning"
 [extend]
 useDefault = true
 
-[allowlist]
+# Allowlists are `[[allowlists]]`, not `[allowlist]`. The singular form is
+# deprecated in 8.28 and refuses to load *at all* if both forms appear, which
+# fails the job with "Failed to load config" rather than with a finding.
+
+[[allowlists]]
 description = "Documentation placeholders, which are not secrets"
 
 # Match against the whole line rather than the extracted secret, so the
@@ -32,3 +36,22 @@ paths = [
   # positive would be a far worse trade than an allowlist entry.
   '''docs/DEPLOYMENT_FREE_HOSTING\.md''',
 ]
+
+# A JWT-shaped literal in a Go test, committed in 1c9b307. The source no longer
+# contains it — the case now mints a real token instead — but `gitleaks git`
+# scans every commit, so history keeps reporting it.
+#
+# Scoped to the exact source line — not to the file, the commit, or the JWT
+# shape. Any of those three would blind the scanner to a real credential pasted
+# into the same test tomorrow; this entry stops matching the moment the line
+# changes.
+#
+# Deliberately no `paths` alongside it. A global allowlist's `paths` skips the
+# whole file *before* the content is examined, even with `condition = "AND"` —
+# verified: adding the path made gitleaks miss a genuine random secret planted
+# in that file. So the regex carries the whole scope on its own, which it can,
+# being an exact line match.
+[[allowlists]]
+description = "Fake JWT in auth_gate_integration_test.go: payload is {} and the signature is the word 'sig'"
+regexTarget = "line"
+regexes = ['''\{"token with no scheme", "eyJhbGciOiJIUzI1NiJ9\.e30\.sig"\},''']

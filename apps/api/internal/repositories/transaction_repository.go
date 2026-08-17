@@ -20,6 +20,12 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
+// ErrDonationPoolMissing means the HN-ACC-DONATION account does not exist.
+// It is a deployment fault rather than a request fault, so the handler answers
+// 503 and names the fix instead of 500 and naming nothing.
+var ErrDonationPoolMissing = errors.New(
+	"donation pool account HN-ACC-DONATION is missing — run `pnpm db:seed` against this database")
+
 func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, approverID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -624,8 +630,17 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		WHERE "accountNumber" = 'HN-ACC-DONATION'
 		FOR UPDATE
 	`).Scan(&donationAccID, &donationUserID, &donationBalance)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Nothing in the schema, the migrations or the application created this
+		// row until 2026-08-17 — only a test did — so on a fresh deployment
+		// every donation failed here and the admin saw "Failed to record
+		// donation" with nothing to act on. `pnpm db:seed` creates it now; this
+		// error exists so that if it is ever missing again, the message says
+		// which row and which command (TEST-18).
+		return "", ErrDonationPoolMissing
+	}
 	if err != nil {
-		return "", fmt.Errorf("donation account not found")
+		return "", fmt.Errorf("read donation account: %w", err)
 	}
 
 	// Allocated from document_sequences like every other reference number

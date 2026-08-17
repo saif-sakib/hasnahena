@@ -441,11 +441,6 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 		return
 	}
 
-	if h.emailService == nil || !h.emailService.IsConfigured() {
-		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
-		return
-	}
-
 	var req struct {
 		Email             string `json:"email"`
 		Name              string `json:"name"`
@@ -468,6 +463,15 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 	role := strings.ToUpper(strings.TrimSpace(req.Role))
 	if role != "ADMIN" && role != "WORKER" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "role must be ADMIN or WORKER")
+		return
+	}
+
+	// Validate the request before reporting on the mail service. The other
+	// order answered 503 "Email service is not configured" to a caller who had
+	// sent an empty body — true, but not the thing they needed to hear, and it
+	// hid every request defect behind an environment one (TEST-18).
+	if h.emailService == nil || !h.emailService.IsConfigured() {
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
 		return
 	}
 
@@ -1004,7 +1008,21 @@ func (h *DashboardHandler) MarkLoanDefaulted(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.userRepo.MarkLoanDefaulted(r.Context(), req.LoanID, userID, req.Notes); err != nil {
-		utils.Error(w, http.StatusInternalServerError, "MARK_DEFAULT_FAILED", "Failed to mark loan as defaulted")
+		switch {
+		case errors.Is(err, repositories.ErrLoanIDRequired):
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "loanId is required")
+		case errors.Is(err, repositories.ErrLoanNotFound):
+			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "No loan with that id")
+		case errors.Is(err, repositories.ErrLoanNotDefaultable):
+			// 409, not 400: the request was well-formed, the loan is simply not
+			// in a state where defaulting it means anything. Most often this is
+			// a second click on a loan already defaulted — which used to re-run
+			// the recovery waterfall and take the money twice.
+			utils.Error(w, http.StatusConflict, "LOAN_NOT_DEFAULTABLE", err.Error())
+		default:
+			slog.Error("mark loan defaulted failed", "loanId", req.LoanID, "error", err)
+			utils.Error(w, http.StatusInternalServerError, "MARK_DEFAULT_FAILED", "Failed to mark loan as defaulted")
+		}
 		return
 	}
 
@@ -1053,6 +1071,14 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 
 	receiptNumber, err := h.userRepo.RecordDonation(r.Context(), auth.UserID, req.Amount, strings.TrimSpace(req.DonorName), strings.TrimSpace(req.Notes))
 	if err != nil {
+		if errors.Is(err, repositories.ErrDonationPoolMissing) {
+			// A deployment fault, not the caller's. 503 and the actual cause,
+			// because "Failed to record donation" gave whoever was standing at
+			// the counter nothing to do next.
+			utils.Error(w, http.StatusServiceUnavailable, "DONATION_POOL_MISSING", err.Error())
+			return
+		}
+		slog.Error("record donation failed", "error", err)
 		utils.Error(w, http.StatusInternalServerError, "RECORD_DONATION_FAILED", "Failed to record donation")
 		return
 	}
@@ -1157,6 +1183,14 @@ func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.userRepo.UpdateProfile(r.Context(), auth.UserID, req); err != nil {
+		// A phone or email already on another account is the caller's mistake
+		// and is fixable by them; answering 500 told them the server was
+		// broken and gave them nothing to correct (TEST-15).
+		if errors.Is(err, repositories.ErrDuplicateContact) {
+			utils.Error(w, http.StatusConflict, "CONTACT_ALREADY_IN_USE",
+				"That phone number or email address is already registered to another account")
+			return
+		}
 		utils.Error(w, http.StatusInternalServerError, "UPDATE_PROFILE_FAILED", "Failed to update profile")
 		return
 	}
@@ -2052,8 +2086,11 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "This loan is not active")
 			return
 		}
-		if strings.Contains(err.Error(), "exceeds remaining") {
-			utils.Error(w, http.StatusBadRequest, "EXCEEDS_REMAINING", "Payment amount exceeds remaining loan balance")
+		// errors.Is, not a substring: this now also arrives when two payments
+		// race and the second loses, where the message is the same but the
+		// cause is a concurrent posting rather than a mistyped amount.
+		if errors.Is(err, repositories.ErrRepaymentExceedsBalance) || strings.Contains(err.Error(), "exceeds remaining") {
+			utils.Error(w, http.StatusConflict, "EXCEEDS_REMAINING", "Payment amount exceeds the remaining loan balance")
 			return
 		}
 		utils.Error(w, http.StatusInternalServerError, "PAYMENT_FAILED", "Failed to process loan payment")

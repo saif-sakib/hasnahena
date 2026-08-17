@@ -25,7 +25,7 @@ Task IDs are stable — cite them in commits (`SEC-11: enforce blacklist in Next
 
 | Area | State | One-line verdict |
 |---|---|---|
-| **Ledger integrity** | `[x]` | LEDGER-01→04 all fixed 2026-08-17. Balance writes are relative and locked (ADR-015), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. 7 regression tests, each verified to fail against the pre-fix code |
+| **Ledger integrity** | `[x]` | LEDGER-01→06 all fixed 2026-08-17. Balance writes are relative and locked (ADR-015), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. LEDGER-05 and 06 came out of the testing plan: loan repayment had the *same* lost-update shape as LEDGER-01 in a method the first pass missed, and defaulting a loan twice recovered twice. Regression tests for every one, each verified to fail against the pre-fix code |
 | **Git history** | `[!]` | **39 files of member records are recoverable from history** — see SEC-10. The only item on this page that is a disclosure rather than a risk |
 | Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md). FR-10/FR-11 got their UI in WO-45; FR-12 is still partial because a worker-created loan skips the lifecycle |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is now race-proof under concurrent postings |
@@ -33,7 +33,7 @@ Task IDs are stable — cite them in commits (`SEC-11: enforce blacklist in Next
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | Both backends check `token_blacklist` on every authenticated request. SEC-01 for Go, SEC-11 for Next (closed 2026-08-17) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[~]` | **26** Go integration tests on real Postgres, Go unit tests on money maths (93.3% of `internal/money`), **59** web unit tests, **11** Playwright specs. **The gap is boundaries, not arithmetic:** 61 Go handlers, 65 routes and 21 Next route methods are at **0%** — see [testing.md](testing.md) |
+| Automated tests | `[x]` | **The boundary gap is closed.** All 64 Go routes and all 21 Next route methods are under an enumerated contract that fails if a route is added without one (TEST-15/16); every balance-writing repository method has a concurrency test and an audit test, kept honest by a census derived from the source (TEST-11/14). **156** web unit tests, **266** Next route-contract assertions, ~470 Go integration assertions, **10** Playwright specs. Phases 0–3 of [testing.md](testing.md) found and fixed eleven defects, two of them money-moving |
 | CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Both images are verified by **running** them. Images are not built in CI yet (PKG-06), and nothing in production uses them |
 | Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
@@ -59,7 +59,7 @@ Task IDs are stable — cite them in commits (`SEC-11: enforce blacklist in Next
 
 ## Phase −1 — Ledger integrity `[x]`
 
-**Four defects that destroyed or misreported money, all fixed 2026-08-17.** Each
+**Six defects that destroyed or misreported money, all fixed 2026-08-17.** Each
 was reproduced against a real Postgres 17, and each fix carries a regression test
 confirmed to fail against the pre-fix code first.
 
@@ -69,11 +69,17 @@ confirmed to fail against the pre-fix code first.
 | LEDGER-02 | Defaulting a loan with **no guarantor** marked it DEFAULTED and recovered nothing | Waterfall handles a null guarantor, inside one transaction |
 | LEDGER-03 | Loan approval notification divided by 100 | Removed — money is whole taka (ADR-002) |
 | LEDGER-04 | Donations numbered by wall clock, so two in the same second collided | Allocated from `document_sequences` (ADR-013) |
+| LEDGER-05 | **Loan repayment had LEDGER-01's exact shape** — the balance was read from the pool before the transaction opened, the "does it exceed what is owed" check used that stale read, and the write was an absolute value computed in Go. Ten concurrent ৳1,000 payments against a ৳5,000 loan all committed, leaving `accounts."loanBalance"` at **−5,000** | Every read moved inside the transaction and locked; the write is relative and carries its own guard, so the overpayment check and the write are one statement (ADR-015) |
+| LEDGER-06 | **Defaulting a loan twice recovered twice.** Nothing looked at the status being changed *from*, so a second click re-ran the recovery waterfall against savings deposited since — for a debt already settled | The loan row is locked and its status checked first: 404 unknown, 409 not defaultable. Table test over all nine `LoanStatus` values, plus a race proving one of six concurrent defaults wins |
 
-**Why a green suite missed two of them, which is the durable part:** the 17
-integration tests never ran two postings concurrently and never seeded a loan
-without a guarantor. Coverage bounds what was *executed*, never what was
-*checked*. The reasoning behind each fix is in
+**Why a green suite missed four of them, which is the durable part:** the
+integration tests never ran two postings concurrently, never seeded a loan
+without a guarantor, and never called any method twice. Coverage bounds what was
+*executed*, never what was *checked*. LEDGER-05 is the sharpest version of this:
+the fix for LEDGER-01 was reviewed, documented as ADR-015, and applied — to the
+four methods someone thought of. The fifth was found by a test that enumerates
+balance writers from the source rather than from memory, and that census now
+fails the build if a sixth appears. The reasoning behind each fix is in
 [decisions.md](decisions.md) and [Batch L](work-orders.md#completed--wo-01--wo-50).
 
 ---
