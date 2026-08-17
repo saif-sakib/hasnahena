@@ -16,7 +16,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['lib/**/*.test.ts'],
+    include: ['lib/**/*.test.ts', 'test/unit/**/*.test.ts'],
     // Anything reaching for a browser API or a database belongs in Playwright or
     // the Go integration suite, not here — keep this suite fast enough that
     // there is never a reason to skip it.

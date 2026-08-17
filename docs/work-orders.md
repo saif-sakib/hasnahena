@@ -333,6 +333,20 @@ clean tree).
   briefly looked like the test being weak rather than the revert being partial.
   Restore the method from `git show HEAD:<path>`, not by editing back what you
   remember changing.
+- **A detector must search code, not prose.** A rule forbidding the word
+  "markup" in the money paths flagged `loan_repository.go` — for its own header
+  comment, which states the rule. A check that fires on its own documentation
+  teaches people to delete the documentation. Strip comments first.
+- **Measure a layout, do not look at it.** The statement's Reference column was
+  0.44 mm too narrow, so every 15-character receipt number wrapped mid-digit on
+  every printed statement. Nobody spotted it in a PDF viewer; a test computing
+  the rendered text width against the column width found it immediately, and
+  found a second overflowing column on its first run.
+- **A config key nothing reads is worse than a missing one.**
+  `loan.noticePeriodMonths` is declared and editable in the admin settings page,
+  and no code path consults it — so the UI reports a policy the system does not
+  apply. When checking whether a feature exists, search the *enforcement*
+  surface, not the settings.
 
 ### Go
 

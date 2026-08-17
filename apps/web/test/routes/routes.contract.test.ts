@@ -27,7 +27,7 @@ import {
   disconnectTestPrisma,
   TEST_JWT_SECRET,
   type TestRole,
-} from './route-harness';
+} from '../route-harness';
 
 import * as auditLogs from '@/app/api/v1/admin/audit-logs/route';
 import * as adminWorkers from '@/app/api/v1/admin/workers/route';

@@ -15,7 +15,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['test/**/*.test.ts'],
+    include: ['test/routes/**/*.test.ts'],
     // Route handlers share one Prisma client and one database. Running files in
     // parallel would have them seeding and reading the same rows.
     fileParallelism: false,

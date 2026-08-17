@@ -166,20 +166,46 @@ export function documentIdFromReference(prefix: string, reference?: string): str
 }
 
 /**
- * Drop characters the PDF renderer's standard fonts cannot encode.
+ * Make text drawable by the PDF renderer's standard fonts.
  *
  * Documents are English only, but letterhead values come from `system_config`
  * and notes are typed by members, so a Bengali string can still reach a
- * template. Helvetica encodes WinAnsi; anything outside it renders as mojibake.
+ * template. Helvetica encodes Latin-1; anything outside it renders as mojibake.
  * Removing it up front makes the failure visible and predictable — a dash where
  * the text would have been — instead of a page of corrupted glyphs.
+ *
+ * Typographic punctuation is **transliterated, not dropped**. jsPDF discards
+ * anything above U+00FF silently, which is worse than mojibake because the
+ * result still reads as a sentence: `0% — Qard al-Hasan` printed as
+ * `0%  Qard al-Hasan`, and the loan agreement's default clause — the one naming
+ * whose savings get taken — printed as "the borrowers own savings, then the
+ * guarantors savings", turning two possessives into plurals. Worst of all,
+ * `orDash`'s own `—` placeholder vanished, so an empty field printed as a blank
+ * gap: exactly the failure this function was written to prevent (TEST-24).
  */
-const PDF_SAFE = /[^\x20-\x7E\xA0-\xFF‐-―‘-”†•…‰€™]/g;
+const TRANSLITERATE: Array<[RegExp, string]> = [
+  [/[‐-―]/g, '-'], // hyphen, en dash, em dash, horizontal bar
+  [/[‘’‚‛]/g, "'"],
+  [/[“”„‟]/g, '"'],
+  [/…/g, '...'],
+  [/•/g, '·'], // bullet -> middle dot, which Latin-1 has
+  [/†/g, '+'], // dagger
+  [/‰/g, '%'], // per mille
+  [/€/g, 'EUR'],
+  [/™/g, '(TM)'],
+];
+
+/** Anything still outside Latin-1 after transliteration cannot be drawn. */
+const NOT_LATIN1 = /[^\x20-\x7E\xA0-\xFF]/g;
 
 export function toPdfSafe(text: string): string {
-  const cleaned = text.replace(PDF_SAFE, '').replace(/\s+/g, ' ').trim();
+  let out = text;
+  for (const [pattern, replacement] of TRANSLITERATE) {
+    out = out.replace(pattern, replacement);
+  }
+  const cleaned = out.replace(NOT_LATIN1, '').replace(/\s+/g, ' ').trim();
   // A value that was entirely non-Latin would otherwise print as an empty gap.
-  return cleaned.length > 0 || text.trim().length === 0 ? cleaned : '—';
+  return cleaned.length > 0 || text.trim().length === 0 ? cleaned : '-';
 }
 
 /** Safe, readable download filename stem. */

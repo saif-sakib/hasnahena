@@ -42,13 +42,16 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-Adding a route? Both contract suites enumerate rather than list, so a new route
-with no contract row **fails the build** until you say who may call it:
-`apps/api/cmd/server/routes_integration_test.go` (walks the chi router) and
-`apps/web/test/routes.contract.test.ts` (walks `app/api` on disk). Same for a
-new repository method that writes a balance —
-`TestBalanceWritersAreEnumerated` demands a concurrency test and an audit test
-for it. That is deliberate; see [docs/testing.md](docs/testing.md).
+**Four suites enumerate rather than list, and will fail the build when the code
+grows something they do not know about.** That is deliberate; see
+[docs/testing.md](docs/testing.md).
+
+| Add this | And this fails until you act |
+|---|---|
+| a Go route | `cmd/server/routes_integration_test.go` — walks the chi router; declare who may call it |
+| a Next route file | `apps/web/test/routes/routes.contract.test.ts` — walks `app/api` on disk |
+| a repository method that writes a balance | `TestBalanceWritersAreEnumerated` — demands a concurrency test and an audit test |
+| an FR, or a change of FR status | `apps/web/test/unit/requirements.test.ts` — `product.md`, `tasks.md` and the code must agree, and a requirement marked `[~]` must **still** be unimplemented in the source |
 
 ## Rules
 

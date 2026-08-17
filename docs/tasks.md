@@ -22,7 +22,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > [WO-28](work-orders.md).
 >
 > **`[x]` The boundaries are under contract now.** [testing.md](testing.md)
-> Phases 0–3 are done. All 64 Go routes and all 21 Next route methods have an
+> Phases 0–5 are done. All 64 Go routes and all 21 Next route methods have an
 > enumerated access contract that fails the build if a route is added without
 > one; every balance-writing repository method has a concurrency test and an
 > audit test. Eleven defects found and fixed, **two of them money-moving**:
@@ -30,7 +30,12 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > loan twice recovered twice (LEDGER-06). A third was inert but fatal on first
 > use — the `HN-ACC-DONATION` account was never created by anything, so
 > recording a donation would have failed the first time anyone tried.
-> Next up: **`do TEST-20`** (domain rules, FR-01…22).
+> Phases 4 and 5 added a three-way check between this table, `product.md` and
+> the code — **a requirement marked `[~]` here now has to still be incomplete in
+> the source**, or the suite fails naming the file that implements it. It caught
+> three rows on this page that were wrong. Phase 5 found the statement PDF
+> printing every receipt number wrapped mid-digit.
+> Next up: **`do TEST-26`** (interface).
 >
 > **Recently fixed, with regression tests confirmed red first:** the four ledger
 > defects that destroyed money under concurrent postings (Batch L); the admin

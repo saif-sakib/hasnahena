@@ -7,19 +7,20 @@ measured coverage, not impressions.
 Read the phases in order. Each is a batch with an ID (`TEST-01`), a definition
 of done, and the bugs it is expected to surface. Prompt with **`do TEST-10`**.
 
-> **Phases 0, 1, 2 and 3 are done (2026-08-17).** Between them they found and
-> fixed **eleven defects**, two of which moved money incorrectly:
-> `AddMemberLoanPayment` accepted concurrent overpayments and drove an account's
-> loan balance to −5000 ([What Phase 2 found](#what-phase-2-found)), and
-> `MarkLoanDefaulted` re-ran the whole recovery waterfall on a second click,
-> taking a borrower's savings twice for one debt. A third was inert rather than
-> wrong: nothing in the schema, the migrations or the application ever created
-> the `HN-ACC-DONATION` account, so **recording a donation would have failed on
-> the first real attempt**.
+> **Phases 0 through 5 are done (2026-08-17).** Fourteen defects found and
+> fixed, two of which moved money incorrectly: `AddMemberLoanPayment` accepted
+> concurrent overpayments and drove an account's loan balance to −5000
+> ([Phase 2](#what-phase-2-found)), and `MarkLoanDefaulted` re-ran the whole
+> recovery waterfall on a second click, taking a borrower's savings twice for one
+> debt. Two more were inert until first use: the `HN-ACC-DONATION` account was
+> never created by anything, so **recording a donation would have failed the
+> first time anyone tried**; and the statement PDF printed every receipt number
+> wrapped mid-digit, so the reference a member quotes at a counter was wrong on
+> **every statement** ([Phase 5](#what-phase-5-found)).
 >
-> Counts: Go integration 26 → **~470 assertions**, web unit 131 → **156**,
-> and **266** new Next route-contract assertions. **Next up: `do TEST-20`**
-> (Phase 4, domain rules).
+> Counts: web unit 131 → **336**, Next route contracts **266**, Go integration
+> 26 tests → **~700 assertions**, plus 400,000 property iterations over the loan
+> arithmetic. **Next up: `do TEST-26`** (Phase 6, interface).
 
 ---
 
@@ -338,7 +339,7 @@ route answers 5xx to any of the 21 hostile bodies or 10 hostile query strings.
 
 ---
 
-## Phase 4 — Domain rules `TEST-20 … TEST-22`
+## Phase 4 — Domain rules `TEST-20 … TEST-22` — **done**
 
 | ID | Target |
 |---|---|
@@ -346,12 +347,61 @@ route answers 5xx to any of the 21 hostile bodies or 10 hostile query strings.
 | **TEST-21** | The Shariah invariant, mechanically: no rate, markup or fee field reachable from any money path; total repaid can never exceed principal, property-tested over random schedules |
 | **TEST-22** | Lifecycle state machines: loan `PENDING_GUARANTOR → … → COMPLETED`, withdrawal request → process → confirm. Every illegal transition rejected. Collapse the legacy `PENDING`/`APPROVED` values while you are here |
 
-**Expected findings:** partially-implemented FRs currently marked `[~]`, and
-illegal transitions that succeed because nothing checks them.
+**Done 2026-08-17.** `apps/web/test/unit/requirements.test.ts` and
+`apps/api/internal/repositories/lifecycle_integration_test.go`, plus
+`apps/api/internal/money/shariah_test.go`.
+
+**TEST-20 is not 22 hand-written tests.** That would satisfy the letter of "one
+test per requirement" and none of the intent — it drifts the moment a
+requirement is added, renamed, or quietly implemented. Instead the enumeration
+comes from `product.md`, the status from `tasks.md`, and the suite holds one row
+per FR saying either where it is covered or what is still missing. Three things
+must agree, and any two disagreeing fails.
+
+The sharpest part is the gap assertions: a requirement marked `[~]` claims
+something is absent, and the row proves it *stays* absent by searching the
+source. Implement the withdrawal notice period without updating the status board
+and the suite fails, naming the file that now implements it. Verified by
+planting a `checkNoticePeriod` function and watching it fire.
+
+### What Phase 4 found
+
+**No defect in the state machines** — every illegal transition was already
+refused, across all six `TransactionStatus` and all nine `LoanStatus` values.
+That is worth stating plainly rather than padding: the lifecycle was sound, and
+is now pinned instead of assumed, including the "refused *and* inert" half —
+a rejected approval must also have moved no money and changed no status.
+
+What it did find was **three status-board errors of my own making**, which is
+exactly what the three-way check exists to catch: FR-18, FR-21 and FR-22 are
+`[~]` in `tasks.md` and I had recorded them as covered. The suite refused the
+mismatch and named each one.
+
+Two things worth recording:
+
+- **A detector must search code, not prose.** The first run flagged
+  `loan_repository.go` for containing the word "markup" — in its own header
+  comment, which says *"Nothing here may compute a rate, a markup or a fee"*. A
+  rule that fires on its own statement trains people to delete the
+  documentation. Comments are stripped before searching now.
+- **`loan.noticePeriodMonths` exists as a config key and is editable in the
+  admin UI, while nothing reads it.** The setting reports a policy the system
+  does not apply. The FR-08 gap search is scoped to the enforcement surface for
+  that reason — matching the settings page would prove only that the key exists,
+  which is not the claim being made.
+
+**One thing flagged rather than fixed (rule 3).** The loan agreement prints
+*"Late payment may attract a fixed, interest-free late fee as set by foundation
+policy"*, and FR-13 asks for late-fee flags "per policy" — but nothing
+implements one, and no policy document says **who would keep it**. That is the
+whole question: a penalty retained by the lender is riba on the mainstream
+reading, while one paid entirely to charity is the form scholars permit. The
+suite pins the tension in both directions: implementing a fee fails, and
+removing the printed term fails.
 
 ---
 
-## Phase 5 — Generated documents `TEST-23 … TEST-25`
+## Phase 5 — Generated documents `TEST-23 … TEST-25` — **done**
 
 Members keep this paper. A wrong number here is argued about at a counter.
 
@@ -360,6 +410,48 @@ Members keep this paper. A wrong number here is argued about at a counter.
 | **TEST-23** | All four builders against golden models: statement, receipt, loan agreement, certificate |
 | **TEST-24** | **HTML and PDF renderers cannot drift** — same model, same visible content, asserted structurally rather than by pixel |
 | **TEST-25** | Amount formatting at boundaries (0, lakh, crore) · pagination at the page break · long names and addresses · English-only enforcement (ADR-012) · document numbers from `document_sequences` only (ADR-013) |
+
+**Done 2026-08-17.** 151 tests across `builders.test.ts`,
+`render-parity.test.ts` and `boundaries.test.ts`.
+
+**TEST-24 is asserted structurally, not by pixel.** The question is not "do
+these look the same" — they deliberately do not, one is a web page and one is
+A4 — but "does every fact in the model reach both outputs". The HTML is stripped
+of markup; the PDF is read back out of jsPDF's own content streams, so a string
+passed to a drawing call that never landed on a page cannot pass. Two documented
+differences are normalised away and nothing else: case (both uppercase the same
+five places, one in CSS and one in code) and typographic punctuation.
+
+### What Phase 5 found
+
+**TEST-23 found nothing** — all 40 builder tests passed first run. The builders
+were correct. The defects were all in the *rendering*.
+
+1. **The PDF silently dropped typographic punctuation.** jsPDF discards anything
+   above U+00FF without complaint, and `toPdfSafe`'s allowlist passed those
+   characters straight to it. The loan agreement's default clause — the one
+   naming whose savings are taken — printed as *"the borrowers own savings, then
+   the guarantors savings"*, two possessives read as plurals. `0% — Qard
+   al-Hasan` printed as `0%  Qard al-Hasan`. Worst of all, `orDash`'s own `—`
+   placeholder vanished, so an **empty field printed as a blank gap** — exactly
+   the failure that function was written to prevent. Now transliterated to
+   Latin-1 rather than passed along to be dropped.
+2. **Every receipt number on every statement wrapped mid-digit.** The Reference
+   column was 0.15 of the content width — 22.7 mm usable — and a 15-character
+   document number measures 23.14 mm at the table's 8 pt Helvetica. Short by
+   0.44 mm, so `DEP-2026-000001` printed as `DEP-2026-00000` with a stray `1`
+   on the line below. A member reading that off a printed statement to query a
+   transaction transcribes it wrong. Only reachable at all *because* ADR-013
+   made document numbers sequential and therefore uniformly 15 characters.
+3. **`BALANCE (BDT)` overflowed its column into `DEBIT (BDT)` beside it** —
+   18.02 mm of header in a 17.36 mm column, drawn without wrapping. Found by the
+   measurement written for defect 2, on its first run.
+
+The durable part is that measurement. `table columns fit their content` computes
+the rendered width of the widest cell and header against the column it has to
+fit in, so the next column that is a fraction too narrow fails there instead of
+on a member's printed statement. Eyeballing a PDF is what let a 0.44 mm shortfall
+ship.
 
 ---
 
@@ -433,8 +525,8 @@ the existing convention — Phase 8 is the consolidation, not the write-up.
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers |
-| `pnpm test:go` | nothing | pure Go: money arithmetic, utils, middleware |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, and the FR/status/code three-way check |
+| `pnpm test:go` | nothing | pure Go: money arithmetic (including 400k property iterations), utils, middleware |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps |
 | `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server |
 | `pnpm test:e2e` | full stack | browser journeys, on a phone viewport |
