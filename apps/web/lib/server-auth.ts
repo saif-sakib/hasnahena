@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from './api';
 import { verifyHs256Jwt } from './jwt';
+import { checkRevocation, RevocationCheckError } from './auth-revocation';
 
 type AuthenticatedUser = {
   id: string;
@@ -48,6 +49,23 @@ export async function authenticateServerActionToken(
     try {
       const claims = verifyHs256Jwt(trimmed, secret);
       if (claims.sub) {
+        // SEC-11. Local verification proves the token was signed by us and has
+        // not expired; it says nothing about whether it was revoked. Without
+        // this check a token kept working after logout, after a password change
+        // and after an admin revoked the user — on every Next endpoint,
+        // including the one that sets loan policy.
+        //
+        // The `fetchUserFromApi` fallback below *would* have been
+        // blacklist-checked by the Go API, but it only runs when JWT_SECRET is
+        // unset or verification throws, i.e. never in a correct deployment.
+        const revocation = await checkRevocation(
+          trimmed,
+          claims.sub,
+          typeof claims.iat === 'number' ? claims.iat : undefined,
+        );
+        if (revocation.revoked) {
+          return { ok: false, error: 'Session has been revoked' };
+        }
         return {
           ok: true,
           user: {
@@ -56,8 +74,14 @@ export async function authenticateServerActionToken(
           },
         };
       }
-    } catch {
-      // Fallback to API verification for production env mismatches.
+    } catch (err) {
+      // A failed *revocation lookup* must not fall through to the API path and
+      // quietly succeed — that would turn a database blip into a bypass.
+      if (err instanceof RevocationCheckError) {
+        return { ok: false, error: 'Could not verify session state' };
+      }
+      // Otherwise the token did not verify locally; fall back to the API, which
+      // covers a production env mismatch.
     }
   }
 

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { requireActiveAuth } from '@/lib/auth-revocation';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
@@ -34,7 +34,7 @@ const GO_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL |
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
@@ -254,7 +254,7 @@ export async function PUT(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
@@ -345,7 +345,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     if (!['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase())) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }

@@ -5,7 +5,14 @@ A staged plan to get this codebase from "the parts we looked at work" to
 measured coverage, not impressions.
 
 Read the phases in order. Each is a batch with an ID (`TEST-01`), a definition
-of done, and the bugs it is expected to surface. Prompt with **`do TEST-05`**.
+of done, and the bugs it is expected to surface. Prompt with **`do TEST-10`**.
+
+> **Phase 1 is done and Phase 0 is done bar TEST-03 (2026-08-17).** The harness exists
+> (`pnpm test:stack`), the security primitives are tested, and the three defects
+> they turned up are fixed — see [What Phase 1 found](#what-phase-1-found).
+> Web unit tests went 59 → 131; `internal/handlers` went from no test file at
+> all to 29 assertions over the authorization gate. **Next up: `do TEST-10`**,
+> or Phase 3 if you would rather take the larger yield first.
 
 ---
 
@@ -20,14 +27,14 @@ Measured, not estimated — `go test ./... -cover` and a file census.
 | Go `internal/middleware` | rate limit, logging | 2 files | 52.6% |
 | Go `internal/repositories` | **66 exported methods** | 26 integration tests | needs a database |
 | Go `internal/services` | security service | 1 file | **0.3%** |
-| Go `internal/handlers` | **61 methods** | **none** | **0%** |
+| Go `internal/handlers` | **61 methods** | 29 assertions on the auth gate (Phase 1) | the other 60 methods untested |
 | Go `cmd/server` | **65 routes** | **none** | **0%** |
 | Go `internal/config` | env parsing, the boot contract | **none** | **0%** |
 | Go `internal/observability`, `models` | | **none** | **0%** |
 | Next route handlers | **21 methods across 11 files** | **none** | **0%** |
-| Next `lib/` | 32 modules | **4 tested** | 28 untested |
+| Next `lib/` | 33 modules | **9 tested** (Phase 1 added jwt, auth, auth-revocation, cors, rate-limit) | 24 untested |
 | Components | 26 | **none** | — |
-| Pages | 39 | 2 Playwright specs | — |
+| Pages | 39 | 11 Playwright specs, now in CI | — |
 
 **The shape of the gap: the arithmetic is well tested and the boundaries are
 not.** Everything that decides *who may do what*, *what a request is allowed to
@@ -42,10 +49,11 @@ loan applications impossible. Neither was arithmetic. Both were boundaries.
 ## 2. Evidence that the gap is real
 
 Twenty minutes of probing the untested security primitives, before writing any
-of this plan, turned up two defects. They are listed here because they set the
-expectation for what the phases will find.
+of this plan, turned up two defects. **Both are fixed** (Phase 1) — they are
+kept here because they are the argument for the rest of the plan: this is what
+an untested boundary looks like, and it took twenty minutes to find two.
 
-### `lib/jwt.ts` throws the wrong error class
+### `lib/jwt.ts` threw the wrong error class `[x]`
 
 ```
 sig="short"      -> THROWS RangeError: Input buffers must have the same byte length
@@ -57,7 +65,7 @@ sig=""           -> THROWS RangeError: Input buffers must have the same byte len
 with a truncated signature never reaches `throw new Error('Invalid token
 signature')`.
 
-### Six of eight auth failures return 500 where 401 belongs
+### Six of eight auth failures returned 500 where 401 belongs `[x]`
 
 Five Next route handlers decide the status code by **substring-matching the
 error message**:
@@ -123,7 +131,7 @@ valid input, invalid input, hostile input, and concurrent input.
 
 ---
 
-## Phase 0 — Make testing cheap `TEST-01 … TEST-04`
+## Phase 0 — Make testing cheap `TEST-01 … TEST-04` — **TEST-03 still open**
 
 Everything after this is gated on it. Today, exercising an endpoint means hand-
 starting Postgres, running migrations, minting a JWT with a shell script and
@@ -133,14 +141,27 @@ tearing it all down — which is why it rarely happens.
 |---|---|---|
 | **TEST-01** | One command brings up Postgres, migrates, seeds deterministic fixtures, starts both servers, and tears down on exit. `pnpm test:stack` | A cold clone runs the full suite with one command |
 | **TEST-02** | Go handler harness: `httptest` server over the real router with a test database, plus a helper that mints tokens for each role | Any of the 65 routes can be exercised in ~5 lines |
-| **TEST-03** | Next route-handler harness: call the exported `GET`/`POST` with a constructed `Request`, against a test database | Any of the 21 methods testable without a browser |
+| **TEST-03** `[ ]` | Next route-handler harness: call the exported `GET`/`POST` with a constructed `Request`, against a test database | Any of the 21 methods testable without a browser |
 | **TEST-04** | CI runs Playwright; coverage is reported per package with a ratchet that can only go up | A PR that drops coverage fails |
 
-**Expected findings:** none. This is scaffolding.
+**Done 2026-08-17.** `scripts/test-stack.sh` brings up Postgres 17 on a
+non-default port, migrates (not `db push` — ADR-014), seeds, optionally starts
+both servers, and prints the exports each suite needs. `--serve` and `down` are
+one flag apart, and `down` destroys the volume: these suites truncate tables, so
+the database must be one nobody minds losing. The Go handler harness is
+`auth_gate_integration_test.go` — a real chi router, a real database, a token
+minted the way login mints one. Playwright now runs in CI on a Pixel 7 viewport.
+
+**TEST-03 was not built** and is deliberately left open. Phase 1 tested the
+`lib/` modules directly, which needed no route harness; the harness is only
+required once Phase 3 starts driving the 21 route methods, so it belongs there
+rather than as speculative scaffolding. **Do it as the first item of TEST-16.**
+
+**Findings:** none. This was scaffolding, as expected.
 
 ---
 
-## Phase 1 — Authentication and authorization `TEST-05 … TEST-09`
+## Phase 1 — Authentication and authorization `TEST-05 … TEST-09` — **done**
 
 Highest risk per line in the codebase, and currently at 0%.
 
@@ -152,8 +173,32 @@ Highest risk per line in the codebase, and currently at 0%.
 | **TEST-08** | Go auth/role middleware | each role against each `/admin` route · expired · blacklisted · malformed · **role escalation via a second token in the body** |
 | **TEST-09** | **SEC-11**, already known open | a revoked token must be refused by the *Next* handlers too, not only Go |
 
-**Expected findings:** the two above, plus proxy-header trust and CORS
-edge cases. Treat anything found here as production-blocking.
+**Done 2026-08-17.** 62 new tests across `jwt`, `auth`, `auth-revocation`,
+`cors` and `rate-limit`, plus 29 assertions over the Go authorization gate.
+
+### What Phase 1 found
+
+**Three defects, all fixed, each with a test seen to fail first.**
+
+1. **Malformed tokens crashed instead of being rejected.** `timingSafeEqual`
+   throws on unequal-length buffers, so a truncated signature escaped as a
+   `RangeError`. Four tests failed against the pre-fix code with exactly that
+   symptom.
+2. **Six of eight auth failures answered 500 instead of 401**, including
+   `Token expired`. Replaced with an `AuthError` carrying its own status —
+   the status now travels with the error instead of being re-derived from prose,
+   so rewording a message can no longer change an HTTP contract.
+3. **SEC-11 — the Next handlers ignored revocation.** Now closed:
+   `requireActiveAuth` checks `token_blacklist` on all six `requireAuth`
+   routes, and `server-auth.ts` checks it for settings, gallery and avatar
+   upload. Both mechanisms mirror the Go implementation, including the
+   whole-second `iat` truncation without which first login is born revoked.
+   It **fails closed** — the opposite of the rate limiter, deliberately.
+
+The Go gate was already sound: a demoted member presenting a stale
+`SUPER_ADMIN` claim is refused because the role is re-read from the database,
+and inactive, suspended and deleted accounts are all rejected mid-token-lifetime.
+Those are now pinned rather than assumed.
 
 ---
 

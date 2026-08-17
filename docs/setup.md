@@ -239,10 +239,18 @@ of settings that were never wired up (`SESSION_SECRET`, `SESSION_MAX_AGE`,
 ## Tests
 
 ```bash
+pnpm test:unit         # Web unit tests (vitest). No database, ~1s
 pnpm test:go           # Go unit tests. Pure arithmetic, no database, fast
 pnpm test:integration  # Go against a real Postgres. Needs TEST_DATABASE_URL
 pnpm test:e2e          # Playwright. Needs the stack running and a seeded local DB
 ```
+
+The split is deliberate: the first two must stay fast enough to run on every
+save, so nothing needing a database belongs in them.
+
+**Where coverage actually is, and the plan to fix it:**
+[testing.md](testing.md). The short version — the money arithmetic is at 93%,
+and the 86 HTTP endpoints in front of it are at zero.
 
 ### Integration tests
 

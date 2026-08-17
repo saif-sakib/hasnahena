@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { authErrorStatus } from '@/lib/auth';
+import { requireActiveAuth } from '@/lib/auth-revocation';
 import { serializeLoan } from '@/lib/api-utils';
 import { SERIES, nextDocumentNumber } from '@/lib/document-numbers';
 import { LoanStatus, UserRole } from '@prisma/client';
@@ -65,7 +66,7 @@ async function getLoanPolicySettings() {
 
 export async function POST(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     const payload = bodySchema.parse(await req.json());
 
     const borrower = await prisma.user.findUnique({
@@ -253,7 +254,8 @@ export async function POST(req: Request) {
     }
     const msg = typeof (err as any)?.message === 'string' ? (err as any).message : 'Server error';
     console.error('[Loans/Applications] Error:', msg);
-    if (msg.toLowerCase().includes('authorization')) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const authStatus = authErrorStatus(err);
+    if (authStatus) return NextResponse.json({ ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' }, { status: authStatus });
     return NextResponse.json({ ok: false, error: 'Failed to create loan application', ...(isDev && { details: msg }) }, { status: 500 });
   }
 }

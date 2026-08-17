@@ -1,11 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { authErrorStatus } from '@/lib/auth';
+import { requireActiveAuth } from '@/lib/auth-revocation';
 
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
 
     // Only admins can view audit logs
     if (auth.role !== 'ADMIN' && auth.role !== 'SUPER_ADMIN') {
@@ -83,8 +84,12 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error('[AuditLogs GET] Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    if (message.toLowerCase().includes('authorization')) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const authStatus = authErrorStatus(error);
+    if (authStatus) {
+      return NextResponse.json(
+        { ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' },
+        { status: authStatus },
+      );
     }
     return NextResponse.json({ ok: false, error: 'Failed to fetch audit logs' }, { status: 500 });
   }

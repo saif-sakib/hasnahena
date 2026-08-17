@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { authErrorStatus } from '@/lib/auth';
+import { requireActiveAuth } from '@/lib/auth-revocation';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 import { UserRole } from '@prisma/client';
 import { isStandardMemberId } from '@/lib/member-id';
@@ -39,7 +40,7 @@ import { isStandardMemberId } from '@/lib/member-id';
  */
 export async function GET(req: Request) {
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     if (auth.role !== UserRole.MEMBER) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
@@ -88,8 +89,12 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const msg = typeof (err as Error)?.message === 'string' ? (err as Error).message : 'Server error';
-    if (msg.toLowerCase().includes('authorization')) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const authStatus = authErrorStatus(err);
+    if (authStatus) {
+      return NextResponse.json(
+        { ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' },
+        { status: authStatus },
+      );
     }
     console.error('[Members/Lookup] Error:', msg);
     return NextResponse.json({ ok: false, error: 'Lookup failed' }, { status: 500 });

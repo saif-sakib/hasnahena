@@ -14,47 +14,31 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
 ## Read this first
 
-> **`[x]` The ledger defects are fixed (2026-08-17).** Concurrent postings used
-> to destroy money — 20 simultaneous ৳1,000 deposits left a ৳1,000 balance
-> against ৳20,000 of transaction rows — and defaulting a loan with **no
-> guarantor** marked it DEFAULTED while recovering nothing. All four
-> [LEDGER defects](production-readiness.md#phase-1--ledger-integrity-defects) are
-> closed by [WO-41 → WO-43](work-orders.md#batch-l--ledger-integrity), with 7
-> regression tests each verified to fail against the pre-fix code. Integration
-> suite: 17 → 24.
->
-> **`[x]` Admin settings and registration are fixed (2026-08-17).** Neither
-> worked. The settings page could not save *any* setting — the form posted 48
-> config keys against a 21-key allow-list and the endpoint rejects the whole
-> request on one unknown key. Separately, no loan application could be created
-> at all: the TypeScript document-number allocator omitted a `NOT NULL` column,
-> so the first allocation of a series each year failed and the upsert's conflict
-> path was never reached. Registration's "form needs attention" message was
-> being written to a part of the page a phone user could not see. See
-> [Batch M](work-orders.md#batch-m--admin-settings-and-registration--done-2026-08-17)
-> — 9 browser specs on a Pixel 7 viewport and 27 unit tests, all confirmed to
-> fail against the pre-fix code.
->
 > **`[!]` Member records are recoverable from git history.** 39 files under
 > `Official Infos/` — member details, savings and loan ledgers, check books — were
 > committed in `f152f0c` and deleted in `9306120`. Deleting a file removes it from
-> the working tree and from nothing else. See
-> [SEC-10](production-readiness.md)
-> and [WO-28](work-orders.md). This is the only open item that is a disclosure
-> rather than a risk.
+> the working tree and from nothing else. This is the only open item that is a
+> disclosure rather than a risk: [SEC-10](production-readiness.md) ·
+> [WO-28](work-orders.md).
+>
+> **`[~]` The boundaries are mostly untested.** The money arithmetic is at 93%;
+> 60 of 61 Go handlers and all 21 Next route methods have no test. Every defect
+> found in the last three audits lived at a boundary, not in the arithmetic.
+> [testing.md](testing.md) is the plan — Phases 0 and 1 are done and found three
+> more: malformed tokens crashed rather than being refused, an expired session
+> answered 500 instead of 401, and the Next handlers honoured revoked tokens
+> (SEC-11). Next up: **`do TEST-10`**.
+>
+> **Recently fixed, with regression tests confirmed red first:** the four ledger
+> defects that destroyed money under concurrent postings (Batch L); the admin
+> settings page, which could not save *any* setting; the document-number
+> allocator, which made loan applications impossible; and registration on a
+> phone (Batch M). Details in
+> [work-orders.md](work-orders.md#completed--wo-01--wo-50).
 >
 > **Going to production?** Read [go-live.md](go-live.md) first. It orders the
 > remaining work by *what gets more expensive once real member data exists*,
 > which is a different order from this page.
->
-> **`[x]` Guarantor approval is fixed (2026-08-16).** It validated loan ids
-> against a UUID regex while every id is `@default(cuid())`, so FR-11 had never
-> worked for any loan. Verified end to end against a real database: a real cuid
-> now returns 200 and moves the loan `PENDING_GUARANTOR` → `PENDING_APPROVAL`; a
-> junk id returns 404 instead of 400.
->
-> **`[x]` Batch G is merged to `main`** (PR #13). Next 16 / React 19 / Tailwind 4
-> / next-intl 4, `pnpm audit` 41 → 0.
 >
 > **Run `pnpm db:migrate` before deploying** — schema changes ship as migrations,
 > not `db push` ([ADR-014](decisions.md)).

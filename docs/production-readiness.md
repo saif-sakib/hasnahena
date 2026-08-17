@@ -1,66 +1,23 @@
 # Production Readiness Map
 
-Everything between today's free-tier deployment and a platform that can be run
-on a VPS or AWS by someone who is not the author. Audited against the code on
-**2026-08-16**, and re-audited **2026-08-17** against a running Postgres 17 —
-every `[x]` below was re-verified against the source, not carried forward from
-the previous pass.
+Everything between today's free-tier deployment and a platform that can be run on
+a VPS by someone who is not the author. Re-verified against the source on
+**2026-08-17**.
 
-> ## Ledger defects — found and fixed 2026-08-17
->
-> The audit found **four defects that destroyed or misreported money**, proved
-> against a real database rather than by reading. **All four are fixed**
-> ([WO-41 → WO-43](work-orders.md#batch-l--ledger-integrity)), each with a
-> regression test confirmed to fail against the pre-fix code. The integration
-> suite went 17 → 24 tests.
->
-> They are kept in full in [Phase −1](#phase-1--ledger-integrity-defects)
-> because the *reasoning* is the durable part: two of them were invisible to a
-> green suite, and the reason they were invisible is a property of the suite
-> that is worth not re-creating.
->
-> **Also closed 2026-08-17:** SEC-13 (the member loans endpoint returned the 50
-> wealthiest members' names and savings balances to any signed-in member) and
-> [WO-45](work-orders.md) (the loan-application and guarantor UI, which is how
-> SEC-13 was found).
->
-> **Still open from this audit:** [SEC-11](#sec-11--the-nextjs-surface-ignores-token-revocation)
-> — the Next handlers still do not check the token blacklist. It is now the
-> largest open defect on this page after SEC-10.
+This file is the **operational** backlog and the *why*. [tasks.md](tasks.md)
+tracks *product* work (FR-01…22); [work-orders.md](work-orders.md) is the *what
+to change*; [testing.md](testing.md) is the plan to prove any of it.
 
-> ## Admin settings and registration — found and fixed 2026-08-17
->
-> A second pass **drove** the two surfaces the first pass had cleared by
-> reading. Both were broken. Full write-ups in
-> [Batch M](work-orders.md#batch-m--admin-settings-and-registration--done-2026-08-17).
->
-> - **No admin setting could be saved at all.** The form posted 48 config keys
->   against a 21-key allow-list, and the endpoint rejects the whole request on
->   one unknown key — so loan policy and organisation details failed too, not
->   just the landing copy (WO-46).
-> - **No loan application could be created, ever.** The TypeScript document-number
->   allocator omitted `"updatedAt"`, which is `NOT NULL` with no database
->   default, so the first `INSERT` for a series in a year failed and the
->   `ON CONFLICT` path was therefore never reached (WO-49). The Go allocator has
->   named that column for months — the fix was applied to one backend and not
->   the other.
-> - **Three settings tabs controlled nothing** — 18 switches and inputs whose
->   keys had zero readers, plus a hardcoded "Security Status: Protected" banner
->   (WO-47).
-> - **`loan.minDepositForLoan = 0` meant different things to the two backends**
->   (WO-48).
-> - **Registration was unusable on a phone**, and its blocked-submit message was
->   written to a part of the page the member could not see (WO-50).
->
-> The lesson is the same one Phase −1 records: reading the code establishes what
-> it *says*, and only running it establishes what it *does*. Every finding above
-> was invisible to typecheck, lint and the existing tests.
+Task IDs are stable — cite them in commits (`SEC-11: enforce blacklist in Next`).
 
-This file is the **operational** backlog. [tasks.md](tasks.md) tracks *product*
-work (FR-01…22). When a task here is finished, tick it here and note it there
-only if it changed behaviour members can see.
+`[x]` done · `[~]` partial · `[ ]` not started · `[!]` **defect in production now**
 
-Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`).
+> **One open defect.** **SEC-10** — 39 files of member records are recoverable
+> from git history. This is a disclosure that has already occurred and continues
+> for as long as the objects exist, not a risk. Everything else on this page is
+> done or is forward-looking work.
+>
+> **SEC-11 closed 2026-08-17.** Revocation now binds on both backends.
 
 ---
 
@@ -74,9 +31,9 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is now race-proof under concurrent postings |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
-| Session revocation | `[~]` | Go side is correct (SEC-01). **The Next handlers never check the blacklist** — SEC-11 |
+| Session revocation | `[x]` | Both backends check `token_blacklist` on every authenticated request. SEC-01 for Go, SEC-11 for Next (closed 2026-08-17) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only (ADR-012, ADR-013) |
-| Automated tests | `[~]` | **26** Go integration tests against real Postgres (17 + 9 added for Batch L), Go unit tests on money maths/IDs/logging/revocation timing, 32 web unit tests. Concurrency and the null-guarantor path are now covered. Playwright is still one 28-line spec that skips without seeded credentials — the remaining real gap |
+| Automated tests | `[~]` | **26** Go integration tests on real Postgres, Go unit tests on money maths (93.3% of `internal/money`), **59** web unit tests, **11** Playwright specs. **The gap is boundaries, not arithmetic:** 61 Go handlers, 65 routes and 21 Next route methods are at **0%** — see [testing.md](testing.md) |
 | CI/CD | `[x]` | GitHub Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration tests, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases (PKG-01→05, 07). Both images are verified by **running** them. Images are not built in CI yet (PKG-06), and nothing in production uses them |
 | Observability | `[x]` | Structured JSON access logs (RUN-04/05), Prometheus `/metrics` with HTTP, pool and business gauges, Sentry on both apps, threshold alerting via a scheduled workflow (OBS-01→06). Log aggregation and a dashboard remain open (OBS-05/07) |
@@ -100,118 +57,24 @@ Task IDs are stable — cite them in commits (`SEC-01: enforce token blacklist`)
 
 ---
 
-## Phase −1 — Ledger integrity defects
+## Phase −1 — Ledger integrity `[x]`
 
-Found **and fixed** 2026-08-17. Each was reproduced against a real Postgres 17,
-not inferred from reading, and each fix carries a regression test that was
-confirmed to fail against the pre-fix code before it was allowed to pass.
+**Four defects that destroyed or misreported money, all fixed 2026-08-17.** Each
+was reproduced against a real Postgres 17, and each fix carries a regression test
+confirmed to fail against the pre-fix code first.
 
-Execution record: [WO-41 → WO-44](work-orders.md#batch-l--ledger-integrity).
+| ID | Defect | Fix |
+|---|---|---|
+| LEDGER-01 | Concurrent postings destroyed money — 20 simultaneous ৳1,000 deposits left a ৳1,000 balance against ৳20,000 of transaction rows | Balances written **relatively** or read `FOR UPDATE` inside the transaction ([ADR-015](decisions.md)) |
+| LEDGER-02 | Defaulting a loan with **no guarantor** marked it DEFAULTED and recovered nothing | Waterfall handles a null guarantor, inside one transaction |
+| LEDGER-03 | Loan approval notification divided by 100 | Removed — money is whole taka (ADR-002) |
+| LEDGER-04 | Donations numbered by wall clock, so two in the same second collided | Allocated from `document_sequences` (ADR-013) |
 
-Kept in full because the reasoning outlives the patch. Two of these were live
-under 17 green integration tests, and the property of the suite that hid them —
-it never ran two postings at once, and never seeded a loan without a guarantor —
-is the thing worth not re-creating.
-
-### LEDGER-01 · Concurrent postings destroy money `[x]` — **critical** — fixed
-
-`AddMemberDeposit` and `AddMemberWithdrawal`
-([transaction_repository.go](../apps/api/internal/repositories/transaction_repository.go))
-read the account balance **from the pool, outside the transaction and without a
-lock**, compute a new absolute total in Go, and write that total back inside the
-transaction. Two concurrent postings both read the old balance and the second
-overwrites the first.
-
-Measured, 20 concurrent deposits of ৳1,000 into an empty account:
-
-```
-balance      =  1,000     ← 19 deposits vanished
-ledger sum   = 20,000     ← all 20 transaction rows written
-```
-
-The transaction rows are correct and the balance is not, so **the passbook and
-the account disagree** — which is the one failure a cooperative cannot explain
-to a member. Ten concurrent ৳5,000 withdrawals against a ৳10,000 balance *all
-succeeded*: ৳50,000 paid out on ৳10,000 of savings.
-
-The fix is not a lock ordering puzzle. `loan_repository.go` already does it
-right — `SET "savingsBalance" = "savingsBalance" - $1` — and the waterfall has
-been correct all along for exactly that reason.
-
-Two callers were affected (`POST /v1/dashboard/worker/members/{id}/deposit` and
-`/withdrawal`), and `ApproveWithdrawal`'s DEPOSIT branch had a weaker form of the
-same bug: it read inside the transaction but without `FOR UPDATE`.
-
-**Fixed** by [WO-41](work-orders.md): all balance writes are relative, all
-eligibility reads are inside the transaction under `FOR UPDATE OF a`, and the
-withdrawal's balance test moved into the `UPDATE … WHERE "savingsBalance" >= $1`
-so the check and the debit are one step. Two unreachable duplicate routes were
-deleted rather than fixed — one of them, `POST /v1/dashboard/worker/withdrawal`,
-reported `"Withdrawal processed successfully"` while moving and recording
-nothing.
-
-### LEDGER-02 · Defaulting a loan with no guarantor recovers nothing `[x]` — **critical** — fixed
-
-`ProcessWaterfallRecovery` scans `loans."guarantorId"` into a Go `string`.
-The column is `String?` — nullable by design, because a loan below the guarantor
-threshold has none. pgx cannot scan NULL into a string, so the whole waterfall
-returns an error before step 1 runs.
-
-`MarkLoanDefaulted` **commits the DEFAULTED status in its own transaction and
-then calls the waterfall separately**, so the failure leaves the worst possible
-state:
-
-```
-loan status      = DEFAULTED   ← committed
-remainingAmount  = unchanged   ← nothing recovered
-borrower savings = untouched   ← ৳8,000 sat there, ৳5,000 was owed
-```
-
-The admin sees an error and the loan is already defaulted. Retrying re-runs a
-waterfall that will fail the same way. Every waterfall integration test seeds a
-guarantor, which is why 17 green tests never touched this path.
-
-The two-transaction split is the second half of the defect: recovery must happen
-in the same transaction as the status change, or a default can be recorded that
-was never settled.
-
-**Fixed** by [WO-42](work-orders.md): `COALESCE("guarantorId", '')` — the empty
-string is what the guarantor step already tested for, so no other logic moved —
-and the recovery body became `waterfallRecoveryTx`, which runs inside the
-caller's transaction. `FOR UPDATE` added on the loan and both account reads.
-
-### LEDGER-03 · Loan approval notification divides by 100 `[x]` — **high** — fixed
-
-[loan_repository.go:123](../apps/api/internal/repositories/loan_repository.go) —
-`float64(principalAmount)/100` in the member-facing "loan approved" message. A
-৳50,000 loan is announced as **BDT 500.00**.
-
-Money is whole taka ([ADR-002](decisions.md)); there is no paisa to divide by.
-It is the last surviving ×100 from the pre-ADR-002 era and it is in the one
-place a member reads a number and believes it. Every other notification on the
-same path formats `float64(amount)` correctly.
-
-**Fixed** by [WO-43](work-orders.md). A sweep confirms the only remaining
-`/ 100` in the Go API is percentage maths.
-
-### LEDGER-04 · Donations are numbered by wall clock, not by sequence `[x]` — **medium** — fixed
-
-`RecordDonation` builds `DON-20260817143022` from `time.Now()`, bypassing
-`document_sequences` entirely. That contradicts [ADR-013](decisions.md), which
-exists because a receipt number is read aloud at a counter and copied into a
-paper passbook. Two donations recorded in the same second collide, and
-`DON-` is not one of the four declared series.
-
-`RecordDonation` also writes **no `audit_logs` row**, which makes it the only
-balance-changing method in the Go API that does not — a direct CLAUDE.md rule-2
-violation that the audit-coverage integration test missed because it did not
-cover donations.
-
-**Fixed** by [WO-43](work-orders.md): allocation via a new `utils.SeriesDonation`
-(`DON`), a relative credit to the pool, and the missing `DONATION_RECORDED`
-audit row. The collision was not hypothetical — two donations recorded back to
-back in the regression test both received `DON-20260816213322` under the old
-format.
+**Why a green suite missed two of them, which is the durable part:** the 17
+integration tests never ran two postings concurrently and never seeded a loan
+without a guarantor. Coverage bounds what was *executed*, never what was
+*checked*. The reasoning behind each fix is in
+[decisions.md](decisions.md) and [Batch L](work-orders.md#completed--wo-01--wo-50).
 
 ---
 
@@ -219,45 +82,34 @@ format.
 
 These are live. Everything else on this page can wait behind them.
 
-### SEC-11 · The Next.js surface ignores token revocation `[!]` — **high**
+### SEC-11 · The Next.js surface ignored token revocation `[x]` — fixed 2026-08-17
 
-Found 2026-08-17. The Go API checks `token_blacklist` on every request. The
-Next route handlers do not: `lib/auth.ts` (`requireAuth`) and `lib/server-auth.ts`
-(`authenticateRequest`) verify the HS256 signature and `exp`, and stop there.
+The Go API checked `token_blacklist` on every request; the Next route handlers
+did not. `lib/auth.ts` and `lib/server-auth.ts` verified the HS256 signature and
+`exp` and stopped there — so after **logout**, after a **password change**, and
+after an **admin revoked a user**, the old token still worked against every Next
+handler, including `PUT /api/v1/settings`, which sets loan policy.
 
-So after **logout**, after a **password change**, and after an **admin revokes a
-user**, the old token still works against every Next handler — `PUT /api/v1/settings`,
-the gallery CMS, worker CRUD, registration listing, dispute. Revocation is
-advertised in [architecture.md](architecture.md) and in the README, and it is
-half-true: it binds on the Go side only.
+`server-auth.ts` had a `fetchUserFromApi` fallback that *would* have been
+blacklist-checked, but it only ran when `JWT_SECRET` was unset or verification
+threw — i.e. never in a correct deployment. That is the shape to watch for: a
+safety net positioned where it can never be reached.
 
-`server-auth.ts` has a `fetchUserFromApi` fallback that *would* be
-blacklist-checked, but it only runs when `JWT_SECRET` is unset or verification
-throws — i.e. never in a correctly configured deployment.
+**Fixed** by [`lib/auth-revocation.ts`](../apps/web/lib/auth-revocation.ts).
+`requireActiveAuth` replaces `requireAuth` on all six routes that used it, and
+`server-auth.ts` checks revocation inline for settings, gallery and avatar
+upload. Both mechanisms mirror `internal/services/security_service.go` — the
+per-token hash and the `all:<userId>` marker — including the whole-second `iat`
+truncation, without which a token minted moments after a password change is born
+revoked and first login breaks for every member.
 
-Blast radius is bounded by what those handlers do (no balance mutation after the
-WO-42 cleanup) but it includes changing loan policy, which is not a small thing
-to leave reachable with a revoked token.
+It **fails closed**: a failed revocation lookup rejects the request. That is the
+opposite of the rate limiter's fail-open, and deliberately so — a few extra
+availability checks during a database blip are cheap; honouring a revoked admin
+token is not.
 
-### SEC-13 · Member savings balances were exposed to every member `[x]` — **high** — fixed
-
-Found 2026-08-17 while building WO-45. `GetMemberLoans` returned an
-`availableGuarantors` array to any signed-in member: the name **and savings
-balance** of the 50 wealthiest other members, ordered by balance descending.
-
-That is a ranked list of who in the village has the most money, handed to anyone
-with a login. [product.md](product.md) states plainly that a member cannot see
-another member's data.
-
-Nothing in the web app ever read it, so it was disclosure with no feature behind
-it — and the obvious way to build the guarantor picker would have been to render
-it into a dropdown, which would have turned the leak into a shipped feature.
-
-**Fixed** by removing it. Nominating a guarantor now goes through
-`GET /api/v1/members/lookup`: authenticated, members only, exact full-member-ID
-match, returns a name and no balance, rate limited to 10 lookups per 10 minutes
-keyed on user id plus address. That shape is deliberate — any id-to-name resolver
-is an enumeration oracle, and SEC-08 was closed to remove one.
+Covered by 14 tests in
+[`lib/auth-revocation.test.ts`](../apps/web/lib/auth-revocation.test.ts).
 
 ### SEC-12 · `GET /api/v1/settings` is unauthenticated `[~]` — **low**
 
@@ -267,160 +119,6 @@ it currently ships loan policy, org contact details and support retention
 settings to unauthenticated callers in the same payload. Split it into a public
 subset and an admin-only remainder rather than gating the whole route, which
 would break the public site.
-
-### SEC-01 · Token revocation does not work `[x]` — **critical**
-
-`AuthService.ValidateToken` ([auth_service.go:196](../apps/api/internal/services/auth_service.go#L196))
-is the only function that consults `token_blacklist`, and it has **zero
-callers**. Every dashboard route authenticates through `authFromRequest`
-([dashboard_handler.go:464](../apps/api/internal/handlers/dashboard_handler.go#L464))
-→ `ParseAccessToken`, which validates the signature and expiry and nothing else.
-
-Consequences: logging out does not end the session; changing a password does not
-evict other sessions; a leaked token stays valid for the full
-`JWT_EXPIRY_SECONDS` (24 h by default). The `token_blacklist` table, the
-`BlacklistToken` calls on logout, and `BlacklistAllUserTokens` on password change
-are all writing rows nobody reads.
-
-**Done.** `authFromRequest` now calls `ValidateToken(r.Context(), …)`, and both
-revocation checks in `ValidateToken` fail closed — a database error rejects the
-request instead of reading as "not revoked". `auth_handler.go` keeps
-`ParseAccessToken` on the logout path, where checking the blacklist for the token
-being blacklisted would be circular.
-
-Two things found while wiring it. `BlacklistAllUserTokens` inserted its
-`all:<userID>` marker with no `ON CONFLICT`, so a *second* password change inside
-24 h hit the unique index on `tokenHash` and silently failed to revoke; it now
-upserts the marker forward. And the redundant `userIDFromRequest` +
-`requireRoles` double-authentication in `AdminLoans`/`AdminLoanDetail` was
-collapsed to one call, since each authentication is now a DB round-trip.
-
-**Still open:** one extra DB round-trip per authenticated request. Acceptable at
-this scale. If it shows up in latency, cache the `all:<userID>` marker lookup —
-not the per-token one.
-
-### SEC-02 · Four admin endpoints do not check role `[x]` — **critical**
-
-They call `userIDFromRequest`, which proves *someone is logged in* and stops
-there. Any member's token opens them.
-
-| Route | Handler | Exposure |
-|---|---|---|
-| `POST /v1/dashboard/admin/loans/default` | [MarkLoanDefaulted:950](../apps/api/internal/handlers/dashboard_handler.go#L950) | **Any member can default any loan**, triggering guarantor recovery — unauthorised money movement |
-| `GET /v1/dashboard/admin/reports/monthly` | [MonthlyReport:1025](../apps/api/internal/handlers/dashboard_handler.go#L1025) | Foundation-wide financials |
-| `GET /v1/dashboard/admin/reports/yearly` | [YearlyReport:1055](../apps/api/internal/handlers/dashboard_handler.go#L1055) | Foundation-wide financials |
-| `GET /v1/dashboard/admin/reports/loans` | [LoanPerformanceReport:1078](../apps/api/internal/handlers/dashboard_handler.go#L1078) | Every member's loan performance |
-
-`MarkLoanDefaulted` is the severe one: it writes. The neighbouring `AdminLoans`
-and `AdminLoanDetail` show the correct shape — `requireRoles(w, r, "ADMIN",
-"SUPER_ADMIN")`.
-
-**Done.** All four call `requireRoles(w, r, "ADMIN", "SUPER_ADMIN")`, and the
-trap is closed: `/v1/dashboard/admin` is now a `chi.Route` group whose routes sit
-behind `dashboardHandler.RequireRoles(…)`, so a handler added there is protected
-by where it is mounted. The per-handler checks stay as defence in depth.
-
-One exception is deliberate and marked in `main.go`: `/admin/donations` is
-recorded by field workers too, so it sits in a second group gated
-ADMIN/SUPER_ADMIN/WORKER rather than in the admin-only one. It keeps the
-`/admin` path only for URL compatibility.
-
-### SEC-03 · Gallery writes are unauthenticated and world-CORS `[x]` — **high**
-
-[gallery/route.ts](../apps/web/app/api/v1/gallery/route.ts) exports `POST`,
-`PUT` and `DELETE` with no auth check at all, under
-`Access-Control-Allow-Origin: '*'`. Anyone on the internet can add, rewrite or
-delete the foundation's public gallery — a defacement and phishing-image vector
-on a charity's front page.
-
-**Done.** `POST`, `PUT` and `DELETE` go through a `requireAdmin` helper
-(`authenticateRequest` + ADMIN/SUPER_ADMIN); `GET` stays public. The wildcard is
-gone — see SEC-04 for the shared helper that replaced it. The admin gallery UI
-was already writing through server actions, not these routes, so nothing in the
-app broke.
-
-### SEC-04 · Wildcard CORS on `/api/v1/settings` `[x]` — **medium**
-
-`PUT` was authenticated, so this was defence-in-depth rather than an open door.
-
-**Done.** [lib/cors.ts](../apps/web/lib/cors.ts) is now the one CORS helper for
-Next route handlers, used by both `/api/v1/gallery` and `/api/v1/settings`. It
-reads the same `CORS_ORIGINS` list the Go API reads (falling back to
-`NEXT_PUBLIC_APP_URL`, then localhost), echoes the request's `Origin` only when
-it is on the list, and sends `Vary: Origin`. An unrecognised origin now gets no
-`Access-Control-Allow-Origin` header at all.
-
-### SEC-05 · Bearer token accepted in the query string `[x]` — **medium**
-
-[dashboard_handler.go:467](../apps/api/internal/handlers/dashboard_handler.go#L467)
-falls back to `?access_token=` because `EventSource` cannot set headers. Query
-strings land in proxy logs, CDN logs, browser history and `Referer` headers.
-
-**Done.** The `?access_token=` fallback is deleted from `authFromRequest`, which
-now reads the Authorization header and nothing else. `GET /v1/dashboard/support/stream`
-authenticates through `streamAuthFromRequest`: Authorization header when the
-caller can set one (the Next proxy can), otherwise a `?ticket=` value issued by
-`POST /v1/dashboard/support/stream/ticket`. A ticket is 32 random bytes, stored
-SHA-256-hashed in `sse_tickets`, valid 60 s, and scoped to one purpose — a
-captured ticket cannot be replayed against any other endpoint. Clients fetch a
-fresh ticket immediately before each connect, including reconnects.
-
-### SEC-06 · A 17 MB compiled binary is committed `[x]` — **medium**
-
-`apps/api/server` was tracked (added in `beabc14`, updated in `5db86b7`) and not
-covered by `.gitignore` — the Go section only ignored `bin/`.
-
-**Done.** Untracked and deleted; `apps/api/server` and `apps/api/app` added to
-`.gitignore`. The `.env.example` line was also removed from `.gitignore`, which
-had been ignoring a file that is deliberately committed.
-
-**Still open, and understated when this was written.** The blobs remain in
-history. A full `git rev-list` sweep on 2026-08-16 found three binaries, not one:
-`apps/api/server` (17.5 MB and 16.4 MB), `apps/api/seed` (13.6 MB, never recorded
-anywhere), and a stray 24.6 MB `react` blob from commit `3ef0a91`. Purging is
-[WO-28](work-orders.md) —
-merged with SEC-10 below, because the same rewrite has to remove both and nobody
-should do this twice.
-
-### SEC-07 · No request body size limit `[x]` — **medium**
-
-`utils.MaxRequestBodySize` was defined and **never referenced**.
-
-**Done.** `ParseJSON` wraps `r.Body` in `io.LimitReader(r.Body, MaxRequestBodySize)`,
-which covers all 27 call sites without touching the signature. An oversized body
-now fails as a decode error, which every call site already surfaces as
-400 `INVALID_REQUEST`. `http.MaxBytesReader` would have been the tidier wrapper
-but needs the `ResponseWriter`, which `ParseJSON` does not take.
-
-### SEC-08 · Unauthenticated registration enumeration `[x]` — **low**
-
-`GET /api/v1/registrations?email=…` answers whether an address or phone is
-registered. It exists for the signup form's live validation, so it cannot simply
-be closed — but it is unauthenticated and unthrottled, which makes it a bulk
-membership-disclosure oracle for a religious-finance cooperative.
-
-**Done 2026-08-16.** 20 checks per 10 minutes per caller address, through the
-existing `rate_limits` table (`apps/web/lib/rate-limit.ts`). Generous for someone
-filling in the form once, useless for walking a number range: Bangladeshi mobile
-numbers are an 8-digit space behind a known prefix, which at this rate takes
-centuries rather than an afternoon. Verified — request 21 returns 429 with
-`Retry-After: 599`, and a different address is unaffected.
-
-The counter is in the database rather than in memory **because this runs on
-Vercel**: a route handler is a serverless function whose instances the platform
-creates and discards, so an in-memory counter resets at intervals the caller can
-provoke. That is the opposite of the Go API's limiter (RUN-07), and the reason is
-written at the top of both files.
-
-The single upsert is deliberate — read-then-write would let two concurrent
-requests both observe `attempts = limit` and both proceed, which is exactly the
-case a limiter exists to stop and only appears under the load that matters. It
-fails **open** on a database error: a blip must not stop people registering.
-
-**Not done, and deliberately:** the response timing is not equalised. Both
-branches are one indexed lookup and the difference is not a practical oracle at
-20 requests per 10 minutes; padding every response to a fixed duration would add
-latency for every real user to close a channel the rate limit already closes.
 
 ### SEC-10 · Member records are recoverable from git history `[!]` — **highest**
 
@@ -467,22 +165,28 @@ repository and always has: it looks for credential *patterns*, not for documents
 that should never have been committed. A green secret scan is not evidence that
 history is clean, and this is the example.
 
-### SEC-09 · HSTS is commented out in the API `[x]` — **low**
+### Closed security items
 
-[cors.go](../apps/api/internal/middleware/cors.go) sets a good header set but
-leaves `Strict-Transport-Security` disabled. Next sends it; the API does not.
+Kept as a record. The reasoning that outlived each one is in
+[decisions.md](decisions.md), [changing-things.md](changing-things.md) or
+[Traps](work-orders.md#traps-that-cost-a-session).
 
-**Done 2026-08-16.** Behind `ENABLE_HSTS`, **off by default**. That default is
-the point: a browser remembers HSTS for the whole `max-age`, so sending it from a
-plain-HTTP localhost API pins `localhost` to HTTPS for two years — in every
-project on that developer's machine, with no obvious way to undo it. Verified
-both ways: header present with the flag on, absent with it unset.
+| ID | Was | Closed by |
+|---|---|---|
+| SEC-01 | Token revocation did not work — the blacklist was written and never read | WO-01 |
+| SEC-02 | Four admin endpoints did not check role | WO-02 — now gated at the router, so a new handler is protected by *where it is mounted* |
+| SEC-03 | Gallery writes unauthenticated and world-CORS | WO-03 |
+| SEC-04 | Wildcard CORS on `/api/v1/settings` | WO-04 — one origin-checked helper |
+| SEC-05 | Bearer token accepted in the query string, so it landed in access logs | WO-05 — 60 s single-purpose SSE tickets |
+| SEC-06 | A 17 MB compiled binary committed | Removed from the tree; **still in history** — see SEC-10 |
+| SEC-07 | No request body size limit | WO-05 — bounded at 1 MB |
+| SEC-08 | Unauthenticated registration enumeration | WO-30 — 20 checks per 10 min per address |
+| SEC-09 | HSTS commented out | WO-31 — behind `ENABLE_HSTS`, **off by default** so a plain-HTTP localhost API cannot pin `localhost` to HTTPS for two years in every project on that machine |
+| SEC-13 | `GetMemberLoans` returned the name **and savings balance** of the 50 wealthiest members to any signed-in member — a ranked list of who in the village has the most money | Removed. Guarantor nomination now goes through `GET /api/v1/members/lookup`: exact member-ID match, name only, rate limited |
 
-`preload` is included, which is close to irreversible once the domain is
-submitted to the browser preload list. It is honest here because
-`api.hasnahenafoundation.com` is permanently HTTPS behind Render.
-
-**Action:** set `ENABLE_HSTS=true` in Render. It is in `.env.render.example`.
+**A green secret scan is not evidence that history is clean.** gitleaks passes on
+this repository and always has — it looks for credential *patterns*, not for
+documents that should never have been committed. SEC-10 is the example.
 
 ---
 
@@ -642,32 +346,25 @@ What makes it *stay* production-ready after you stop looking at it daily.
 
 Do them in this order. Each block is genuinely blocked by the one above it.
 
-**Superseded for sequencing purposes by [go-live.md](go-live.md).** The platform
-is deployed and holding fake data, so the useful ordering is *what gets more
-expensive once real member data exists*, not *what is most urgent*. This table
-remains the backlog; that file is the order to do it in.
+**[go-live.md](go-live.md) is the order; this is the backlog.** The platform is
+deployed holding fake data, so the useful sequencing is *what gets more expensive
+once real member data exists*, not *what is most urgent*.
 
-Rewritten 2026-08-16 after re-verifying every claim against the source. Blocks
-that were entirely done have been removed rather than left struck through — the
+Completed blocks are removed rather than struck through — the
 [work-orders.md](work-orders.md) completion table is the record.
 
-| # | Block | Tasks | Order | Rough effort |
-|---|---|---|---|---|
-| 1 | **Purge git history** | SEC-10 + SEC-06 | WO-28 | ½ day + GitHub Support |
-| ~~2~~ | ~~**Live product defect**~~ | ~~FR-11 guarantor approval~~ | WO-29 | **Done 2026-08-16** |
-| ~~3~~ | ~~**Land Batch G**~~ | ~~Merge `wo-23-next15-react19`~~ | — | **Done — PR #13** |
-| 4 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, FR-08 (DATA-08 done) | [go-live.md](go-live.md) 1.2 | 2–3 days, **and only cheap before launch** |
-| ~~5~~ | ~~**Security remainder**~~ | ~~SEC-08, SEC-09~~ | WO-30, WO-31 | **Done 2026-08-16** |
-| ~~6~~ | ~~**Hardening remainder**~~ | ~~RUN-07, DATA-08~~ | WO-32, WO-33 | **Done 2026-08-16** |
-| 7 | **Deployable artifacts** | PKG-06, PKG-08 | WO-34, WO-35 | 1 day |
-| 8 | **Code health** | CI-04, CI-06, RUN-09, settings allow-list | WO-36 → WO-39 | 1 week |
-| 9 | **Remaining data + ops** | DATA-06, DATA-07, OBS-05/07/08, OPS-01 → OPS-09 | — | 1 week |
-| 10 | **Move hosts** | INF-01 → INF-12 | — | 1–2 weeks |
+| # | Block | Tasks | Order |
+|---|---|---|---|
+| 1 | **Purge git history** | SEC-10, SEC-06 | [WO-28](work-orders.md) — ½ day plus GitHub Support |
+| 2 | **Test the boundaries** | 61 handlers, 86 endpoints at 0% | [testing.md](testing.md) Phases 0 → 3 |
+| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, FR-08 | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch |
+| 4 | **Finish the linters** | 18 `errcheck`/`staticcheck` findings, 6 of them unchecked audit writes | [WO-40](work-orders.md) |
+| 5 | **Remaining data + ops** | DATA-06 (Cloudinary assets — the largest remaining data gap), DATA-07, OBS-05/07/08, OPS-01 → OPS-09 | — |
+| 6 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |
 
-**Blocks 1 and 2 are not like the rest of this list.** Block 1 is a disclosure
-that has already happened and continues for as long as the objects exist. Block 2
-is a lending feature members are told exists and that has never once worked. Both
-are small. Everything below block 3 is ordinary backlog by comparison.
+**Block 1 is not like the rest of this list.** It is a disclosure that has
+already happened and continues for as long as the objects exist. Everything else
+here is ordinary backlog by comparison.
 
 The blocks that used to head this list — backups, tests, CI, observability,
 containers — are done, and they are what turned "it works" into "it works, and if

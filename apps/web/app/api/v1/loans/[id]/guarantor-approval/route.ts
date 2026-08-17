@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth';
+import { authErrorStatus } from '@/lib/auth';
+import { requireActiveAuth } from '@/lib/auth-revocation';
 import { serializeLoan } from '@/lib/api-utils';
 import { LoanStatus, UserRole } from '@prisma/client';
 
@@ -12,7 +13,7 @@ const bodySchema = z.object({
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
-    const auth = requireAuth(req);
+    const auth = await requireActiveAuth(req);
     const payload = bodySchema.parse(await req.json());
 
     // No id-shape check here, deliberately. This route used to reject anything
@@ -95,7 +96,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });
     }
     const msg = typeof err?.message === 'string' ? err.message : 'Server error';
-    if (msg.toLowerCase().includes('authorization')) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    const authStatus = authErrorStatus(err);
+    if (authStatus) return NextResponse.json({ ok: false, error: authStatus === 401 ? 'Unauthorized' : 'Server error' }, { status: authStatus });
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

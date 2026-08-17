@@ -181,3 +181,4 @@ docker-compose.override.yml
 backups/
 *.dump
 *.dump.gpg
+.test-stack/
