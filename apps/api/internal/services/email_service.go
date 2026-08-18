@@ -161,14 +161,14 @@ func (s *EmailService) renderOfficialEmailText(locale, heading, body string) str
 	return strings.TrimSpace(heading) + "\n\n" + strings.TrimSpace(body) + "\n\n" + footer
 }
 
-func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) error {
+func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) (subject, textBody, htmlBody string, err error) {
 	if !s.IsConfigured() {
-		return fmt.Errorf("email service not configured")
+		return "", "", "", fmt.Errorf("email service not configured")
 	}
 
 	to = strings.TrimSpace(to)
 	if to == "" {
-		return fmt.Errorf("recipient email is required")
+		return "", "", "", fmt.Errorf("recipient email is required")
 	}
 
 	memberName = strings.TrimSpace(memberName)
@@ -184,7 +184,6 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 	escapedPassword := html.EscapeString(temporaryPassword)
 	escapedLoginURL := html.EscapeString(loginURL)
 
-	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		subject = "সদস্যপদ অনুমোদন নিশ্চিতকরণ | Hasnahena Foundation"
 		textBody = s.renderOfficialEmailText(locale, "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf("প্রিয় %s,\n\nআপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে।\n\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন লিংক: %s\n\nপ্রথম লগইনের পর অবশ্যই পাসওয়ার্ড পরিবর্তন করবেন।", memberName, temporaryPassword, loginURL))
@@ -215,17 +214,28 @@ func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, tem
 		))
 	}
 
-	return s.sendWithRetry(to, subject, textBody, htmlBody)
+	return subject, textBody, htmlBody, nil
 }
 
-func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
+// SendMemberApprovalEmail renders the message and hands it to the transport. The
+// rendering is buildMemberApprovalEmail, which is pure and therefore testable — see
+// email_service_test.go (WO-52). Nothing here reaches the network.
+func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) error {
+	subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(to, memberName, temporaryPassword, locale)
+	if err != nil {
+		return err
+	}
+	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+}
+
+func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) (subject, textBody, htmlBody string, err error) {
 	if !s.IsConfigured() {
-		return fmt.Errorf("email service not configured")
+		return "", "", "", fmt.Errorf("email service not configured")
 	}
 
 	to = strings.TrimSpace(to)
 	if to == "" {
-		return fmt.Errorf("recipient email is required")
+		return "", "", "", fmt.Errorf("recipient email is required")
 	}
 
 	staffName = strings.TrimSpace(staffName)
@@ -247,7 +257,6 @@ func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role s
 	escapedTempPassword := html.EscapeString(temporaryPassword)
 	escapedLoginURL := html.EscapeString(loginURL)
 
-	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		roleLabel := "কর্মী"
 		if role == "ADMIN" {
@@ -294,7 +303,18 @@ func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role s
 		))
 	}
 
-	return s.sendWithRetry(to, subject, textBody, htmlBody)
+	return subject, textBody, htmlBody, nil
+}
+
+// SendStaffWelcomeEmail renders the message and hands it to the transport. The
+// rendering is buildStaffWelcomeEmail, which is pure and therefore testable — see
+// email_service_test.go (WO-52). Nothing here reaches the network.
+func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
+	subject, textBody, htmlBody, err := s.buildStaffWelcomeEmail(to, staffName, role, phone, temporaryPassword, locale)
+	if err != nil {
+		return err
+	}
+	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
 }
 
 func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
@@ -396,14 +416,14 @@ func buildBrevoAPIError(statusCode int, responseBody []byte) error {
 	return fmt.Errorf("brevo api status %d: %s", statusCode, message)
 }
 
-func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipientName string, code string, locale string) error {
+func (s *EmailService) buildPasswordChangeVerificationCodeEmail(to string, recipientName string, code string, locale string) (subject, textBody, htmlBody string, err error) {
 	if !s.IsConfigured() {
-		return fmt.Errorf("email service not configured")
+		return "", "", "", fmt.Errorf("email service not configured")
 	}
 
 	to = strings.TrimSpace(to)
 	if to == "" {
-		return fmt.Errorf("recipient email is required")
+		return "", "", "", fmt.Errorf("recipient email is required")
 	}
 
 	recipientName = strings.TrimSpace(recipientName)
@@ -413,14 +433,13 @@ func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipi
 
 	code = strings.TrimSpace(code)
 	if code == "" {
-		return fmt.Errorf("verification code is required")
+		return "", "", "", fmt.Errorf("verification code is required")
 	}
 
 	locale = normalizeLocale(locale)
 	escapedName := html.EscapeString(recipientName)
 	escapedCode := html.EscapeString(code)
 
-	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		subject = "পাসওয়ার্ড পরিবর্তন যাচাইকরণ কোড | Hasnahena Foundation"
 		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড পরিবর্তন যাচাইকরণ", fmt.Sprintf("প্রিয় %s,\n\nআপনার পাসওয়ার্ড পরিবর্তন অনুরোধের জন্য যাচাইকরণ কোড নিচে দেওয়া হলো:\n\nকোড: %s\n\nএই কোড ১০ মিনিটের জন্য কার্যকর।", recipientName, code))
@@ -445,17 +464,28 @@ func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipi
 		))
 	}
 
-	return s.sendWithRetry(to, subject, textBody, htmlBody)
+	return subject, textBody, htmlBody, nil
 }
 
-func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
+// SendPasswordChangeVerificationCodeEmail renders the message and hands it to the transport. The
+// rendering is buildPasswordChangeVerificationCodeEmail, which is pure and therefore testable — see
+// email_service_test.go (WO-52). Nothing here reaches the network.
+func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipientName string, code string, locale string) error {
+	subject, textBody, htmlBody, err := s.buildPasswordChangeVerificationCodeEmail(to, recipientName, code, locale)
+	if err != nil {
+		return err
+	}
+	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+}
+
+func (s *EmailService) buildPasswordResetEmail(to string, token string, locale string) (subject, textBody, htmlBody string, err error) {
 	if !s.IsConfigured() {
-		return fmt.Errorf("email service not configured")
+		return "", "", "", fmt.Errorf("email service not configured")
 	}
 
 	to = strings.TrimSpace(to)
 	if to == "" {
-		return fmt.Errorf("recipient email is required")
+		return "", "", "", fmt.Errorf("recipient email is required")
 	}
 
 	locale = normalizeLocale(locale)
@@ -463,7 +493,6 @@ func (s *EmailService) SendPasswordResetEmail(to string, token string, locale st
 	resetURL := fmt.Sprintf("%s/%s/reset-password?token=%s", s.appURL, locale, token)
 	escapedResetURL := html.EscapeString(resetURL)
 
-	var subject, textBody, htmlBody string
 	if locale == "bn" {
 		subject = "পাসওয়ার্ড রিসেট অনুরোধ | Hasnahena Foundation"
 		textBody = s.renderOfficialEmailText(locale, "পাসওয়ার্ড রিসেট করুন", fmt.Sprintf("আপনার অ্যাকাউন্টের জন্য পাসওয়ার্ড রিসেট অনুরোধ পাওয়া গেছে। নিচের লিংক ব্যবহার করে নতুন পাসওয়ার্ড সেট করুন:\n\n%s\n\nএই লিংক ৩০ মিনিটের মধ্যে মেয়াদোত্তীর্ণ হবে।", resetURL))
@@ -484,5 +513,16 @@ func (s *EmailService) SendPasswordResetEmail(to string, token string, locale st
 		))
 	}
 
-	return s.sendWithRetry(to, subject, textBody, htmlBody)
+	return subject, textBody, htmlBody, nil
+}
+
+// SendPasswordResetEmail renders the message and hands it to the transport. The
+// rendering is buildPasswordResetEmail, which is pure and therefore testable — see
+// email_service_test.go (WO-52). Nothing here reaches the network.
+func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
+	subject, textBody, htmlBody, err := s.buildPasswordResetEmail(to, token, locale)
+	if err != nil {
+		return err
+	}
+	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
 }

@@ -102,6 +102,13 @@ jobs:
       # MaxRequestBodySize that hid SEC-01 and SEC-07 for months — both were
       # written, never called, and looked like working security. `unused` is the
       # linter that names that class of defect.
+      #
+      # Five linters as of WO-40 (2026-08-18): errcheck, govet, ineffassign,
+      # staticcheck, unused. errcheck and staticcheck were the staged half —
+      # 44 findings when configured, 0 now — so this step is green rather than
+      # advisory, and a finding here is a defect introduced by the diff under
+      # test. The one suppression is SA1019 on chi's RealIP, which WO-60 owns;
+      # see apps/api/.golangci.yml for why it is a nolint and not an exclusion.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

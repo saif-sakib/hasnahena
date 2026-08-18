@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"hasnahena/apps/api/internal/money"
+	"hasnahena/apps/api/internal/notify"
 	"hasnahena/apps/api/internal/utils"
 )
 
@@ -29,6 +30,11 @@ var (
 	ErrLoanIDRequired     = errors.New("loanId is required")
 	ErrLoanNotFound       = errors.New("loan not found")
 	ErrLoanNotDefaultable = errors.New("loan is not in a state that can be defaulted")
+	// ErrLoanNotYetDefaultable means the loan is in a defaultable state but has
+	// not missed enough instalments under `loan.missedPaymentsForDefault`.
+	// Distinct from ErrLoanNotDefaultable because the answer to it is "wait",
+	// not "this loan never can be".
+	ErrLoanNotYetDefaultable = errors.New("loan has not missed enough payments to be defaulted")
 )
 
 func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
@@ -125,14 +131,17 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 		return err
 	}
 
+	// The wording lives in internal/notify, which renders whole taka and is table
+	// tested (WO-52). Two defects have already come out of this one line: a /100
+	// that told a member their ৳50,000 loan was "BDT 500.00", and the %.2f that
+	// printed paisa in a ledger that has none.
+	approvedTitle, approvedMessage := notify.LoanApproved(loanNumber, principalAmount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"Loan approved",
-		// No /100 here: money is whole taka (ADR-002). The divide that used to sit
-		// in this call told a member their ৳50,000 loan was "BDT 500.00".
-		fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.", loanNumber, float64(principalAmount)),
+		approvedTitle,
+		approvedMessage,
 		&borrowerID,
 		nil,
 	); err != nil {
@@ -180,17 +189,13 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 		return err
 	}
 
-	reason = strings.TrimSpace(reason)
-	memberMessage := fmt.Sprintf("Your loan request %s has been rejected.", loanNumber)
-	if reason != "" {
-		memberMessage = fmt.Sprintf("%s Reason: %s", memberMessage, reason)
-	}
+	rejectedTitle, rejectedMessage := notify.LoanRejected(loanNumber, reason)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"Loan request rejected",
-		memberMessage,
+		rejectedTitle,
+		rejectedMessage,
 		&borrowerID,
 		nil,
 	); err != nil {
@@ -312,14 +317,13 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		return "", err
 	}
 
-	amountTaka := float64(amount)
-	requestSummary := fmt.Sprintf("%s submitted a loan repayment request for BDT %.2f (Loan %s, bKash ref: %s).", memberName, amountTaka, loanNumber, reference)
+	staffTitle, staffMessage := notify.LoanRepaymentRequestForStaff(memberName, loanNumber, reference, amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"New loan repayment request",
-		requestSummary,
+		staffTitle,
+		staffMessage,
 		nil,
 		normalizedRolePtr("ADMIN"),
 	); err != nil {
@@ -329,19 +333,20 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"New loan repayment request",
-		requestSummary,
+		staffTitle,
+		staffMessage,
 		nil,
 		normalizedRolePtr("WORKER"),
 	); err != nil {
 		return "", fmt.Errorf("failed to notify staff: %w", err)
 	}
+	memberTitle, memberMessage := notify.LoanRepaymentRequestSubmitted(amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"Loan repayment request submitted",
-		fmt.Sprintf("Your loan repayment request for BDT %.2f has been submitted and is awaiting review.", amountTaka),
+		memberTitle,
+		memberMessage,
 		&memberID,
 		nil,
 	); err != nil {
@@ -527,7 +532,7 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 	}
 
 	// Calculate recovery rate - CRITICAL FIX for hardcoded 98.5%
-	var recoveryRate float64 = 100.0
+	recoveryRate := 100.0
 	if totalDisbursed > 0 {
 		recoveryRate = float64(totalRecovered) / float64(totalDisbursed) * 100
 		// Round to 1 decimal place
@@ -710,8 +715,23 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	// waterfall: any savings the borrower or guarantor had deposited since the
 	// first default were taken again, for a debt that had already been settled
 	// against them. Two clicks on one button, and money left an account twice.
-	var currentStatus string
-	err = tx.QueryRow(ctx, `SELECT status::text FROM loans WHERE id = $1 FOR UPDATE`, loanID).Scan(&currentStatus)
+	var currentStatus, loanNumber, borrowerID string
+	var totalInstallments, paidInstallments int
+	var remainingAmount int64
+	var installmentStart *time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT
+			status::text,
+			"loanNumber",
+			"borrowerId",
+			"totalInstallments",
+			"paidInstallments",
+			"remainingAmount"::bigint,
+			"installmentStartDate"
+		FROM loans
+		WHERE id = $1
+		FOR UPDATE
+	`, loanID).Scan(&currentStatus, &loanNumber, &borrowerID, &totalInstallments, &paidInstallments, &remainingAmount, &installmentStart)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrLoanNotFound
 	}
@@ -720,6 +740,30 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	}
 	if !defaultableStatuses[currentStatus] {
 		return fmt.Errorf("%w: loan is %s", ErrLoanNotDefaultable, currentStatus)
+	}
+
+	// `loan.missedPaymentsForDefault` is enforced HERE, and this is the only
+	// place a loan becomes DEFAULTED.
+	//
+	// Until 2026-08-18 the setting was editable in the admin UI and read by
+	// nothing: an admin could set "3 missed payments" and then default a loan
+	// that had missed none, while the screen said the policy was in force. A
+	// control that lies is worse than no control, and this one runs the
+	// settlement waterfall — it takes the borrower's savings, then their
+	// guarantor's.
+	//
+	// A loan with no installmentStartDate has never been put on a schedule, so
+	// nothing can be overdue on it and MissedInstallments returns 0. That
+	// correctly makes it undefaultable.
+	threshold := r.getMissedPaymentsForDefaultTx(ctx, tx)
+	var scheduleStart time.Time
+	if installmentStart != nil {
+		scheduleStart = *installmentStart
+	}
+	missed := money.MissedInstallments(scheduleStart, time.Now(), totalInstallments, paidInstallments)
+	if !money.IsDefaultable(missed, threshold) {
+		return fmt.Errorf("%w: %d of %d instalments missed, policy requires %d",
+			ErrLoanNotYetDefaultable, missed, totalInstallments, threshold)
 	}
 
 	const updateQuery = `
@@ -739,6 +783,16 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	`
 	if _, err := tx.Exec(ctx, auditQuery, loanID, adminID, notes); err != nil {
 		return fmt.Errorf("failed to write audit log: %w", err)
+	}
+
+	// The borrower is told before the waterfall runs, in the same transaction:
+	// a default takes their savings and then their guarantor's, and finding
+	// that out from a balance rather than from a message is not acceptable.
+	defaultedTitle, defaultedMessage := notify.LoanDefaulted(loanNumber, remainingAmount)
+	if err := r.insertNotificationTx(
+		ctx, tx, "SYSTEM_ALERT", defaultedTitle, defaultedMessage, &borrowerID, nil,
+	); err != nil {
+		return fmt.Errorf("failed to notify borrower: %w", err)
 	}
 
 	if err := r.waterfallRecoveryTx(ctx, tx, loanID); err != nil {
@@ -1007,24 +1061,25 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
 	}
 
-	amountTaka := float64(amount)
+	memberTitle, memberMessage := notify.LoanDisbursed(loanNumber, amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"LOAN_APPROVED",
-		"Loan disbursed",
-		fmt.Sprintf("Your loan %s for BDT %.2f has been disbursed.", loanNumber, amountTaka),
+		memberTitle,
+		memberMessage,
 		&memberID,
 		nil,
 	); err != nil {
 		return "", fmt.Errorf("failed to create member notification: %w", err)
 	}
+	staffTitle, staffMessage := notify.LoanDisbursedForStaff(loanNumber, memberID)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"Daily task update",
-		fmt.Sprintf("Loan %s disbursed for member %s.", loanNumber, strings.ToUpper(memberID)),
+		staffTitle,
+		staffMessage,
 		nil,
 		normalizedRolePtr("WORKER"),
 	); err != nil {
@@ -1167,13 +1222,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		return "", fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	amountTaka := float64(amount)
-	memberTitle := "Loan repayment received"
-	memberMessage := fmt.Sprintf("A loan repayment of BDT %.2f has been recorded.", amountTaka)
-	if loanUpdateStatus == "COMPLETED" {
-		memberTitle = "Loan completed"
-		memberMessage = fmt.Sprintf("Your loan has been completed with a final repayment of BDT %.2f.", amountTaka)
-	}
+	memberTitle, memberMessage := notify.LoanRepaymentRecorded(amount, loanUpdateStatus == "COMPLETED")
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
@@ -1185,12 +1234,13 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	); err != nil {
 		return "", fmt.Errorf("failed to create member notification: %w", err)
 	}
+	staffTitle, staffMessage := notify.LoanRepaymentRecordedForStaff(memberID, amount)
 	if err := r.insertNotificationTx(
 		ctx,
 		tx,
 		"SYSTEM_ALERT",
-		"Daily task update",
-		fmt.Sprintf("Loan repayment recorded for member %s (BDT %.2f).", strings.ToUpper(memberID), amountTaka),
+		staffTitle,
+		staffMessage,
 		nil,
 		normalizedRolePtr("WORKER"),
 	); err != nil {

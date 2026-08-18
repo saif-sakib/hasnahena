@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,7 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import { LoanApplicationForm } from '@/components/dashboard/loan-application-form';
 import { GuarantorRequests, type GuarantorRequestItem } from '@/components/dashboard/guarantor-requests';
@@ -46,100 +48,89 @@ export default function LoansPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
   const router = useRouter();
-  const [currentDeposit, setCurrentDeposit] = useState(0);
-  const [loanPolicy, setLoanPolicy] = useState({
-    minDepositRequired: 8000,
-    maxLoanMultiplier: 5,
-    maxInstallmentMonths: 24,
-    guarantorThreshold: 20000,
-  });
+  // WO-27 — SWR, not an effect. See lib/use-api.ts. The settings endpoint is a
+  // Next route rather than the Go API, so it is fetched through the same group
+  // with a plain fetch; a failure there falls back to the defaults below rather
+  // than blanking the screen, which is what the old catch-and-null did.
+  const {
+    data: pageData,
+    error: loadError,
+    isLoading,
+    refresh,
+  } = useApiAll<
+    [
+      {
+        currentDeposit?: number;
+        activeLoan?: Loan | null;
+        loanHistory?: Loan[];
+        guarantorRequests?: GuarantorRequestItem[];
+      },
+      MemberTransaction[],
+    ]
+  >(['/v1/dashboard/member/loans', '/v1/dashboard/member/transactions']);
+  useRedirectOnUnauthorized(loadError);
+
+  const { data: settingsData } = useSWR<Record<string, unknown> | null>(
+    '/api/v1/settings',
+    async (url: string) => {
+      const response = await fetch(url, { cache: 'no-store' });
+      return response.ok ? response.json() : null;
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+
+  const currentDeposit = pageData?.[0]?.currentDeposit ?? 0;
+  const activeLoan = pageData?.[0]?.activeLoan ?? null;
+  const loanHistory = useMemo<Loan[]>(() => pageData?.[0]?.loanHistory ?? [], [pageData]);
+  const guarantorRequests = useMemo<GuarantorRequestItem[]>(
+    () => pageData?.[0]?.guarantorRequests ?? [],
+    [pageData],
+  );
+  const pendingRepaymentRequests = useMemo(
+    () =>
+      (pageData?.[1] ?? []).filter(
+        (item) => item.type === 'LOAN_REPAYMENT' && item.status === 'PENDING',
+      ).length,
+    [pageData],
+  );
+
+  const loanPolicy = useMemo(() => {
+    const parsedMinDeposit = Number(settingsData?.['loan.minDepositForLoan']);
+    const parsedMultiplier = Number(settingsData?.['loan.maxLoanMultiplier']);
+    const parsedMaxInstallments = Number(settingsData?.['loan.maxInstallmentMonths']);
+    const parsedThreshold = Number(settingsData?.['loan.guarantorThresholdAmount']);
+    return {
+      minDepositRequired:
+        Number.isFinite(parsedMinDeposit) && parsedMinDeposit >= 0 ? parsedMinDeposit : 8000,
+      maxLoanMultiplier:
+        Number.isFinite(parsedMultiplier) && parsedMultiplier > 0 ? parsedMultiplier : 5,
+      maxInstallmentMonths:
+        Number.isFinite(parsedMaxInstallments) && parsedMaxInstallments > 0
+          ? parsedMaxInstallments
+          : 24,
+      // Zero is a real setting here — it means every loan needs a guarantor —
+      // so this accepts 0 rather than treating it as unset.
+      guarantorThreshold:
+        Number.isFinite(parsedThreshold) && parsedThreshold >= 0 ? parsedThreshold : 20000,
+    };
+  }, [settingsData]);
+
   const minDepositRequired = loanPolicy.minDepositRequired;
   const maxLoanMultiplier = loanPolicy.maxLoanMultiplier;
   const maxLoanAmount = currentDeposit * maxLoanMultiplier;
   const isEligible = currentDeposit >= minDepositRequired;
   const [showApplyForm, setShowApplyForm] = useState(false);
-  const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequestItem[]>([]);
-  const [activeLoan, setActiveLoan] = useState<Loan | null>(null);
-  const [loanHistory, setLoanHistory] = useState<Loan[]>([]);
   const [selectedHistoryLoan, setSelectedHistoryLoan] = useState<Loan | null>(null);
-  const [pendingRepaymentRequests, setPendingRepaymentRequests] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Applying for a loan or submitting a repayment fails for its own reasons;
+  // kept apart from the read so one does not clear the other.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const actionError = submitError ?? loadError;
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isRepaymentSubmitting, setIsRepaymentSubmitting] = useState(false);
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [repaymentReference, setRepaymentReference] = useState('');
   const [repaymentNotes, setRepaymentNotes] = useState('');
 
-  const refresh = async () => {
-    const token = localStorage.getItem('hn_access_token');
-    if (!token) {
-      router.push(`/${locale}/login`);
-      return;
-    }
-
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const [loanData, transactionData, settingsData] = await Promise.all([
-        apiGet<{
-          currentDeposit?: number;
-          activeLoan?: Loan | null;
-          loanHistory?: Loan[];
-          guarantorRequests?: GuarantorRequestItem[];
-        }>('/v1/dashboard/member/loans'),
-        apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions'),
-        fetch('/api/v1/settings', { cache: 'no-store' })
-          .then((response) => (response.ok ? response.json() : null))
-          .catch(() => null) as Promise<Record<string, unknown> | null>,
-      ]);
-
-      setCurrentDeposit(loanData?.currentDeposit ?? 0);
-      setActiveLoan(loanData?.activeLoan ?? null);
-      setLoanHistory(loanData?.loanHistory ?? []);
-      setGuarantorRequests(loanData?.guarantorRequests ?? []);
-      setPendingRepaymentRequests(
-        (transactionData ?? []).filter((item) =>
-          item.type === 'LOAN_REPAYMENT' && item.status === 'PENDING',
-        ).length,
-      );
-      setLoanPolicy((prev) => {
-        const parsedMinDeposit = Number(settingsData?.['loan.minDepositForLoan']);
-        const parsedMultiplier = Number(settingsData?.['loan.maxLoanMultiplier']);
-        const parsedMaxInstallments = Number(settingsData?.['loan.maxInstallmentMonths']);
-        const parsedThreshold = Number(settingsData?.['loan.guarantorThresholdAmount']);
-        return {
-          minDepositRequired:
-            Number.isFinite(parsedMinDeposit) && parsedMinDeposit >= 0
-              ? parsedMinDeposit
-              : prev.minDepositRequired,
-          maxLoanMultiplier:
-            Number.isFinite(parsedMultiplier) && parsedMultiplier > 0
-              ? parsedMultiplier
-              : prev.maxLoanMultiplier,
-          maxInstallmentMonths:
-            Number.isFinite(parsedMaxInstallments) && parsedMaxInstallments > 0
-              ? parsedMaxInstallments
-              : prev.maxInstallmentMonths,
-          // Zero is a real setting here — it means every loan needs a guarantor —
-          // so this accepts 0 rather than treating it as unset.
-          guarantorThreshold:
-            Number.isFinite(parsedThreshold) && parsedThreshold >= 0
-              ? parsedThreshold
-              : prev.guarantorThreshold,
-        };
-      });
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load loans');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale]);
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
@@ -171,17 +162,17 @@ export default function LoansPage() {
 
   const handleRepaymentRequest = async (loan: Loan) => {
     if (loan.status !== 'ACTIVE') {
-      setActionError(locale === 'bn' ? 'সক্রিয় ঋণ পাওয়া যায়নি' : 'No active loan found');
+      setSubmitError(locale === 'bn' ? 'সক্রিয় ঋণ পাওয়া যায়নি' : 'No active loan found');
       return;
     }
 
     const amountValue = Number.parseFloat(repaymentAmount);
     if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
+      setSubmitError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
       return;
     }
     if (amountValue > loan.remainingAmount) {
-      setActionError(
+      setSubmitError(
         locale === 'bn'
           ? `সর্বোচ্চ ${formatCurrency(loan.remainingAmount, locale)} পর্যন্ত অনুরোধ করা যাবে`
           : `You can request up to ${formatCurrency(loan.remainingAmount, locale)}`,
@@ -189,13 +180,13 @@ export default function LoansPage() {
       return;
     }
     if (!repaymentReference.trim()) {
-      setActionError(locale === 'bn' ? 'bKash রেফারেন্স দিন' : 'Enter your bKash reference');
+      setSubmitError(locale === 'bn' ? 'bKash রেফারেন্স দিন' : 'Enter your bKash reference');
       return;
     }
 
     try {
       setIsRepaymentSubmitting(true);
-      setActionError(null);
+      setSubmitError(null);
       setActionSuccess(null);
       await apiPost('/v1/dashboard/member/requests/loan-repayment', {
         loanId: loan.id,
@@ -214,7 +205,7 @@ export default function LoansPage() {
       );
       await refresh();
     } catch (e: any) {
-      setActionError(e?.message ?? (locale === 'bn' ? 'অনুরোধ জমা দেওয়া যায়নি' : 'Failed to submit request'));
+      setSubmitError(e?.message ?? (locale === 'bn' ? 'অনুরোধ জমা দেওয়া যায়নি' : 'Failed to submit request'));
     } finally {
       setIsRepaymentSubmitting(false);
     }
@@ -272,7 +263,7 @@ export default function LoansPage() {
           onCancel={() => setShowApplyForm(false)}
           onSubmitted={async (hadGuarantor) => {
             setShowApplyForm(false);
-            setActionError(null);
+            setSubmitError(null);
             setActionSuccess(hadGuarantor ? t('applySuccessGuarantor') : t('applySuccess'));
             await refresh();
           }}

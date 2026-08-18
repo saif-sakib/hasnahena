@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,8 @@ import {
   Eye,
   Download,
 } from 'lucide-react';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency } from '@/lib/utils';
 
@@ -368,31 +369,28 @@ function RegistrationRow({
 export default function AdminApprovalsPage() {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState<ApprovalTab>('registration');
-  const [registrations, setRegistrations] = useState<RegistrationRequest[]>([]);
-  const [transactionRequests, setTransactionRequests] = useState<TransactionRequest[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const {
+    data: approvalsData,
+    error: loadError,
+    isLoading,
+    refresh: loadApprovals,
+  } = useApi<ApprovalsResponse>('/v1/dashboard/admin/approvals');
+
+  const registrations = useMemo<RegistrationRequest[]>(
+    () => approvalsData?.registrationRequests ?? [],
+    [approvalsData],
+  );
+  const transactionRequests = useMemo<TransactionRequest[]>(
+    () => approvalsData?.transactionRequests ?? [],
+    [approvalsData],
+  );
+
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadApprovals = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const approvalsData = await apiGet<ApprovalsResponse>('/v1/dashboard/admin/approvals');
-      setRegistrations(approvalsData.registrationRequests ?? []);
-      setTransactionRequests(approvalsData.transactionRequests ?? []);
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to load approvals');
-      setRegistrations([]);
-      setTransactionRequests([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadApprovals();
-  }, []);
+  // Approving or rejecting fails for its own reasons — a stale request, a
+  // balance that moved — and must not be confused with a failure to load.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
 
   const loanRepaymentRequests = useMemo(
     () => transactionRequests.filter((item) => item.type === 'LOAN_REPAYMENT'),
@@ -417,7 +415,7 @@ export default function AdminApprovalsPage() {
 
   const runRegistrationAction = async (id: string, action: 'approve' | 'reject') => {
     setIsActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       if (action === 'approve') {
         const approvalResult = await apiPost<ApproveRegistrationResult>('/v1/dashboard/admin/approvals/registration', {
@@ -435,14 +433,14 @@ export default function AdminApprovalsPage() {
           const passwordHint = approvalResult.temporaryPassword
             ? ` ${locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড:' : 'Temporary password:'} ${approvalResult.temporaryPassword}`
             : '';
-          setError(`${fallbackMessage}${details}${passwordHint}`);
+          setActionError(`${fallbackMessage}${details}${passwordHint}`);
         }
       } else {
         await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
       }
       await loadApprovals();
     } catch (e: any) {
-      setError(e?.message ?? 'Action failed');
+      setActionError(e?.message ?? 'Action failed');
     } finally {
       setIsActionLoading(false);
     }
@@ -450,7 +448,7 @@ export default function AdminApprovalsPage() {
 
   const runTransactionAction = async (id: string, action: 'approve' | 'reject') => {
     setIsActionLoading(true);
-    setError(null);
+    setActionError(null);
     try {
       const payload = { requestId: id, transactionId: id };
       if (action === 'approve') {
@@ -460,7 +458,7 @@ export default function AdminApprovalsPage() {
       }
       await loadApprovals();
     } catch (e: any) {
-      setError(e?.message ?? 'Action failed');
+      setActionError(e?.message ?? 'Action failed');
     } finally {
       setIsActionLoading(false);
     }

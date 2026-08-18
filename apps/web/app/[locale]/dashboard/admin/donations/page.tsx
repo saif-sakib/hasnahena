@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search, Download, Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCurrency } from '@/lib/utils';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 
 type Donation = {
   id: string;
@@ -45,29 +46,24 @@ function exportDonationsCsv(rows: Donation[], locale: string) {
 export default function AdminDonationsPage() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
-  const [donations, setDonations] = useState<Donation[]>([]);
+  // WO-27 — loaded by SWR, not by an effect. See lib/use-api.ts.
+  const {
+    data: donationsData,
+    error: loadError,
+    isLoading,
+    refresh: loadDonations,
+  } = useApi<Donation[]>('/v1/dashboard/admin/donations');
+  // Recording a donation fails for different reasons than reading the list
+  // does, so it carries its own message rather than overwriting the load error.
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const actionError = submitError ?? loadError;
+  const donations = useMemo<Donation[]>(() => donationsData ?? [], [donationsData]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+
   const [showAddDonationModal, setShowAddDonationModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newDonation, setNewDonation] = useState({ donorName: '', amount: '', notes: '' });
 
-  const loadDonations = async () => {
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const data = await apiGet<Donation[]>('/v1/dashboard/admin/donations');
-      setDonations(data ?? []);
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load donations');
-      setDonations([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => { void loadDonations(); }, []);
 
   const filteredDonations = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -83,16 +79,16 @@ export default function AdminDonationsPage() {
 
   const handleAddDonation = async () => {
     const amountBdt = Number.parseFloat(newDonation.amount);
-    if (!Number.isFinite(amountBdt) || amountBdt <= 0) { setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount'); return; }
+    if (!Number.isFinite(amountBdt) || amountBdt <= 0) { setSubmitError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount'); return; }
     setIsSubmitting(true);
-    setActionError(null);
+    setSubmitError(null);
     try {
       await apiPost('/v1/dashboard/admin/donations', { amount: Math.round(amountBdt ), donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
       setShowAddDonationModal(false);
       setNewDonation({ donorName: '', amount: '', notes: '' });
       await loadDonations();
     } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to record donation');
+      setSubmitError(e?.message ?? 'Failed to record donation');
     } finally {
       setIsSubmitting(false);
     }

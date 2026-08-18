@@ -18,8 +18,11 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 		SELECT
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM users WHERE status = 'PENDING'), 0)::bigint,
-			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
-			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'WITHDRAWAL' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
+			-- CONFIRMED only: a deposit request and a withdrawal notice are both
+			-- PENDING rows in this table, and today's takings must not count
+			-- money nobody has handed over yet.
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
 			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status IN ('APPROVED','ACTIVE') AND "createdAt"::date = CURRENT_DATE), 0)::bigint
 	`
 	var totalMembers, pendingRequests, todayDeposits, todayWithdrawals, todayLoans int64
@@ -301,8 +304,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			u."createdAt",
 			COALESCE(a."savingsBalance", 0)::bigint,
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
-			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'DEPOSIT'), 0)::bigint,
-			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL'), 0)::bigint,
+			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'DEPOSIT' AND t.status = 'CONFIRMED'), 0)::bigint,
+			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL' AND t.status = 'CONFIRMED'), 0)::bigint,
 			COALESCE(addr.district, '') || ', ' || COALESCE(addr."policeStation", '') || ', ' || COALESCE(addr.village, ''),
 			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
 		FROM users u

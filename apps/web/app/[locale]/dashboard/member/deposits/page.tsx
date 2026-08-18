@@ -1,20 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import {
   Wallet,
   ArrowUpRight,
   Download,
   PlusCircle,
+  CalendarClock,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import { buildStatement, downloadDocumentPDF, buildReceipt, fetchOrgSettings } from '@/lib/documents';
 
@@ -57,11 +58,26 @@ function getMemberDisplayPhone(profile: MemberProfileResponse | null): string {
 export default function DepositsPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
-  const router = useRouter();
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [currentBalance, setCurrentBalance] = useState(0);
-  const [memberProfile, setMemberProfile] = useState<MemberProfileResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const {
+    data: pageData,
+    error: loadError,
+    isLoading,
+    refresh,
+  } = useApiAll<[{ deposits: Deposit[]; currentBalance: number }, MemberProfileResponse]>([
+    '/v1/dashboard/member/deposits',
+    '/v1/dashboard/member/profile',
+  ]);
+  useRedirectOnUnauthorized(loadError);
+
+  const deposits = useMemo<Deposit[]>(() => pageData?.[0]?.deposits ?? [], [pageData]);
+  const memberProfile = useMemo<MemberProfileResponse | null>(() => pageData?.[1] ?? null, [pageData]);
+  const currentBalance = useMemo(
+    () => pageData?.[1]?.accountSummary?.currentBalance ?? pageData?.[0]?.currentBalance ?? 0,
+    [pageData],
+  );
+
+  // Submitting a request fails for its own reasons; kept apart from the read.
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isRequestSubmitting, setIsRequestSubmitting] = useState(false);
@@ -69,6 +85,12 @@ export default function DepositsPage() {
   const [requestAmount, setRequestAmount] = useState('');
   const [requestReference, setRequestReference] = useState('');
   const [requestNotes, setRequestNotes] = useState('');
+  // FR-08. A withdrawal is not an instant action any more: the member gives
+  // notice, the notice period runs, and the payout settles it at the desk.
+  const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
+  const [withdrawalAmount, setWithdrawalAmount] = useState('');
+  const [withdrawalNotes, setWithdrawalNotes] = useState('');
+  const [isWithdrawalSubmitting, setIsWithdrawalSubmitting] = useState(false);
 
   const resetDepositForm = () => {
     setRequestAmount('');
@@ -81,37 +103,6 @@ export default function DepositsPage() {
     resetDepositForm();
   };
 
-  const refresh = async () => {
-    const token = localStorage.getItem('hn_access_token');
-    if (!token) {
-      router.push(`/${locale}/login`);
-      return;
-    }
-
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const [depositsData, profileData] = await Promise.all([
-        apiGet<{
-          deposits: Deposit[];
-          currentBalance: number;
-        }>('/v1/dashboard/member/deposits'),
-        apiGet<MemberProfileResponse>('/v1/dashboard/member/profile'),
-      ]);
-      setDeposits(depositsData?.deposits ?? []);
-      setMemberProfile(profileData);
-      setCurrentBalance(profileData?.accountSummary?.currentBalance ?? depositsData?.currentBalance ?? 0);
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale]);
 
   const totalDeposited = useMemo(
     () => deposits
@@ -236,6 +227,62 @@ export default function DepositsPage() {
     }
   };
 
+  const resetWithdrawalForm = () => {
+    setWithdrawalAmount('');
+    setWithdrawalNotes('');
+  };
+
+  const closeWithdrawalForm = () => {
+    resetWithdrawalForm();
+    setShowWithdrawalForm(false);
+  };
+
+  const handleSubmitWithdrawalNotice = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+
+    const amountValue = Number.parseInt(withdrawalAmount, 10);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
+      return;
+    }
+
+    try {
+      setIsWithdrawalSubmitting(true);
+      const response = await apiPost<{ eligibleFrom?: string; noticePeriodMonths?: number }>(
+        '/v1/dashboard/member/requests/withdrawal',
+        { amount: amountValue, notes: withdrawalNotes.trim() },
+      );
+      closeWithdrawalForm();
+      // The maturity date comes back from the API rather than being computed
+      // here: the notice period is policy the server owns, and a date the
+      // screen worked out for itself would drift the moment it changed.
+      const eligible = response?.eligibleFrom
+        ? new Date(response.eligibleFrom).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+          })
+        : null;
+      setActionSuccess(
+        eligible
+          ? locale === 'bn'
+            ? `উত্তোলনের নোটিস জমা হয়েছে। ${eligible} তারিখ থেকে টাকা তোলা যাবে।`
+            : `Withdrawal notice submitted. The money can be paid from ${eligible}.`
+          : locale === 'bn'
+            ? 'উত্তোলনের নোটিস জমা হয়েছে।'
+            : 'Withdrawal notice submitted.',
+      );
+      await refresh();
+    } catch (e: any) {
+      setActionError(
+        e?.message ?? (locale === 'bn' ? 'নোটিস জমা দেওয়া যায়নি' : 'Failed to submit notice'),
+      );
+    } finally {
+      setIsWithdrawalSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       {actionError && (
@@ -347,6 +394,92 @@ export default function DepositsPage() {
                   {isRequestSubmitting
                     ? (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')
                     : (locale === 'bn' ? 'অনুরোধ পাঠান' : 'Submit Request')}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Withdrawal notice — FR-08 */}
+      <div className="border border-gray-200 bg-white">
+        {!showWithdrawalForm ? (
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">
+                {locale === 'bn' ? 'উত্তোলনের নোটিস' : 'Withdrawal Notice'}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                {locale === 'bn'
+                  ? 'টাকা তুলতে হলে আগে নোটিস দিন। নোটিস পিরিয়ড শেষ হলে টাকা দেওয়া হবে।'
+                  : 'Give notice before withdrawing. The money is paid once the notice period has passed.'}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setShowWithdrawalForm(true)}
+              className="gap-2 shrink-0"
+            >
+              <CalendarClock className="h-4 w-4" />
+              {locale === 'bn' ? 'নোটিস দিন' : 'Give Notice'}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {locale === 'bn' ? 'নতুন উত্তোলনের নোটিস' : 'New Withdrawal Notice'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {locale === 'bn'
+                    ? 'নোটিস দিলে এখনই টাকা কাটা হবে না। নোটিস পিরিয়ড শেষ হলে মাঠকর্মী টাকা পৌঁছে দেবেন।'
+                    : 'Giving notice does not debit anything now. A field worker pays it out once the notice period ends.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeWithdrawalForm}
+                className="text-gray-400 hover:text-gray-600 p-1"
+                aria-label={locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
+                {/* Whole taka only — there is no paisa in this ledger. */}
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="0"
+                  value={withdrawalAmount}
+                  onChange={(e) => setWithdrawalAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>{locale === 'bn' ? 'কারণ (ঐচ্ছিক)' : 'Reason (optional)'}</Label>
+                <Textarea
+                  placeholder={locale === 'bn' ? 'কী কারণে তুলছেন...' : 'What the money is for...'}
+                  value={withdrawalNotes}
+                  onChange={(e) => setWithdrawalNotes(e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-3 flex flex-wrap items-center justify-end gap-2">
+                <Button variant="outline" onClick={closeWithdrawalForm} disabled={isWithdrawalSubmitting}>
+                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+                </Button>
+                <Button
+                  onClick={handleSubmitWithdrawalNotice}
+                  disabled={isWithdrawalSubmitting}
+                  className="gap-2"
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  {isWithdrawalSubmitting
+                    ? (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')
+                    : (locale === 'bn' ? 'নোটিস পাঠান' : 'Submit Notice')}
                 </Button>
               </div>
             </div>

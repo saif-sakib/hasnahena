@@ -111,6 +111,91 @@ func (r *UserRepository) generateNextMemberID(ctx context.Context, tx pgx.Tx) (s
 	return utils.FormatMemberID(nextSequence), nil
 }
 
+// A note on the Tx variants below, which matters more than it looks.
+//
+// The plain readers use r.db, so calling one *while holding a transaction*
+// takes a SECOND connection out of the pool. Under concurrency that deadlocks:
+// with N goroutines and a pool of N, every connection is held by an open
+// transaction and every transaction is waiting for a free connection to read a
+// config key. Nothing times out, because nothing is doing anything wrong — the
+// pool is simply empty and stays empty.
+//
+// This was latent for a long time. `AddMemberWithdrawal` already read
+// `loan.allowActiveLoanWithdrawal` from the pool inside its transaction, and
+// only escaped because `activeLoan > 0 &&` short-circuits it away in the common
+// case. Adding an unconditional read hung TestConcurrentWithdrawalsCannotOverdraw
+// immediately and permanently.
+//
+// **Inside a transaction, use the Tx variant.** It also reads the value the
+// transaction can see, which is the correct answer rather than an incidentally
+// similar one.
+func (r *UserRepository) getSystemConfigInt64Tx(ctx context.Context, tx pgx.Tx, key string, defaultValue int64) int64 {
+	raw, ok := scanSystemConfigTx(ctx, tx, key)
+	if !ok {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func (r *UserRepository) getSystemConfigNonNegativeInt64Tx(ctx context.Context, tx pgx.Tx, key string, defaultValue int64) int64 {
+	raw, ok := scanSystemConfigTx(ctx, tx, key)
+	if !ok {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || parsed < 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func (r *UserRepository) getSystemConfigBoolTx(ctx context.Context, tx pgx.Tx, key string, defaultValue bool) bool {
+	raw, ok := scanSystemConfigTx(ctx, tx, key)
+	if !ok {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
+}
+
+// getWithdrawalNoticePeriodMonthsTx is the FR-08 notice period, read inside the
+// caller's transaction. See getWithdrawalNoticePeriodMonths for what it means.
+func (r *UserRepository) getWithdrawalNoticePeriodMonthsTx(ctx context.Context, tx pgx.Tx) int {
+	return int(r.getSystemConfigNonNegativeInt64Tx(ctx, tx, "loan.noticePeriodMonths", 3))
+}
+
+// getMissedPaymentsForDefaultTx is the default threshold, read inside the
+// caller's transaction.
+func (r *UserRepository) getMissedPaymentsForDefaultTx(ctx context.Context, tx pgx.Tx) int {
+	missed := int(r.getSystemConfigInt64Tx(ctx, tx, "loan.missedPaymentsForDefault", 3))
+	if missed < 1 {
+		missed = 3
+	}
+	return missed
+}
+
+func scanSystemConfigTx(ctx context.Context, tx pgx.Tx, key string) (string, bool) {
+	var raw string
+	if err := tx.QueryRow(ctx, systemConfigQuery, key).Scan(&raw); err != nil {
+		return "", false
+	}
+	return raw, true
+}
+
+const systemConfigQuery = `
+	SELECT value
+	FROM system_config
+	WHERE key = $1
+	LIMIT 1
+`
+
 func (r *UserRepository) getSystemConfigInt64(ctx context.Context, key string, defaultValue int64) int64 {
 	const query = `
 		SELECT value
@@ -142,24 +227,6 @@ func (r *UserRepository) getSystemConfigNonNegativeInt64(ctx context.Context, ke
 	}
 	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || parsed < 0 {
-		return defaultValue
-	}
-	return parsed
-}
-
-func (r *UserRepository) getSystemConfigBool(ctx context.Context, key string, defaultValue bool) bool {
-	const query = `
-		SELECT value
-		FROM system_config
-		WHERE key = $1
-		LIMIT 1
-	`
-	var raw string
-	if err := r.db.QueryRow(ctx, query, key).Scan(&raw); err != nil {
-		return defaultValue
-	}
-	parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
-	if err != nil {
 		return defaultValue
 	}
 	return parsed

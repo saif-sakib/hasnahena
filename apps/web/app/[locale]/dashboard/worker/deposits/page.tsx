@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Search,
@@ -19,7 +19,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatCurrency } from '@/lib/utils';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 
 type FormTransactionType = 'DEPOSIT' | 'WITHDRAWAL';
 type TransactionType = FormTransactionType | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | string;
@@ -47,8 +48,43 @@ interface Member {
 export default function WorkerDepositsPage() {
   const locale = useLocale();
   const [searchQuery, setSearchQuery] = useState('');
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  // WO-27 — SWR, not an effect. See lib/use-api.ts. Two independent resources
+  // rather than one group: the member list and the day's postings are useful
+  // separately, and a failure to read one should not blank the other.
+  const { data: transactionsData, refresh: loadTransactions } = useApi<any[]>(
+    '/v1/dashboard/worker/transactions',
+  );
+  const { data: membersData, refresh: loadMembers } = useApi<any[]>('/v1/dashboard/worker/members');
+
+  const transactions = useMemo<Transaction[]>(
+    () =>
+      (transactionsData ?? [])
+        .map((item) => ({
+          id: String(item.id ?? ''),
+          memberId: String(item.memberId ?? ''),
+          memberName: String(item.memberName ?? ''),
+          memberPhone: String(item.memberPhone ?? ''),
+          type: String(item.type ?? '').toUpperCase() as TransactionType,
+          amount: Number(item.amount ?? 0),
+          date: String(item.date ?? new Date().toISOString()),
+          balanceAfter: Number(item.balanceAfter ?? 0),
+          notes: item.description ? String(item.description) : undefined,
+          status: item.status ? String(item.status) : undefined,
+        }))
+        .filter((item) => item.type === 'DEPOSIT' || item.type === 'WITHDRAWAL'),
+    [transactionsData],
+  );
+
+  const members = useMemo<Member[]>(
+    () =>
+      (membersData ?? []).map((member) => ({
+        id: String(member.id ?? ''),
+        name: String(member.name ?? ''),
+        phone: String(member.phone ?? ''),
+        balance: Number(member.currentDeposit ?? 0),
+      })),
+    [membersData],
+  );
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<FormTransactionType>('DEPOSIT');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -57,27 +93,6 @@ export default function WorkerDepositsPage() {
   const [memberSearch, setMemberSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const loadTransactions = async () => {
-    try {
-      const data = await apiGet<any[]>('/v1/dashboard/worker/transactions');
-      const items = (data ?? []).map((item) => ({
-        id: String(item.id ?? ''),
-        memberId: String(item.memberId ?? ''),
-        memberName: String(item.memberName ?? ''),
-        memberPhone: String(item.memberPhone ?? ''),
-        type: String(item.type ?? '').toUpperCase() as TransactionType,
-        amount: Number(item.amount ?? 0),
-        date: String(item.date ?? new Date().toISOString()),
-        balanceAfter: Number(item.balanceAfter ?? 0),
-        notes: item.description ? String(item.description) : undefined,
-        status: item.status ? String(item.status) : undefined,
-      }));
-      setTransactions(items.filter((item) => item.type === 'DEPOSIT' || item.type === 'WITHDRAWAL'));
-    } catch {
-      setTransactions([]);
-    }
-  };
 
   const handleDownloadReceipt = async (t: Transaction) => {
     try {
@@ -98,29 +113,6 @@ export default function WorkerDepositsPage() {
       console.error('Failed to download receipt:', error);
     }
   };
-
-  const loadMembers = async () => {
-    try {
-      const data = await apiGet<any[]>('/v1/dashboard/worker/members');
-      const items = (data ?? []).map((member) => ({
-        id: String(member.id ?? ''),
-        name: String(member.name ?? ''),
-        phone: String(member.phone ?? ''),
-        balance: Number(member.currentDeposit ?? 0),
-      }));
-      setMembers(items);
-    } catch {
-      setMembers([]);
-    }
-  };
-
-  // Below both loaders, not above them. `const` bindings sit in the temporal
-  // dead zone until evaluated; an effect declared earlier only works because
-  // effects run after the component body has finished.
-  useEffect(() => {
-    loadTransactions();
-    loadMembers();
-  }, []);
 
   const formatTime = (dateString: string) => {
     return new Date(dateString).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB', {

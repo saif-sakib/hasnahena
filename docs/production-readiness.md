@@ -8,22 +8,18 @@ This file is the **operational** backlog and the *why*. [tasks.md](tasks.md)
 tracks *product* work (FR-01…22); [work-orders.md](work-orders.md) is the *what
 to change*; [testing.md](testing.md) is how any of it is proved.
 
-Task IDs are stable — cite them in commits (`SEC-10: purge history`).
+Task IDs are stable — cite them in commits (`RUN-07: throttle mutations`).
 **Completed phases are compressed to one line each**; the record of what they
 contained is in [changelog.md](changelog.md).
 
 `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **defect in production now**
 
-> **Three things are wrong right now, and they are different in kind.**
+> **Two things are wrong right now, and they are different in kind.**
 >
 > **A member's dispute reports failure while succeeding** — FR-17, found and
 > proven by the 2026-08-18 code audit. Product defect, so it lives in
 > [tasks.md](tasks.md); named here because it is the most urgent thing in the
 > repository and this page is read first by anyone asking "what is broken".
->
-> **SEC-10** — 39 files of member records are recoverable from git history. A
-> disclosure that has already occurred and continues for as long as the objects
-> exist, not a risk.
 >
 > **The monitoring is built and switched off.** Sentry, `/metrics` and
 > UptimeRobot all exist in code and none of them is receiving anything, because
@@ -39,7 +35,7 @@ contained is in [changelog.md](changelog.md).
 | Area | State | One-line verdict |
 |---|---|---|
 | **Ledger integrity** | `[x]` | LEDGER-01→06 all fixed. Balance writes are relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. Regression tests for every one, each verified to fail against the pre-fix code |
-| **Git history** | `[!]` | **39 files of member records are recoverable from history** — see [SEC-10](#sec-10--member-records-are-recoverable-from-git-history---highest) |
+| **Git history** | `[x]` | 39 files and three binaries remain in history; **assessed and accepted** — not live member data ([ADR-018](decisions.md), [SEC-10](#sec-10--files-in-git-history-assessed-and-accepted-x--closed)) |
 | **Monitoring** | `[!]` | Built, correct, and **switched off in every environment** — see below |
 | Product features | `[!]` | 13 of 22 FRs complete, 8 partial, **1 broken** (FR-17) — see [tasks.md](tasks.md) |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is race-proof under concurrent postings |
@@ -126,7 +122,7 @@ with the right environment and release. This is on the Stage 3 checklist in
 
 ## Phase 0 — Security defects
 
-### SEC-10 · Member records are recoverable from git history `[!]` — **highest**
+### SEC-10 · Files in git history, assessed and accepted `[x]` — **closed**
 
 Found on 2026-08-16 by enumerating every blob in every ref. **39 files** were
 added under `Official Infos/` in commit `f152f0c` ("docs: initial project
@@ -155,16 +151,22 @@ as long as the objects exist.
 live member records — that requires a person to open it. Treat it as PII until
 someone has.
 
-Three questions decide how serious this is, and only the repository owner can
-answer them: **is the repository private?** (if it has ever been public, treat
-this as a breach); **who has had read access**, including any org, collaborator,
-CI integration or fork; and **do the files hold real members or a template?**
+Three questions decided how serious this is, and only the repository owner could
+answer them: **is the repository private?** (it is, and always has been); **who
+has had read access** — no other collaborators; and **do the files hold real
+members or a template?**
 
-**Fix:** [WO-28](work-orders.md) — `git filter-repo --invert-paths` over
-`Official Infos/` and the three binaries from SEC-06, force-push, then ask GitHub
-Support to garbage-collect unreachable objects. Until they do, the blobs stay
-fetchable by SHA even after the rewrite. Add `Official Infos/` to `.gitignore` so
-a re-add is not one `git add -A` away.
+**Resolved 2026-08-18 as [ADR-018](decisions.md), not fixed.** The owner reviewed
+the contents and determined that none of it is live member data — the platform
+has never held real member records. On that finding the purge is not warranted,
+since rewriting every commit hash in the repository is irreversible and its whole
+justification was the sensitivity of these files. `Official Infos/` is in
+`.gitignore` so a re-add is not one `git add -A` away.
+
+**The exemption is for these files only**, and rests on a human reading a scan
+that no script can classify. If that assessment turns out to be wrong, the
+`git filter-repo` runbook is in the history of `docs/work-orders.md`, and it gets
+more expensive with every clone taken.
 
 **Note this is not what gitleaks scans for.** The `secrets` CI job passes on this
 repository and always has: it looks for credential *patterns*, not for documents
@@ -372,11 +374,11 @@ is the record.
 
 | # | Block | Tasks | Order |
 |---|---|---|---|
-| 0 | **Fix what is hurting a member** | FR-17, LEDGER-07, the dropped notifications | [WO-57 → WO-59](work-orders.md). Not on this page's usual axis — these are wrong *now*, which beats everything that is merely expensive later |
-| 1 | **Purge git history** | SEC-10, SEC-06 | [WO-28](work-orders.md) — ½ day plus GitHub Support |
+| 0 | **Fix what is hurting a member** | FR-17, the dropped notifications (LEDGER-07 closed 2026-08-18) | [WO-57](work-orders.md), [WO-59](work-orders.md). Not on this page's usual axis — these are wrong *now*, which beats everything that is merely expensive later |
+| 1 | ~~Purge git history~~ | SEC-10, SEC-06 | **Closed as a decision** — [ADR-018](decisions.md). Not live member data |
 | 2 | **Switch the monitoring on** | OBS-03, OBS-04 | Above. Dashboard work, not engineering, and everything below is being done blind until it is done |
-| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, FR-08, DATA-07 | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch |
-| 4 | **Close the coverage gaps** | [WO-51 → WO-55](work-orders.md) | [tasks.md](tasks.md#coverage-gaps-under-watch) — what the eight testing phases do not reach |
+| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07 (FR-08 done — [ADR-016](decisions.md) needed no migration) | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch |
+| 4 | **Close the coverage gaps** | [WO-53 → WO-55](work-orders.md) | [tasks.md](tasks.md#coverage-gaps-under-watch) — what the eight testing phases do not reach |
 | 5 | **Finish the linters and the hardening** | 19 `errcheck`/`staticcheck` findings — 6 unchecked audit writes and **2 unchecked `InvalidateAllUserTokens`, a password change that revokes nothing** — plus SEC-14/15/16 and RUN-11 | [WO-40](work-orders.md), [WO-60 → WO-65](work-orders.md) |
 | 6 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09 | OPS-07 first |
 | 7 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |

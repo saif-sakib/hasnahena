@@ -251,3 +251,124 @@ The current schema is baselined as `0_init`, generated with `prisma migrate diff
 - `pnpm db:push` survives for throwaway local databases. Pointed at production it reintroduces exactly the drift this ADR removes.
 - Migrations need a **direct** (non-pooled) connection; `pnpm db:migrate` derives one from the pooled URL and logs that it did. See [deployment.md](deployment.md#neon).
 - CI applies migrations rather than pushing, so the integration suite tests the schema that actually deploys.
+
+---
+
+### ADR-016 — A withdrawal notice is the member's request, not a field on the payout
+
+**Status:** accepted · 2026-08-18 · implements FR-08.
+
+`loan.noticePeriodMonths` existed as a config key, was editable in the admin
+settings page, and **was read by nothing**. The screen said "3 months" and the
+system applied no notice period at all — the settings page even carried a label
+saying so. A control that reports a policy the system does not apply is worse
+than no control, because it eventually gets trusted.
+
+Two shapes were considered. [go-live.md](go-live.md) suggested a *policy field
+on the withdrawal*: `noticeGivenAt` and the applied period stamped on each
+`transactions` row. That is a migration plus a place for a worker to type a date
+somebody told them.
+
+**The chosen shape needs no schema change, because the record already exists.**
+A member requesting a withdrawal *is* giving notice. `CreateMemberWithdrawalNotice`
+files a `PENDING` `WITHDRAWAL` row; its `createdAt` starts the clock; the payout
+settles that same row rather than inserting a second one.
+
+**The gate is on both paths that can move the money.** `ApproveWithdrawal`
+(admin) and `AddMemberWithdrawal` (the worker at the desk) each refuse until the
+notice matures. A check on the approval alone would have been bypassable by the
+payout, which is the shape of half-enforcement this ADR exists to avoid.
+
+It also closes a standing rule-4 gap. `AddMemberWithdrawal` could previously
+originate a withdrawal from nothing — a worker moving a member's money with no
+request behind it. It now requires a notice to settle, so the worker is always
+settling something the member asked for.
+
+**Consequences**
+
+- **A `transactions` row is no longer necessarily money that moved.** A
+  `WITHDRAWAL` row is either a notice (`PENDING`) or a payout (`CONFIRMED`).
+  Four aggregates were summing every row regardless of status and are now scoped
+  to `CONFIRMED` — they had the same latent error for `PENDING` deposit
+  requests, which they were already counting as income. **Any new aggregate over
+  `transactions` must filter on status.**
+- A notice covers *up to* the amount announced. Withdrawing less than you gave
+  notice for is allowed; more needs its own notice.
+- Outstanding notices count against the balance, or three separate notices for
+  the whole balance could all be presented once matured.
+- `0` is a legitimate value and means no notice period. It is written, not
+  deleted — deleting the key restores the 3-month default silently.
+- Members need a way to give notice, so the member deposits screen carries the
+  form. Without it, FR-08 would simply have stopped withdrawals.
+
+---
+
+### ADR-017 — Read config inside the transaction, never from the pool
+
+**Status:** accepted · 2026-08-18.
+
+Adding one unconditional `getWithdrawalNoticePeriodMonths(ctx)` call inside
+`AddMemberWithdrawal` hung `TestConcurrentWithdrawalsCannotOverdraw`
+**permanently** — not slowly, not flakily. Nothing errored and nothing timed out
+on its own.
+
+The cause is that the plain config readers use `r.db`, the pool. Called while
+holding a transaction, each one takes a *second* connection. With N goroutines
+and a pool of N, every connection is held by an open transaction and every
+transaction is waiting for a free connection to read a config key. The pool is
+empty and stays empty, and no participant is doing anything wrong.
+
+**This was already latent.** `AddMemberWithdrawal` read
+`loan.allowActiveLoanWithdrawal` from the pool inside its transaction and
+escaped only because `activeLoan > 0 &&` short-circuits it away in the common
+case. The test that exposed it had been green for weeks over code one boolean
+away from deadlocking.
+
+So the readers come in pairs: `getSystemConfigInt64` for callers outside a
+transaction, `getSystemConfigInt64Tx(ctx, tx, …)` for callers inside one. The
+pool-based variants that no longer had a caller were **deleted** rather than
+left available, because `unused` flags them and a dead-but-callable helper is an
+invitation to reintroduce the deadlock. The Tx variants also read what the
+transaction can see, which is the correct answer rather than an incidentally
+similar one.
+
+**Consequence:** inside a repository transaction, use the `…Tx` reader. If you
+add a new one, add it in both forms only when both are actually called.
+
+---
+
+### ADR-018 — The `Official Infos/` history is not purged
+
+**Status:** accepted · 2026-08-18 · closes WO-28, supersedes SEC-06 and SEC-10.
+
+`git rev-list` over all refs finds 39 files under `Official Infos/` (~40 MB,
+added in `f152f0c`, deleted in `9306120`) with names like
+`Hasnahena Member Details.docx` and `Loan Member Detail.docx`, plus three stray
+binaries — `react` (24.6 MB), `apps/api/server` (17.5 + 16.4 MB) and
+`apps/api/seed` (13.6 MB).
+
+WO-28 treated this as a data incident on the strength of those filenames, and
+specified a `git filter-repo` purge plus a force-push of every ref plus a GitHub
+Support ticket to garbage-collect the unreachable blobs.
+
+**The repository owner reviewed the contents and determined that none of it is
+live member data** — the platform has never held real member records. On that
+finding the purge is not warranted: it rewrites every commit hash in the
+repository, is irreversible, and its entire justification was the sensitivity of
+those files.
+
+**What this decision rests on, stated plainly so it can be revisited:** an
+owner's inspection of files a script cannot classify (the largest is an
+image-only PDF scan). If that assessment is ever found to be wrong, the runbook
+is in this file's history at the commit that removed WO-28 — `git log -- docs/work-orders.md`
+— and it gets more expensive with every clone taken.
+
+**Consequences**
+
+- Roughly 100 MB of dead weight stays in history. Clone size is the cost, and
+  the repository is private with no other collaborators.
+- `.gitignore` carries `Official Infos/` so a re-add is not one `git add -A`
+  away, and the binaries are covered by the existing rules.
+- **The exemption is for these specific files only.** Real member data
+  committed after launch is a different question with a different answer, and
+  the cheapest moment to rewrite history is always now rather than later.

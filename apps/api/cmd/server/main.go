@@ -169,7 +169,15 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// SA1019 suppressed, not resolved. RealIP is deprecated because it rewrites
+	// r.RemoteAddr from a caller-supplied X-Forwarded-For, which makes both the
+	// access log and — at the default TRUSTED_PROXIES=0 — the rate limiter key
+	// on a value the caller chose. Removing it is WO-60, which also has to move
+	// the logging middleware onto clientIP() so the log and the throttle agree.
+	// That is a behaviour change with its own verification, so it does not ride
+	// along with turning the linters on (WO-40). Delete this line and the nolint
+	// together when WO-60 lands.
+	r.Use(middleware.RealIP) //nolint:staticcheck // SA1019 — WO-60 owns the removal
 	// Logging sits outside Recoverer so a panic is turned into a 500 while still
 	// inside the access-log wrapper, and therefore gets logged with that status.
 	r.Use(appmw.Logging)
@@ -318,6 +326,7 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
 			dashboard.Post("/member/requests/deposit", dashboardHandler.MemberCreateDepositRequest)
+			dashboard.Post("/member/requests/withdrawal", dashboardHandler.MemberCreateWithdrawalNotice)
 			dashboard.Post("/member/requests/loan-repayment", dashboardHandler.MemberCreateLoanRepaymentRequest)
 			dashboard.Get("/member/profile", dashboardHandler.MemberProfile)
 

@@ -36,9 +36,9 @@ func seedLoanNoGuarantor(t *testing.T, borrower string, remaining int64) string 
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId",
 			"principalAmount", "remainingAmount", "totalInstallments",
-			"installmentAmount", status, "createdAt", "updatedAt")
+			"installmentAmount", status, "installmentStartDate", "createdAt", "updatedAt")
 		VALUES (gen_random_uuid()::text, 'LOAN-TEST-NOGUAR', 'acct_' || $1, $1,
-			$2, $2, 10, 100, 'ACTIVE', NOW(), NOW())
+			$2, $2, 10, 100, 'ACTIVE', NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
 	`, borrower, remaining).Scan(&loanID)
 	if err != nil {
@@ -121,6 +121,13 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 	const attempts = 10
 	const each = 5000 // the balance covers exactly two
 
+	// One matured notice per attempt (FR-08), so what limits the outcome to two
+	// is the balance and not the supply of notices. Without this the test would
+	// still report "2 succeeded" for entirely the wrong reason.
+	for i := 0; i < attempts; i++ {
+		giveMaturedWithdrawalNotice(t, member, each)
+	}
+
 	var wg sync.WaitGroup
 	succeeded := make(chan struct{}, attempts)
 	for i := 0; i < attempts; i++ {
@@ -150,9 +157,13 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 		t.Fatalf("account overdrawn to %d", got)
 	}
 
+	// CONFIRMED only. Since FR-08 a WITHDRAWAL row is either a notice the member
+	// gave (PENDING) or a payout that settled one (CONFIRMED); the eight notices
+	// nobody could pay are still sitting here, and counting them as money out
+	// would report a 50,000 payout against a 10,000 balance.
 	var paidOut int64
 	if err := testPool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(amount), 0)::bigint FROM transactions WHERE type = 'WITHDRAWAL'`).Scan(&paidOut); err != nil {
+		`SELECT COALESCE(SUM(amount), 0)::bigint FROM transactions WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED'`).Scan(&paidOut); err != nil {
 		t.Fatalf("sum withdrawals: %v", err)
 	}
 	if paidOut != 10000 {

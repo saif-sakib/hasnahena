@@ -7,6 +7,7 @@ import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-e
 import { serializeLoan } from '@/lib/api-utils';
 import { SERIES, nextDocumentNumber } from '@/lib/document-numbers';
 import { LoanStatus, UserRole } from '@prisma/client';
+import { formatMoney } from '@/lib/notify';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -236,7 +237,7 @@ export async function POST(req: Request) {
         data: {
           type: 'LOAN_REQUEST',
           title: 'Guarantor Request',
-          message: `${loan.borrower.nameEn} has requested you to be their guarantor for a loan of ৳${Number(amountBig).toLocaleString()}`,
+          message: `${loan.borrower.nameEn} has requested you to be their guarantor for a loan of ${formatMoney(amountBig)}`,
           targetUserId: guarantor.id,
           data: {
             loanId: loan.id,
@@ -255,7 +256,7 @@ export async function POST(req: Request) {
       data: {
         type: 'LOAN_REQUEST',
         title: 'New Loan Application',
-        message: `${loan.borrower.nameEn} (${loan.borrower.memberId}) has applied for a loan of ৳${Number(amountBig).toLocaleString()}`,
+        message: `${loan.borrower.nameEn} (${loan.borrower.memberId}) has applied for a loan of ${formatMoney(amountBig)}`,
         targetRole: UserRole.ADMIN,
         data: {
           loanId: loan.id,

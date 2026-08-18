@@ -64,15 +64,17 @@ transaction rows. That does not matter if you clear the database at Stage 2.1 �
 which is the plan — but it does mean **no balance from the current data should be
 carried forward by hand**. Reconcile before trusting, or start from zero.
 
-### 1.1 Purge git history — [WO-28](work-orders.md)
+### 1.1 Purge git history — **closed as a decision, [ADR-018](decisions.md)**
 
-39 files of foundation records plus three stray binaries. The repository is
-private, which lowers the severity a great deal — but not the cost of waiting.
-A rewrite affects one person today. After launch it affects every clone anyone
-has taken, and "we rewrote history" becomes something you have to explain rather
-than something you just did.
+39 files under `Official Infos/` plus three stray binaries. The owner reviewed
+the contents and determined that none of it is live member data, which was the
+purge's entire justification — so the rewrite is not being run and roughly
+100 MB of dead weight stays in history.
 
-Do it first, because every other commit below lands on top of it.
+**This exemption covers those files only.** The reasoning above still holds for
+anything committed from here on: a rewrite affects one person today, and after
+launch it affects every clone anyone has taken. Real member data committed after
+go-live is a different question with a different answer.
 
 ### 1.2 Settle the data model — nothing here survives contact with real rows
 
@@ -84,7 +86,6 @@ nothing else. Afterwards, every one of them needs a backfill.
 | **Collapse the legacy `LoanStatus` values** (`PENDING`, `APPROVED`) | Two vocabularies for one concept. With real loans in flight you cannot drop enum values without rewriting rows, and Postgres will not remove an enum label that is still referenced |
 | **Donation fund types** (FR-15/16) | Every donation posted before this exists becomes an untyped row somebody has to classify by hand later. Zakat funds especially cannot be reconstructed after the fact |
 | **`audit_logs` immutability trigger** ([WO-33](work-orders.md)) | Adding a `BEFORE UPDATE OR DELETE` guard is trivial on an empty table. It is also the point: the guarantee is worth much more if it was in place from the first row, because then "the log was never rewritten" is provable rather than asserted |
-| **Withdrawal notice period** (FR-08) | It is a policy field on withdrawals. Add it before there are withdrawals that predate it and are exempt for no recorded reason |
 
 **Decide DATA-07 (retention and erasure) in the same pass.** It determines
 whether you need a `deletedAt`, an anonymisation path, or nothing — and that is a
@@ -251,9 +252,9 @@ These cost the same whenever they are done, so they should not delay launch.
 
 | Item | Order | Status / why it can wait |
 |---|---|---|
-| React Compiler lint cleanup | [WO-27](work-orders.md) | **Still deferred.** The compiler is not enabled, so the 20 remaining findings change nothing at runtime, and the obvious fix was tried and measured — it does not clear the rule. Needs these screens moved onto a data-fetching library |
-| Enable `errcheck` + `staticcheck` | [WO-40](work-orders.md) | **The one to do first.** 21 of the 44 findings are real, including 2 unchecked `tx.Exec` of the exact shape that made debt vanish once already |
-| Close the coverage gaps | [WO-51 → WO-55](work-orders.md) | **WO-52 and WO-54 are the exceptions — do those two in Stage 1.** A notification that misreports an amount is a member-facing money defect, and schema drift is cheapest to catch before there are rows. The other three can wait |
+| ~~React Compiler lint cleanup~~ | [WO-27](work-orders.md) | **Done 2026-08-18.** 15 screens moved onto SWR, all 20 findings cleared, compiler enabled. `reactCompiler` is top-level in Next 16 — the `experimental.` key the order assumed is silently ignored |
+| ~~Enable `errcheck` + `staticcheck`~~ | [WO-40](work-orders.md) | **Done 2026-08-18.** 19 findings fixed, 0 remain, both linters on in CI. One suppression: `SA1019` on chi's `RealIP`, which [WO-60](work-orders.md) owns |
+| Close the coverage gaps | [WO-53 → WO-55](work-orders.md) | **WO-54 is the exception — do it in Stage 1**, because schema drift is cheapest to catch before there are rows. WO-51 and WO-52 are done; the other two can wait |
 | Log aggregation, dashboard, audit viewer | OBS-05/07/08 | You have metrics and Sentry — *once they are switched on*. These make them nicer to read |
 | Cloudinary asset backup | DATA-06 | **The exception — do this as soon as real NID images exist.** It is Stage 1 work that simply cannot be done before there is anything to back up |
 | Host move | INF-01 → INF-12 | Only once everything above is quiet |

@@ -121,15 +121,15 @@ const REQUIREMENTS: Record<string, Coverage> = {
     absent: /nominee\.update|UPDATE\s+nominees|updateNominee/i,
   },
   'FR-07': { covered: 'lifecycle_integration_test.go — only a PENDING request can be approved or rejected' },
+  // Implemented 2026-08-18. `loan.noticePeriodMonths` used to be a declared
+  // config key the admin could set and nothing read — a setting that reported a
+  // policy the system did not apply. The member's request is now the notice,
+  // and the period is enforced on BOTH paths that can move the money: the
+  // admin's approval and the worker's payout. A gate on only one would have
+  // been bypassable by the other.
   'FR-08': {
-    // `loan.noticePeriodMonths` is a declared config key and the admin can set
-    // it — that is exactly the trap. The value is read by nothing, so the
-    // setting reports a policy the system does not apply. The search is scoped
-    // to the *enforcement* surface for that reason: matching the settings page
-    // would only prove the key exists, which is not the claim.
-    gap: 'request and approval work; the 3-month notice period is settable but validated nowhere',
-    absent: /noticePeriod/i,
-    absentIn: /apps\/api\/internal\/(repositories|handlers)\/|apps\/web\/app\/api\//,
+    covered:
+      'apps/api/internal/repositories/policy_enforcement_integration_test.go — refused before maturity, paid after, and refused outright with no notice',
   },
   'FR-09': {
     gap: 'active-loan block exists; a guarantor’s outstanding obligation is not checked',

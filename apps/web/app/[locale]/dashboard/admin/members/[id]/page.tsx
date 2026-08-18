@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
 import { useRouter, useParams } from 'next/navigation';
 import {
@@ -55,7 +55,9 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
+import useSWR from 'swr';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import {
@@ -133,12 +135,41 @@ export default function MemberDetailPage() {
   const params = useParams();
   const memberId = params.id as string;
 
-  const [member, setMember] = useState<MemberDetails | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [allowActiveLoanWithdrawal, setAllowActiveLoanWithdrawal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // WO-27 — SWR, not an effect. `memberId` is read from the route, so the key
+  // is null until it exists: that is how "not yet" is expressed to a hook that
+  // cannot be called conditionally.
+  const {
+    data: detailsData,
+    error,
+    isLoading,
+    refresh: loadMemberDetails,
+  } = useApi<{
+    member: MemberDetails;
+    transactions: Transaction[];
+    loans: Loan[];
+  }>(memberId ? `/v1/dashboard/worker/members/${memberId}` : null);
+
+  const { data: settings } = useSWR<Record<string, unknown> | null>(
+    '/api/v1/settings',
+    async (url: string) => {
+      const response = await fetch(url, { cache: 'no-store' });
+      return response.ok ? response.json() : null;
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+
+  const member = detailsData?.member ?? null;
+  const transactions = useMemo<Transaction[]>(() => detailsData?.transactions ?? [], [detailsData]);
+  const loans = useMemo<Loan[]>(() => detailsData?.loans ?? [], [detailsData]);
+
+  const allowActiveLoanWithdrawal =
+    typeof settings?.['loan.allowActiveLoanWithdrawal'] === 'string' &&
+    (settings['loan.allowActiveLoanWithdrawal'] as string).trim().toLowerCase() === 'true';
+
+  const maxInstallmentMonths = useMemo(() => {
+    const parsed = Number(settings?.['loan.maxInstallmentMonths']);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 24;
+  }, [settings]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -160,7 +191,6 @@ export default function MemberDetailPage() {
   const [loanAmount, setLoanAmount] = useState('');
   const [loanPurpose, setLoanPurpose] = useState('');
   const [loanInstallments, setLoanInstallments] = useState('12');
-  const [maxInstallmentMonths, setMaxInstallmentMonths] = useState(24);
   const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
   const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
@@ -172,44 +202,6 @@ export default function MemberDetailPage() {
     return Math.round(parsed);
   };
 
-  const loadMemberDetails = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [data, settingsResponse] = await Promise.all([
-        apiGet<{
-        member: MemberDetails;
-        transactions: Transaction[];
-        loans: Loan[];
-        }>(`/v1/dashboard/worker/members/${memberId}`),
-        fetch('/api/v1/settings', { cache: 'no-store' }),
-      ]);
-      
-      setMember(data.member);
-      setTransactions(data.transactions || []);
-      setLoans(data.loans || []);
-
-      if (settingsResponse.ok) {
-        const settings = (await settingsResponse.json()) as Record<string, unknown>;
-        setAllowActiveLoanWithdrawal(
-          typeof settings['loan.allowActiveLoanWithdrawal'] === 'string' &&
-            settings['loan.allowActiveLoanWithdrawal'].trim().toLowerCase() === 'true'
-        );
-        const parsedMaxInstallments = Number(settings['loan.maxInstallmentMonths']);
-        setMaxInstallmentMonths(Number.isFinite(parsedMaxInstallments) && parsedMaxInstallments > 0 ? Math.trunc(parsedMaxInstallments) : 24);
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load member details');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [memberId]);
-
-  useEffect(() => {
-    if (memberId) {
-      loadMemberDetails();
-    }
-  }, [memberId, loadMemberDetails]);
 
   const handleDeposit = async () => {
     const amountVal = parseAmount(depositAmount);

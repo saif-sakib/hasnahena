@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 import { useLocale } from 'next-intl';
-import { Building2, Wallet, Shield, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
+import { Building2, Wallet, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { clearOrgSettingsCache } from '@/lib/documents';
+import { useDraft } from '@/lib/use-api';
 import { uploadSettingsImageAction, deleteSettingsImageAction } from '@/app/actions/upload-settings-image';
 import { uploadGalleryAction, deleteGalleryAction } from '@/app/actions/upload-gallery';
 
@@ -33,62 +35,155 @@ interface AdminGalleryItem {
   date: string;
 }
 
+const DEFAULT_ORG_SETTINGS = {
+  name: 'হাসনাহেনা',
+  nameEn: 'Hasnahena',
+  email: 'info@hasnahena.org',
+  phone: '+880 1712-345678',
+  address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
+  website: 'https://hasnahena.org',
+  description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
+  regNumber: '',
+};
+
+const DEFAULT_LOAN_SETTINGS = {
+  maxLoanMultiplier: 5,
+  minDepositForLoan: 8000,
+  maxInstallmentMonths: 24,
+  missedPaymentsForDefault: 3,
+  noticePeriodMonths: 3,
+  allowActiveLoanWithdrawal: false,
+};
+
+const DEFAULT_SUPPORT_RETENTION_DAYS = 10;
+
+const DEFAULT_LANDING_SETTINGS: Record<string, string> = {
+  'hero.tagline': '',
+  'navigation.features': '',
+  'navigation.donate': '',
+  'features.title': '',
+  'auth.welcomeBack': '',
+  'contact.title': '',
+  'donation.title': '',
+  'donation.subtitle': '',
+  'donation.bkash': '',
+  'donation.nagad': '',
+  'donation.rocket': '',
+  'donation.referenceNote': '',
+  'branding.logo': '',
+  'branding.dashboardLogo': '',
+  'branding.favicon': '',
+  'hero.backgroundImage': '',
+  'hero.partnerLogo1': '',
+  'hero.partnerLogo2': '',
+  'hero.partnerLogo3': '',
+};
+
+const parseNumberSetting = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const parseNonNegativeSetting = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+const parseBooleanSetting = (value: unknown, fallback: boolean) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
 export default function AdminSettingsPage() {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState('organization');
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [galleryCaptionEn, setGalleryCaptionEn] = useState('');
   const [galleryCaptionBn, setGalleryCaptionBn] = useState('');
-  const [galleryItems, setGalleryItems] = useState<AdminGalleryItem[]>([]);
 
-  // Organization Settings
-  const [orgSettings, setOrgSettings] = useState({
-    name: 'হাসনাহেনা',
-    nameEn: 'Hasnahena',
-    email: 'info@hasnahena.org',
-    phone: '+880 1712-345678',
-    address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
-    website: 'https://hasnahena.org',
-    description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
-    regNumber: '',
-  });
+  // WO-27 — SWR, not an effect. This screen *edits* what it fetches, so the
+  // server value stays derived and only the admin's edits are state; see
+  // useDraft in lib/use-api.ts for why that distinction matters here.
+  const {
+    data: settingsData,
+    isLoading,
+    mutate: fetchSettings,
+  } = useSWR<Record<string, unknown>>(
+    '/api/v1/settings',
+    async (url: string) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to load settings');
+      return response.json();
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
 
-  // Loan Settings
-  const [loanSettings, setLoanSettings] = useState({
-    maxLoanMultiplier: 5,
-    minDepositForLoan: 8000,
-    maxInstallmentMonths: 24,
-    missedPaymentsForDefault: 3,
-    noticePeriodMonths: 3,
-    allowActiveLoanWithdrawal: false,
-  });
+  const { data: galleryData, mutate: fetchGalleryItems } = useSWR<AdminGalleryItem[]>(
+    '/api/v1/gallery?admin',
+    async () => {
+      const response = await fetch('/api/v1/gallery', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Failed to fetch gallery items');
+      return response.json();
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+  const galleryItems = useMemo<AdminGalleryItem[]>(() => galleryData ?? [], [galleryData]);
 
-  const [supportRetentionDays, setSupportRetentionDays] = useState(10);
+  const serverOrgSettings = useMemo(() => {
+    const data = settingsData ?? {};
+    const pick = (key: string, fallback: string) =>
+      typeof data[key] === 'string' ? (data[key] as string) : fallback;
+    return {
+      name: pick('org.name', DEFAULT_ORG_SETTINGS.name),
+      nameEn: pick('org.nameEn', DEFAULT_ORG_SETTINGS.nameEn),
+      email: pick('org.email', DEFAULT_ORG_SETTINGS.email),
+      phone: pick('org.phone', DEFAULT_ORG_SETTINGS.phone),
+      address: pick('org.address', DEFAULT_ORG_SETTINGS.address),
+      website: pick('org.website', DEFAULT_ORG_SETTINGS.website),
+      description: pick('org.description', DEFAULT_ORG_SETTINGS.description),
+      regNumber: pick('org.regNumber', DEFAULT_ORG_SETTINGS.regNumber),
+    };
+  }, [settingsData]);
 
-  // Landing Page Settings (Dynamic Content)
-  const [landingSettings, setLandingSettings] = useState<Record<string, string>>({
-    'hero.tagline': '',
-    'navigation.features': '',
-    'navigation.donate': '',
-    'features.title': '',
-    'auth.welcomeBack': '',
-    'contact.title': '',
-    'donation.title': '',
-    'donation.subtitle': '',
-    'donation.bkash': '',
-    'donation.nagad': '',
-    'donation.rocket': '',
-    'donation.referenceNote': '',
-    'branding.logo': '',
-    'branding.dashboardLogo': '',
-    'branding.favicon': '',
-    'hero.backgroundImage': '',
-    'hero.partnerLogo1': '',
-    'hero.partnerLogo2': '',
-    'hero.partnerLogo3': '',
-  });
+  const serverLoanSettings = useMemo(() => {
+    const data = settingsData ?? {};
+    return {
+      maxLoanMultiplier: parseNumberSetting(data['loan.maxLoanMultiplier'], DEFAULT_LOAN_SETTINGS.maxLoanMultiplier),
+      minDepositForLoan: parseNonNegativeSetting(data['loan.minDepositForLoan'], DEFAULT_LOAN_SETTINGS.minDepositForLoan),
+      maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], DEFAULT_LOAN_SETTINGS.maxInstallmentMonths),
+      missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], DEFAULT_LOAN_SETTINGS.missedPaymentsForDefault),
+      noticePeriodMonths: parseNonNegativeSetting(data['loan.noticePeriodMonths'], DEFAULT_LOAN_SETTINGS.noticePeriodMonths),
+      allowActiveLoanWithdrawal: parseBooleanSetting(
+        data['loan.allowActiveLoanWithdrawal'],
+        DEFAULT_LOAN_SETTINGS.allowActiveLoanWithdrawal,
+      ),
+    };
+  }, [settingsData]);
+
+  const serverSupportRetentionDays = useMemo(
+    () => parseNumberSetting(settingsData?.['support.chatRetentionDays'], DEFAULT_SUPPORT_RETENTION_DAYS),
+    [settingsData],
+  );
+
+  const serverLandingSettings = useMemo<Record<string, string>>(() => {
+    // Only the string-valued keys belong to landing copy.
+    const stringSettings = Object.fromEntries(
+      Object.entries(settingsData ?? {}).filter(([, value]) => typeof value === 'string'),
+    ) as Record<string, string>;
+    return { ...DEFAULT_LANDING_SETTINGS, ...stringSettings };
+  }, [settingsData]);
+
+  const [orgSettings, setOrgSettings, resetOrgDraft] = useDraft(serverOrgSettings);
+  const [loanSettings, setLoanSettings, resetLoanDraft] = useDraft(serverLoanSettings);
+  const [supportRetentionDays, setSupportRetentionDays, resetSupportDraft] =
+    useDraft(serverSupportRetentionDays);
+  const [landingSettings, setLandingSettings, resetLandingDraft] = useDraft(serverLandingSettings);
 
   const getAuthToken = () =>
     typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
@@ -105,98 +200,6 @@ export default function AdminSettingsPage() {
     return Math.max(min, parsed);
   };
 
-  const fetchSettings = async () => {
-    try {
-      const response = await fetch('/api/v1/settings');
-      if (response.ok) {
-        const data = (await response.json()) as Record<string, unknown>;
-        const parseNumberSetting = (value: unknown, fallback: number) => {
-          const parsed = Number(value);
-          return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-        };
-        const parseNonNegativeSetting = (value: unknown, fallback: number) => {
-          const parsed = Number(value);
-          return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-        };
-        const parseBooleanSetting = (value: unknown, fallback: boolean) => {
-          if (typeof value === 'boolean') return value;
-          if (typeof value === 'string') {
-            const normalized = value.trim().toLowerCase();
-            if (normalized === 'true') return true;
-            if (normalized === 'false') return false;
-          }
-          return fallback;
-        };
-
-        // Merge only string-based settings into landing config.
-        const stringSettings = Object.fromEntries(
-          Object.entries(data).filter(([, value]) => typeof value === 'string')
-        ) as Record<string, string>;
-        setLandingSettings((prev) => ({ ...prev, ...stringSettings }));
-        
-        setOrgSettings((prev) => ({
-          ...prev,
-          name: typeof data['org.name'] === 'string' ? data['org.name'] : prev.name,
-          nameEn: typeof data['org.nameEn'] === 'string' ? data['org.nameEn'] : prev.nameEn,
-          email: typeof data['org.email'] === 'string' ? data['org.email'] : prev.email,
-          phone: typeof data['org.phone'] === 'string' ? data['org.phone'] : prev.phone,
-          address: typeof data['org.address'] === 'string' ? data['org.address'] : prev.address,
-          website: typeof data['org.website'] === 'string' ? data['org.website'] : prev.website,
-          description: typeof data['org.description'] === 'string' ? data['org.description'] : prev.description,
-          regNumber: typeof data['org.regNumber'] === 'string' ? data['org.regNumber'] : prev.regNumber,
-        }));
-        setLoanSettings((prev) => ({
-          ...prev,
-          maxLoanMultiplier: parseNumberSetting(data['loan.maxLoanMultiplier'], prev.maxLoanMultiplier),
-          minDepositForLoan: parseNonNegativeSetting(data['loan.minDepositForLoan'], prev.minDepositForLoan),
-          maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], prev.maxInstallmentMonths),
-          missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], prev.missedPaymentsForDefault),
-          noticePeriodMonths: parseNumberSetting(data['loan.noticePeriodMonths'], prev.noticePeriodMonths),
-          allowActiveLoanWithdrawal: parseBooleanSetting(data['loan.allowActiveLoanWithdrawal'], prev.allowActiveLoanWithdrawal),
-        }));
-
-
-        setSupportRetentionDays((prev) =>
-          parseNumberSetting(data['support.chatRetentionDays'], prev)
-        );
-      }
-    } catch (error) {
-      console.error('Failed to fetch settings', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load settings',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchGalleryItems = async () => {
-    try {
-      const response = await fetch('/api/v1/gallery', { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error('Failed to fetch gallery items');
-      }
-
-      const data = (await response.json()) as AdminGalleryItem[];
-      setGalleryItems(data);
-    } catch (error) {
-      console.error('Failed to fetch gallery items', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load gallery items',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Below both fetchers, not above them. `const` bindings sit in the temporal
-  // dead zone until evaluated; an effect declared earlier only works because
-  // effects run after the component body has finished.
-  useEffect(() => {
-    void Promise.all([fetchSettings(), fetchGalleryItems()]);
-  }, []);
 
   const handleSettingsImageUpload = (imageType: SettingImageType) => async (formData: FormData) => {
     const authToken = getAuthToken();
@@ -273,7 +276,8 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    setGalleryItems((prev) => prev.filter((item) => item.id !== id));
+    // Re-read rather than patch: the server decides what remains.
+    await fetchGalleryItems();
     toast({
       title: 'Success',
       description: 'Gallery item deleted',
@@ -316,9 +320,14 @@ export default function AdminSettingsPage() {
         // NOT posted. Nothing in either backend reads them, and because this
         // endpoint rejects the entire request on one unrecognised key, sending
         // them made every save 400 — the admin could not change loan policy,
-        // organisation details or landing copy either. See
-        // UNIMPLEMENTED_CONFIG_KEYS in lib/system-config.ts for what governs
-        // each of those behaviours instead.
+        // organisation details or landing copy either.
+        //
+        // A read-only "System" tab used to list them here with a note saying
+        // where each behaviour is really controlled. It was removed on
+        // 2026-08-18 because a settings tab that changes nothing is still a
+        // settings tab, and an admin opening it reasonably expects controls.
+        // UNIMPLEMENTED_CONFIG_KEYS in lib/system-config.ts carries that
+        // mapping now — wire a reader before ever putting one back on screen.
       };
 
       setLoanSettings(normalizedLoanSettings);
@@ -343,6 +352,16 @@ export default function AdminSettingsPage() {
       // after this save would otherwise keep printing the old organisation
       // details until a full reload.
       clearOrgSettingsCache();
+
+      // Saved, so the drafts hand control back to the server value. Re-reading
+      // first means the form now shows what the API actually stored — which is
+      // the only way an admin finds out that a value was normalised on the way
+      // in rather than accepted as typed.
+      await fetchSettings();
+      resetOrgDraft();
+      resetLoanDraft();
+      resetSupportDraft();
+      resetLandingDraft();
 
       toast({
         title: 'Success',
@@ -374,80 +393,7 @@ export default function AdminSettingsPage() {
     { key: 'organization', label: locale === 'bn' ? 'প্রতিষ্ঠান' : 'Organization' },
     { key: 'landing', label: locale === 'bn' ? 'ল্যান্ডিং' : 'Landing' },
     { key: 'loans', label: locale === 'bn' ? 'ঋণ নীতি' : 'Loans' },
-    { key: 'system', label: locale === 'bn' ? 'সিস্টেম' : 'System' },
   ];
-
-  // Read by the System tab. Every row is something an admin might reasonably
-  // come here looking for and will not find, so each one says where it lives
-  // instead of leaving them hunting.
-  const systemBehaviours: Array<{ behaviour: string; controlledBy: string; note?: string }> =
-    locale === 'bn'
-      ? [
-          {
-            behaviour: 'ইমেইল বিজ্ঞপ্তি',
-            controlledBy: 'Render-এ BREVO_API_KEY',
-            note: 'কনফিগার করা থাকলে সবসময় পাঠানো হয়; চালু/বন্ধ করার সুইচ নেই।',
-          },
-          {
-            behaviour: 'এসএমএস বিজ্ঞপ্তি',
-            controlledBy: 'সমর্থিত নয় (ADR-003)',
-            note: 'কোনো এসএমএস সরবরাহকারী নেই — সিদ্ধান্ত অনুযায়ী।',
-          },
-          {
-            behaviour: 'সেশনের মেয়াদ',
-            controlledBy: 'Render-এ JWT_EXPIRY_SECONDS',
-          },
-          {
-            behaviour: 'লগইন চেষ্টার সীমা',
-            controlledBy: 'Go কোডে RateLimitMaxAttempts',
-            note: 'internal/services/security_service.go',
-          },
-          {
-            behaviour: 'দুই-ধাপ যাচাই ও পাসওয়ার্ড মেয়াদ',
-            controlledBy: 'এখনো তৈরি হয়নি',
-          },
-          {
-            behaviour: 'ভাষা ও থিম',
-            controlledBy: 'URL-এর /en বা /bn, এবং ব্যবহারকারীর ব্রাউজার',
-          },
-          {
-            behaviour: 'তারিখ ও টাকার ফরম্যাট',
-            controlledBy: 'lib/utils.ts ও lib/documents/format.ts',
-          },
-        ]
-      : [
-          {
-            behaviour: 'Email notifications',
-            controlledBy: 'BREVO_API_KEY on Render',
-            note: 'Always sent when configured. There is no on/off switch.',
-          },
-          {
-            behaviour: 'SMS notifications',
-            controlledBy: 'Not supported (ADR-003)',
-            note: 'There is no SMS provider, by decision.',
-          },
-          {
-            behaviour: 'Session length',
-            controlledBy: 'JWT_EXPIRY_SECONDS on Render',
-          },
-          {
-            behaviour: 'Login attempt lockout',
-            controlledBy: 'RateLimitMaxAttempts in the Go API',
-            note: 'internal/services/security_service.go',
-          },
-          {
-            behaviour: 'Two-factor auth, password expiry',
-            controlledBy: 'Not built yet',
-          },
-          {
-            behaviour: 'Language and theme',
-            controlledBy: 'The /en or /bn prefix in the URL, and the reader’s browser',
-          },
-          {
-            behaviour: 'Date and currency formatting',
-            controlledBy: 'lib/utils.ts and lib/documents/format.ts',
-          },
-        ];
 
   return (
     <div className="space-y-4">
@@ -1066,10 +1012,10 @@ export default function AdminSettingsPage() {
                         {locale === 'bn' ? 'টি পেমেন্ট' : 'payments'}
                       </span>
                     </div>
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-muted-foreground">
                       {locale === 'bn'
-                        ? 'এখনো প্রয়োগ হয় না — খেলাপি চিহ্নিত করা হয় ম্যানুয়ালি।'
-                        : 'Not enforced yet — a loan is marked defaulted manually.'}
+                        ? 'এই সংখ্যক কিস্তি বকেয়া না হলে ঋণ খেলাপি চিহ্নিত করা যাবে না।'
+                        : 'A loan cannot be marked defaulted until this many instalments are overdue.'}
                     </p>
                   </div>
 
@@ -1094,10 +1040,10 @@ export default function AdminSettingsPage() {
                       />
                       <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
                     </div>
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-muted-foreground">
                       {locale === 'bn'
-                        ? 'এখনো প্রয়োগ হয় না (FR-08) — উত্তোলনে নোটিস পিরিয়ড যাচাই করা হয় না।'
-                        : 'Not enforced yet (FR-08) — withdrawals do not check a notice period.'}
+                        ? 'সদস্য নোটিস দেওয়ার পর এই সময় পার হলেই উত্তোলন করা যাবে। ০ দিলে নোটিস পিরিয়ড থাকবে না।'
+                        : 'A withdrawal is paid only after this long has passed since the member gave notice. Set 0 to run no notice period.'}
                     </p>
                   </div>
 
@@ -1145,69 +1091,6 @@ export default function AdminSettingsPage() {
             </Card>
           </TabsContent>
 
-          {/*
-            One panel replaces three former tabs — Notify, Security and
-            Appearance — that between them rendered eighteen controls reading
-            and writing config keys nothing in either backend consumed.
-
-            Switching "Email notifications" off did not stop an email. Setting
-            "Session timeout" to 5 minutes did not shorten a session. A "Security
-            Status: Protected" banner was hardcoded green and derived from
-            nothing at all. Worse, posting those keys made the settings endpoint
-            reject the *entire* request as unrecognised (WO-39), so while they
-            were on screen no setting on this page could be saved — loan policy
-            and organisation details included.
-
-            A control that lies is worse than no control, because it eventually
-            gets trusted. Until something reads these values they are documented
-            here instead, pointing at whatever actually governs the behaviour.
-            To make one real: wire the reader first, then move the key into
-            SYSTEM_CONFIG_KEYS in lib/system-config.ts, then give it a control.
-          */}
-          <TabsContent value="system">
-            <Card className="rounded-none border-gray-200 shadow-none">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <Shield className="h-4 w-4" />
-                  {locale === 'bn' ? 'সিস্টেম আচরণ' : 'System behaviour'}
-                </CardTitle>
-                <CardDescription>
-                  {locale === 'bn'
-                    ? 'এই আচরণগুলো এখান থেকে পরিবর্তন করা যায় না। কোথায় পরিবর্তন করতে হবে তা নিচে দেওয়া আছে।'
-                    : 'These are not configurable from this page. Where each one is actually controlled:'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
-                        <th className="py-2 pr-4 font-medium">
-                          {locale === 'bn' ? 'আচরণ' : 'Behaviour'}
-                        </th>
-                        <th className="py-2 font-medium">
-                          {locale === 'bn' ? 'কোথায় নিয়ন্ত্রিত' : 'Controlled by'}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {systemBehaviours.map((row) => (
-                        <tr key={row.behaviour} className="align-top">
-                          <td className="py-3 pr-4 font-medium text-gray-900">{row.behaviour}</td>
-                          <td className="py-3 text-gray-600">
-                            <span className="block">{row.controlledBy}</span>
-                            {row.note && (
-                              <span className="mt-0.5 block text-xs text-gray-400">{row.note}</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </div>
       </Tabs>
     </div>

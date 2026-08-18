@@ -139,7 +139,10 @@ var hostileBodies = []struct {
 	{"prototype pollution", `{"__proto__": {"role": "SUPER_ADMIN"}, "amount": 1}`, "application/json"},
 	{"constructor pollution", `{"constructor": {"prototype": {"role": "ADMIN"}}}`, "application/json"},
 	{"SQL metacharacters in every string", `{"notes":"'; DROP TABLE users; --","purpose":"' OR '1'='1","threadId":"'"}`, "application/json"},
-	{"RTL and combining marks", `{"notes":"‮evil‬́́́","nameEn":"عربى"}`, "application/json"},
+	// U+202E RIGHT-TO-LEFT OVERRIDE, U+202C POP DIRECTIONAL FORMATTING and a
+	// run of U+0301 COMBINING ACUTE ACCENT, written as escapes: the literal
+	// characters reorder this line in an editor, which is the attack itself.
+	{"RTL and combining marks", "{\"notes\":\"\u202eevil\u202c\u0301\u0301\u0301\",\"nameEn\":\"عربى\"}", "application/json"},
 	{"NUL byte in a string", "{\"notes\":\"a\x00b\"}", "application/json"},
 	// The escaped form is *valid* JSON, so encoding/json decodes it into a Go
 	// string containing U+0000 — which PostgreSQL text cannot store.

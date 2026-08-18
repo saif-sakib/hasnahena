@@ -6,6 +6,7 @@ import { requireActiveAuth } from '@/lib/auth-revocation';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { serializeLoan } from '@/lib/api-utils';
 import { LoanStatus, UserRole } from '@prisma/client';
+import { formatMoney } from '@/lib/notify';
 
 const bodySchema = z.object({
   accepted: z.boolean(),
@@ -84,7 +85,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         data: {
           type: 'LOAN_REQUEST',
           title: 'Loan Ready for Approval',
-          message: `Loan ${loan.loanNumber} for ${loan.borrower.nameEn} (৳${Number(loan.principalAmount).toLocaleString()}) is ready for admin approval.`,
+          message: `Loan ${loan.loanNumber} for ${loan.borrower.nameEn} (${formatMoney(loan.principalAmount)}) is ready for admin approval.`,
           targetRole: UserRole.ADMIN,
           data: {
             loanId: loan.id,

@@ -22,25 +22,29 @@
 export const SYSTEM_CONFIG_KEYS = [
   // Loan policy. The first four are read by the Go API in
   // internal/repositories/repository.go (getLoanPolicy) and seeded by
-  // scripts/seed.mjs.
+  // scripts/seed.mjs; the two below them are read there too, through their own
+  // transaction-scoped readers.
   'loan.minDepositForLoan',
   'loan.maxLoanMultiplier',
   'loan.maxInstallmentMonths',
   'loan.allowActiveLoanWithdrawal',
-  // Settable, and enforced by nothing. A loan becomes DEFAULTED only when an
-  // admin marks it so (MarkLoanDefaulted); no job counts missed installments,
-  // and loan_repository.go reports "missedPayments" as a literal 0. Kept so the
-  // intended policy is recorded and the admin control keeps working, but the
-  // control says "not enforced yet" rather than implying automation.
+  // Enforced since 2026-08-18 by MarkLoanDefaulted, which refuses unless the
+  // borrower has missed at least this many scheduled instalments — counted from
+  // installmentStartDate against paidInstallments (internal/money/schedule.go).
+  // Still admin-initiated: no job defaults a loan on its own, and given that
+  // marking one runs the settlement waterfall against a member's savings, that
+  // is deliberate rather than pending.
   'loan.missedPaymentsForDefault',
   // Loans at or below this amount need no guarantor and go straight to
   // PENDING_APPROVAL. product.md has always specified a threshold; until WO-45
   // the application endpoint demanded a guarantor for every loan regardless.
   // Set to 0 to require a guarantor on every loan.
   'loan.guarantorThresholdAmount',
-  // Settable today, and enforced by nothing — FR-08 is still open. Listed so the
-  // admin UI keeps working, but changing it currently has no effect on a
-  // withdrawal. Do not read that as the setting being broken; the feature is.
+  // FR-08, implemented 2026-08-18 (ADR-016). A member's withdrawal request is
+  // their notice; this is how long it must sit before the money can be paid.
+  // Enforced on BOTH paths that move it — the admin's ApproveWithdrawal and the
+  // worker's AddMemberWithdrawal. 0 means no notice period, and is a real
+  // setting rather than an unset one.
   'loan.noticePeriodMonths',
 
   // Organisation identity. Used on generated documents (letterhead) and the

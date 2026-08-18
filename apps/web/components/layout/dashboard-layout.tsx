@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
+import useSWR from 'swr';
 import {
   LayoutDashboard,
   Wallet,
@@ -29,7 +30,7 @@ import {
   Send,
   ArrowLeft,
 } from 'lucide-react';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
@@ -174,6 +175,11 @@ function clearAuthState() {
   window.dispatchEvent(new Event('auth-change'));
 }
 
+// A store that never emits. `isHydrated` is not really external state — the
+// only thing that matters is that React uses the server snapshot for the
+// hydration render and the client snapshot afterwards.
+const subscribeToNothing = () => () => {};
+
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -189,16 +195,20 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [activeSupportThreadId, setActiveSupportThreadId] = useState<string | null>(null);
   const [supportMessages, setSupportMessages] = useState<SupportMessageItem[]>([]);
   const [supportInput, setSupportInput] = useState('');
-  const [supportLoading, setSupportLoading] = useState(false);
+  // Derived: the popup is loading from the moment it opens until the first
+  // thread fetch settles. Setting a flag at the top of the polling effect was
+  // the WO-27 finding, and moving it inside the async loader would not have
+  // helped — the compiler follows the call graph into the callee.
+  const [supportThreadsSettled, setSupportThreadsSettled] = useState(false);
   const [isSupportSending, setIsSupportSending] = useState(false);
   const [seenSupportThreadIds, setSeenSupportThreadIds] = useState<Record<string, string>>({});
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
+  // false during SSR and the hydration render, true afterwards — without an
+  // effect writing state, which is what this used to be.
+  const isHydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const notificationRef = useRef<HTMLDivElement | null>(null);
   const supportRef = useRef<HTMLDivElement | null>(null);
   const supportMessagesRef = useRef<HTMLDivElement | null>(null);
   const supportListInitializedRef = useRef(false);
-  const hasFetchedRef = useRef(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
   const navItems = role === 'worker' ? workerNav : memberNav;
@@ -245,45 +255,51 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     setTimeout(doScroll, 300);
   }, []);
 
-  const loadUserInfo = useCallback(async (forceRefresh = false) => {
-    try {
+  // WO-27 — SWR owns the signed-in user. The session cache is consulted inside
+  // the fetcher rather than seeded into state, which matters here: the header
+  // renders `userInfo` ungated, so reading sessionStorage during render would
+  // make the server HTML and the first client render disagree. A fetcher runs
+  // after mount, so it cannot.
+  const {
+    data: userInfo,
+    mutate: reloadUserInfo,
+  } = useSWR<UserInfo | null>(
+    ['dashboard-user', role],
+    async () => {
       const token = getValidatedClientToken();
       if (!token) {
         clearCachedUserInfo();
-        setUserInfo(null);
         router.replace(`/${locale}/login`);
-        return;
+        return null;
       }
 
-      // Use cached data if available and not forcing refresh
-      if (!forceRefresh) {
-        const cached = getCachedUserInfo();
-        if (cached) {
-          setUserInfo(cached);
-          return;
-        }
-      }
+      const cached = getCachedUserInfo();
+      if (cached) return cached;
 
-      const profile = await apiGet<UserInfo>('/v1/dashboard/user');
-      const newUserInfo: UserInfo = {
-        id: profile.id || '',
-        nameEn: profile.nameEn || '',
-        nameBn: profile.nameBn || '',
-        email: profile.email || '',
-        phone: profile.phone || '',
-        role: profile.role || role,
-        status: profile.status || '',
-        avatarUrl: profile.avatarUrl || '',
-        memberId: profile.memberId || '',
-      };
-      setUserInfo(newUserInfo);
-      setCachedUserInfo(newUserInfo);
-    } catch (error) {
-      console.error('Failed to load user info:', error);
-      clearAuthState();
-      router.replace(`/${locale}/login`);
-    }
-  }, [role, locale, router]);
+      try {
+        const profile = await apiGet<UserInfo>('/v1/dashboard/user');
+        const newUserInfo: UserInfo = {
+          id: profile.id || '',
+          nameEn: profile.nameEn || '',
+          nameBn: profile.nameBn || '',
+          email: profile.email || '',
+          phone: profile.phone || '',
+          role: profile.role || role,
+          status: profile.status || '',
+          avatarUrl: profile.avatarUrl || '',
+          memberId: profile.memberId || '',
+        };
+        setCachedUserInfo(newUserInfo);
+        return newUserInfo;
+      } catch (error) {
+        console.error('Failed to load user info:', error);
+        clearAuthState();
+        router.replace(`/${locale}/login`);
+        return null;
+      }
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
 
   const handleUnauthorizedError = useCallback((error: unknown) => {
     const message = error instanceof Error ? error.message : '';
@@ -295,27 +311,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return false;
   }, [locale, router]);
 
+  // Registers a listener and writes no state of its own, so this is not the
+  // shape WO-27 removes. Signing in or out drops the cache and re-reads.
   useEffect(() => {
-    // Hydrate from cache on mount
-    setIsHydrated(true);
-    const cached = getCachedUserInfo();
-    if (cached) {
-      setUserInfo(cached);
-    }
-
-    // Only fetch once on mount, use cache for subsequent renders
-    if (!hasFetchedRef.current) {
-      hasFetchedRef.current = true;
-      loadUserInfo();
-    }
-
     const onAuthChange = () => {
       clearCachedUserInfo();
-      loadUserInfo(true); // Force refresh on auth change
+      void reloadUserInfo();
     };
     window.addEventListener('auth-change', onAuthChange);
     return () => window.removeEventListener('auth-change', onAuthChange);
-  }, [loadUserInfo]);
+  }, [reloadUserInfo]);
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -397,11 +402,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [showNotifications, showSupportPopup]);
 
-  useEffect(() => {
-    if (pendingHref && pathname === pendingHref) {
-      setPendingHref(null);
-    }
-  }, [pathname, pendingHref]);
+  // No effect clearing pendingHref on arrival: every render site already asks
+  // `pendingHref === href && pathname !== href`, so the spinner disappears the
+  // moment the route matches. Clearing the state as well only restated that,
+  // one render later, by writing state from an effect.
 
   // Timeout for pending navigation - clear if it takes too long
   useEffect(() => {
@@ -470,7 +474,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   useEffect(() => {
     if (!showSupportPopup) return;
-    setSupportLoading(true);
     const refreshThreads = async () => {
       try {
         const threads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
@@ -484,7 +487,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       } catch (error) {
         handleUnauthorizedError(error);
       } finally {
-        setSupportLoading(false);
+        setSupportThreadsSettled(true);
       }
     };
     void refreshThreads();
@@ -503,6 +506,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       [threadId]: latestAt,
     }));
   }, []);
+
+  const supportLoading = showSupportPopup && !supportThreadsSettled;
 
   const openSupportPopup = () => {
     setShowSupportPopup(true);
@@ -527,6 +532,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const closeSupportPopup = () => {
     setShowSupportPopup(false);
+    setSupportThreadsSettled(false);
     setActiveSupportThreadId(null);
     setSupportMessages([]);
     setSupportInput('');

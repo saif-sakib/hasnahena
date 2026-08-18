@@ -44,6 +44,23 @@ The SSE stream takes an `Authorization` header when the caller can set one. A br
 | GET | `/v1/dashboard/member/{deposits,transactions,loans,profile}` |
 | POST | `/v1/dashboard/member/requests/deposit` |
 | POST | `/v1/dashboard/member/requests/loan-repayment` |
+| POST | `/v1/dashboard/member/requests/withdrawal` |
+
+`POST /requests/withdrawal` is the member's **notice of withdrawal** (FR-08). It
+moves no money: it files a `PENDING` withdrawal and answers with the date it
+becomes payable.
+
+```jsonc
+// → { "amount": 5000, "notes": "school fees" }
+// ← { "requestId": "…", "amount": 5000,
+//     "noticePeriodMonths": 3, "eligibleFrom": "2026-11-18T…Z" }
+```
+
+Refusals name the reason: `INSUFFICIENT_BALANCE` (which counts outstanding
+notices, not just the balance), `ACTIVE_LOAN`, `GUARANTOR_LOCK`.
+`eligibleFrom` is the server's, not the client's — the notice period is policy
+the API owns, and a date the screen worked out for itself would drift the moment
+an admin changed it.
 
 ### Worker
 

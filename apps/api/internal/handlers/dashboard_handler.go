@@ -100,7 +100,7 @@ func generateNumericCode(length int) (string, error) {
 
 func validateStrongPassword(newPass string) error {
 	if len(newPass) < 8 {
-		return errors.New("Password must be at least 8 characters")
+		return errors.New("password must be at least 8 characters")
 	}
 
 	hasUpper, hasLower, hasDigit := false, false, false
@@ -116,7 +116,7 @@ func validateStrongPassword(newPass string) error {
 	}
 
 	if !hasUpper || !hasLower || !hasDigit {
-		return errors.New("Password must contain uppercase, lowercase, and numbers")
+		return errors.New("password must contain uppercase, lowercase, and numbers")
 	}
 
 	return nil
@@ -300,6 +300,70 @@ func (h *DashboardHandler) MemberCreateDepositRequest(w http.ResponseWriter, r *
 	utils.Success(w, http.StatusOK, map[string]interface{}{
 		"message":   "Deposit request submitted successfully",
 		"requestId": requestID,
+	})
+}
+
+// MemberCreateWithdrawalNotice records a member's notice of withdrawal — FR-08.
+//
+// It moves no money. The notice starts the notice period; the payout happens at
+// the desk once it has matured, and both the approval and the payout paths
+// refuse until then.
+func (h *DashboardHandler) MemberCreateWithdrawalNotice(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "MEMBER")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Amount int64  `json:"amount"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxWithdrawalAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
+		return
+	}
+
+	notice, err := h.userRepo.CreateMemberWithdrawalNotice(r.Context(), auth.UserID, req.Amount, req.Notes)
+	if err != nil {
+		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errMsg, "not found"):
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+		case strings.Contains(errMsg, "not active"):
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+		case strings.Contains(errMsg, "insufficient balance"):
+			// Names the reason, because outstanding notices count against the
+			// balance and a member looking at their own screen will otherwise
+			// see enough money and no explanation.
+			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE",
+				"Your savings, less any withdrawal notice already outstanding, do not cover this amount")
+		case strings.Contains(errMsg, "has active loan"):
+			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN",
+				"Withdrawals are not permitted while a loan is active")
+		case strings.Contains(errMsg, "is guarantor"):
+			utils.Error(w, http.StatusBadRequest, "GUARANTOR_LOCK",
+				"You are guaranteeing an active loan and cannot withdraw until it is settled")
+		default:
+			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit withdrawal notice")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":            "Withdrawal notice submitted successfully",
+		"requestId":          notice.RequestID,
+		"amount":             notice.Amount,
+		"noticePeriodMonths": notice.NoticePeriodMonths,
+		"eligibleFrom":       notice.EligibleFrom,
 	})
 }
 
@@ -1230,15 +1294,27 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Invalidate all user tokens (force re-login on all devices)
-	h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change")
+	// Invalidate all user tokens (force re-login on all devices).
+	//
+	// Checked, but not fatal: the password has already changed by this point, so
+	// answering an error would tell the member their change failed when it did
+	// not. What a silent failure *does* mean is that a session on another device
+	// — including one an attacker holds, which is the usual reason to change a
+	// password — stays valid. That has to be visible in the logs.
+	if err := h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change"); err != nil {
+		slog.Error("password changed but existing sessions were not revoked", "userId", auth.UserID, "error", err)
+	}
 
 	// Create audit log
 	userIP := r.Header.Get("X-Forwarded-For")
 	if userIP == "" {
 		userIP = r.RemoteAddr
 	}
-	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+	// Checked: an audit row that silently fails to write is a rule-6 problem —
+	// the log is the only record that this account's password was changed, and
+	// by whom. The write cannot be undone here (the password has changed), so it
+	// is logged loudly rather than returned.
+	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE",
 		EntityType: "USER",
 		EntityID:   auth.UserID,
@@ -1246,7 +1322,9 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		UserIP:     userIP,
 		UserAgent:  r.Header.Get("User-Agent"),
 		Details:    "Password changed successfully",
-	})
+	}); err != nil {
+		slog.Error("failed to write PASSWORD_CHANGE audit log", "userId", auth.UserID, "error", err)
+	}
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
@@ -1339,7 +1417,11 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	if userIP == "" {
 		userIP = r.RemoteAddr
 	}
-	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+	// Checked: an audit row that silently fails to write is a rule-6 problem —
+	// the log is the only record that this account's password was changed, and
+	// by whom. The write cannot be undone here (the password has changed), so it
+	// is logged loudly rather than returned.
+	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE_CODE_SENT",
 		EntityType: "USER",
 		EntityID:   auth.UserID,
@@ -1347,7 +1429,9 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		UserIP:     userIP,
 		UserAgent:  r.Header.Get("User-Agent"),
 		Details:    "Password change verification code sent by email",
-	})
+	}); err != nil {
+		slog.Error("failed to write PASSWORD_CHANGE_CODE_SENT audit log", "userId", auth.UserID, "error", err)
+	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
 		"message":          "Verification code sent to your email",
@@ -1455,15 +1539,27 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	}
 	_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), "pwd-change:"+auth.UserID+":")
 
-	// Invalidate all user tokens (force re-login on all devices)
-	h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change")
+	// Invalidate all user tokens (force re-login on all devices).
+	//
+	// Checked, but not fatal: the password has already changed by this point, so
+	// answering an error would tell the member their change failed when it did
+	// not. What a silent failure *does* mean is that a session on another device
+	// — including one an attacker holds, which is the usual reason to change a
+	// password — stays valid. That has to be visible in the logs.
+	if err := h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change"); err != nil {
+		slog.Error("password changed but existing sessions were not revoked", "userId", auth.UserID, "error", err)
+	}
 
 	// Create audit log
 	userIP := r.Header.Get("X-Forwarded-For")
 	if userIP == "" {
 		userIP = r.RemoteAddr
 	}
-	h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
+	// Checked: an audit row that silently fails to write is a rule-6 problem —
+	// the log is the only record that this account's password was changed, and
+	// by whom. The write cannot be undone here (the password has changed), so it
+	// is logged loudly rather than returned.
+	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE",
 		EntityType: "USER",
 		EntityID:   auth.UserID,
@@ -1471,7 +1567,9 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 		UserIP:     userIP,
 		UserAgent:  r.Header.Get("User-Agent"),
 		Details:    "Password changed successfully with email verification code",
-	})
+	}); err != nil {
+		slog.Error("failed to write PASSWORD_CHANGE audit log", "userId", auth.UserID, "error", err)
+	}
 
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }

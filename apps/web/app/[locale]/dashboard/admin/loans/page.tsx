@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { apiGet } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import {
   buildLoanAgreement,
@@ -43,25 +43,15 @@ export default function AdminLoansPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [loans, setLoans] = useState<Loan[]>([]);
-
-  const loadLoans = async () => {
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const data = await apiGet<Loan[]>('/v1/dashboard/admin/loans');
-      setLoans(data ?? []);
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load loans');
-      setLoans([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => { void loadLoans(); }, []);
+  // WO-27 — SWR owns the request, the loading flag and the error, so there is
+  // no effect writing state. See lib/use-api.ts.
+  const {
+    data: loansData,
+    error: actionError,
+    isLoading,
+    refresh: loadLoans,
+  } = useApi<Loan[]>('/v1/dashboard/admin/loans');
+  const loans = useMemo<Loan[]>(() => loansData ?? [], [loansData]);
 
   const handleDownloadLoan = async (l: Loan) => {
     try {

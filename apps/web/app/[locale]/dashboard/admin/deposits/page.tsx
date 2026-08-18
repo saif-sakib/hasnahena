@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search, RefreshCw, Eye, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { apiGet } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import {
   buildReceipt,
@@ -41,25 +41,21 @@ export default function AdminDepositsPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selectedDeposit, setSelectedDeposit] = useState<Deposit | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // WO-27. Loaded by SWR rather than by an effect that writes state: see
+  // lib/use-api.ts for why rearranging the effect could not clear the finding.
+  const {
+    data,
+    error: actionError,
+    isLoading,
+    refresh: loadDeposits,
+  } = useApi<Deposit[] | DepositsResponse>('/v1/dashboard/admin/deposits');
 
-  const loadDeposits = async () => {
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const data = await apiGet<Deposit[] | DepositsResponse>('/v1/dashboard/admin/deposits');
-      setDeposits(Array.isArray(data) ? data : (data?.deposits ?? []));
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load transactions');
-      setDeposits([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => { void loadDeposits(); }, []);
+  // The endpoint answers either a bare array or { deposits }, and has since
+  // before this screen existed. Normalising here keeps that in one place.
+  const deposits = useMemo<Deposit[]>(
+    () => (Array.isArray(data) ? data : (data?.deposits ?? [])),
+    [data],
+  );
 
   const handleDownloadReceipt = async (d: Deposit) => {
     try {

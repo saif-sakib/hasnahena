@@ -182,3 +182,6 @@ backups/
 *.dump
 *.dump.gpg
 .test-stack/
+
+# Foundation records were once committed here (ADR-018). Never again.
+Official Infos/

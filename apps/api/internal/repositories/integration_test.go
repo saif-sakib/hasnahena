@@ -34,6 +34,9 @@ func TestMoneyLifecycleEndToEnd(t *testing.T) {
 		t.Fatalf("savings after deposit = %d, want 25000", got)
 	}
 
+	// FR-08: a payout settles a notice the member gave. Backdated so the test
+	// does not have to wait out the notice period.
+	giveMaturedWithdrawalNotice(t, member, 3000)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 3000, "withdrawal"); err != nil {
 		t.Fatalf("withdrawal: %v", err)
 	}
@@ -103,6 +106,7 @@ func TestEveryBalanceChangeWritesAnAuditRow(t *testing.T) {
 	if _, err := repo.AddMemberDeposit(ctx, member, worker, 5000, ""); err != nil {
 		t.Fatalf("deposit: %v", err)
 	}
+	giveMaturedWithdrawalNotice(t, member, 1000)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, ""); err != nil {
 		t.Fatalf("withdrawal: %v", err)
 	}
@@ -148,6 +152,10 @@ func TestFailedPostingRollsBackCompletely(t *testing.T) {
 	member := seedMember(t, "m1", "ACC-KH-33001", 1000)
 	worker := seedStaff(t, "w1", "WORKER")
 
+	// A matured notice exists, so the refusal below is about the balance and
+	// not about FR-08 — otherwise this test would pass for the wrong reason.
+	giveMaturedWithdrawalNotice(t, member, 5000)
+
 	// More than the balance — must be refused.
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "too much"); err == nil {
 		t.Fatal("withdrawal beyond balance was accepted")
@@ -159,12 +167,25 @@ func TestFailedPostingRollsBackCompletely(t *testing.T) {
 	if n := countAuditLogs(t, "", "WITHDRAWAL_POSTED"); n != 0 {
 		t.Errorf("failed withdrawal left %d audit rows", n)
 	}
-	var txCount int
-	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM transactions`).Scan(&txCount); err != nil {
-		t.Fatalf("count transactions: %v", err)
+	// The notice row is expected to survive — a refused payout must not consume
+	// the member's notice, or they would have to start the period again through
+	// no fault of theirs. What must NOT exist is a posting.
+	var postings int
+	if err := testPool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM transactions WHERE status <> 'PENDING'`).Scan(&postings); err != nil {
+		t.Fatalf("count postings: %v", err)
 	}
-	if txCount != 0 {
-		t.Errorf("failed withdrawal left %d transaction rows", txCount)
+	if postings != 0 {
+		t.Errorf("failed withdrawal left %d posted transaction rows", postings)
+	}
+
+	var noticeStatus string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status::text FROM transactions WHERE type = 'WITHDRAWAL'`).Scan(&noticeStatus); err != nil {
+		t.Fatalf("read notice: %v", err)
+	}
+	if noticeStatus != "PENDING" {
+		t.Errorf("the withdrawal notice is %s after a failed payout, want PENDING — a refused payout consumed it", noticeStatus)
 	}
 }
 
@@ -242,9 +263,11 @@ func seedLoanWithGuarantor(t *testing.T, borrower, guarantor string, remaining i
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
-			"installmentAmount", purpose, status, "disbursementDate", "createdAt", "updatedAt")
+			"installmentAmount", purpose, status, "disbursementDate", "installmentStartDate",
+			"createdAt", "updatedAt")
 		VALUES (gen_random_uuid()::text, 'LOAN-TEST-' || $1, 'acct_' || $1, $1, $2,
-			$3, $3, 12, 0, ($3/12)::bigint, 'test', 'ACTIVE', NOW(), NOW(), NOW())
+			$3, $3, 12, 0, ($3/12)::bigint, 'test', 'ACTIVE', NOW(),
+			NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
 	`, borrower, guarantor, remaining).Scan(&loanID)
 	if err != nil {
@@ -422,6 +445,7 @@ func TestWithdrawalWithActiveLoanAllowedWhenPolicyPermits(t *testing.T) {
 	if _, err := repo.CreateMemberLoan(ctx, member, worker, 10000, "stock", 12); err != nil {
 		t.Fatalf("create loan: %v", err)
 	}
+	giveMaturedWithdrawalNotice(t, member, 1000)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, "policy allows"); err != nil {
 		t.Fatalf("withdrawal refused despite the policy allowing it: %v", err)
 	}
@@ -455,6 +479,11 @@ func TestWithdrawalBlockedBeyondBalance(t *testing.T) {
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 5000)
 	worker := seedStaff(t, "w1", "WORKER")
+
+	// One notice covering the larger figure: "covers the amount" means at least
+	// it, so the same notice serves both attempts and the refusal below is the
+	// balance check rather than a missing notice.
+	giveMaturedWithdrawalNotice(t, member, 5001)
 
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5001, "one taka too far"); err == nil {
 		t.Fatal("withdrawal beyond the balance was accepted")
@@ -491,6 +520,7 @@ func TestAuditTrailIsAppendOnlyAcrossACorrection(t *testing.T) {
 	}
 
 	// The correction is a second posting, not an edit of the first.
+	giveMaturedWithdrawalNotice(t, member, 5000)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "reversing the wrong deposit"); err != nil {
 		t.Fatalf("correcting withdrawal: %v", err)
 	}

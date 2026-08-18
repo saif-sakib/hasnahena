@@ -4,15 +4,20 @@ Execution specs. [production-readiness.md](production-readiness.md) says *why* a
 task exists; this file says *exactly what to change*, so a future session can act
 without re-exploring the codebase.
 
-Prompt with just the ID: **`do WO-28`** · `do WO-27 and WO-40`.
+Prompt with just the ID: **`do WO-57`** · `do WO-59 and WO-60`.
 
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Nineteen orders are open.** Three carried over; six opened by the 2026-08-18
-documentation pass; **ten opened by the 2026-08-18 code audit**, which read the
-Go API, the Next routes and the shared libraries looking for defects rather than
-for gaps. Everything finished is one line per batch in
+**Thirteen orders are open.** WO-27, WO-40, WO-51, WO-52 and WO-58 closed on
+2026-08-18 — WO-58 fell out of WO-52, because once every notification message
+came from one tested builder there was nowhere left for a `%.2f` to live.
+**WO-28 was closed as a decision rather than a task** ([ADR-018](decisions.md)):
+the owner reviewed the `Official Infos/` files and determined none of it is live
+member data, which was the purge's entire justification. Of the rest, three were
+opened by the 2026-08-18 documentation pass and **ten by the 2026-08-18 code
+audit**, which read the Go API, the Next routes and the shared libraries looking
+for defects rather than for gaps. Everything finished is one line per batch in
 [changelog.md](changelog.md). What was *learned* doing them is in
 [Traps](#traps-that-cost-a-session) below — read that before any work touching
 Docker, Prisma, migrations or the build config. Every entry there cost at least
@@ -20,17 +25,11 @@ one session to find.
 
 | Order | What | Size |
 |---|---|---|
-| [WO-27](#wo-27--react-compiler-lint-cleanup--9-of-31-done) | React Compiler lint cleanup | deferred — needs a data-fetching library |
-| [WO-28](#wo-28--purge-member-data-and-binaries-from-git-history) | **Purge member data from git history** | ½ day + GitHub Support |
-| [WO-40](#wo-40--enable-errcheck-and-staticcheck) | Enable `errcheck` and `staticcheck` | half a day |
-| [WO-51](#wo-51--pin-enbn-message-parity) | Pin EN/BN message parity | under an hour |
-| [WO-52](#wo-52--test-what-a-notification-actually-says) | Test what a notification actually *says* | half a day |
 | [WO-53](#wo-53--prove-the-cleanup-loop-sweeps) | Prove the cleanup loop sweeps | 2 hours |
 | [WO-54](#wo-54--fail-ci-on-prisma-schema-drift) | Fail CI on Prisma schema drift | 1 hour |
 | [WO-55](#wo-55--cover-the-cloudinary-paths) | Cover the Cloudinary paths | half a day |
 | [WO-56](#wo-56--loan-repayment-presets-must-be-whole-taka) | Loan repayment presets must be whole taka | 20 minutes |
 | [WO-57](#wo-57--a-dispute-reports-failure-while-succeeding--the-defect-to-fix-first) | **A dispute reports failure while succeeding** — FR-17 broken, proven | 1 hour |
-| [WO-58](#wo-58--notification-amounts-print-paisa-from-a-float--ledger-07) | **Notification amounts print paisa from a float** (LEDGER-07) | half a day |
 | [WO-59](#wo-59--three-notification-writes-are-fire-and-forget) | Three notification writes are fire-and-forget | 1 hour |
 | [WO-60](#wo-60--remove-chis-realip-log-and-throttle-on-the-same-address) | Remove chi's `RealIP`; log and throttle on one address | 2 hours |
 | [WO-61](#wo-61--serializeloan-and-serializetransaction-turn-zero-into-null) | Serialisers turn a legitimate zero into null | 1 hour |
@@ -41,14 +40,17 @@ one session to find.
 | [WO-66](#wo-66--run-the-race-detector-in-ci) | Run the race detector in CI | 20 minutes |
 
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
-TEST-43`. **TEST-39 → 43 are open** and are WO-51 → WO-55 above.
+TEST-43`. **TEST-41 → 43 are open** and are WO-53 → WO-55 above; TEST-39 and
+TEST-40 closed with WO-51 and WO-52.
 
 ### Standing rules for every order
 
 - `pnpm typecheck` must exit clean, zero errors.
-- `pnpm lint` must exit 0. It reports **26 warnings** — 20 are the
-  `set-state-in-effect` findings WO-27 owns, 6 are pre-existing `@next/next`
-  ones. Do not let that count grow.
+- `pnpm lint` must exit 0. It reports **6 warnings** — 5 pre-existing
+  `@next/next` ones and 1 `Compilation Skipped` on the registration form, which
+  uses react-hook-form's `watch` subscription and so cannot be analysed by the
+  React Compiler. That is a notice, not a defect. The 20 `set-state-in-effect`
+  findings were cleared by WO-27. **Do not let that count grow.**
 - A regression test must be seen to **fail against the pre-fix code** before it
   is allowed to pass. A test written after the fix, never observed red, proves
   only that today's code passes it.
@@ -59,237 +61,6 @@ TEST-43`. **TEST-39 → 43 are open** and are WO-51 → WO-55 above.
 ---
 
 # Open
-
-## WO-27 · React Compiler lint cleanup — 9 of 31 done
-
-**The React Compiler is not enabled.** There is no `experimental.reactCompiler`
-in `next.config.js` and no `babel-plugin-react-compiler` in any manifest. These
-rules report "this component would bail out of optimisation *if* you turned the
-compiler on" — they are not defect reports, and fixing them changes nothing that
-runs today.
-
-| Rule | Count | Verdict |
-|---|---|---|
-| `static-components` | 4 | **Was a real bug. Fixed.** `StatCard` was declared inside `admin/page.tsx`'s body, so React saw a new component *type* every render and remounted all four cards on every state change, throwing away their animations mid-flight. Hoisted to module scope |
-| `immutability` | 5 | **Zero-risk. Fixed.** A mount `useEffect` placed *above* the `const` loaders it calls — legal, but temporal-dead-zone fragile |
-| `set-state-in-effect` | 20 | **Deferred, deliberately** |
-
-Fixing the 5 `immutability` findings *revealed* 3 new `set-state-in-effect` ones
-in the same files: the compiler bails at the first error per component, so the
-TDZ errors were masking them. 32 → 26, not 32 → 23.
-
-**Why the remaining 20 are deferred.** The dominant shape is a data-loading
-`refresh()` whose synchronous prefix calls `setIsLoading(true)` on a state that
-already initialises to `true` — a redundant render on mount, not a bug. None
-marks a behaviour change, and clearing them means restructuring the data-loading
-of 15 screens that move members' money, for no runtime benefit while the
-compiler is off.
-
-**The obvious fix does not work — tried and measured.** Splitting each loader
-into a `fetch*` that writes no state before its first `await` still fires the
-rule: the compiler follows the call graph into the callee and cannot prove
-`apiGet` will not throw *synchronously* into the `finally`. The attempt also
-introduced a fresh `exhaustive-deps` warning.
-
-Clearing these needs the effect body to contain no reachable setState at all —
-React Query/SWR or `use()` with Suspense. That is Stage 4 work in
-[go-live.md](go-live.md), not a lint cleanup. **Do it as part of enabling the
-React Compiler**, when the rules mean something.
-
-**When you pick it up:** work screen by screen, not rule by rule — these files
-move money and have no fixtures, so a batch rewrite cannot be verified. A
-`set-state-in-effect` finding usually marks an effect that should be derived
-state or an event handler; deleting the effect is normally correct, adding a
-guard normally hides it from the rule instead of fixing it.
-## WO-28 · Purge member data and binaries from git history
-
-**Why:** SEC-06 and **SEC-10**. This is the highest-value item in the file.
-
-The audit found far more in history than SEC-06 recorded. `git rev-list` over all
-refs turns up:
-
-| Path in history | Size | What it is |
-|---|---|---|
-| `Official Infos/…` — **39 files** | ~40 MB | Added in `f152f0c`, deleted in `9306120`. Includes `Hasnahena Member Details.docx`, `Hasnahena Member Details 01.pdf` (4-page scan), `Loan Member Detail.docx`, three ledger books, check books and the membership forms |
-| `react` | 24.6 MB | Stray binary, commit `3ef0a91` |
-| `apps/api/server` | 17.5 + 16.4 MB | The Go binary SEC-06 named |
-| `apps/api/seed` | 13.6 MB | Second Go binary, never recorded anywhere |
-
-**The `Official Infos/` tree is the reason this is urgent, and it is not a size
-problem.** Those filenames describe real member records — names, ledgers, loan
-details — for a cooperative holding people's savings. Deleting them in a later
-commit removed them from the working tree and from nothing else. They are in
-every clone, and recoverable by anyone with read access in one command. SEC-06
-framed this as ~59 MB of clone weight; the weight is the least of it.
-
-**Change**
-1. **Confirm first, decide second.** Extract
-   `Official Infos/Hasnahena/Hasnahena Member Details 01.pdf` from history and
-   look at it. It is an image-only scan, so no script can tell you whether it
-   holds live member records — a person has to. If it does, this is a data
-   incident and the purge is not optional.
-2. `git filter-repo --invert-paths` over `Official Infos/`, `react`,
-   `apps/api/server`, `apps/api/seed`. Use `filter-repo`, not `filter-branch`.
-3. Force-push every ref. **Coordinate**: this rewrites every commit hash.
-4. Ask GitHub Support to garbage-collect the unreachable objects — until they do,
-   the blobs stay fetchable by SHA on the remote even after a force-push.
-5. Add `Official Infos/` to `.gitignore` so a re-add is not one `git add -A` away.
-
-**Runbook.** Prepared and dry-checked on 2026-08-16; the rewrite itself was not
-run, because it is irreversible and rewrites every commit hash in the repository.
-Run it from a clean tree with everything pushed.
-
-```bash
-# 0. Two safety nets. Do not skip; the rewrite cannot be undone.
-git bundle create ~/hasnahena-pre-purge.bundle --all
-cp -r .git ~/hasnahena-git-backup
-
-# 1. Get filter-repo. It is a single Python script; pacman has it as
-#    `git-filter-repo`, or:
-curl -sSfL -o /tmp/git-filter-repo \
-  https://raw.githubusercontent.com/newren/git-filter-repo/v2.47.0/git-filter-repo
-chmod +x /tmp/git-filter-repo
-
-# 2. Drop the pre-coauthor backup branches FIRST. They exist only to preserve the
-#    history being discarded, and while they live every purged blob stays
-#    reachable — the purge would appear to do nothing.
-git branch -D backup/pre-coauthor-rewrite-main backup/pre-coauthor-rewrite-wo23
-
-# 3. The rewrite.
-/tmp/git-filter-repo --invert-paths \
-  --path 'Official Infos' \
-  --path react \
-  --path apps/api/server \
-  --path apps/api/seed \
-  --force
-
-# 4. filter-repo removes `origin` deliberately, so a stale push cannot happen.
-git remote add origin https://github.com/Saif-Sakib/hasnahena.git
-
-# 5. Verify BEFORE pushing — see the done-when test below.
-
-# 6. Publish. Every hash changed, so this must be a force-push of everything.
-git push --force origin --all
-git push --force origin --tags
-```
-
-**Then two things that are not optional.** `git gc --prune=now --aggressive`
-locally, and **open a GitHub Support ticket asking them to garbage-collect
-unreachable objects**. Until they do, every purged blob stays fetchable by SHA on
-the remote — the force-push makes them unreferenced, not gone.
-
-**Watch:** the repository has no other collaborators today, which is exactly why
-this is cheap now. Anyone holding a clone afterwards must re-clone; `git pull`
-will not reconcile a rewritten history and will produce a confusing merge.
-
-**Verify:** `git rev-list --objects --all | git cat-file --batch-check` shows no
-blob over 2 MB except `apps/web/assets/brand/logo.mp4`. A fresh clone is under
-15 MB. `git log --all --diff-filter=A -- 'Official Infos/*'` returns nothing.
-
-## WO-40 · Enable `errcheck` and `staticcheck`
-
-WO-37 configured both and left them off, because they reported 44 findings and a
-pipeline that is red on arrival gets switched off. **Re-measured 2026-08-17:
-18 remain** — Batch L cleared the two unchecked `tx.Exec` calls, which were the
-exact shape of the donation-pool waterfall bug that made debt vanish with no
-ledger row behind it.
-
-```
-GOTOOLCHAIN=go1.25.3 golangci-lint run --default=none --enable=errcheck,staticcheck ./...
-```
-
-| Finding | Count | Why it matters |
-|---|---|---|
-| Unchecked `CreateAuditLog` | 6 | An audit row that silently fails to write is a rule-6 problem. `auth_service.go` ×3, `dashboard_handler.go` ×3 |
-| Unchecked `InvalidateAllUserTokens` | 2 | A password change that revokes nothing. `dashboard_handler.go:1200,1425` |
-| Unchecked `ClearRateLimit` | 1 | `auth_service.go:87` |
-| `config.go` file and env handling | 3 | `f.Close`, `os.Setenv`, one unnamed return |
-| `SA1019 middleware.RealIP` | 1 | staticcheck independently flags it as spoofable — it mutates `r.RemoteAddr` to the leftmost `X-Forwarded-For` entry. Related to `TRUSTED_PROXIES` |
-| Style (`ST1005`, `ST1023`, `QF1003`) | 5 | Cosmetic |
-
-Fix the first three groups, decide on `RealIP` against `TRUSTED_PROXIES`, then
-flip both linters on in `apps/api/.golangci.yml`. The 23 conventional findings
-(`defer tx.Rollback()`, `Close()`) are already excluded there.
-
-## WO-51 · Pin EN/BN message parity
-
-**Why:** [product.md](product.md) states "Full EN/BN parity on all user-facing
-strings" as a quality bar. Nothing enforces it. The two files hold **300 keys
-each and are identical today** — which is exactly the moment to pin it, because
-the check costs nothing to add and everything to add later once they have
-drifted.
-
-The browser matrix (`e2e/matrix.spec.ts`) does catch an untranslated key, but
-only on a page it happens to visit, in a locale it happens to render, and only
-once the key has already reached a screen. This catches it at `pnpm test:unit`,
-in under a second, without a database or a browser.
-
-**Change** — one new file, `apps/web/test/unit/messages.test.ts`:
-
-1. Flatten both `messages/en.json` and `messages/bn.json` to dotted key paths.
-2. Assert the two key sets are equal, and **name the missing keys in the failure
-   message** on both sides. "283 !== 284" is not a bug report.
-3. Assert no value in `bn.json` is byte-identical to its `en.json` counterpart
-   *and* longer than ~25 characters — a long untranslated string is a copy-paste
-   that passed review. Keep an explicit allowlist for the ones that are correctly
-   identical (`BDT`, brand names, `Hasnahena`), because there will be some.
-4. Assert every `{placeholder}` in an `en` value appears in the `bn` one. A
-   dropped `{amount}` renders the literal braces to a member.
-
-**Watch:** this is an enumerating suite, so it will fail the build the first time
-someone adds a key to one file only. That is the point — say so in the file
-header, the way the other four enumerating suites do, or the next person will
-"fix" it by deleting the assertion.
-
-**Done when:** `pnpm test:unit` covers it; deleting one key from `bn.json` fails
-with that key named; restoring it passes.
-
-## WO-52 · Test what a notification actually *says*
-
-> **Corrected 2026-08-18.** This order was opened on the assumption that
-> `email_service.go` renders amounts and was therefore the LEDGER-03 shape
-> unguarded. **The code audit disproved that**: the four emails it sends —
-> membership approval, staff welcome, password-change code, password reset —
-> carry no money at all. The amounts live in the **`notifications` table**, built
-> in `transaction_repository.go` and `loan_repository.go`, and that is where the
-> live defect turned out to be ([WO-58](#wo-58--notification-amounts-print-paisa-from-a-float--ledger-07)).
->
-> The order stands, with the target moved. Leaving the wrong premise in place
-> would have sent someone to test the file that was fine.
-
-**Why:** the notification builders render every member-facing amount, and
-**nothing asserts what they say.** The suites assert a notification row *exists*
-(`failure_injection_integration_test.go` counts them); none reads its `message`.
-WO-58 fixes the defect that is there today; this stops the next one.
-
-`email_service.go` is separately untested — 488 lines, zero tests — and worth
-covering for its own reasons: it renders HTML with `fmt.Sprintf` and hand-rolled
-escaping, and a mistake there is an injection into a member's inbox. Lower
-priority than the money strings, same order.
-
-**Change**
-
-1. Extract the message building from the writing. A pure
-   `func(…) (title, message string)` per notification type is what makes this
-   testable without a database. **Do not add a mock SMTP server.**
-2. Table test every notification type, asserting for each:
-   - the amount appears **exactly once**, as whole taka, equal to the `int64`
-     passed in — no `%.2f`, no `float64`, no decimal point (this is WO-58's
-     regression test);
-   - the grouping matches what the web app shows for the same figure;
-   - no other number in the body can be mistaken for the amount;
-   - `0` and an `int64` boundary value both render sensibly.
-3. For `email_service.go`, assert that a member name containing `<script>`,
-   an apostrophe, or a Bengali string survives `html.EscapeString` into the HTML
-   body **and** appears unescaped in the text body — the two are built from the
-   same inputs by different paths, and only one of them escapes.
-4. Add the census discipline the balance writers have: enumerate the message
-   builders **from the source** and fail when one has no test. That is what
-   caught LEDGER-05, and this layer has the same shape — a set of near-identical
-   functions where the next one gets added without the test.
-
-**Done when:** a `%.2f` reintroduced anywhere in a notification message fails the
-suite, verified by making the change and seeing it red before reverting.
 
 ## WO-53 · Prove the cleanup loop sweeps
 
@@ -474,63 +245,6 @@ negative. A member cannot owe a negative correction — add `.positive()`.
 
 **Done when:** the success path returns 200 with a JSON body, the regression test
 has been seen red first, and `pnpm test:routes` covers a successful dispute.
-
-## WO-58 · Notification amounts print paisa from a float — LEDGER-07
-
-**Why:** rule 1 — money is BigInt whole taka, no paisa, no float. **Fifteen
-member-facing notification messages break it**, in the same layer that carried
-LEDGER-03 (the `÷100` that told a member their ৳50,000 loan was "BDT 500.00").
-
-```go
-amountTaka := float64(amount)                                    // 9 sites
-fmt.Sprintf("A deposit of BDT %.2f has been confirmed ...", amountTaka)
-fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.",
-            loanNumber, float64(principalAmount))
-```
-
-| File | float conversions | `BDT %.2f` messages |
-|---|---|---|
-| `transaction_repository.go` | 5 | deposit approved/submitted/confirmed, withdrawal processed, repayment approved |
-| `loan_repository.go` | 4 | loan approved, disbursed, repayment requested/recorded/completed |
-
-A member is told "BDT 5000.00" for ৳5,000 on a platform that has no paisa.
-
-**The sharpest part is that the codebase already disagrees with itself.** The
-audit-log strings a few lines away in the same functions are correct:
-
-```go
-fmt.Sprintf("Deposit %d BDT for member %s, receipt %s, balance %d -> %d", ...)
-```
-
-`%d` on the `int64`. So every posting writes one correct record and one wrong
-one, and only the wrong one is shown to the member.
-
-**Change**
-1. Delete every `amountTaka := float64(amount)`. There is no reason for a float
-   to exist anywhere in this package.
-2. Replace `BDT %.2f` with a single formatter — put it in
-   `internal/money`, next to the rest of the money arithmetic, not inline. It
-   should take `int64` and render South Asian grouping (`৳1,50,000`), matching
-   what `formatCurrency` does on the web side. Today the two surfaces disagree:
-   the web app groups `en-BD`, the notifications do not group at all.
-3. The three TypeScript notification builders have the same problem in a
-   different form — `৳${Number(amountBig).toLocaleString()}` in
-   `loans/applications/route.ts` (×2) and `guarantor-approval/route.ts` (×1).
-   `toLocaleString()` with no locale uses the *server's* default, which on Vercel
-   is `en-US`, so ৳1,50,000 prints as `1,50,000` on the dashboard and `150,000`
-   in the notification about it. Same fix, same reason.
-4. Extend `TestNoLoanEverCarriesAFee`'s neighbourhood with a census: **no
-   `float64` may appear in `transaction_repository.go` or `loan_repository.go`**,
-   enumerated from source. That is the check that stops the sixth one appearing,
-   the way the balance-writer census stopped LEDGER-05's shape recurring.
-
-**Watch:** rule 2 says balance changes stay in the Go API in one transaction —
-this touches those functions, so keep the notification write inside the same
-transaction it is already in. Do not "tidy" it out.
-
-**Done when:** no `float64` remains in either repository, every member-facing
-amount is whole taka with the same grouping as the web app, and a test enumerates
-the message builders so a new one cannot skip the formatter.
 
 ## WO-59 · Three notification writes are fire-and-forget
 
@@ -814,6 +528,33 @@ and TEST-01 → TEST-43. The lessons that outlived the work are below.
 
 Each of these was found by something breaking, most of them at runtime rather
 than at build time. They are grouped by what you have to be touching to hit them.
+
+### Concurrency and the connection pool
+
+- **Reading config from the pool inside a transaction deadlocks it.** With N
+  goroutines and a pool of N, every connection is held by an open transaction
+  and every transaction is waiting for a free connection to read a config key.
+  Nothing errors, nothing times out — the suite hangs until the test framework
+  kills it. Adding one unconditional `getWithdrawalNoticePeriodMonths(ctx)` was
+  enough. Use the `…Tx` readers inside a transaction ([ADR-017](decisions.md)).
+- **`&&` short-circuiting can hide a latent deadlock for weeks.**
+  `AddMemberWithdrawal` already read a config key from the pool inside its
+  transaction, guarded by `activeLoan > 0 &&`, which is false in the common
+  case. The concurrency test that eventually exposed the bug had been green the
+  whole time, over code one boolean away from hanging.
+
+### Test stacks and stale processes
+
+- **`test-stack.sh up --serve` will not replace a server that is already
+  answering.** It polls `/v1/health` and moves on, so a Go API left running by an
+  earlier session keeps serving — and a full green browser run then proves
+  nothing about the code you just wrote. Check the process start time
+  (`ps -o lstart -p $(ss -lptnH | grep 8099 | grep -oP 'pid=\K[0-9]+')`) against
+  when you made your changes, or `down` first. Found by a new route answering
+  404 while its route-contract test passed.
+- **`next dev` hot-reloads, `go run` does not.** So the web half of a stale stack
+  is usually current and the API half is usually not, which makes the symptom
+  look like a frontend/backend contract bug rather than a stale binary.
 
 ### Prisma and migrations
 

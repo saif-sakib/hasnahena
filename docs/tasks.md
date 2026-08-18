@@ -67,7 +67,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
-| FR-08 | Withdrawal request with notice period | `[~]` | request + approval work; **3-month notice not validated — no notice-period code exists anywhere in either app** |
+| FR-08 | Withdrawal request with notice period | `[x]` | the member's request **is** the notice: `CreateMemberWithdrawalNotice` files a PENDING withdrawal, and both `ApproveWithdrawal` and `AddMemberWithdrawal` refuse until `loan.noticePeriodMonths` has elapsed. `policy_enforcement_integration_test.go` |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
 | FR-10 | Max loan from configured caps | `[~]` | members apply from the dashboard, personal cap enforced; **fairness and solvency caps still missing** |
 | FR-11 | Guarantor request + approval | `[x]` | required above `loan.guarantorThresholdAmount`, nominated by member ID, approve/decline on the member dashboard |
@@ -83,7 +83,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
-**13 complete, 8 partial, 1 broken.**
+**14 complete, 7 partial, 1 broken.**
 
 ---
 
@@ -93,18 +93,16 @@ Verified against the source on 2026-08-18.
 
 | | Defect | Evidence |
 |---|---|---|
-| `[ ]` | **Withdrawal notice period is not validated** (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema. `loan.noticePeriodMonths` is settable from the admin UI and read by nothing |
 | `[ ]` | **`LoanStatus` carries legacy `PENDING`/`APPROVED`** beside the spec states | Two vocabularies for one concept, both live in the enum. This has already cost one bug — the guarantor panel filtered `PENDING` while applications create `PENDING_GUARANTOR` |
 | `[ ]` | **A worker-created loan skips the lifecycle** (FR-12) | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate`/`approvedAt` set in the same statement. No guarantor step, no approval step |
 | `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full-suite browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
 | `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
 | `[ ]` | **Loan repayment presets show paisa** | `getLoanRepaymentPresets` in `lib/utils.ts` computes `Math.round((installment / 4) * 100) / 100`, so the "weekly" quick-fill offers e.g. `1141.75` on all three money screens. All three round before submitting, so nothing wrong is posted — the member is shown a figure that is not the one that gets recorded, and a fractional taka violates rule 1 ([WO-56](work-orders.md)) |
 | `[!]` | **A dispute reports failure while succeeding** (FR-17) | `NextResponse.json` cannot serialise the raw Prisma row's `BigInt` fields, so a successful dispute throws into the route's own catch and answers 500. **Proven**: DB status `DISPUTED`, response `500`. The member retries and gets `409 DISPUTE_ALREADY_RAISED` — two apparent refusals for an objection that was recorded both times ([WO-57](work-orders.md)) |
-| `[!]` | **Notification amounts print paisa from a float** (LEDGER-07) | 15 member-facing messages render `BDT %.2f` from `float64(amount)` across `transaction_repository.go` and `loan_repository.go`. Rule 1 says whole taka, no float — and the audit-log line written by the *same function* correctly uses `%d BDT`, so every posting writes one right record and one wrong one ([WO-58](work-orders.md)) |
 | `[ ]` | **Three notification writes are fire-and-forget** | `registrations:455`, `guarantor-approval:63` and `:83` create a notification without `await`. On Vercel the function can be frozen at the response, so **an admin may never be told a registration is waiting** ([WO-59](work-orders.md)) |
 | `[ ]` | **Old avatars can never be deleted** | `extractPublicId` does not strip a transformation segment, so the id it derives does not exist and `deleteOldAvatar` fails silently — in an asset store that has a quota and no backup (DATA-06). ([WO-63](work-orders.md)) |
 | `[ ]` | **Serialisers turn a legitimate zero into null** | `x ? Number(x) : null` on a `BigInt`, so a fully repaid loan reports `remainingAmount: null` and a transaction that took a balance to exactly zero reports a blank `savingsAfter` — the passbook snapshot for "you withdrew your last taka" ([WO-61](work-orders.md)) |
-| `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text. A Bengali-speaking member gets English notifications about their own money, against rule 5. Fold into [WO-58](work-orders.md) |
+| `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text. A Bengali-speaking member gets English notifications about their own money, against rule 5. The builders are now in one place each — `apps/api/internal/notify/messages.go` and `apps/web/lib/notify.ts` — so this is a translation job rather than a hunt |
 
 ### The late-fee question — flagged, not decided
 
@@ -126,8 +124,8 @@ mistaken for "this is checked". Each has a work order.
 
 | | Gap | Why it matters | Order |
 |---|---|---|---|
-| `[ ]` | **Nothing pins EN/BN message parity** | 300 keys each and identical today, but "full EN/BN parity on all user-facing strings" is a stated quality bar with no test behind it. The browser matrix only catches a missing key on a page it happens to visit, in a locale it happens to render | [WO-51](work-orders.md) |
-| `[ ]` | **`email_service.go` has no tests at all** | 488 lines, and every member-facing notification passes through it carrying an amount. LEDGER-03 was a wrong amount *in a notification* — the exact shape this file can still produce. The suites assert a notification row **exists**; none reads what it says | [WO-52](work-orders.md) |
+| `[x]` | ~~Nothing pins EN/BN message parity~~ | **Closed 2026-08-18.** `apps/web/test/unit/messages.test.ts` — equal key sets, no long untranslated copy-paste, every `{placeholder}` carried through | [WO-51](work-orders.md) |
+| `[x]` | ~~Nothing reads what a notification says~~ | **Closed 2026-08-18.** Every message is a pure builder in `apps/api/internal/notify` (or `apps/web/lib/notify.ts`), table-tested, with a census that fails when one is added untested and another that fails when a repository builds a message itself. Writing it found LEDGER-07 sitting there, which is now fixed | [WO-52](work-orders.md) |
 | `[ ]` | **The cleanup loop is untested** | `startCleanupLoop` (RUN-06) sweeps expired tokens and rate limits hourly. A sweep that stops sweeping is completely silent — the table just grows | [WO-53](work-orders.md) |
 | `[ ]` | **No migration-drift check** | `schema.prisma` and `prisma/migrations/` can disagree and CI will not notice, because CI applies the migrations and never compares them to the schema. The failure surfaces as a runtime column error in production | [WO-54](work-orders.md) |
 | `[ ]` | **Cloudinary paths are untested and unbacked** | Upload, transform and delete have no test on either surface, and DATA-06 means the assets have no backup either. NID images are regulatory documents | [WO-55](work-orders.md) · DATA-06 |
@@ -176,14 +174,13 @@ verification, so no re-exploration is needed.
 | # | Do this | Why it is first | Size |
 |---|---|---|---|
 | 1 | **[WO-57](work-orders.md)** — dispute reports failure while succeeding | The only broken FR. A member objects to a wrong amount and is told twice that the platform would not record it. Proven, one-line cause, one-hour fix | 1 h |
-| 2 | **[WO-58](work-orders.md)** — notification amounts print paisa from a float | 15 member-facing messages, rule 1, in the exact layer LEDGER-03 lived in. The same function writes a *correct* audit line beside each wrong notification | ½ day |
-| 3 | **[WO-59](work-orders.md)** — three notification writes are fire-and-forget | An admin may never learn a registration is waiting, so a member waits for an approval nobody knows to give | 1 h |
+| 2 | **[WO-59](work-orders.md)** — three notification writes are fire-and-forget | An admin may never learn a registration is waiting, so a member waits for an approval nobody knows to give | 1 h |
 
 ### Next — the open disclosure and the blind spots
 
 | # | Do this | Why here | Size |
 |---|---|---|---|
-| 4 | **[WO-28](work-orders.md)** — purge member records from git history | SEC-10. A disclosure already in progress, and every commit below lands on top of the rewrite | ½ day + GitHub Support |
+| 3 | **[WO-60](work-orders.md)** — remove chi's `RealIP` | The access log records an address the caller chose, and at the default `TRUSTED_PROXIES=0` the rate limiter keys on it too | 2 h |
 | 5 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Not engineering: four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind, and the Monitor workflow fails twice a day | 1 h, yours |
 | 6 | **[WO-66](work-orders.md)** — run the race detector in CI | Measured at zero races today, so this locks in a property that already holds for ~40 s of CI. Cheapest guard available for a system whose defining defect class is the lost update | 20 min |
 | 7 | **[WO-40](work-orders.md)** — enable `errcheck` and `staticcheck` | 19 findings, and two of them are **`InvalidateAllUserTokens` unchecked** — a password change that revokes nothing and reports success. Six more are unchecked audit writes (rule 6) | ½ day |
@@ -218,10 +215,8 @@ the authority on this block.
 | # | Do this | Why in this order |
 |---|---|---|
 | 19 | **[WO-54](work-orders.md)** — fail CI on Prisma schema drift | One hour, and it guards the four schema changes above |
-| 20 | **[WO-51](work-orders.md)** — pin EN/BN message parity | 300 keys each and identical today; pinning is free now and expensive after they drift |
-| 21 | **[WO-52](work-orders.md)** — test what a notification says | The census that stops WO-58's defect coming back in the next message |
-| 22 | **[WO-53](work-orders.md)** — prove the cleanup loop sweeps | A sweep that stops sweeping is completely silent |
-| 23 | **[WO-55](work-orders.md)** — cover the Cloudinary paths | After WO-63, which fixes what this would be testing |
+| 20 | **[WO-53](work-orders.md)** — prove the cleanup loop sweeps | A sweep that stops sweeping is completely silent |
+| 21 | **[WO-55](work-orders.md)** — cover the Cloudinary paths | After WO-63, which fixes what this would be testing |
 
 ### Then — the rest of the product
 

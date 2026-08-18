@@ -42,7 +42,7 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Four suites enumerate rather than list, and will fail the build when the code
+**Seven suites enumerate rather than list, and will fail the build when the code
 grows something they do not know about.** That is deliberate; see
 [docs/testing.md](docs/testing.md).
 
@@ -52,6 +52,9 @@ grows something they do not know about.** That is deliberate; see
 | a Next route file | `apps/web/test/routes/routes.contract.test.ts` — walks `app/api` on disk |
 | a repository method that writes a balance | `TestBalanceWritersAreEnumerated` — demands a concurrency test and an audit test |
 | an FR, or a change of FR status | `apps/web/test/unit/requirements.test.ts` — `product.md`, `tasks.md` and the code must agree, and a requirement marked `[~]` must **still** be unimplemented in the source |
+| a notification builder | `internal/notify/messages_test.go` — `TestEveryBuilderIsTested` reads `messages.go`; every builder needs a table row |
+| a notification message built **outside** `internal/notify` | `internal/notify/repositories_test.go` — a string literal or a float verb in a repository fails |
+| a key in `messages/{en,bn}.json` | `apps/web/test/unit/messages.test.ts` — both files, no untranslated copy-paste, no dropped `{placeholder}` |
 
 ## Rules
 
@@ -62,6 +65,14 @@ grows something they do not know about.** That is deliberate; see
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
 6. `audit_logs` is append-only. Corrections append.
+6a. **A `transactions` row is not necessarily money that moved.** A `PENDING`
+   withdrawal is a member's *notice* (FR-08) and a `PENDING` deposit is a
+   request; only `CONFIRMED` moved money. Any aggregate over `transactions` must
+   filter on status — four were not, and counted intentions as income
+   ([ADR-016](docs/decisions.md)).
+6b. **Inside a repository transaction, read config with the `…Tx` reader.** The
+   pool-based variant takes a second connection and deadlocks the pool under
+   concurrency ([ADR-017](docs/decisions.md)).
 7. Never commit `.env*` or credentials.
 8. **End every task with an "Action required from you" section** — or the single line `**Action required from you:** none.` Never leave it out, and never bury a required step in prose. It lists what *I* cannot do and the user must, each with where to do it and what breaks if it is skipped:
    - env vars to add, change, or delete — **name the host** (Render for the Go API, Vercel for the web app, and the local `.env.local`), since they are separate stores and a var added in one is missing in the others
@@ -87,7 +98,10 @@ apps/api/internal/repositories/   all SQL, split by domain (WO-38):
     auth_repository.go            identity, passwords, reset tokens
     support_repository.go         support chat + SSE tickets
     report_repository.go          aggregate reporting
-apps/api/internal/money/          pure loan/installment/waterfall arithmetic — tested, no DB. Put new money maths HERE, not inline in SQL
+apps/api/internal/money/          pure loan/installment/waterfall/schedule arithmetic — tested, no DB.
+                                  Put new money maths HERE, not inline in SQL
+apps/api/internal/notify/         every member- and staff-facing notification string. Pure builders,
+                                  whole taka, table-tested with a census. Nothing else may build one
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)

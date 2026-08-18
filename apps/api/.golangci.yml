@@ -17,38 +17,41 @@ run:
 linters:
   default: none
   enable:
+    - errcheck
     - govet
     - ineffassign
+    - staticcheck
     - unused
 
-  # NOT enabled yet: errcheck and staticcheck.
+  # errcheck and staticcheck were enabled by WO-40 on 2026-08-18, after the
+  # findings they reported were fixed rather than excluded. The staged adoption
+  # WO-37 planned is now complete: all five linters are on and the pipeline is
+  # green, so a new finding is a new defect rather than backlog noise.
   #
-  # This is a deliberate staged adoption, not an oversight. Turning them on today
-  # makes CI red with 44 findings, and a pipeline that is red on arrival gets
-  # ignored or switched off — at which point it catches nothing, including the
-  # next SEC-01. The three above are clean right now, so the pipeline stays
-  # meaningful from the first run.
+  # The count went 44 (2026-08-16) → 19 (2026-08-18) → 0. Batch L cleared the
+  # two unchecked `tx.Exec` calls — the exact shape of the donation-pool
+  # waterfall bug that made debt vanish with no ledger row behind it. WO-40
+  # cleared the rest:
   #
-  # The backlog is real and specced as WO-40 in docs/work-orders.md. Measured
-  # 2026-08-16 with golangci-lint 2.6.1:
+  #   errcheck    12 — 6 unchecked `CreateAuditLog` (an audit row that fails to
+  #                    write is a rule-6 problem), 2 unchecked
+  #                    `InvalidateAllUserTokens` (a password change that revokes
+  #                    nothing), 1 `ClearRateLimit`, and 3 in config.go's env
+  #                    loading. All five of the first group happen *after* the
+  #                    material action, so they log at error level rather than
+  #                    failing a request that already succeeded.
+  #   staticcheck  7 — 2 capitalised error strings, 2 redundant type
+  #                    declarations, 1 tagged-switch suggestion, 1 Unicode
+  #                    format character in a test literal, and SA1019 on chi's
+  #                    `middleware.RealIP`.
   #
-  #   errcheck    38  — 20 are `defer tx.Rollback()` and 3 are `Close()`, which
-  #                     are conventional to ignore. The other 15 are not: 6
-  #                     unchecked `CreateAuditLog` calls (an audit row that fails
-  #                     to write is a rule-6 problem), 2 unchecked `tx.Exec` —
-  #                     the exact shape of the donation-pool waterfall bug that
-  #                     made debt vanish with no ledger row — and 2 unchecked
-  #                     `InvalidateAllUserTokens`, where a silent failure means
-  #                     a password change that revokes nothing.
-  #   staticcheck  6  — 2 capitalised error strings, 2 redundant type
-  #                     declarations, 1 tagged-switch suggestion, and SA1019 on
-  #                     chi's `middleware.RealIP`.
-  #
-  # That SA1019 is worth reading. staticcheck flags RealIP as deprecated and
-  # vulnerable to IP spoofing — independently reaching the same conclusion that
-  # writing the RUN-07 rate limiter reached by hand. It is the single strongest
-  # argument for enabling staticcheck, and the reason WO-40 is filed rather than
-  # dropped.
+  # That SA1019 is the one finding **suppressed rather than fixed**, with a
+  # `//nolint:staticcheck` at cmd/server/main.go. staticcheck flags RealIP as
+  # deprecated and spoofable — independently reaching the same conclusion that
+  # writing the RUN-07 rate limiter reached by hand. Removing it changes how the
+  # access log and the throttle identify a caller, which needs its own
+  # verification, so it is specced separately as WO-60. Delete the nolint with
+  # the middleware, not before.
 
   settings:
     # Applies once errcheck is enabled. Kept here so the exclusions are reviewed

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Search,
@@ -31,7 +31,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { apiGet } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 import { toast } from '@/hooks/use-toast';
 
 interface Worker {
@@ -102,10 +102,24 @@ export default function AdminWorkersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const {
+    data: workersData,
+    error: loadError,
+    isLoading,
+    refresh: loadWorkers,
+  } = useApi<Array<Worker & { currentDeposit?: number; activeLoan?: number }>>(
+    '/v1/dashboard/admin/workers',
+  );
+  const workers = useMemo<Worker[]>(
+    () => (workersData ?? []).map((worker) => normalizeWorker(worker)),
+    [workersData],
+  );
+
   const [isMutating, setIsMutating] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null);
+  // Adding, editing and deleting a worker each fail for their own reasons.
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const pageError = mutationError ?? loadError;
 
   const [newWorker, setNewWorker] = useState({
     name: '',
@@ -121,23 +135,6 @@ export default function AdminWorkersPage() {
     role: 'WORKER' as 'WORKER' | 'ADMIN',
   });
 
-  const loadWorkers = useCallback(async () => {
-    setIsLoading(true);
-    setPageError(null);
-    try {
-      const data = await apiGet<Array<Worker & { currentDeposit?: number; activeLoan?: number }>>('/v1/dashboard/admin/workers');
-      setWorkers((data ?? []).map((worker) => normalizeWorker(worker)));
-    } catch (error) {
-      setWorkers([]);
-      setPageError(error instanceof Error ? error.message : 'Failed to load workers');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadWorkers();
-  }, [loadWorkers]);
 
   const filteredWorkers = useMemo(
     () =>
@@ -187,9 +184,9 @@ export default function AdminWorkersPage() {
     }
 
     setIsMutating(true);
-    setPageError(null);
+    setMutationError(null);
     try {
-      const created = await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'POST', {
+      await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'POST', {
         name: newWorker.name,
         email: newWorker.email,
         phone: newWorker.phone,
@@ -198,7 +195,7 @@ export default function AdminWorkersPage() {
         locale,
       });
 
-      setWorkers((prev) => [normalizeWorker(created), ...prev]);
+      await loadWorkers();
       setShowAddModal(false);
       setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedArea: '' });
       toast({
@@ -211,7 +208,7 @@ export default function AdminWorkersPage() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to add staff';
-      setPageError(message);
+      setMutationError(message);
       toast({
         title: locale === 'bn' ? 'ত্রুটি' : 'Error',
         description: message,
@@ -236,9 +233,9 @@ export default function AdminWorkersPage() {
   const handleSaveEdit = async () => {
     if (!selectedWorker) return;
     setIsMutating(true);
-    setPageError(null);
+    setMutationError(null);
     try {
-      const updated = await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'PUT', {
+      await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'PUT', {
         id: selectedWorker.id,
         name: editWorker.name,
         phone: editWorker.phone,
@@ -246,7 +243,7 @@ export default function AdminWorkersPage() {
         assignedArea: editWorker.assignedArea,
       });
 
-      setWorkers((prev) => prev.map((w) => (w.id === selectedWorker.id ? normalizeWorker(updated) : w)));
+      await loadWorkers();
       setShowEditModal(false);
       toast({
         title: locale === 'bn' ? 'সফল' : 'Success',
@@ -255,7 +252,7 @@ export default function AdminWorkersPage() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Update failed';
-      setPageError(message);
+      setMutationError(message);
       toast({
         title: locale === 'bn' ? 'ত্রুটি' : 'Error',
         description: message,
@@ -268,16 +265,16 @@ export default function AdminWorkersPage() {
 
   const handleToggleStatus = async (worker: Worker) => {
     setIsMutating(true);
-    setPageError(null);
+    setMutationError(null);
     const nextStatus = worker.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
     try {
-      const updated = await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'PATCH', {
+      await requestWorkersApi<WorkerApiResponse>('/api/v1/admin/workers', 'PATCH', {
         id: worker.id,
         status: nextStatus,
       });
 
-      setWorkers((prev) => prev.map((w) => (w.id === worker.id ? normalizeWorker(updated) : w)));
+      await loadWorkers();
       toast({
         title: locale === 'bn' ? 'স্ট্যাটাস আপডেট' : 'Status Updated',
         description:
@@ -292,7 +289,7 @@ export default function AdminWorkersPage() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Status update failed';
-      setPageError(message);
+      setMutationError(message);
       toast({
         title: locale === 'bn' ? 'ত্রুটি' : 'Error',
         description: message,
@@ -307,20 +304,15 @@ export default function AdminWorkersPage() {
     if (!selectedWorker) return;
 
     setIsMutating(true);
-    setPageError(null);
+    setMutationError(null);
     try {
       const result = await requestWorkersApi<{ deleted: boolean; archived: boolean }>(
         `/api/v1/admin/workers?id=${encodeURIComponent(selectedWorker.id)}`,
         'DELETE'
       );
 
-      if (result.deleted) {
-        setWorkers((prev) => prev.filter((w) => w.id !== selectedWorker.id));
-      } else {
-        setWorkers((prev) =>
-          prev.map((w) => (w.id === selectedWorker.id ? { ...w, status: 'INACTIVE' } : w))
-        );
-      }
+      // Deleted or archived, the server decides; re-read rather than guess.
+      await loadWorkers();
 
       setShowDeleteModal(false);
       const description = result.deleted
@@ -338,7 +330,7 @@ export default function AdminWorkersPage() {
       setSelectedWorker(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Delete failed';
-      setPageError(message);
+      setMutationError(message);
       toast({
         title: locale === 'bn' ? 'ত্রুটি' : 'Error',
         description: message,

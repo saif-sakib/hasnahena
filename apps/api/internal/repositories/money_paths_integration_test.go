@@ -158,6 +158,7 @@ func TestEveryPostingWritesExactlyOneAuditRow(t *testing.T) {
 		worker := seedStaff(t, "w1", "WORKER")
 
 		before := auditRowCount(t)
+		giveMaturedWithdrawalNotice(t, member, 1000)
 		if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, "audit"); err != nil {
 			t.Fatalf("withdrawal: %v", err)
 		}

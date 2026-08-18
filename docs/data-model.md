@@ -53,7 +53,7 @@ declared there ([WO-39](work-orders.md)); it used to upsert anything, so a typo
 became a permanent row that looked like a real setting while the code read the
 correctly-spelled one.
 
-The four the Go API reads, through `getLoanPolicy()` in
+The six the Go API reads. The first four come through `getLoanPolicy()` in
 `internal/repositories/repository.go`:
 
 | Key | Default | Effect |
@@ -62,11 +62,19 @@ The four the Go API reads, through `getLoanPolicy()` in
 | `loan.maxLoanMultiplier` | `5` | personal cap = multiplier × deposit |
 | `loan.maxInstallmentMonths` | `24` | longest repayment schedule |
 | `loan.allowActiveLoanWithdrawal` | off | permit withdrawal while a loan is active |
+| `loan.noticePeriodMonths` | `3` | how long a withdrawal notice must sit before it can be paid (FR-08, [ADR-016](decisions.md)). `0` means no notice period |
+| `loan.missedPaymentsForDefault` | `3` | scheduled instalments a borrower must have missed before a loan may be marked defaulted |
 
-The other sixteen are read by the web app only: `org.*` (letterhead on generated
-documents and the public site), `hero.*` (landing page), `support.chatRetentionDays`,
-`loan.missedPaymentsForDefault`, and `loan.noticePeriodMonths` — **settable and
-read by nothing**, because FR-08 is unimplemented.
+The remaining fourteen are read by the web app only: `org.*` (letterhead on
+generated documents and the public site), `hero.*` (landing page) and
+`support.chatRetentionDays`.
+
+**Read config inside the transaction.** The Go readers come in pairs —
+`getSystemConfigInt64` for callers outside a transaction and
+`getSystemConfigInt64Tx(ctx, tx, …)` for callers inside one. Using the pool
+variant while holding a transaction takes a second connection and deadlocks the
+pool under concurrency; see [ADR-017](decisions.md), which cost a permanently
+hanging test to find.
 
 Adding a key is a three-step job and the allow-list entry is the *last* one: make
 something read it, seed a default in `scripts/seed.mjs`, then declare it. A key

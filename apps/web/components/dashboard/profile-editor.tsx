@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Edit, Lock, Save, Loader2 } from 'lucide-react';
@@ -10,7 +10,9 @@ import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
 import { toast } from '@/hooks/use-toast';
-import { apiGet, apiPut } from '@/lib/api';
+import { apiPut } from '@/lib/api';
+import { useApi, useRedirectOnUnauthorized } from '@/lib/use-api';
+import { useLocalStorageValue } from '@/lib/use-storage';
 import { getStatusStyle, getStatusLabel } from '@/lib/status-styles';
 
 interface ProfileData {
@@ -37,74 +39,75 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [forcePasswordChange, setForcePasswordChange] = useState(false);
-  const [profileData, setProfileData] = useState<ProfileData | null>(null);
-  const [editData, setEditData] = useState<Partial<ProfileData>>({});
 
   const apiPath = `/v1/dashboard/${role}/profile`;
   const defaultRole = role.toUpperCase();
 
-  const getToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const { data: profile, error, isLoading, refresh: fetchProfile } = useApi<any>(apiPath);
+  useRedirectOnUnauthorized(error);
 
-  const fetchProfile = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      if (!getToken()) {
-        router.replace(`/${locale}/login`);
-        return;
-      }
-      const profile = await apiGet<any>(apiPath);
-      setProfileData({
-        id: profile.id,
-        memberId: profile.memberId || '',
-        nameEn: profile.nameEn || '',
-        nameBn: profile.nameBn || '',
-        email: profile.email || '',
-        phone: profile.phone || '',
-        role: profile.role || defaultRole,
-        status: profile.status || 'ACTIVE',
-        address: profile.address || '',
-        memberSince: profile.memberSince || profile.joinedAt || '',
-        lastUpdated: profile.lastUpdated || profile.joinedAt || '',
-        avatarUrl: profile.avatarUrl,
-      });
-      setEditData({
-        nameEn: profile.nameEn || '',
-        nameBn: profile.nameBn || '',
-        email: profile.email || '',
-        phone: profile.phone || '',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load profile';
-      setError(message);
-      toast({ title: locale === 'bn' ? 'ত্রুটি' : 'Error', description: message, variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [apiPath, defaultRole, locale, router]);
+  const profileData = useMemo<ProfileData | null>(() => {
+    if (!profile) return null;
+    return {
+      id: profile.id,
+      memberId: profile.memberId || '',
+      nameEn: profile.nameEn || '',
+      nameBn: profile.nameBn || '',
+      email: profile.email || '',
+      phone: profile.phone || '',
+      role: profile.role || defaultRole,
+      status: profile.status || 'ACTIVE',
+      address: profile.address || '',
+      memberSince: profile.memberSince || profile.joinedAt || '',
+      lastUpdated: profile.lastUpdated || profile.joinedAt || '',
+      avatarUrl: profile.avatarUrl,
+    };
+  }, [profile, defaultRole]);
 
-  useEffect(() => { void fetchProfile(); }, [fetchProfile]);
+  // The form draft: empty until the reader types, then theirs. Seeding it from
+  // the fetch was the second half of the old effect.
+  const [edits, setEdits] = useState<Partial<ProfileData>>({});
+  const editData = useMemo<Partial<ProfileData>>(
+    () => ({
+      nameEn: profileData?.nameEn ?? '',
+      nameBn: profileData?.nameBn ?? '',
+      email: profileData?.email ?? '',
+      phone: profileData?.phone ?? '',
+      ...edits,
+    }),
+    [profileData, edits],
+  );
+  const setEditData = (next: Partial<ProfileData>) => setEdits(next);
 
-  useEffect(() => {
-    const forceByQuery = searchParams.get('forcePasswordChange') === '1';
-    const forceByStorage = typeof window !== 'undefined' && localStorage.getItem('hn_force_password_change') === '1';
-    if (forceByQuery || forceByStorage) {
-      setForcePasswordChange(true);
-      setShowPasswordModal(true);
-    }
-  }, [searchParams]);
+  // Derived, not stored. A forced password change is a fact about the URL and
+  // localStorage, so it is read rather than copied into state by an effect —
+  // which is what the old code did, and which could not un-say it once the
+  // query parameter went away.
+  //
+  // localStorage goes through useLocalStorageValue rather than being read
+  // inline: this component is server-rendered for the initial HTML, where there
+  // is no localStorage, and a direct read there is a hydration mismatch.
+  const forcedFlag = useLocalStorageValue('hn_force_password_change');
+  const [passwordChanged, setPasswordChanged] = useState(false);
+  const forcePasswordChange =
+    !passwordChanged &&
+    (searchParams.get('forcePasswordChange') === '1' || forcedFlag === '1');
+
+  const [passwordModalDismissed, setPasswordModalDismissed] = useState(false);
+  const [passwordModalOpened, setPasswordModalOpened] = useState(false);
+  const showPasswordModal = passwordModalOpened || (forcePasswordChange && !passwordModalDismissed);
 
   const handleSave = async () => {
     if (!profileData) return;
     setIsSaving(true);
     try {
       await apiPut(apiPath, editData as Record<string, unknown>);
-      setProfileData({ ...profileData, ...editData, lastUpdated: new Date().toISOString() });
+      // Re-read rather than patch locally: lastUpdated is the server's to set,
+      // and guessing it here printed a timestamp that did not match the row.
+      await fetchProfile();
+      setEdits({});
       setIsEditing(false);
       window.dispatchEvent(new Event('auth-change'));
       toast({ title: locale === 'bn' ? 'সফল' : 'Success', description: locale === 'bn' ? 'প্রোফাইল আপডেট হয়েছে' : 'Profile updated', variant: 'success' });
@@ -117,13 +120,14 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
 
   const handleCancelEdit = () => {
     setIsEditing(false);
-    if (profileData) {
-      setEditData({ nameEn: profileData.nameEn, nameBn: profileData.nameBn, email: profileData.email, phone: profileData.phone });
-    }
+    // Dropping the draft restores the fetched values, which is what "cancel"
+    // has always meant here.
+    setEdits({});
   };
 
-  const handleAvatarChange = (newUrl: string) => {
-    setProfileData(prev => prev ? { ...prev, avatarUrl: newUrl || null } : null);
+  const handleAvatarChange = () => {
+    // The upload has already written the URL server-side.
+    void fetchProfile();
   };
 
   if (isLoading) {
@@ -150,7 +154,7 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
           <p className="text-sm text-gray-500">{locale === 'bn' ? 'আপনার অ্যাকাউন্ট তথ্য' : 'Your account information'}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPasswordModal(true)} className="h-8">
+          <Button variant="outline" size="sm" onClick={() => setPasswordModalOpened(true)} className="h-8">
             <Lock className="h-3.5 w-3.5 mr-1" />{locale === 'bn' ? 'পাসওয়ার্ড' : 'Password'}
           </Button>
           {isEditing ? (
@@ -259,11 +263,15 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
       <PasswordChangeDialog
         locale={locale}
         open={showPasswordModal}
-        onOpenChange={setShowPasswordModal}
+        onOpenChange={(open) => {
+          setPasswordModalOpened(open);
+          if (!open) setPasswordModalDismissed(true);
+        }}
         forcePasswordChange={forcePasswordChange}
         onPasswordChanged={() => {
           localStorage.removeItem('hn_force_password_change');
-          setForcePasswordChange(false);
+          setPasswordChanged(true);
+          setPasswordModalOpened(false);
         }}
       />
     </div>

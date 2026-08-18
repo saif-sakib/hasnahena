@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { apiGet } from '@/lib/api';
+import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
 import { buildStatement, buildReceipt, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
@@ -79,38 +79,24 @@ export default function TransactionsPage() {
   const [correctAmount, setCorrectAmount] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [memberProfile, setMemberProfile] = useState<MemberProfileResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const {
+    data: pageData,
+    error: loadError,
+    isLoading,
+    refresh,
+  } = useApiAll<[Transaction[], MemberProfileResponse]>([
+    '/v1/dashboard/member/transactions',
+    '/v1/dashboard/member/profile',
+  ]);
+  useRedirectOnUnauthorized(loadError);
 
-  const refresh = async () => {
-    const token = getValidatedClientToken();
-    if (!token) {
-      router.push(`/${locale}/login`);
-      return;
-    }
+  const transactions = useMemo<Transaction[]>(() => pageData?.[0] ?? [], [pageData]);
+  const memberProfile = useMemo<MemberProfileResponse | null>(() => pageData?.[1] ?? null, [pageData]);
 
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const [txData, profileData] = await Promise.all([
-        apiGet<Transaction[]>('/v1/dashboard/member/transactions'),
-        apiGet<MemberProfileResponse>('/v1/dashboard/member/profile'),
-      ]);
-      setTransactions(txData ?? []);
-      setMemberProfile(profileData);
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load transactions');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale]);
+  // Raising a dispute fails for its own reasons; kept apart from the read.
+  const [disputeError, setDisputeError] = useState<string | null>(null);
+  const actionError = disputeError ?? loadError;
 
   // Download full statement
   const handleDownloadStatement = async () => {
@@ -293,7 +279,7 @@ export default function TransactionsPage() {
   const handleSubmitDispute = (e: React.FormEvent) => {
     e.preventDefault();
     void (async () => {
-      setActionError(null);
+      setDisputeError(null);
       const token = getValidatedClientToken();
       if (!token) {
         router.push(`/${locale}/login`);
@@ -312,7 +298,7 @@ export default function TransactionsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setActionError(json?.error ?? 'Failed to raise dispute');
+        setDisputeError(json?.error ?? 'Failed to raise dispute');
         return;
       }
 

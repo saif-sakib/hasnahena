@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -83,8 +84,15 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 		return nil, ErrUserInactive
 	}
 
-	// Clear rate limit on successful login
-	s.security.ClearRateLimit(ctx, "login", identifierKey)
+	// Clear rate limit on successful login.
+	//
+	// Checked: a failure here leaves the member's failed-attempt counter
+	// standing after they have proved the correct password, so the next few
+	// logins are throttled or locked out for no reason they can see. Not fatal
+	// — the login itself succeeded — so it is logged, not returned.
+	if err := s.security.ClearRateLimit(ctx, "login", identifierKey); err != nil {
+		slog.Error("failed to clear login rate limit after successful login", "userId", user.ID, "error", err)
+	}
 
 	now := time.Now().Unix()
 	exp := now + s.jwtExpiry
@@ -103,8 +111,11 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 		return nil, err
 	}
 
-	// Create audit log for successful login
-	s.security.CreateAuditLog(ctx, AuditLogEntry{
+	// Create audit log for successful login. Checked — an audit row that
+	// silently fails to write is a rule-6 problem, and the login record is what
+	// an investigation starts from. The token has already been signed, so the
+	// failure is logged rather than returned.
+	if err := s.security.CreateAuditLog(ctx, AuditLogEntry{
 		Action:     "LOGIN",
 		EntityType: "USER",
 		EntityID:   user.ID,
@@ -112,7 +123,9 @@ func (s *AuthService) Login(ctx context.Context, identifier string, password str
 		UserIP:     userIP,
 		UserAgent:  userAgent,
 		Details:    "Successful login",
-	})
+	}); err != nil {
+		slog.Error("failed to write LOGIN audit log", "userId", user.ID, "error", err)
+	}
 
 	return &models.LoginData{
 		AccessToken: signedToken,
@@ -149,8 +162,9 @@ func (s *AuthService) Logout(ctx context.Context, token string, userID string, u
 		return err
 	}
 
-	// Create audit log
-	s.security.CreateAuditLog(ctx, AuditLogEntry{
+	// Create audit log. Checked for the same rule-6 reason as LOGIN above; the
+	// token is already blacklisted, so this cannot be unwound.
+	if err := s.security.CreateAuditLog(ctx, AuditLogEntry{
 		Action:     "LOGOUT",
 		EntityType: "USER",
 		EntityID:   userID,
@@ -158,7 +172,9 @@ func (s *AuthService) Logout(ctx context.Context, token string, userID string, u
 		UserIP:     userIP,
 		UserAgent:  userAgent,
 		Details:    "User logged out",
-	})
+	}); err != nil {
+		slog.Error("failed to write LOGOUT audit log", "userId", userID, "error", err)
+	}
 
 	return nil
 }
@@ -308,13 +324,16 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return err
 	}
 
-	s.security.CreateAuditLog(ctx, AuditLogEntry{
+	// Checked for the same rule-6 reason; the password has already been written.
+	if err := s.security.CreateAuditLog(ctx, AuditLogEntry{
 		Action:     "PASSWORD_RESET",
 		EntityType: "USER",
 		EntityID:   user.ID,
 		UserID:     user.ID,
 		Details:    "Password reset via email/phone link",
-	})
+	}); err != nil {
+		slog.Error("failed to write PASSWORD_RESET audit log", "userId", user.ID, "error", err)
+	}
 
 	return nil
 }

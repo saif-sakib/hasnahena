@@ -155,6 +155,10 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/member/profile":                  member,
 	"POST /v1/dashboard/member/requests/deposit":        member,
 	"POST /v1/dashboard/member/requests/loan-repayment": member,
+	// FR-08. A withdrawal notice is the member's own declaration, so only the
+	// member may give it — a worker filing one on their behalf would be the
+	// rule-4 violation the notice period exists to close.
+	"POST /v1/dashboard/member/requests/withdrawal": member,
 
 	// Field-worker surface. Admins are included: an admin covering a round
 	// needs the same screens.

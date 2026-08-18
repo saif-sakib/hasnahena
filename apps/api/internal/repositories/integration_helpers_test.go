@@ -175,6 +175,31 @@ func loanBalanceOf(t *testing.T, userID string) int64 {
 	return v
 }
 
+// giveMaturedWithdrawalNotice inserts a withdrawal notice that has already
+// served its notice period, so a test can exercise the payout without waiting
+// three months.
+//
+// FR-08 makes the notice a precondition of every payout: AddMemberWithdrawal
+// settles a matured notice rather than originating a withdrawal. Tests that
+// only care about balances still need one, which is what this is for. It writes
+// the row directly rather than calling CreateMemberWithdrawalNotice, because
+// that method stamps createdAt as NOW() and the whole point here is a backdated
+// one.
+func giveMaturedWithdrawalNotice(t *testing.T, memberID string, amount int64) string {
+	t.Helper()
+	var id string
+	err := testPool.QueryRow(context.Background(), `
+		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "accountId", "userId")
+		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $2, 'test notice', 'PENDING',
+			NOW() - INTERVAL '12 months', 'acct_' || $1, $1)
+		RETURNING id::text
+	`, memberID, amount).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed matured withdrawal notice for %s: %v", memberID, err)
+	}
+	return id
+}
+
 // setConfig writes a system_config key, used to exercise policy-driven branches.
 func setConfig(t *testing.T, key, value string) {
 	t.Helper()

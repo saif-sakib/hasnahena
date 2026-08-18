@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
@@ -26,9 +26,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { apiGet } from '@/lib/api';
+import { useApi, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import { PasswordChangeDialog } from '@/components/ui/password-change-dialog';
-import { getValidatedClientToken } from '@/lib/client-auth';
 import {
   downloadDocumentPDF,
   buildMembershipCertificate,
@@ -84,6 +84,24 @@ interface MemberTransaction {
   receiptNumber?: string;
 }
 
+// Hoisted to module scope so they are stable identities. Declared inside the
+// component they were a fresh object every render, which is what made them a
+// missing `useMemo` dependency that could never be satisfied usefully.
+const emptyAddress: UserProfile['permanentAddress'] = {
+  houseNo: '',
+  village: '',
+  union: '',
+  policeStation: '',
+  district: '',
+};
+
+const emptyNominee: Nominee = {
+  name: '',
+  relationship: '',
+  nidNumber: '',
+  phone: undefined,
+};
+
 export default function ProfilePage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
@@ -91,124 +109,79 @@ export default function ProfilePage() {
   const [isEditingNominee, setIsEditingNominee] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
-  const emptyAddress: UserProfile['permanentAddress'] = {
-    houseNo: '',
-    village: '',
-    union: '',
-    policeStation: '',
-    district: '',
-  };
+  // WO-27 — SWR, not an effect. See lib/use-api.ts.
+  const {
+    data: profileData,
+    error: loadError,
+    isLoading,
+    refresh,
+  } = useApi<{
+    profile?: UserProfile;
+    nominee?: Nominee;
+    accountSummary?: {
+      currentBalance?: number;
+      hasActiveLoan?: boolean;
+      isGuarantor?: boolean;
+    };
+  }>('/v1/dashboard/member/profile');
+  useRedirectOnUnauthorized(loadError);
 
-  const emptyProfile: UserProfile = {
-    memberId: '',
-    accountNumber: '',
-    nameEn: '',
-    nameBn: '',
-    fatherName: '',
-    motherName: '',
-    phone: '',
-    email: undefined,
-    nidNumber: '',
-    dateOfBirth: '',
-    maritalStatus: 'UNMARRIED',
-    gender: 'MALE',
-    permanentAddress: emptyAddress,
-    presentAddress: emptyAddress,
-    memberSince: '',
-    status: 'PENDING',
-    avatarUrl: undefined,
-  };
+  const profile = useMemo<UserProfile>(() => {
+    const p = profileData?.profile;
+    return {
+      memberId: p?.memberId ?? '',
+      accountNumber: p?.accountNumber ?? '',
+      nameEn: p?.nameEn ?? '',
+      nameBn: p?.nameBn ?? '',
+      fatherName: p?.fatherName ?? '',
+      motherName: p?.motherName ?? '',
+      phone: p?.phone ?? '',
+      email: p?.email,
+      nidNumber: p?.nidNumber ?? '',
+      dateOfBirth: p?.dateOfBirth ?? '',
+      maritalStatus: p?.maritalStatus ?? 'UNMARRIED',
+      gender: p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE',
+      permanentAddress: p?.permanentAddress ?? emptyAddress,
+      presentAddress: p?.presentAddress ?? emptyAddress,
+      memberSince: p?.memberSince ?? '',
+      status: p?.status === 'ACTIVE' ? 'ACTIVE' : p?.status === 'SUSPENDED' ? 'SUSPENDED' : 'PENDING',
+      avatarUrl: p?.avatarUrl ?? undefined,
+    };
+  }, [profileData]);
 
-  const emptyNominee: Nominee = {
-    name: '',
-    relationship: '',
-    nidNumber: '',
-    phone: undefined,
-  };
+  const loadedNominee = useMemo<Nominee>(() => {
+    const n = profileData?.nominee;
+    return {
+      name: n?.name ?? '',
+      relationship: n?.relationship ?? '',
+      nidNumber: n?.nidNumber ?? '',
+      phone: n?.phone,
+    };
+  }, [profileData]);
 
-  const [profile, setProfile] = useState<UserProfile>(emptyProfile);
-  const [nominee, setNominee] = useState<Nominee>(emptyNominee);
+  // FR-06 is still a gap: nothing updates a nominee after signup, so "save"
+  // holds the edit on screen and writes nowhere. The override keeps that exact
+  // behaviour rather than quietly making the button do nothing visible — and it
+  // disappears on the next load, which is the honest signal that it did not
+  // persist. Delete this the moment there is an endpoint behind it.
+  const [savedNomineeOverride, setSavedNomineeOverride] = useState<Nominee | null>(null);
+  const nominee = savedNomineeOverride ?? loadedNominee;
   const [editedNominee, setEditedNominee] = useState<Nominee>(emptyNominee);
-  const [accountSummary, setAccountSummary] = useState({
-    currentBalance: 0,
-    hasActiveLoan: false,
-    isGuarantor: false,
-  });
-  const [isLoading, setIsLoading] = useState(true);
+
+  const accountSummary = useMemo(
+    () => ({
+      currentBalance: profileData?.accountSummary?.currentBalance ?? 0,
+      hasActiveLoan: profileData?.accountSummary?.hasActiveLoan ?? false,
+      isGuarantor: profileData?.accountSummary?.isGuarantor ?? false,
+    }),
+    [profileData],
+  );
+
   const [isDownloadingDocument, setIsDownloadingDocument] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Downloading a document fails for its own reasons; kept apart from the read.
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const actionError = documentError ?? loadError;
 
-  const refresh = async () => {
-    const token = getValidatedClientToken();
-    if (!token) {
-      router.push(`/${locale}/login`);
-      return;
-    }
-
-    setIsLoading(true);
-    setActionError(null);
-    try {
-      const profileData = await apiGet<{
-        profile?: UserProfile;
-        nominee?: Nominee;
-        accountSummary?: {
-          currentBalance?: number;
-          hasActiveLoan?: boolean;
-          isGuarantor?: boolean;
-        };
-      }>('/v1/dashboard/member/profile');
-      const p = profileData?.profile;
-      const n = profileData?.nominee;
-
-      setProfile({
-        memberId: p?.memberId ?? '',
-        accountNumber: p?.accountNumber ?? '',
-        nameEn: p?.nameEn ?? '',
-        nameBn: p?.nameBn ?? '',
-        fatherName: p?.fatherName ?? '',
-        motherName: p?.motherName ?? '',
-        phone: p?.phone ?? '',
-        email: p?.email,
-        nidNumber: p?.nidNumber ?? '',
-        dateOfBirth: p?.dateOfBirth ?? '',
-        maritalStatus: p?.maritalStatus ?? 'UNMARRIED',
-        gender: p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE',
-        permanentAddress: p?.permanentAddress ?? emptyAddress,
-        presentAddress: p?.presentAddress ?? emptyAddress,
-        memberSince: p?.memberSince ?? '',
-        status: p?.status === 'ACTIVE' ? 'ACTIVE' : p?.status === 'SUSPENDED' ? 'SUSPENDED' : 'PENDING',
-        avatarUrl: p?.avatarUrl ?? undefined,
-      });
-
-      setNominee({
-        name: n?.name ?? '',
-        relationship: n?.relationship ?? '',
-        nidNumber: n?.nidNumber ?? '',
-        phone: n?.phone,
-      });
-      setEditedNominee({
-        name: n?.name ?? '',
-        relationship: n?.relationship ?? '',
-        nidNumber: n?.nidNumber ?? '',
-        phone: n?.phone,
-      });
-
-      setAccountSummary({
-        currentBalance: profileData?.accountSummary?.currentBalance ?? 0,
-        hasActiveLoan: profileData?.accountSummary?.hasActiveLoan ?? false,
-        isGuarantor: profileData?.accountSummary?.isGuarantor ?? false,
-      });
-    } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to load profile');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale]);
 
 
   const formatDate = (dateStr: string) => {
@@ -232,7 +205,7 @@ export default function ProfilePage() {
   const handleSaveNominee = () => {
     // TODO: Call API to update nominee
     console.log('Saving nominee:', editedNominee);
-    setNominee({ ...editedNominee });
+    setSavedNomineeOverride({ ...editedNominee });
     setIsEditingNominee(false);
   };
 
@@ -243,7 +216,7 @@ export default function ProfilePage() {
 
   const handleDownloadStatement = async () => {
     setIsDownloadingDocument(true);
-    setActionError(null);
+    setDocumentError(null);
     try {
       const orgSettings = await fetchOrgSettings();
       const transactions = await apiGet<MemberTransaction[]>('/v1/dashboard/member/transactions');
@@ -290,14 +263,14 @@ export default function ProfilePage() {
 
       await downloadDocumentPDF(statementDoc);
     } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to generate statement');
+      setDocumentError(e?.message ?? 'Failed to generate statement');
     } finally {
       setIsDownloadingDocument(false);
     }
   };
 
   const handleDownloadCertificate = async () => {
-    setActionError(null);
+    setDocumentError(null);
     try {
       const orgSettings = await fetchOrgSettings();
       const certificateDoc = buildMembershipCertificate(
@@ -313,7 +286,7 @@ export default function ProfilePage() {
       );
       await downloadDocumentPDF(certificateDoc);
     } catch (e: any) {
-      setActionError(e?.message ?? 'Failed to generate certificate');
+      setDocumentError(e?.message ?? 'Failed to generate certificate');
     }
   };
 
@@ -343,9 +316,11 @@ export default function ProfilePage() {
                 userName={locale === 'bn' ? profile.nameBn || profile.nameEn : profile.nameEn || profile.nameBn}
                 size="lg"
                 editable
-                onUploadComplete={(avatarUrl) =>
-                  setProfile((prev) => ({ ...prev, avatarUrl: avatarUrl || undefined }))
-                }
+                // The upload has already written the new URL server-side, so
+                // re-reading is both simpler and guaranteed to agree with it.
+                onUploadComplete={() => {
+                  void refresh();
+                }}
               />
             </div>
             <div className="text-center sm:text-left text-white flex-1">
@@ -469,7 +444,12 @@ export default function ProfilePage() {
                 variant="outline"
                 size="sm"
                 className="gap-1"
-                onClick={() => setIsEditingNominee(true)}
+                onClick={() => {
+                  // Seeded here rather than at load time, so the draft always
+                  // starts from what is on screen.
+                  setEditedNominee({ ...nominee });
+                  setIsEditingNominee(true);
+                }}
               >
                 <Edit2 className="h-3 w-3" />
                 {locale === 'bn' ? 'সম্পাদনা' : 'Edit'}

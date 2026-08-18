@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"hasnahena/apps/api/internal/notify"
 )
 
 type RegistrationApprovalCandidate struct {
@@ -108,7 +110,7 @@ func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]inte
 
 	// Get accurate recovery rate from GetLoanStats (uses correct formula)
 	loanStats, err := r.GetLoanStats(ctx)
-	var recoveryRate float64 = 100.0
+	recoveryRate := 100.0
 	if err == nil {
 		if rate, ok := loanStats["recoveryRate"].(float64); ok {
 			recoveryRate = rate
@@ -621,16 +623,21 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		}
 	}
 
+	// Parameterised rather than inlined in the SQL so the wording lives with
+	// every other notification in internal/notify and is covered by its census
+	// (WO-52). A string only the database sees is a string nothing tests.
+	memberTitle, memberMessage := notify.RegistrationApproved()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO notifications (id, type, title, message, "targetUserId", "createdAt")
-		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', 'Account Approved', 'Your membership has been approved. Please log in and change your password.', $1, NOW())
-	`, userID); err != nil {
+		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', $2, $3, $1, NOW())
+	`, userID, memberTitle, memberMessage); err != nil {
 		return err
 	}
+	staffTitle, staffMessage := notify.RegistrationApprovedForStaff()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO notifications (id, type, title, message, "targetRole", "createdAt")
-		VALUES (gen_random_uuid()::text, 'NEW_REGISTRATION', 'Daily task update', 'A member registration has been approved and is now active.', 'WORKER', NOW())
-	`); err != nil {
+		VALUES (gen_random_uuid()::text, 'NEW_REGISTRATION', $1, $2, 'WORKER', NOW())
+	`, staffTitle, staffMessage); err != nil {
 		return err
 	}
 

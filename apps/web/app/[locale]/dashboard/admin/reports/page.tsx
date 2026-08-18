@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { RefreshCw, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { apiGet } from '@/lib/api';
+import { useApiAll } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 
 type ReportType = 'financial' | 'members' | 'loans' | 'donations';
@@ -134,63 +134,48 @@ export default function AdminReportsPage() {
   const tA11y = useTranslations('dashboard.a11y');
   const [activeReport, setActiveReport] = useState<ReportType>('financial');
   const [period, setPeriod] = useState<Period>('month');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // WO-27 — seven endpoints as one resource, loaded by SWR rather than by an
+  // effect that writes seven pieces of state. All-or-nothing is deliberate:
+  // this screen cross-foots members against loans against deposits, and a
+  // half-loaded report is a wrong report rather than an incomplete one.
+  const {
+    data: reportsData,
+    error,
+    isLoading,
+    refresh: loadReportsData,
+  } = useApiAll<
+    [
+      { stats: DashboardStats },
+      Member[],
+      Loan[],
+      Donation[],
+      { deposits: Deposit[] } | Deposit[],
+      YearlyReport,
+      LoanPerformanceReport,
+    ]
+  >([
+    '/v1/dashboard/admin',
+    '/v1/dashboard/admin/members',
+    '/v1/dashboard/admin/loans',
+    '/v1/dashboard/admin/donations',
+    '/v1/dashboard/admin/deposits',
+    `/v1/dashboard/admin/reports/yearly?year=${CURRENT_YEAR}`,
+    '/v1/dashboard/admin/reports/loans',
+  ]);
 
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [donations, setDonations] = useState<Donation[]>([]);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [yearlyReport, setYearlyReport] = useState<YearlyReport | null>(null);
-  const [loanPerformanceReport, setLoanPerformanceReport] = useState<LoanPerformanceReport | null>(null);
-
-  const loadReportsData = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [
-        dashboardData,
-        membersData,
-        loansData,
-        donationsData,
-        depositsData,
-        yearlyData,
-        loanPerformanceData,
-      ] = await Promise.all([
-        apiGet<{ stats: DashboardStats }>('/v1/dashboard/admin'),
-        apiGet<Member[]>('/v1/dashboard/admin/members'),
-        apiGet<Loan[]>('/v1/dashboard/admin/loans'),
-        apiGet<Donation[]>('/v1/dashboard/admin/donations'),
-        apiGet<{ deposits: Deposit[] } | Deposit[]>('/v1/dashboard/admin/deposits'),
-        apiGet<YearlyReport>(`/v1/dashboard/admin/reports/yearly?year=${CURRENT_YEAR}`),
-        apiGet<LoanPerformanceReport>('/v1/dashboard/admin/reports/loans'),
-      ]);
-
-      setDashboardStats(dashboardData?.stats || null);
-      setMembers(membersData || []);
-      setLoans(loansData || []);
-      setDonations(donationsData || []);
-      setDeposits(Array.isArray(depositsData) ? depositsData : (depositsData?.deposits || []));
-      setYearlyReport(yearlyData || null);
-      setLoanPerformanceReport(loanPerformanceData || null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load reports');
-      setMembers([]);
-      setLoans([]);
-      setDonations([]);
-      setDeposits([]);
-      setYearlyReport(null);
-      setLoanPerformanceReport(null);
-      setDashboardStats(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadReportsData();
-  }, []);
+  const dashboardStats = useMemo<DashboardStats | null>(() => reportsData?.[0]?.stats ?? null, [reportsData]);
+  const members = useMemo<Member[]>(() => reportsData?.[1] ?? [], [reportsData]);
+  const loans = useMemo<Loan[]>(() => reportsData?.[2] ?? [], [reportsData]);
+  const donations = useMemo<Donation[]>(() => reportsData?.[3] ?? [], [reportsData]);
+  const deposits = useMemo<Deposit[]>(() => {
+    const raw = reportsData?.[4];
+    return Array.isArray(raw) ? raw : (raw?.deposits ?? []);
+  }, [reportsData]);
+  const yearlyReport = useMemo<YearlyReport | null>(() => reportsData?.[5] ?? null, [reportsData]);
+  const loanPerformanceReport = useMemo<LoanPerformanceReport | null>(
+    () => reportsData?.[6] ?? null,
+    [reportsData],
+  );
 
   const filteredMembers = useMemo(
     () => members.filter((m) => isWithinPeriod(parseDate(m.joinDate), period)),

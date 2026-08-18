@@ -46,7 +46,8 @@ This three-step handshake replaces OTP. Statuses map to `TransactionStatus`: `PE
 | Max installment months | 24 | `loan.maxInstallmentMonths` |
 | Withdrawal while loan active | blocked | `loan.allowActiveLoanWithdrawal` |
 | Interest / processing fee | **zero, always** | not configurable |
-| Withdrawal notice | 3 months (policy, manual) | — |
+| Withdrawal notice | 3 months | `loan.noticePeriodMonths` (`0` = no notice period) |
+| Missed payments before a loan may be defaulted | 3 | `loan.missedPaymentsForDefault` |
 
 Two further caps are specified but **not implemented** (see [tasks.md](tasks.md)):
 - Fairness cap: 2 × (total pool ÷ active members)
@@ -58,9 +59,30 @@ Effective max loan = min(all applicable caps).
 
 `PENDING_GUARANTOR → PENDING_APPROVAL → ACTIVE → COMPLETED`, with `DEFAULTED` / `REJECTED` / `SETTLED` as terminals. A guarantor is required above an admin-set threshold; the guarantor approves from their own dashboard before admin review. A guarantor cannot withdraw their base deposit while the guarantee is live.
 
+### Withdrawal notice period (FR-08)
+
+**A member's withdrawal request *is* their notice.** It files a `PENDING`
+withdrawal that moves no money; the money is paid at the desk once
+`loan.noticePeriodMonths` has elapsed since the request. Both paths that can
+move it — the admin's approval and the worker's payout — refuse before then.
+
+A notice covers any amount *up to* the one announced; taking more needs a new
+notice. Outstanding notices count against the balance, so a member cannot give
+several notices for the whole balance and present them all once matured. The
+guarantor lock and the active-loan rule are checked when notice is given as well
+as when it is paid, so a member finds out now rather than in three months.
+
+Since a `PENDING` withdrawal is a notice and a `CONFIRMED` one is a payment,
+**any total over `transactions` must filter on status** — see
+[ADR-016](decisions.md).
+
 ### Default settlement waterfall
 
-On admin marking a loan defaulted, recovery runs in strict order and is logged:
+A loan may only be marked defaulted once the borrower has missed at least
+`loan.missedPaymentsForDefault` scheduled instalments — counted from
+`installmentStartDate` against `paidInstallments`, so a loan that was never put
+on a schedule can never be defaulted. On admin marking a loan defaulted, the
+borrower is notified and recovery runs in strict order and is logged:
 
 1. Borrower's own savings balance
 2. Guarantor's savings balance (proportional)

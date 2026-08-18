@@ -8,6 +8,25 @@ const nextConfig = {
   // Enable React strict mode for better development experience
   reactStrictMode: true,
 
+  // WO-27. The compiler memoises components automatically, so the twenty
+  // `set-state-in-effect` findings it used to report finally mean something at
+  // runtime rather than only in the lint output — that is why they were cleared
+  // first, and why turning this on is the last step of that order rather than
+  // the first.
+  //
+  // Top-level, NOT under `experimental`. Next 16 promoted it; on 15 it was
+  // `experimental.reactCompiler`, and leaving it there is silently ignored —
+  // the build succeeds and nothing is compiled, which looks exactly like
+  // success. Requires `babel-plugin-react-compiler` as a devDependency; without
+  // it the build fails outright rather than quietly skipping.
+  //
+  // Next only runs the Babel plugin over files that actually contain JSX or
+  // hooks, so the build-time cost is small. Components the compiler cannot
+  // analyse — the registration form, which uses react-hook-form's `watch`
+  // subscription — are skipped individually and reported by `pnpm lint` as
+  // "Compilation Skipped". That is a notice, not a defect.
+  reactCompiler: true,
+
   // Standalone output is for the Docker image only (apps/web/Dockerfile), which
   // sets DOCKER_BUILD=1. Vercel builds its own serverless output and ignores
   // this setting, but leaving it on unconditionally changes what `pnpm build`

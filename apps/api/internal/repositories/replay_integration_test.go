@@ -41,9 +41,11 @@ func seedLoanInStatus(t *testing.T, borrower, guarantor, status string, remainin
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
-			"installmentAmount", purpose, status, "disbursementDate", "createdAt", "updatedAt")
+			"installmentAmount", purpose, status, "disbursementDate", "installmentStartDate",
+			"createdAt", "updatedAt")
 		VALUES (gen_random_uuid()::text, 'LOAN-LC-' || gen_random_uuid()::text, 'acct_' || $1, $1, $2,
-			$3, $3, 12, 0, GREATEST(($3/12)::bigint, 1), 'lifecycle', $4::"LoanStatus", NOW(), NOW(), NOW())
+			$3, $3, 12, 0, GREATEST(($3/12)::bigint, 1), 'lifecycle', $4::"LoanStatus", NOW(),
+			NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
 	`, borrower, guarantorArg, remaining, status).Scan(&loanID)
 	if err != nil {

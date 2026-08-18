@@ -12,7 +12,7 @@
 | [decisions.md](decisions.md) | Why the code contradicts an older assumption |
 | [tasks.md](tasks.md) | **The status board.** What is partial, what is broken, and what the test suites do not cover. Holds no history — see the changelog |
 | [production-readiness.md](production-readiness.md) | Operational backlog and the *why*: the open security defect, the monitoring that is built and switched off, and the path to a VPS/AWS. Completed phases are compressed to one line each |
-| [work-orders.md](work-orders.md) | **Open** orders as execution specs — exact files, changes and verification. Prompt with `do WO-51`. Nine are open. Also holds the traps that each cost a session to find |
+| [work-orders.md](work-orders.md) | **Open** orders as execution specs — exact files, changes and verification. Prompt with `do WO-57`. Thirteen are open. Also holds the traps that each cost a session to find |
 | [testing.md](testing.md) | The testing guide: where a new test goes, the fixture contract, how to run each suite, what all eight phases found — and **Phase 9, the surfaces they still do not reach** |
 | [changelog.md](changelog.md) | What is already done, one line per batch — WO-01 → WO-50 and TEST-01 → TEST-43. **The only file that keeps history** |
 

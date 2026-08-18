@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   HandCoins,
@@ -44,7 +44,8 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 
 type LoanStatus = 'ACTIVE' | 'OVERDUE' | 'COMPLETED' | 'PENDING' | 'DEFAULTED' | string;
 
@@ -77,67 +78,60 @@ export default function WorkerLoansPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
-  const [loans, setLoans] = useState<ActiveLoan[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  const loadLoans = async () => {
-    setIsLoading(true);
-    try {
-      const data = await apiGet<any[]>('/v1/dashboard/worker/loans');
-      const today = new Date();
-      const items = (data ?? []).map((loan) => {
-        const principalAmount = Number(loan.principalAmount ?? 0);
-        const remainingAmount = Number(loan.remainingAmount ?? 0);
-        const rawStatus = String(loan.status ?? 'PENDING').toUpperCase();
-        const nextDueDate = loan.nextDueDate ? String(loan.nextDueDate) : undefined;
+  // WO-27 — SWR, not an effect. The shaping that used to run inside the loader
+  // is a memo over the payload: same arithmetic, no state written.
+  const {
+    data: loansData,
+    isLoading,
+    refresh: loadLoans,
+  } = useApi<any[]>('/v1/dashboard/worker/loans');
 
-        let status: LoanStatus = rawStatus;
-        if (rawStatus === 'PENDING' || rawStatus === 'PENDING_APPROVAL' || rawStatus === 'PENDING_GUARANTOR') {
-          status = 'PENDING';
-        } else if (rawStatus === 'REJECTED') {
-          status = 'PENDING';
-        } else if (rawStatus === 'COMPLETED' || rawStatus === 'SETTLED') {
-          status = 'COMPLETED';
-        } else if (rawStatus === 'DEFAULTED') {
-          status = 'DEFAULTED';
-        } else {
-          status = 'ACTIVE';
-          if (nextDueDate && new Date(nextDueDate).getTime() < today.getTime()) {
-            status = 'OVERDUE';
-          }
+  const loans = useMemo<ActiveLoan[]>(() => {
+    const today = new Date();
+    return (loansData ?? []).map((loan) => {
+      const principalAmount = Number(loan.principalAmount ?? 0);
+      const remainingAmount = Number(loan.remainingAmount ?? 0);
+      const rawStatus = String(loan.status ?? 'PENDING').toUpperCase();
+      const nextDueDate = loan.nextDueDate ? String(loan.nextDueDate) : undefined;
+
+      let status: LoanStatus = rawStatus;
+      if (rawStatus === 'PENDING' || rawStatus === 'PENDING_APPROVAL' || rawStatus === 'PENDING_GUARANTOR') {
+        status = 'PENDING';
+      } else if (rawStatus === 'REJECTED') {
+        status = 'PENDING';
+      } else if (rawStatus === 'COMPLETED' || rawStatus === 'SETTLED') {
+        status = 'COMPLETED';
+      } else if (rawStatus === 'DEFAULTED') {
+        status = 'DEFAULTED';
+      } else {
+        status = 'ACTIVE';
+        if (nextDueDate && new Date(nextDueDate).getTime() < today.getTime()) {
+          status = 'OVERDUE';
         }
+      }
 
-        return {
-          id: String(loan.id ?? ''),
-          loanNumber: String(loan.loanNumber ?? ''),
-          memberUserId: String(loan.memberUserId ?? ''),
-          memberId: String(loan.memberId ?? ''),
-          memberName: String(loan.memberName ?? ''),
-          memberPhone: String(loan.memberPhone ?? ''),
-          loanAmount: principalAmount,
-          remainingAmount,
-          paidAmount: Math.max(principalAmount - remainingAmount, 0),
-          installmentsPaid: Number(loan.paidInstallments ?? 0),
-          totalInstallments: Number(loan.totalInstallments ?? 0),
-          monthlyInstallment: Number(loan.installmentAmount ?? 0),
-          status,
-          nextDueDate,
-          missedPayments: status === 'OVERDUE' ? 1 : 0,
-          guarantorName: String(loan.guarantorName ?? ''),
-        } satisfies ActiveLoan;
-      });
-      setLoans(items);
-    } catch {
-      setLoans([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadLoans();
-  }, []);
+      return {
+        id: String(loan.id ?? ''),
+        loanNumber: String(loan.loanNumber ?? ''),
+        memberUserId: String(loan.memberUserId ?? ''),
+        memberId: String(loan.memberId ?? ''),
+        memberName: String(loan.memberName ?? ''),
+        memberPhone: String(loan.memberPhone ?? ''),
+        loanAmount: principalAmount,
+        remainingAmount,
+        paidAmount: Math.max(principalAmount - remainingAmount, 0),
+        installmentsPaid: Number(loan.paidInstallments ?? 0),
+        totalInstallments: Number(loan.totalInstallments ?? 0),
+        monthlyInstallment: Number(loan.installmentAmount ?? 0),
+        status,
+        nextDueDate,
+        missedPayments: status === 'OVERDUE' ? 1 : 0,
+        guarantorName: String(loan.guarantorName ?? ''),
+      } satisfies ActiveLoan;
+    });
+  }, [loansData]);
 
   const handleDownloadLoan = async (loan: ActiveLoan) => {
     try {

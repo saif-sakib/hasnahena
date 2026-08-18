@@ -626,8 +626,8 @@ Each has an execution spec in [work-orders.md](work-orders.md); this table is th
 
 | ID | Uncovered surface | Why it is the next place a defect hides | Order |
 |---|---|---|---|
-| **TEST-39** | **EN/BN message parity** | 300 keys each, identical today. "Full EN/BN parity on all user-facing strings" is a stated quality bar in [product.md](product.md) with nothing behind it. The layout matrix catches an untranslated key only on a page it visits, in a locale it renders, after the key already reached a screen | [WO-51](work-orders.md) |
-| **TEST-40** | **What a notification says** | `email_service.go` is 488 lines with zero tests, and every member-facing notification carries an amount through it. **LEDGER-03 was a wrong amount in a notification.** The suites assert a notification row *exists*; none reads it. This is the last unguarded surface where money is rendered to a member | [WO-52](work-orders.md) |
+| **TEST-39** `[x]` | **EN/BN message parity** — closed 2026-08-18 | `apps/web/test/unit/messages.test.ts`: equal key sets, no long untranslated copy-paste, every `{placeholder}` carried through. All four assertions were confirmed red — by deleting a key, by pasting an English string, by stripping a placeholder — before being allowed to pass | [WO-51](work-orders.md) |
+| **TEST-40** `[x]` | **What a notification says** — closed 2026-08-18 | `apps/api/internal/notify/`: every message is a pure `(title, message)` builder, table-tested at seven amounts including `0` and the int64 ceiling, plus two censuses — one fails when a builder has no test row, the other when a repository builds a message itself. `email_service.go` is covered for its escaping asymmetry (HTML escaped, text not). **The defect it was written to guard was already present** — LEDGER-07, now fixed | [WO-52](work-orders.md) |
 | **TEST-41** | **The cleanup loop** | `startCleanupLoop` sweeps expired tokens and rate limits hourly and has no test. A sweep that stops sweeping is completely silent — the table just grows. It is also the RUN-06 shape exactly: `CleanupExpiredTokens` sat written-and-never-called for months and looked like working code | [WO-53](work-orders.md) |
 | **TEST-42** | **Prisma schema drift** | CI applies the migrations and never compares the result to `schema.prisma`. The two can disagree, and nothing notices until a column is missing in production. [ADR-014](decisions.md) retired `db push` so the migrations are the truth — which only holds if something checks | [WO-54](work-orders.md) |
 | **TEST-43** | **The Cloudinary paths** | Upload, transform and delete are untested on both surfaces, and DATA-06 means the assets have no backup either. NID front/back and nominee photos are regulatory documents. Untested write path + no export + one third-party account is the weakest link in the data story now that the database is drilled on every push | [WO-55](work-orders.md) |
@@ -670,15 +670,20 @@ cheapest way to close it is a rule rather than a list: **every route in the
 contract table needs at least one row that drives it to a 2xx.**
 
 Second lesson, cheaper to state: **the same function can write one correct record
-and one wrong one.** Every posting in `transaction_repository.go` writes an audit
+and one wrong one.** Every posting in `transaction_repository.go` wrote an audit
 line with `%d BDT` — correct — and a member notification with `BDT %.2f` from a
-`float64` — a rule-1 violation ([WO-58](work-orders.md)). A test that read either
-one alone would have concluded the code was fine.
+`float64` — a rule-1 violation. A test that read either one alone would have
+concluded the code was fine. Fixed 2026-08-18 by moving every message into
+`internal/notify`, where a census makes the next one impossible to add untested.
+The int64 ceiling made the point concrete: `%.2f` rendered
+9,223,372,036,854,775,807 as `…808.00`, having lost the low digits to `float64`
+before it ever reached the format string.
 
-**Two of these five are worth more than the other three**, and it is worth being
-explicit about which: TEST-40, because it guards money rendered to a member and
-we have already shipped that exact defect once; and TEST-42, because it is an
-hour of work that fails the build on a whole class of drift.
+**Two of these five were worth more than the other three**, and the call held up:
+TEST-40, because it guards money rendered to a member and we had already shipped
+that exact defect once — writing it found the defect sitting there a second time;
+and TEST-42, still open, an hour of work that fails the build on a whole class of
+drift.
 
 ### What is deliberately still uncovered
 
@@ -687,7 +692,7 @@ Not everything absent is a gap. These are decisions:
 | Not covered | Why |
 |---|---|
 | Brevo actually delivering mail | Testing a third party's SMTP proves nothing about this code. WO-52 tests the message; delivery is an operational check on the go-live list |
-| The React Compiler lint findings | The compiler is off, so the rules describe a hypothetical. See [WO-27](work-orders.md) |
+| ~~The React Compiler lint findings~~ | **No longer deliberate.** The compiler is on as of 2026-08-18 and all 20 findings are cleared; `pnpm lint` reports 6 warnings, none of them this rule |
 | Load and stress testing | Out of scope in [product.md](product.md). TEST-31's 240 sustained postings is the ceiling this workload needs |
 | A generic accessibility audit | See the reasoning in `e2e/accessibility.spec.ts` — four specific checks beat a long advisory list nobody actions |
 

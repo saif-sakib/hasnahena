@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -133,7 +134,14 @@ func loadEnvironment() {
 
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
-			loadEnvFile(p)
+			// Best-effort by design — a missing or malformed .env is normal in
+			// production, where the values come from Render and Vercel instead.
+			// It is reported rather than discarded, because a *present* file
+			// that fails to parse silently starts the server on defaults, and
+			// "why is it using the wrong database" is an expensive question.
+			if err := loadEnvFile(p); err != nil {
+				slog.Warn("config: ignoring env file", "path", p, "error", err)
+			}
 		}
 	}
 }
@@ -143,7 +151,7 @@ func loadEnvFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only; nothing to report and nowhere to report it
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -170,7 +178,12 @@ func loadEnvFile(path string) error {
 
 		raw := strings.TrimSpace(parts[1])
 		val := normalizeEnvValue(raw)
-		os.Setenv(key, val)
+		// Checked: a failed Setenv leaves the process running on a default while
+		// the file on disk says otherwise — the same silent-misconfiguration
+		// shape as the parse failure above.
+		if err := os.Setenv(key, val); err != nil {
+			return fmt.Errorf("set %s: %w", key, err)
+		}
 	}
 
 	return scanner.Err()

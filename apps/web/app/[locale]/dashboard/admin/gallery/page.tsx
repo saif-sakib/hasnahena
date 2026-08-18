@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 import { useLocale, useTranslations } from 'next-intl';
 import { Plus, Trash2, Edit2, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,9 +18,27 @@ interface GalleryItem { id: string; imageUrl: string; captionEn: string | null; 
 export default function GalleryManagementPage() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
-  const [items, setItems] = useState<GalleryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  // WO-27 — SWR, not an effect. The gallery is a Next route rather than the Go
+  // API, so it fetches directly instead of going through useApi.
+  const {
+    data: itemsData,
+    error: loadError,
+    isLoading,
+    mutate: fetchItems,
+  } = useSWR<GalleryItem[], Error>(
+    '/api/v1/gallery',
+    async (url: string) => {
+      const response = await fetch(url);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'Server error');
+      return payload as GalleryItem[];
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+  const items = useMemo<GalleryItem[]>(() => itemsData ?? [], [itemsData]);
+  // Uploads and deletes fail for their own reasons; kept apart from the read.
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const fetchError = mutationError ?? (loadError ? loadError.message : null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<GalleryItem | null>(null);
   const [formData, setFormData] = useState<GalleryFormData>({});
@@ -29,25 +48,6 @@ export default function GalleryManagementPage() {
 
   const getAuthToken = () => typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
 
-  const fetchItems = async () => {
-    setIsLoading(true);
-    setFetchError(null);
-    try {
-      const response = await fetch('/api/v1/gallery');
-      const data = await response.json();
-      if (!response.ok) { setFetchError(data.error || 'Server error'); return; }
-      setItems(data);
-    } catch (error) {
-      setFetchError(error instanceof Error ? error.message : 'Network error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Below fetchItems, not above it. `const` declarations are in the temporal
-  // dead zone until evaluated, so an effect placed earlier only works because
-  // effects run after the whole body has. It is legal and it is fragile.
-  useEffect(() => { fetchItems(); }, []);
 
   const handleImageUpload = async (formDataWithImage: FormData) => {
     const file = formDataWithImage.get('image');
