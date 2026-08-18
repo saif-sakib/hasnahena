@@ -632,6 +632,49 @@ Each has an execution spec in [work-orders.md](work-orders.md); this table is th
 | **TEST-42** | **Prisma schema drift** | CI applies the migrations and never compares the result to `schema.prisma`. The two can disagree, and nothing notices until a column is missing in production. [ADR-014](decisions.md) retired `db push` so the migrations are the truth — which only holds if something checks | [WO-54](work-orders.md) |
 | **TEST-43** | **The Cloudinary paths** | Upload, transform and delete are untested on both surfaces, and DATA-06 means the assets have no backup either. NID front/back and nominee photos are regulatory documents. Untested write path + no export + one third-party account is the weakest link in the data story now that the database is drilled on every push | [WO-55](work-orders.md) |
 
+### What the 2026-08-18 code audit found, and why Phase 9 grew
+
+Phase 9 opened as a list of *untested surfaces*. Then the code was read rather
+than the coverage, and it produced **ten defects in a codebase whose eight
+testing phases were all green** — including the only broken FR on the board.
+
+That is the finding worth keeping. Some of it was reachable by tools:
+
+| Tool | Ran | Result |
+|---|---|---|
+| `go vet` | whole API | clean |
+| `golangci-lint` errcheck + staticcheck | whole API | **19 findings** — 12 unchecked errors, `SA1019 middleware.RealIP` |
+| `go test -race` unit | whole API | clean |
+| `go test -race` integration | whole API, real Postgres | **zero data races** in ~40 s — now [WO-66](work-orders.md) |
+| `next build` | web | clean |
+| `pnpm typecheck` / `lint` | web | clean, 26 warnings |
+
+Most of it was not. The rest came from reading money paths and asking what each
+function returns, and the sharpest one is worth stating in full because it
+indicts the suite design rather than the code:
+
+> **`POST /api/v1/member/transactions/[id]/dispute` returns 500 on success.** The
+> route serialises a raw Prisma row whose fields are `BigInt`, and
+> `NextResponse.json` throws on that. The dispute *is* recorded and the member is
+> told it failed.
+>
+> `routes.contract.test.ts` drives that route with `id: 'no-such-txn'`. Every
+> authorization case passes. **The success path had never been executed by any
+> test.**
+
+**A route contract proves who may call a route, not what it returns.** The
+enumerating suites were built to answer "can a WORKER reach this?", and they
+answer it exhaustively for all 85 route methods. They say almost nothing about
+what a permitted caller gets back. That is the gap Phase 9 now owns, and the
+cheapest way to close it is a rule rather than a list: **every route in the
+contract table needs at least one row that drives it to a 2xx.**
+
+Second lesson, cheaper to state: **the same function can write one correct record
+and one wrong one.** Every posting in `transaction_repository.go` writes an audit
+line with `%d BDT` — correct — and a member notification with `BDT %.2f` from a
+`float64` — a rule-1 violation ([WO-58](work-orders.md)). A test that read either
+one alone would have concluded the code was fine.
+
 **Two of these five are worth more than the other three**, and it is worth being
 explicit about which: TEST-40, because it guards money rendered to a member and
 we have already shipped that exact defect once; and TEST-42, because it is an

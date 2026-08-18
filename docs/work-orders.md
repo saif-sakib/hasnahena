@@ -9,8 +9,10 @@ Prompt with just the ID: **`do WO-28`** · `do WO-27 and WO-40`.
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Nine orders are open** — three carried over, six opened 2026-08-18 by the
-documentation pass. Everything finished is one line per batch in
+**Nineteen orders are open.** Three carried over; six opened by the 2026-08-18
+documentation pass; **ten opened by the 2026-08-18 code audit**, which read the
+Go API, the Next routes and the shared libraries looking for defects rather than
+for gaps. Everything finished is one line per batch in
 [changelog.md](changelog.md). What was *learned* doing them is in
 [Traps](#traps-that-cost-a-session) below — read that before any work touching
 Docker, Prisma, migrations or the build config. Every entry there cost at least
@@ -18,15 +20,25 @@ one session to find.
 
 | Order | What | Size |
 |---|---|---|
-| [WO-27](#wo-27--react-compiler-lint-cleanup---9-of-31-done) | React Compiler lint cleanup | deferred — needs a data-fetching library |
-| [WO-28](#wo-28--purge-member-data-and-binaries-from-git-history-) | **Purge member data from git history** | ½ day + GitHub Support |
-| [WO-40](#wo-40--enable-errcheck-and-staticcheck-) | Enable `errcheck` and `staticcheck` | half a day |
-| [WO-51](#wo-51--pin-enbn-message-parity-) | Pin EN/BN message parity | under an hour |
-| [WO-52](#wo-52--test-what-a-notification-actually-says-) | Test what a notification actually *says* | half a day |
-| [WO-53](#wo-53--prove-the-cleanup-loop-sweeps-) | Prove the cleanup loop sweeps | 2 hours |
-| [WO-54](#wo-54--fail-ci-on-prisma-schema-drift-) | Fail CI on Prisma schema drift | 1 hour |
-| [WO-55](#wo-55--cover-the-cloudinary-paths-) | Cover the Cloudinary paths | half a day |
-| [WO-56](#wo-56--loan-repayment-presets-must-be-whole-taka-) | Loan repayment presets must be whole taka | 20 minutes |
+| [WO-27](#wo-27--react-compiler-lint-cleanup--9-of-31-done) | React Compiler lint cleanup | deferred — needs a data-fetching library |
+| [WO-28](#wo-28--purge-member-data-and-binaries-from-git-history) | **Purge member data from git history** | ½ day + GitHub Support |
+| [WO-40](#wo-40--enable-errcheck-and-staticcheck) | Enable `errcheck` and `staticcheck` | half a day |
+| [WO-51](#wo-51--pin-enbn-message-parity) | Pin EN/BN message parity | under an hour |
+| [WO-52](#wo-52--test-what-a-notification-actually-says) | Test what a notification actually *says* | half a day |
+| [WO-53](#wo-53--prove-the-cleanup-loop-sweeps) | Prove the cleanup loop sweeps | 2 hours |
+| [WO-54](#wo-54--fail-ci-on-prisma-schema-drift) | Fail CI on Prisma schema drift | 1 hour |
+| [WO-55](#wo-55--cover-the-cloudinary-paths) | Cover the Cloudinary paths | half a day |
+| [WO-56](#wo-56--loan-repayment-presets-must-be-whole-taka) | Loan repayment presets must be whole taka | 20 minutes |
+| [WO-57](#wo-57--a-dispute-reports-failure-while-succeeding--the-defect-to-fix-first) | **A dispute reports failure while succeeding** — FR-17 broken, proven | 1 hour |
+| [WO-58](#wo-58--notification-amounts-print-paisa-from-a-float--ledger-07) | **Notification amounts print paisa from a float** (LEDGER-07) | half a day |
+| [WO-59](#wo-59--three-notification-writes-are-fire-and-forget) | Three notification writes are fire-and-forget | 1 hour |
+| [WO-60](#wo-60--remove-chis-realip-log-and-throttle-on-the-same-address) | Remove chi's `RealIP`; log and throttle on one address | 2 hours |
+| [WO-61](#wo-61--serializeloan-and-serializetransaction-turn-zero-into-null) | Serialisers turn a legitimate zero into null | 1 hour |
+| [WO-62](#wo-62--email-sending-can-outlive-the-shutdown-drain) | Email sending can outlive the shutdown drain | half a day |
+| [WO-63](#wo-63--cloudinary-undeletable-assets-and-swallowed-errors) | Cloudinary: undeletable assets, swallowed errors | half a day |
+| [WO-64](#wo-64--harden-the-support-proxy) | Harden the support proxy | 2 hours |
+| [WO-65](#wo-65--modulo-bias-in-generated-passwords-and-codes) | Modulo bias in generated passwords and codes | 2 hours |
+| [WO-66](#wo-66--run-the-race-detector-in-ci) | Run the race detector in CI | 20 minutes |
 
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
 TEST-43`. **TEST-39 → 43 are open** and are WO-51 → WO-55 above.
@@ -48,7 +60,7 @@ TEST-43`. **TEST-39 → 43 are open** and are WO-51 → WO-55 above.
 
 # Open
 
-## WO-27 · React Compiler lint cleanup `[~]` — 9 of 31 done
+## WO-27 · React Compiler lint cleanup — 9 of 31 done
 
 **The React Compiler is not enabled.** There is no `experimental.reactCompiler`
 in `next.config.js` and no `babel-plugin-react-compiler` in any manifest. These
@@ -89,7 +101,7 @@ move money and have no fixtures, so a batch rewrite cannot be verified. A
 `set-state-in-effect` finding usually marks an effect that should be derived
 state or an event handler; deleting the effect is normally correct, adding a
 guard normally hides it from the rule instead of fixing it.
-## WO-28 · Purge member data and binaries from git history `[ ]`
+## WO-28 · Purge member data and binaries from git history
 
 **Why:** SEC-06 and **SEC-10**. This is the highest-value item in the file.
 
@@ -174,7 +186,7 @@ will not reconcile a rewritten history and will produce a confusing merge.
 blob over 2 MB except `apps/web/assets/brand/logo.mp4`. A fresh clone is under
 15 MB. `git log --all --diff-filter=A -- 'Official Infos/*'` returns nothing.
 
-## WO-40 · Enable `errcheck` and `staticcheck` `[ ]`
+## WO-40 · Enable `errcheck` and `staticcheck`
 
 WO-37 configured both and left them off, because they reported 44 findings and a
 pipeline that is red on arrival gets switched off. **Re-measured 2026-08-17:
@@ -199,7 +211,7 @@ Fix the first three groups, decide on `RealIP` against `TRUSTED_PROXIES`, then
 flip both linters on in `apps/api/.golangci.yml`. The 23 conventional findings
 (`defer tx.Rollback()`, `Close()`) are already excluded there.
 
-## WO-51 · Pin EN/BN message parity `[ ]`
+## WO-51 · Pin EN/BN message parity
 
 **Why:** [product.md](product.md) states "Full EN/BN parity on all user-facing
 strings" as a quality bar. Nothing enforces it. The two files hold **300 keys
@@ -232,43 +244,54 @@ header, the way the other four enumerating suites do, or the next person will
 **Done when:** `pnpm test:unit` covers it; deleting one key from `bn.json` fails
 with that key named; restoring it passes.
 
-## WO-52 · Test what a notification actually *says* `[ ]`
+## WO-52 · Test what a notification actually *says*
 
-**Why:** `apps/api/internal/services/email_service.go` is 488 lines and has
-**zero tests**. Every member-facing notification passes through it carrying an
-amount, and **LEDGER-03 was a wrong amount in a notification** — a `÷100` that
-told a member their ৳50,000 loan was "BDT 500.00". The current suites assert a
-notification row **exists** (`failure_injection_integration_test.go` counts them);
-nothing reads what it says.
+> **Corrected 2026-08-18.** This order was opened on the assumption that
+> `email_service.go` renders amounts and was therefore the LEDGER-03 shape
+> unguarded. **The code audit disproved that**: the four emails it sends —
+> membership approval, staff welcome, password-change code, password reset —
+> carry no money at all. The amounts live in the **`notifications` table**, built
+> in `transaction_repository.go` and `loan_repository.go`, and that is where the
+> live defect turned out to be ([WO-58](#wo-58--notification-amounts-print-paisa-from-a-float--ledger-07)).
+>
+> The order stands, with the target moved. Leaving the wrong premise in place
+> would have sent someone to test the file that was fine.
 
-This is the last unguarded surface where money is rendered to a member. The
-document renderers got TEST-23→25; the screens got TEST-26→30; notifications got
-a row count.
+**Why:** the notification builders render every member-facing amount, and
+**nothing asserts what they say.** The suites assert a notification row *exists*
+(`failure_injection_integration_test.go` counts them); none reads its `message`.
+WO-58 fixes the defect that is there today; this stops the next one.
+
+`email_service.go` is separately untested — 488 lines, zero tests — and worth
+covering for its own reasons: it renders HTML with `fmt.Sprintf` and hand-rolled
+escaping, and a mistake there is an injection into a member's inbox. Lower
+priority than the money strings, same order.
 
 **Change**
 
-1. Extract the body-building from the sending, if it is not already separable —
-   a pure `func(…) (subject, body string)` per notification type is what makes
-   this testable without a mail server. **Do not add a mock SMTP.**
-2. Table test over every notification type, asserting for each:
-   - the amount appears **exactly once**, formatted as whole taka, equal to the
-     `int64` passed in — no `/100`, no `*100`, no decimal point;
-   - no other number in the body is mistakable for the amount;
-   - required member-identifying fields are present, and nothing else is (the
-     same PII discipline the Sentry scrubbers apply);
-   - both an `int64` boundary value and `0` render sensibly.
-3. Add the same census discipline the balance writers have: enumerate the
-   notification-building functions **from the source**, and fail if one has no
-   test. That is what caught LEDGER-05, and this file has the same shape — a set
-   of similar functions where the next one gets added without the test.
+1. Extract the message building from the writing. A pure
+   `func(…) (title, message string)` per notification type is what makes this
+   testable without a database. **Do not add a mock SMTP server.**
+2. Table test every notification type, asserting for each:
+   - the amount appears **exactly once**, as whole taka, equal to the `int64`
+     passed in — no `%.2f`, no `float64`, no decimal point (this is WO-58's
+     regression test);
+   - the grouping matches what the web app shows for the same figure;
+   - no other number in the body can be mistaken for the amount;
+   - `0` and an `int64` boundary value both render sensibly.
+3. For `email_service.go`, assert that a member name containing `<script>`,
+   an apostrophe, or a Bengali string survives `html.EscapeString` into the HTML
+   body **and** appears unescaped in the text body — the two are built from the
+   same inputs by different paths, and only one of them escapes.
+4. Add the census discipline the balance writers have: enumerate the message
+   builders **from the source** and fail when one has no test. That is what
+   caught LEDGER-05, and this layer has the same shape — a set of near-identical
+   functions where the next one gets added without the test.
 
-**Watch:** rule 1. If any part of the pipeline takes a `float64` or formats with
-a fraction, that is the defect, not the test.
+**Done when:** a `%.2f` reintroduced anywhere in a notification message fails the
+suite, verified by making the change and seeing it red before reverting.
 
-**Done when:** a deliberate `/100` reintroduced anywhere in the body builders
-fails the suite, verified by making the change and seeing it red before reverting.
-
-## WO-53 · Prove the cleanup loop sweeps `[ ]`
+## WO-53 · Prove the cleanup loop sweeps
 
 **Why:** RUN-06's `startCleanupLoop` in `cmd/server/main.go` sweeps expired
 tokens and rate limits every `CLEANUP_INTERVAL` (default 1 h). It has no test.
@@ -296,7 +319,7 @@ real loop must cancel it, or the package hangs.
 **Done when:** deleting the `startCleanupLoop(...)` call from `main.go` fails the
 suite.
 
-## WO-54 · Fail CI on Prisma schema drift `[ ]`
+## WO-54 · Fail CI on Prisma schema drift
 
 **Why:** CI applies `prisma/migrations/` and never compares the result to
 `schema.prisma`. The two can disagree — an edit to the schema with no generated
@@ -330,7 +353,7 @@ comment above `model AuditLog` to say so even more loudly.
 **Done when:** adding a field to `schema.prisma` without generating a migration
 fails CI, verified locally before pushing.
 
-## WO-55 · Cover the Cloudinary paths `[ ]`
+## WO-55 · Cover the Cloudinary paths
 
 **Why:** upload, transform and delete have no test on either surface, and
 **DATA-06 means the assets have no backup either**. NID front/back, passport
@@ -344,18 +367,26 @@ data story now that the database is drilled on every push.
    public-id derivation, the transformation string, and the file-type and
    size validation. A NID image that silently uploads as the wrong resource type
    is unrecoverable in the same way a wrong balance is.
-2. Test the **failure** path, which is the one that matters: a rejected upload
-   must not leave a member row referencing a URL that does not exist. Assert the
-   registration path either commits both or neither.
+2. **The compensation path is already written — cover it, do not rewrite it.**
+   This order originally called for making registration commit both the user row
+   and the uploads or neither. The audit found `registrations/route.ts` already
+   does exactly that: it records each `publicId` the moment it lands rather than
+   after all four settle, deletes them all on failure, deletes the user row, and
+   answers 503. It is the most careful error handling in the repository. What is
+   missing is a **test**, so assert it rather than redesign it: a failing upload
+   leaves no user, no document rows and no orphaned assets.
 3. Do **not** test against the real Cloudinary account from CI. Stub the HTTP
    client at the boundary.
-4. Then do DATA-06 — an export job — because a covered upload path to an
+4. [WO-63](#wo-63--cloudinary-undeletable-assets-and-swallowed-errors) fixes two
+   real defects in the same file and should land first — testing
+   `extractPublicId` is most of this order, and it is currently wrong.
+5. Then do DATA-06 — an export job — because a covered upload path to an
    unbackupable store is still one deletion away from being unrecoverable.
 
 **Done when:** the validation and failure paths are covered, and DATA-06 has a
 decision recorded even if the answer is "accept the risk until launch".
 
-## WO-56 · Loan repayment presets must be whole taka `[ ]`
+## WO-56 · Loan repayment presets must be whole taka
 
 **Why:** rule 1 — money is whole taka, no paisa. `getLoanRepaymentPresets` in
 `apps/web/lib/utils.ts` computes:
@@ -386,6 +417,391 @@ saw this. The presets write into a text input, not through the formatter.
 
 **Done when:** the new unit test fails against the current line and passes after
 the change.
+
+## WO-57 · A dispute reports failure while succeeding — **the defect to fix first**
+
+**Why:** FR-17 is effectively broken in production. A member who disputes a wrong
+posting is told the platform could not record it, while it did.
+
+**Proven 2026-08-18**, by driving the real handler against a real Postgres:
+
+```
+[dispute] Error: TypeError: Do not know how to serialize a BigInt
+PROBE STATUS: 500 BODY: {"ok":false,"error":"Failed to record the dispute"}
+PROBE DB STATUS AFTER: DISPUTED
+```
+
+The last line is the whole problem. The transaction **is** frozen, the
+`TRANSACTION_DISPUTED` audit row **is** written, and the member is shown a
+failure. They retry, and the second attempt answers `409
+DISPUTE_ALREADY_RAISED` — which reads as a second failure. From the member's
+side the platform has twice refused to hear an objection about their money.
+
+**Cause.** [`dispute/route.ts`](../apps/web/app/api/v1/member/transactions/[id]/dispute/route.ts)
+ends with:
+
+```ts
+return NextResponse.json({ ok: true, data: updated }, { status: 200 });
+```
+
+`updated` is the raw Prisma `Transaction`, whose `amount`, `savingsAfter`,
+`loanAfter` and `disputeCorrectAmount` are `BigInt`. `NextResponse.json` calls
+`JSON.stringify`, which throws on a BigInt. The throw lands in the route's own
+`catch`, `routeErrorStatus` does not recognise a `TypeError`, and it falls
+through to the generic 500.
+
+**Why no suite caught it.** `routes.contract.test.ts` drives this route with
+`id: 'no-such-txn'`, so it only ever exercises the 404. **The success path of
+this route has never been executed by a test.** That is the finding to
+generalise, not the BigInt.
+
+**Change**
+1. Serialise before returning. `lib/api-utils.ts` already has
+   `serializeTransaction` for exactly this — it is currently **unused**. Use it,
+   after fixing WO-61 (it turns a legitimate `0` into `null`).
+2. Add a regression test that drives the **success** path, seeded with an account
+   and a `PROCESSED` transaction owned by the caller. It must be seen to fail
+   against the current code first — it will, with the TypeError above.
+3. Then audit the other routes for the same shape. Only this one returns a raw
+   BigInt-bearing model today (`loans/applications` and `guarantor-approval` both
+   go through `serializeLoan`), so this is a one-line fix plus a class of test.
+4. Consider a `BigInt.prototype.toJSON` polyfill and **reject it**: a global
+   coercion makes every BigInt silently become a string in every response,
+   changing shapes nobody reviewed. Serialise explicitly at the boundary.
+
+**Also fix while here:** `correctAmount: z.number().optional()` accepts a
+negative. A member cannot owe a negative correction — add `.positive()`.
+
+**Done when:** the success path returns 200 with a JSON body, the regression test
+has been seen red first, and `pnpm test:routes` covers a successful dispute.
+
+## WO-58 · Notification amounts print paisa from a float — LEDGER-07
+
+**Why:** rule 1 — money is BigInt whole taka, no paisa, no float. **Fifteen
+member-facing notification messages break it**, in the same layer that carried
+LEDGER-03 (the `÷100` that told a member their ৳50,000 loan was "BDT 500.00").
+
+```go
+amountTaka := float64(amount)                                    // 9 sites
+fmt.Sprintf("A deposit of BDT %.2f has been confirmed ...", amountTaka)
+fmt.Sprintf("Your loan request %s for BDT %.2f has been approved.",
+            loanNumber, float64(principalAmount))
+```
+
+| File | float conversions | `BDT %.2f` messages |
+|---|---|---|
+| `transaction_repository.go` | 5 | deposit approved/submitted/confirmed, withdrawal processed, repayment approved |
+| `loan_repository.go` | 4 | loan approved, disbursed, repayment requested/recorded/completed |
+
+A member is told "BDT 5000.00" for ৳5,000 on a platform that has no paisa.
+
+**The sharpest part is that the codebase already disagrees with itself.** The
+audit-log strings a few lines away in the same functions are correct:
+
+```go
+fmt.Sprintf("Deposit %d BDT for member %s, receipt %s, balance %d -> %d", ...)
+```
+
+`%d` on the `int64`. So every posting writes one correct record and one wrong
+one, and only the wrong one is shown to the member.
+
+**Change**
+1. Delete every `amountTaka := float64(amount)`. There is no reason for a float
+   to exist anywhere in this package.
+2. Replace `BDT %.2f` with a single formatter — put it in
+   `internal/money`, next to the rest of the money arithmetic, not inline. It
+   should take `int64` and render South Asian grouping (`৳1,50,000`), matching
+   what `formatCurrency` does on the web side. Today the two surfaces disagree:
+   the web app groups `en-BD`, the notifications do not group at all.
+3. The three TypeScript notification builders have the same problem in a
+   different form — `৳${Number(amountBig).toLocaleString()}` in
+   `loans/applications/route.ts` (×2) and `guarantor-approval/route.ts` (×1).
+   `toLocaleString()` with no locale uses the *server's* default, which on Vercel
+   is `en-US`, so ৳1,50,000 prints as `1,50,000` on the dashboard and `150,000`
+   in the notification about it. Same fix, same reason.
+4. Extend `TestNoLoanEverCarriesAFee`'s neighbourhood with a census: **no
+   `float64` may appear in `transaction_repository.go` or `loan_repository.go`**,
+   enumerated from source. That is the check that stops the sixth one appearing,
+   the way the balance-writer census stopped LEDGER-05's shape recurring.
+
+**Watch:** rule 2 says balance changes stay in the Go API in one transaction —
+this touches those functions, so keep the notification write inside the same
+transaction it is already in. Do not "tidy" it out.
+
+**Done when:** no `float64` remains in either repository, every member-facing
+amount is whole taka with the same grouping as the web app, and a test enumerates
+the message builders so a new one cannot skip the formatter.
+
+## WO-59 · Three notification writes are fire-and-forget
+
+**Why:** on Vercel the function can be frozen the moment the response is
+returned. A promise that has not settled is simply not finished — no error, no
+retry, no log.
+
+```ts
+prisma.notification.create({ … }).catch((err) => console.error(…));   // not awaited
+return NextResponse.json({ ok: true, user: created }, { status: 201 });
+```
+
+| Site | What is lost |
+|---|---|
+| `registrations/route.ts:455` | **The admin is never told a registration is waiting.** The member sees "submitted" and waits for an approval nobody knows to give |
+| `guarantor-approval/route.ts:63` | The borrower is not told their guarantor accepted or declined |
+| `guarantor-approval/route.ts:83` | Admins are not told a loan is ready for approval |
+
+The two notification writes in `loans/applications/route.ts` are already
+`await`ed, which is what makes these three look like oversights rather than a
+decision.
+
+**Change:** `await` them. They are a single indexed insert against a warm pool —
+the latency argument for not awaiting does not survive measurement. If a genuine
+fire-and-forget is ever wanted, Next 16 has `after()` from `next/server`, which
+is the supported way to run work after the response and is *not* what a bare
+floating promise does.
+
+**Watch:** awaiting means a failed notification now fails the request. That is
+wrong for registration — the member's account was created and must not be
+rolled back over a notification. Await it, catch it, log it, and **still return
+201**. The point is to know it failed, not to fail because of it.
+
+**Done when:** no floating promise remains in `app/api`, and a test asserts the
+admin notification row exists after a successful registration.
+
+## WO-60 · Remove chi's `RealIP`; log and throttle on the same address
+
+**Why:** `main.go:172` mounts `middleware.RealIP`, which staticcheck flags as
+`SA1019` — deprecated precisely because it overwrites `r.RemoteAddr` with the
+**leftmost** `X-Forwarded-For` entry, a value the caller supplies.
+
+Two consequences, and the second is the one that matters:
+
+1. **The access log records an address the caller chose.** Every `http_request`
+   line carries `"ip": r.RemoteAddr`, which is now attacker-controlled. An
+   access log that cannot be trusted to say where a request came from is not
+   evidence, and this is a financial system whose logs exist to answer "who did
+   this".
+2. **With the default `TRUSTED_PROXIES=0`, the rate limiter keys on that same
+   spoofable value**, so one client mints a fresh quota per request by varying a
+   header. `clientIP()` handles this correctly *when* `TrustedProxies > 0`, and
+   `.env.render.example` sets it to 1 — but the default is 0, and the code
+   comments themselves say the fallback has "nothing better to use". It does:
+   the true TCP peer, which `RealIP` destroyed before the limiter ran.
+
+**Change**
+1. Delete `r.Use(middleware.RealIP)`. Nothing else depends on the rewrite.
+2. Export the limiter's `clientIP(r, trustedProxies)` and use it in the logging
+   middleware, so the log and the throttle agree on who the caller is.
+3. Log the raw peer as well when they differ — a mismatch is a signal.
+4. Keep `TRUSTED_PROXIES` as the single knob and state the failure mode where an
+   operator will see it: **set it to the number of proxies in front of the
+   process, and to 0 only when nothing is.**
+
+**Verify:** with the change, `curl -H 'X-Forwarded-For: 1.2.3.4'` against a local
+API must be throttled on the loopback address, not on `1.2.3.4`. Confirm by
+exceeding the limit with a varying header — before the fix it never triggers.
+
+**Done when:** `SA1019` is gone, log and limiter use one function, and the
+spoofing check above fails to bypass the limit.
+
+## WO-61 · `serializeLoan` and `serializeTransaction` turn zero into null
+
+**Why:** both use a truthiness guard on a `BigInt`:
+
+```ts
+amount: tx.amount ? Number(tx.amount) : null,
+```
+
+`BigInt(0)` is falsy. So every legitimate zero becomes `null`:
+
+- a fully repaid loan reports `remainingAmount: null` rather than `0`
+- a new loan reports `totalPaid: null` and `applicationFee: null`
+- a transaction that took a balance to exactly zero reports `savingsAfter: null`
+  — the passbook snapshot for "you withdrew your last taka" comes back blank
+
+The last one is the one to care about: `savingsAfter`/`loanAfter` exist so the
+printed passbook can show a running balance, and a blank is not a balance.
+
+**Change**
+1. Guard on `!= null`, not truthiness, in all twelve fields.
+2. Type them. Both functions take `any` and spread it, which is how a BigInt got
+   past the compiler in the first place — see WO-57.
+3. `serializeTransaction` is currently **called from nowhere**. Do not delete it:
+   WO-57 needs it. But note it in the review — a serialiser that exists and is
+   unused while a route hand-rolls its own response is exactly the shape that
+   produced WO-57.
+
+**Done when:** a unit test covers zero for every field of both serialisers.
+
+## WO-62 · Email sending can outlive the shutdown drain
+
+**Why:** `sendWithRetry` retries 3 times with a 1.5 s backoff, against a client
+whose timeout is 12 s. **Worst case 3 × 12 + 2 × 1.5 = 39 seconds**, synchronous,
+inside the HTTP handler that approves a member.
+
+Three problems follow from that:
+
+1. **`SERVER_SHUTDOWN_TIMEOUT` is 30 s.** A deploy landing during a slow Brevo
+   call is a `SIGKILL` mid-request — the exact failure RUN-02 exists to prevent,
+   reintroduced by a dependency's latency.
+2. **No context.** `http.NewRequest`, not `NewRequestWithContext`, so neither a
+   client disconnect nor shutdown cancels the call. The `time.Sleep` between
+   attempts is likewise uninterruptible.
+3. An admin approving a member watches a spinner for up to 39 seconds.
+
+**Change**
+1. Thread `ctx` through: `NewRequestWithContext`, and replace `time.Sleep` with a
+   `select` on `ctx.Done()` and a timer.
+2. Bound the whole retry sequence with `context.WithTimeout` well under the
+   shutdown budget — 10 s total is generous for a transactional email.
+3. Decide, and write down, whether approval should block on delivery at all. The
+   handler already reports `emailDelivered` and `deliveryError` separately and
+   returns the temporary password in the response, so the admin can read it out
+   when delivery fails. That design says delivery is **not** required for the
+   approval to be correct — which argues for sending it after the response, with
+   the outcome recorded rather than awaited.
+
+**Watch:** whatever is decided, `ApproveRegistration` has already committed
+before the send. Never roll a member's approval back because an email failed.
+
+**Done when:** no email path can exceed 10 s, cancellation propagates, and a test
+covers a Brevo timeout without waiting 39 real seconds.
+
+## WO-63 · Cloudinary: undeletable assets and swallowed errors
+
+**Why:** two defects in `lib/cloudinary.ts`, and they compound DATA-06 — these
+are NID scans and member photos in one account with no backup.
+
+**1. `extractPublicId` cannot parse a URL with a transformation in it.** It
+strips a leading `v123/` but not a transformation segment, so:
+
+```
+/upload/w_400,h_400/v1712/hasnahena/profiles/member/abc.jpg
+        └──────────┴── left in the "public id"
+```
+
+returns `w_400,h_400/v1712/hasnahena/profiles/member/abc`. `deleteImage` then
+gets a public id that does not exist, returns `result !== 'ok'`, and
+`deleteOldAvatar` returns `false` — **silently**, because every caller ignores
+the boolean. Avatars are uploaded with a `width/height/crop/gravity`
+transformation, so this is the normal path, not an edge case. Old avatars
+accumulate forever in a store that has a quota and no export.
+
+**2. `uploadImage` destroys the error it caught.**
+
+```ts
+} catch (error) {
+  console.error('Cloudinary upload error:', error);
+  throw new Error('Failed to upload image to Cloudinary');
+}
+```
+
+A missing `CLOUDINARY_API_SECRET`, an exceeded quota, and a rejected file type
+are three very different operational problems that all surface as one sentence.
+`ensureCloudinaryConfigured()` throws a precise message and this catch overwrites
+it — so a misconfiguration reads as a runtime failure.
+
+**Change**
+1. Parse the public id properly: split the path after `/upload/`, drop a leading
+   version segment **and** any leading transformation segment (one that contains
+   `,` or matches `^[a-z]_`), then strip the extension. Table-test it against
+   real URL shapes: plain, versioned, transformed, versioned+transformed, nested
+   folder, and a non-Cloudinary URL.
+2. Preserve the cause: `throw new Error('…', { cause: error })`, and let
+   `ensureCloudinaryConfigured`'s error through unchanged.
+3. Make `deleteOldAvatar`'s `false` mean something — log it with the URL, or
+   return the reason. A cleanup that fails silently is a leak with no evidence.
+
+**Done when:** the parser is table-tested, a failed delete is visible in the log,
+and a configuration error says it is a configuration error.
+
+## WO-64 · Harden the support proxy
+
+**Why:** `app/api/v1/dashboard/support/[...path]/route.ts` joins the catch-all
+segments straight into the upstream URL:
+
+```ts
+return `${getApiBase()}/v1/dashboard/support/${parts}${query}`;
+```
+
+Next decodes those segments, so `%2e%2e%2f` arrives as `../` and `fetch`
+normalises it away — a caller can reach **any** path on the API base through this
+proxy, not just `/support/*`.
+
+**This is not a privilege escalation**, and it is worth saying so plainly: the Go
+API authorises every route itself and the `/admin` group is gated at the router,
+so a member's token is refused there whichever door it arrives at. It is an
+unnecessary open door, not an open safe.
+
+Two real consequences remain:
+
+1. **All support traffic shares one rate-limit bucket** — the Go limiter sees
+   Vercel's address, not the member's. One member can exhaust support for
+   everyone, and their abuse is not attributable.
+2. **The SSE proxy leaks upstream streams.** `fetch` is called without
+   `signal: req.signal`, so when a member closes their browser the Go stream
+   stays open. RUN-02 ends SSE streams first at shutdown specifically to protect
+   the drain window; abandoned streams eat it.
+
+**Change**
+1. Allow-list the segments this proxy forwards — it serves a known handful
+   (`threads`, `messages`, `stream`, `stream/ticket`). Reject anything else with
+   404 rather than normalising it.
+2. Pass `signal: req.signal` to `fetch`, for the stream case especially.
+3. Forward the member's address as an `X-Forwarded-For` entry so the Go limiter
+   can key on the member rather than on Vercel — this interacts with
+   [WO-60](#wo-60--remove-chis-realip-log-and-throttle-on-the-same-address),
+   so do that one first and set `TRUSTED_PROXIES` to match.
+
+**Done when:** a traversal attempt 404s, closing a stream closes the upstream
+one, and the two orders agree on how many proxies are in front.
+
+## WO-65 · Modulo bias in generated passwords and codes
+
+**Why:** three generators map random bytes onto an alphabet with `%`, which does
+not divide 256 evenly:
+
+| Where | Alphabet | Bias |
+|---|---|---|
+| `dashboard_handler.go` `generateTempPassword` | 62 chars | `256 % 62 = 8` — the first 8 characters are ~1.6% more likely |
+| `dashboard_handler.go` numeric code | 10 digits | `256 % 10 = 6` — digits 0–5 are 25% more likely than 6–9 |
+| `lib/api-utils.ts` `generateTemporaryPassword` | 62 chars | same as the first |
+
+The numeric one is the least academic: it is the **password-change verification
+code**, and the skew is large enough to matter to anyone guessing it.
+
+**Change:** rejection sampling, or `crypto/rand.Int(rand.Reader, big.NewInt(n))`
+in Go and `crypto.randomInt(n)` in Node — both are already available and neither
+needs a dependency. Then a statistical test: generate 100k characters and assert
+each symbol's frequency is within a tolerance of uniform. That test fails against
+the current code, which is the point.
+
+**Watch:** these are all `crypto/rand`-seeded already, so this is a bias fix, not
+a predictability fix. Do not describe it as the latter.
+
+## WO-66 · Run the race detector in CI
+
+**Why:** this is a system whose defining defect class is concurrent money
+movement — LEDGER-01 and LEDGER-05 were both lost updates. The suite has
+concurrency tests, and **nothing runs them under `-race`.**
+
+**Measured 2026-08-18:** the full integration suite under `-race` reports **zero
+data races**, in 19 s for `cmd/server` and 19 s for `repositories`. So this is
+not a cleanup task — it is locking in a property that currently holds, for about
+40 seconds of CI time.
+
+**Change:** add `-race` to the integration job in `.github/workflows/ci.yml`:
+
+```yaml
+run: go test ./... -tags=integration -count=1 -p 1 -race
+```
+
+Leave the fast `go test ./...` unit job without it so `pnpm test:go` stays quick.
+
+**Watch:** `-race` needs cgo, which is available on the runner but **not** in the
+`CGO_ENABLED=0` build used for the image. This is a test-only flag; do not let it
+near the Dockerfile.
+
+**Done when:** CI runs the integration suite under `-race` and is green.
 
 ---
 

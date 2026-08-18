@@ -18,25 +18,38 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
 ## Read this first
 
-> **One open defect, and it is operational, not product.** Member records are
-> recoverable from git history. It is stated once, in full, where operational
-> state lives: [SEC-10](production-readiness.md) · [WO-28](work-orders.md).
+> **Three things are wrong right now, and they are different in kind.**
+>
+> 1. **A member's dispute reports failure while succeeding** — FR-17, proven
+>    against a real database on 2026-08-18. The transaction freezes, the audit
+>    row is written, and the member is told it failed.
+>    [WO-57](work-orders.md).
+> 2. **Member records are recoverable from git history** —
+>    [SEC-10](production-readiness.md) · [WO-28](work-orders.md). A disclosure
+>    that has already occurred, not a risk.
+> 3. **The monitoring is built and switched off** — Sentry, `/metrics` and
+>    UptimeRobot all exist in code and none is receiving anything.
+>    [production-readiness.md](production-readiness.md#the-monitoring-is-built-and-switched-off).
 >
 > **The boundaries are under contract.** All 64 Go routes, all 21 Next route
 > methods, every balance-writing repository method, both document renderers and
 > every FR row on this page are covered by suites that fail the build when the
-> code grows something they do not know about. Phases 0–8 of
-> [testing.md](testing.md) are done and found **eighteen** defects, three of
-> which moved or misreported money.
+> code grows something they do not know about.
 >
-> **This page cannot quietly fall behind the code.** A requirement marked `[~]`
-> here must *still* be unimplemented in the source, or
+> **And that was not enough.** A code audit on 2026-08-18 read the source rather
+> than the coverage and found **ten more defects**, including the FR-17 break
+> above. The lesson is the one already on this page in another form: the contract
+> suites prove *who may call a route*, and almost nothing about what it returns
+> when the caller is allowed. WO-57's route had a test that only ever drove its
+> 404.
+>
+> **This page cannot quietly fall behind the code.** A requirement not marked
+> `[x]` must *still* be unimplemented in the source, or
 > `apps/web/test/unit/requirements.test.ts` fails and names the file that
-> implements it. It caught three rows here that were already wrong.
+> implements it.
 >
 > **Going to production?** Read [go-live.md](go-live.md) first. It orders the
-> remaining work by *what gets more expensive once real member data exists*,
-> which is a different order from this page.
+> remaining work by *what gets more expensive once real member data exists*.
 >
 > **Run `pnpm db:migrate` before deploying** — schema changes ship as migrations,
 > not `db push` ([ADR-014](decisions.md)).
@@ -63,14 +76,14 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-14 | Default settlement waterfall | `[x]` | ordering and proportionality correct with or without a guarantor; status change, all three recovery legs and the audit row commit in one transaction |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split |
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, and `HN-ACC-DONATION` now exists as a real pool account; no per-fund accounting |
-| FR-17 | Member raises dispute | `[x]` | `/api/v1/member/transactions/{id}/dispute` |
+| FR-17 | Member raises dispute | `[!]` | **Broken now.** The dispute is recorded, the transaction freezes and the audit row is written — then the route answers 500 and the member is told it failed. [WO-57](work-orders.md) |
 | FR-18 | Freeze disputed txn, notify admin | `[~]` | status freezes; admin correction flow is manual |
 | FR-19 | Append-only audit log | `[x]` | written by both backends and **enforced by a database trigger** — UPDATE is rejected outright (DATA-08) |
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
-**14 complete, 8 partial.**
+**13 complete, 8 partial, 1 broken.**
 
 ---
 
@@ -86,6 +99,12 @@ Verified against the source on 2026-08-18.
 | `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full-suite browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
 | `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
 | `[ ]` | **Loan repayment presets show paisa** | `getLoanRepaymentPresets` in `lib/utils.ts` computes `Math.round((installment / 4) * 100) / 100`, so the "weekly" quick-fill offers e.g. `1141.75` on all three money screens. All three round before submitting, so nothing wrong is posted — the member is shown a figure that is not the one that gets recorded, and a fractional taka violates rule 1 ([WO-56](work-orders.md)) |
+| `[!]` | **A dispute reports failure while succeeding** (FR-17) | `NextResponse.json` cannot serialise the raw Prisma row's `BigInt` fields, so a successful dispute throws into the route's own catch and answers 500. **Proven**: DB status `DISPUTED`, response `500`. The member retries and gets `409 DISPUTE_ALREADY_RAISED` — two apparent refusals for an objection that was recorded both times ([WO-57](work-orders.md)) |
+| `[!]` | **Notification amounts print paisa from a float** (LEDGER-07) | 15 member-facing messages render `BDT %.2f` from `float64(amount)` across `transaction_repository.go` and `loan_repository.go`. Rule 1 says whole taka, no float — and the audit-log line written by the *same function* correctly uses `%d BDT`, so every posting writes one right record and one wrong one ([WO-58](work-orders.md)) |
+| `[ ]` | **Three notification writes are fire-and-forget** | `registrations:455`, `guarantor-approval:63` and `:83` create a notification without `await`. On Vercel the function can be frozen at the response, so **an admin may never be told a registration is waiting** ([WO-59](work-orders.md)) |
+| `[ ]` | **Old avatars can never be deleted** | `extractPublicId` does not strip a transformation segment, so the id it derives does not exist and `deleteOldAvatar` fails silently — in an asset store that has a quota and no backup (DATA-06). ([WO-63](work-orders.md)) |
+| `[ ]` | **Serialisers turn a legitimate zero into null** | `x ? Number(x) : null` on a `BigInt`, so a fully repaid loan reports `remainingAmount: null` and a transaction that took a balance to exactly zero reports a blank `savingsAfter` — the passbook snapshot for "you withdrew your last taka" ([WO-61](work-orders.md)) |
+| `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text. A Bengali-speaking member gets English notifications about their own money, against rule 5. Fold into [WO-58](work-orders.md) |
 
 ### The late-fee question — flagged, not decided
 
@@ -142,41 +161,86 @@ Recorded rather than fixed, because each is a decision rather than a defect.
 
 ---
 
-## Suggested order
+## The order to work in
 
-The go-live sequence is in [go-live.md](go-live.md) and takes precedence — it
-orders by what gets more expensive once real member data exists. This is the
-product-work order within that.
+**This is the list to walk down one item at a time.** It is ordered by a single
+question: *what is hurting a member, or will cost most to fix later?* Not by
+size, and not by how interesting the work is.
 
-1. **[WO-28](work-orders.md) — purge git history.** Not product work, but every
-   commit below lands on top of it and it is the only open disclosure.
-2. **Turn the monitoring on.** Sentry, `/metrics` and UptimeRobot are all built
-   and none is switched on in any running environment — see
-   [production-readiness.md](production-readiness.md#the-monitoring-is-built-and-switched-off).
-   This is an afternoon of dashboard work, not engineering, and until it is done
-   every other item on this list is being worked on blind.
-3. **Collapse the legacy loan statuses** — an enum value cannot be dropped once
-   rows reference it, so this is cheap exactly once.
-4. **Donation fund types** (FR-15/16) — schema plus admin UI, cheap only while
-   the donation table is empty. Zakat funds especially cannot be reconstructed
-   after the fact.
-5. **Withdrawal notice period** (FR-08) — the policy is in
-   [product.md](product.md); nothing enforces it, and it is a schema change.
-6. **[WO-54](work-orders.md) migration drift, then [WO-51](work-orders.md)
-   message parity** — both are small, both are enumerating checks that stop a
-   whole class of drift, and both get more valuable the more schema and copy
-   changes land.
-7. **Fix FR-12's worker path** so a worker-created loan follows the same
-   lifecycle a member-created one does.
-8. **OPS-07 reconciliation job** — sum of transactions vs account balances. Had
-   this existed, LEDGER-01 would have been a nightly alert instead of an audit
-   finding. The regression tests guard the two known shapes; this guards the ones
-   nobody has thought of. Treat it as the ledger's smoke alarm.
-9. **Fairness and solvency caps** (FR-10), then the late-fee decision (FR-13).
-10. **[WO-52](work-orders.md) notification content, [WO-53](work-orders.md)
-    cleanup loop, [WO-55](work-orders.md) Cloudinary** — the remaining coverage
-    gaps, in that order of value.
-11. **Admin audit viewer UI** and worker SLA colouring (FR-21/22).
+Each row is self-contained — prompt with the order id (`do WO-57`) and the spec
+in [work-orders.md](work-orders.md) has the files, the change and the
+verification, so no re-exploration is needed.
+
+### Now — a member is affected today
+
+| # | Do this | Why it is first | Size |
+|---|---|---|---|
+| 1 | **[WO-57](work-orders.md)** — dispute reports failure while succeeding | The only broken FR. A member objects to a wrong amount and is told twice that the platform would not record it. Proven, one-line cause, one-hour fix | 1 h |
+| 2 | **[WO-58](work-orders.md)** — notification amounts print paisa from a float | 15 member-facing messages, rule 1, in the exact layer LEDGER-03 lived in. The same function writes a *correct* audit line beside each wrong notification | ½ day |
+| 3 | **[WO-59](work-orders.md)** — three notification writes are fire-and-forget | An admin may never learn a registration is waiting, so a member waits for an approval nobody knows to give | 1 h |
+
+### Next — the open disclosure and the blind spots
+
+| # | Do this | Why here | Size |
+|---|---|---|---|
+| 4 | **[WO-28](work-orders.md)** — purge member records from git history | SEC-10. A disclosure already in progress, and every commit below lands on top of the rewrite | ½ day + GitHub Support |
+| 5 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Not engineering: four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind, and the Monitor workflow fails twice a day | 1 h, yours |
+| 6 | **[WO-66](work-orders.md)** — run the race detector in CI | Measured at zero races today, so this locks in a property that already holds for ~40 s of CI. Cheapest guard available for a system whose defining defect class is the lost update | 20 min |
+| 7 | **[WO-40](work-orders.md)** — enable `errcheck` and `staticcheck` | 19 findings, and two of them are **`InvalidateAllUserTokens` unchecked** — a password change that revokes nothing and reports success. Six more are unchecked audit writes (rule 6) | ½ day |
+
+### Then — correctness and hardening
+
+| # | Do this | Why | Size |
+|---|---|---|---|
+| 8 | **[WO-60](work-orders.md)** — remove chi's `RealIP` | The access log currently records an address the caller chose, and with the default `TRUSTED_PROXIES=0` so does the rate limiter | 2 h |
+| 9 | **[WO-61](work-orders.md)** — serialisers turn zero into null | Small, and [WO-57](work-orders.md) depends on it being right | 1 h |
+| 10 | **[WO-62](work-orders.md)** — email can outlive the shutdown drain | Worst case 39 s inside a handler against a 30 s drain: a deploy mid-approval is a `SIGKILL` mid-request | ½ day |
+| 11 | **[WO-63](work-orders.md)** — Cloudinary: undeletable assets, swallowed errors | Compounds DATA-06 — orphans accumulating in the one store with no backup | ½ day |
+| 12 | **[WO-64](work-orders.md)** — harden the support proxy | No escalation (the Go API re-authorises), but it leaks upstream SSE streams and puts all support traffic in one rate-limit bucket | 2 h |
+| 13 | **[WO-65](work-orders.md)** — modulo bias in generated secrets | The password-change verification code makes digits 0–5 25% more likely than 6–9 | 2 h |
+| 14 | **[WO-56](work-orders.md)** — loan repayment presets must be whole taka | One line plus a test | 20 min |
+
+### Then — the schema, while it is still cheap
+
+Everything here is a migration today and a migration **plus a backfill plus a
+plan for rows written in between** after go-live. [go-live.md](go-live.md) 1.2 is
+the authority on this block.
+
+| # | Do this | Why now |
+|---|---|---|
+| 15 | **Collapse the legacy `LoanStatus` values** | Postgres will not drop an enum label that any row still references |
+| 16 | **Donation fund types** (FR-15/16) | Zakat funds cannot be reconstructed after the fact. Cheap only while the donation table is empty |
+| 17 | **Withdrawal notice period** (FR-08) | A policy field on withdrawals. Add it before there are withdrawals that predate it and are exempt for no recorded reason |
+| 18 | **Decide DATA-07** (retention and erasure) | It decides whether you need a `deletedAt` or an anonymisation path — a schema question. Deciding late means discovering you needed a column |
+
+### Then — close the coverage gaps
+
+| # | Do this | Why in this order |
+|---|---|---|
+| 19 | **[WO-54](work-orders.md)** — fail CI on Prisma schema drift | One hour, and it guards the four schema changes above |
+| 20 | **[WO-51](work-orders.md)** — pin EN/BN message parity | 300 keys each and identical today; pinning is free now and expensive after they drift |
+| 21 | **[WO-52](work-orders.md)** — test what a notification says | The census that stops WO-58's defect coming back in the next message |
+| 22 | **[WO-53](work-orders.md)** — prove the cleanup loop sweeps | A sweep that stops sweeping is completely silent |
+| 23 | **[WO-55](work-orders.md)** — cover the Cloudinary paths | After WO-63, which fixes what this would be testing |
+
+### Then — the rest of the product
+
+| # | Do this |
+|---|---|
+| 24 | **OPS-07 reconciliation job** — sum of transactions vs account balances, alerting on drift. Had it existed, LEDGER-01 would have been a nightly alert rather than an audit finding. The ledger's smoke alarm |
+| 25 | **Fix FR-12's worker path** so a worker-created loan follows the same lifecycle a member-created one does |
+| 26 | **Fairness and solvency caps** (FR-10) |
+| 27 | **Answer the late-fee question** (FR-13) — see above. Needs foundation policy, not code |
+| 28 | **A client-side role guard** on the dashboards, and **an SSE client** for support (the UI polls; one browser run made 288 notification requests) |
+| 29 | **Admin audit viewer UI** (OBS-08, FR-22) and worker SLA colouring (FR-21) |
+| 30 | **DATA-06** — back up the Cloudinary assets. The largest remaining data gap, and it can only be done once there is something to back up |
+
+### Deliberately not in this list
+
+- **[WO-27](work-orders.md)** — React Compiler lint cleanup. The compiler is off,
+  so the 20 findings describe a hypothetical. It needs these screens moved onto a
+  data-fetching library, which is a project, not a cleanup.
+- **Host move** (INF-01 → INF-12). Only once everything above is quiet.
 
 ---
 

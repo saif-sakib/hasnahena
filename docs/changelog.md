@@ -17,7 +17,7 @@ SEC/RUN/CI/DATA/OBS/PKG id; and the testing phases in
 ## Work orders — WO-01 → WO-50
 
 Full narratives were compressed once each order was verified. The durable parts
-are in [Traps](#traps-that-cost-a-session); decisions in
+are in [Traps](work-orders.md#traps-that-cost-a-session); decisions in
 [decisions.md](decisions.md); *why* each existed in
 [production-readiness.md](production-readiness.md) under its SEC/RUN/CI/DATA/
 OBS/PKG id.
@@ -29,7 +29,7 @@ OBS/PKG id.
 | **C** Tests + CI | WO-10 → 13 | CI-01/02/03/05/07/08. `internal/money` extracted and table-tested, 17 integration tests on real Postgres, GitHub Actions, gitleaks, Dependabot. **Found: no money method wrote an `audit_logs` row, and the donation-pool waterfall leg was broken two ways** |
 | **D** Data safety | WO-14 → 16 | DATA-01→05. Encrypted nightly `pg_dump`, a restore *script* rather than a procedure, drilled on every push. `db push` retired (ADR-014), `pnpm db:seed` |
 | **E** Observability | WO-17 → 19 | OBS-01→04, OBS-06, RUN-08. Token-gated `/metrics` with business gauges, Sentry both apps, alerting split across UptimeRobot/Sentry/Actions on cost grounds |
-| **F** Containers | WO-20 → 22 | PKG-01→05, 07. API image 26.9 MB, web 488 MB. Verified by **running** them — three defects survived static review, all in [Traps](#traps-that-cost-a-session) |
+| **F** Containers | WO-20 → 22 | PKG-01→05, 07. API image 26.9 MB, web 488 MB. Verified by **running** them — three defects survived static review, all in [Traps](work-orders.md#traps-that-cost-a-session) |
 | **G** Stack | WO-23 → 26 | Next 14 → 16.3.1, React 18 → 19.2.8, next-intl 3 → 4.13.6, ESLint 8 → 9, Tailwind 3 → 4.3.3, `middleware.ts` → `proxy.ts`. **`pnpm audit` 41 → 0.** WO-25 had to run before WO-24 — next-intl 3's peers end at Next ^15, so the documented order was backwards. Merged to `main` |
 | **H** Live defects | WO-29 | Guarantor approval validated loan ids against a **UUID regex while every id is `cuid()`**, so FR-11 had never worked for any loan. WO-27 and WO-28 from this batch are still open, above |
 | **I** Security | WO-30 → 33 | Registration-enumeration oracle rate-limited (20/10 min per address), `ENABLE_HSTS`, global rate limiting at the router, `audit_logs` made append-only by a database trigger |
@@ -64,7 +64,7 @@ Full findings, with the reasoning, are in [testing.md](testing.md).
 | **6** Interface | TEST-26 → 30 | The member dashboard rendered a **fabricated "BDT 0"** while loading, and kept it forever if the fetch failed — a member could be shown a zero balance that was not theirs. Twenty-plus icon-only controls across the dashboards had no accessible name; eight settings labels were not associated with their inputs; five aria-labels were hardcoded English. A dead identical ternary collapsed. All 75 layout cells (phone/desktop × en/bn) already passed |
 | **7** Non-functional | TEST-31 → 35 | 240 sustained postings reconcile exactly against the ledger, with no receipt collisions and one audit row each. Every list read is flat in query count. Every failure path leaves nothing behind — including receipt numbers, which a rolled-back posting gives back. **The e2e suite was silently rate-limited**: 60 requests/minute per address, 91 rejections in one run, which read as flaky ordering |
 | **8** Documentation | TEST-36 → 38 | This file. `work-orders.md` 1,023 → open orders plus traps; the duplicated banners in `production-readiness.md` and `tasks.md` cross-linked instead of repeated; `testing.md` became the permanent guide and the four enumerating suites are listed in CLAUDE.md |
-| **9** Coverage gaps | TEST-39 → 43 | Opened 2026-08-18, not closed. Five surfaces no assertion reaches: EN/BN message parity (300 keys each, identical, pinned by nothing), `email_service.go` (488 lines, zero tests, and LEDGER-03 was a wrong amount *in a notification*), the hourly cleanup loop, Prisma schema drift, and the Cloudinary paths. Specs are [WO-51 → WO-55](work-orders.md) |
+| **9** Coverage gaps | TEST-39 → 43 | Opened 2026-08-18, not closed. Five surfaces no assertion reaches: EN/BN message parity (300 keys each, identical, pinned by nothing), the notification message builders (which the audit then found were **already wrong** — LEDGER-07), the hourly cleanup loop, Prisma schema drift, and the Cloudinary paths. Specs are [WO-51 → WO-55](work-orders.md). Two of those specs had to be corrected the same day: the money is in the `notifications` table, not in `email_service.go`, and registration's upload compensation was already written |
 
 ---
 
@@ -72,5 +72,6 @@ Full findings, with the reasoning, are in [testing.md](testing.md).
 
 | Date | What |
 |---|---|
+| 2026-08-18 | **Code audit — ten defects, in a codebase whose eight testing phases were green.** Read the Go API, the Next routes and the shared libraries looking for defects rather than gaps. Worst: **`POST /member/transactions/[id]/dispute` answers 500 on success** — it serialises a raw Prisma row whose fields are `BigInt` — so a member's dispute is recorded and the member is told it failed (FR-17, proven against a real database). Also **LEDGER-07**: 15 member-facing notifications print `BDT %.2f` from a `float64`, in the same functions whose audit lines correctly use `%d`. Plus three dropped notification writes, chi's spoofable `RealIP` in the access log, serialisers that turn a legitimate zero into null, an email path that can outlive the shutdown drain, undeletable Cloudinary avatars, an over-permissive support proxy and modulo bias in generated codes. Opened WO-57 → WO-66; **corrected two of the previous day's work orders whose premises the audit disproved**. Measured on the way: zero data races under `-race`, `go vet` clean, production build clean |
 | 2026-08-18 | **Status reconciled against the source.** `tasks.md` still listed SEC-11 as a live defect three weeks after it was closed, still cited WO-29 as the fix for an uncovered guarantor flow that WO-29 had already closed, and carried a duplicate of the changelog. `production-readiness.md` carried four completed phase tables in full. Both were cut to open work only. Found on the way: **the monitoring is built and switched off** — Sentry, `/metrics` and UptimeRobot all exist in code and none is receiving anything, which is how a Sentry onboarding email ended up being the trigger for this pass. Also opened Phase 9 (five uncovered surfaces) and WO-51 → WO-56, and **proved the full browser suite in one pass** — 142 passed, 1 skipped, 10.2 minutes |
 | 2026-08-17 | **TEST-36 → 38.** `work-orders.md` 1,023 lines → open orders plus traps; completed batches compressed into this file; `testing.md` became the permanent guide; the four enumerating suites listed in `CLAUDE.md` |

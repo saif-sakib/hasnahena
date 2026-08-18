@@ -14,7 +14,12 @@ contained is in [changelog.md](changelog.md).
 
 `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **defect in production now**
 
-> **Two things are wrong right now, and they are different in kind.**
+> **Three things are wrong right now, and they are different in kind.**
+>
+> **A member's dispute reports failure while succeeding** — FR-17, found and
+> proven by the 2026-08-18 code audit. Product defect, so it lives in
+> [tasks.md](tasks.md); named here because it is the most urgent thing in the
+> repository and this page is read first by anyone asking "what is broken".
 >
 > **SEC-10** — 39 files of member records are recoverable from git history. A
 > disclosure that has already occurred and continues for as long as the objects
@@ -36,13 +41,13 @@ contained is in [changelog.md](changelog.md).
 | **Ledger integrity** | `[x]` | LEDGER-01→06 all fixed. Balance writes are relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. Regression tests for every one, each verified to fail against the pre-fix code |
 | **Git history** | `[!]` | **39 files of member records are recoverable from history** — see [SEC-10](#sec-10--member-records-are-recoverable-from-git-history---highest) |
 | **Monitoring** | `[!]` | Built, correct, and **switched off in every environment** — see below |
-| Product features | `[~]` | 14 of 22 FRs complete, 8 partial — see [tasks.md](tasks.md) |
+| Product features | `[!]` | 13 of 22 FRs complete, 8 partial, **1 broken** (FR-17) — see [tasks.md](tasks.md) |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is race-proof under concurrent postings |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | Both backends check `token_blacklist` on every authenticated request (SEC-01, SEC-11) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only ([ADR-012](decisions.md), [ADR-013](decisions.md)). Column widths are measured against their content rather than eyeballed |
-| Automated tests | `[x]` | **All eight phases done; the boundary gap is closed.** See [testing.md](testing.md) for the numbers, and [tasks.md](tasks.md#coverage-gaps-under-watch) for what they still do not cover |
+| Automated tests | `[~]` | All eight phases done and the boundary gap closed — then a code audit found **ten more defects the suites do not reach**. They prove *who may call a route* and very little about what it returns to a caller who is allowed: WO-57's route had a test that only ever drove its 404. See [testing.md](testing.md) and [tasks.md](tasks.md#coverage-gaps-under-watch) |
 | CI/CD | `[x]` | Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration + route tests, browser suite, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases, images built and pushed to GHCR by CI. **Nothing in production consumes them yet** — they exist so the history is there for INF-06 |
 | Observability | `[~]` | The code is complete and none of it is enabled. See below |
@@ -186,6 +191,54 @@ whole route, which would break the public site.
 Low, and it is genuinely low: the policy is published to members anyway. It is on
 this page so that the *narrowing* is not mistaken for the *split*.
 
+### SEC-14 · The access log records an address the caller chose `[!]` — **medium**
+
+`main.go:172` mounts chi's `middleware.RealIP`, which staticcheck flags as
+`SA1019`. It is deprecated for exactly this reason: it overwrites
+`r.RemoteAddr` with the **leftmost** `X-Forwarded-For` entry, which the caller
+supplies.
+
+The access log then records that value as `"ip"`. **An access log that cannot be
+trusted to say where a request came from is not evidence**, and in a financial
+system the log exists to answer "who did this".
+
+The rate limiter is a second victim but a partial one: `clientIP()` reads
+`X-Forwarded-For` from the **right** and is correct whenever `TRUSTED_PROXIES >
+0` — `.env.render.example` sets it to 1 and explains why. The default is **0**,
+and in that configuration the limiter falls back to the `RemoteAddr` that
+`RealIP` already rewrote, so a caller mints a fresh quota per request by varying
+a header.
+
+**Fix:** [WO-60](work-orders.md) — delete `RealIP`, and have the logger and the
+limiter share one `clientIP` function so they cannot disagree about who the
+caller is.
+
+### SEC-15 · The support proxy forwards any path it is given `[~]` — **low**
+
+`app/api/v1/dashboard/support/[...path]/route.ts` joins the catch-all segments
+into the upstream URL without validation. Next decodes them, so `%2e%2e%2f`
+arrives as `../` and `fetch` normalises it — a caller can reach any path on the
+API base through this proxy.
+
+**This is not a privilege escalation, and saying so matters**: the Go API
+authorises every route itself and the `/admin` group is gated at the router, so
+the token is refused wherever it arrives. What remains is that all support
+traffic reaches the Go limiter from **Vercel's** address rather than the
+member's, so one member can exhaust support for everyone and their abuse is not
+attributable. Plus the SSE proxy does not forward the abort signal, so an
+abandoned browser leaks an upstream stream — which eats the RUN-02 drain window.
+
+**Fix:** [WO-64](work-orders.md).
+
+### SEC-16 · Modulo bias in generated passwords and codes `[~]` — **low**
+
+Three generators map random bytes onto an alphabet with `%`, which does not
+divide 256 evenly. The one that matters is the **password-change verification
+code**: `digits[buf[i] % 10]` makes digits 0–5 25% more likely than 6–9.
+
+All three are `crypto/rand`-seeded, so this is a bias, **not** a predictability
+problem — do not describe it as the latter. **Fix:** [WO-65](work-orders.md).
+
 ### Closed security items
 
 Kept as a record. The reasoning that outlived each one is in
@@ -237,7 +290,9 @@ changelog, because they are the shape of the next defect:
 
 | ID | Task | Notes |
 |---|---|---|
+| RUN-11 `[ ]` | Bound the email path and give it a context | `sendWithRetry` is 3 attempts × a 12 s timeout with 1.5 s backoff — **39 s worst case, synchronous, inside the approval handler**, against a 30 s `SERVER_SHUTDOWN_TIMEOUT`. A deploy during a slow Brevo call is a `SIGKILL` mid-request, which is the failure RUN-02 exists to prevent, reintroduced by a dependency's latency. No context propagation and an uninterruptible `time.Sleep`. [WO-62](work-orders.md) |
 | CI-09 `[ ]` | Branch protection on `main` | No direct pushes, CI green to merge. **Needs a paid plan on a private repo** — `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |
+| CI-10 `[ ]` | Run the integration suite under `-race` | **Measured 2026-08-18: zero data races** across the full suite, in ~40 s. So this locks in a property that already holds rather than fixing anything — and it is the cheapest available guard for a system whose defining defect class is the lost update (LEDGER-01, LEDGER-05). [WO-66](work-orders.md) |
 | OBS-05 `[ ]` | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
 | OBS-07 `[ ]` | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
 | OBS-08 `[ ]` | Audit log viewer UI | FR-22 gap. The data is complete and `admin/audit-logs` already exists and is uncalled; nobody can read it without SQL |
@@ -317,11 +372,12 @@ is the record.
 
 | # | Block | Tasks | Order |
 |---|---|---|---|
+| 0 | **Fix what is hurting a member** | FR-17, LEDGER-07, the dropped notifications | [WO-57 → WO-59](work-orders.md). Not on this page's usual axis — these are wrong *now*, which beats everything that is merely expensive later |
 | 1 | **Purge git history** | SEC-10, SEC-06 | [WO-28](work-orders.md) — ½ day plus GitHub Support |
 | 2 | **Switch the monitoring on** | OBS-03, OBS-04 | Above. Dashboard work, not engineering, and everything below is being done blind until it is done |
 | 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, FR-08, DATA-07 | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch |
 | 4 | **Close the coverage gaps** | [WO-51 → WO-55](work-orders.md) | [tasks.md](tasks.md#coverage-gaps-under-watch) — what the eight testing phases do not reach |
-| 5 | **Finish the linters** | 18 `errcheck`/`staticcheck` findings, 6 of them unchecked audit writes | [WO-40](work-orders.md) |
+| 5 | **Finish the linters and the hardening** | 19 `errcheck`/`staticcheck` findings — 6 unchecked audit writes and **2 unchecked `InvalidateAllUserTokens`, a password change that revokes nothing** — plus SEC-14/15/16 and RUN-11 | [WO-40](work-orders.md), [WO-60 → WO-65](work-orders.md) |
 | 6 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09 | OPS-07 first |
 | 7 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |
 
@@ -359,6 +415,11 @@ defect rather than describing a past one.
   that reviewed those files by eye passed them.
 - **Silence is ambiguous.** The monitoring section above is the newest instance:
   a system with no DSN configured looks exactly like a system with no errors.
+- **A route contract proves who may call a route, not what it returns.** The
+  2026-08-18 audit's worst finding (FR-17, [WO-57](work-orders.md)) sat behind a
+  test that drove the route with a non-existent id and asserted the 404. Every
+  authorization case passed; the success path had never run. When a suite is
+  built from "who is allowed", ask what it does once someone is.
 
 ---
 
