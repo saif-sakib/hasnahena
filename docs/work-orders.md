@@ -102,6 +102,17 @@ than at build time. They are grouped by what you have to be touching to hit them
 - **`next dev` hot-reloads, `go run` does not.** So the web half of a stale stack
   is usually current and the API half is usually not, which makes the symptom
   look like a frontend/backend contract bug rather than a stale binary.
+- **`down` used to leave the API running, and say it had not.** The cause was
+  `go run`: it compiles to a temp binary and execs it as a **child**, so the pid
+  written to `api.pid` was the wrapper's, and the fallback
+  `pkill -f "cmd/server/main.go"` matched nothing either — the child's command
+  line is `/tmp/go-buildNNN/b001/exe/main`. `down` reported success with port
+  8099 still bound, and the next `up --serve` polled `/v1/health`, was answered
+  by the **old** binary, and moved on. Fixed 2026-08-19: the script builds to
+  `$RUNDIR/api-bin` and runs that directly, so the recorded pid is the server,
+  and `stop_servers` now also sweeps anything still holding either port —
+  because a pid file only knows about processes this script started, and a
+  survivor from a crashed run is exactly the case that matters.
 
 ### Prisma and migrations
 
@@ -222,6 +233,15 @@ clean tree).
   end, so varying one header stepped around it entirely. When a fact about a
   request is security-relevant, resolve it **once**, in middleware, and put it
   in the context.
+- **A guard was invalidated by a row added later in the same file.**
+  `seedAdmin` refuses to skip on a database with no admin, so a fresh database
+  cannot end up seeded and unloggable-into. It tested `role IN (ADMIN,
+  SUPER_ADMIN)`. Then `seedDonationPool` was added below it, creating an owner
+  with `role: ADMIN` — INACTIVE, with a password hash bcrypt can never match,
+  and therefore not an admin anyone can log in as. From that day the guard
+  passed on exactly the databases it existed to catch. **A role is not a
+  capability**: if the question is "can somebody log in as an admin", the
+  predicate has to say so.
 
 ### Tests and evidence
 

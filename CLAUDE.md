@@ -43,7 +43,7 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Twelve suites and one CI check enumerate rather than list, and will fail the
+**Thirteen suites and one CI check enumerate rather than list, and will fail the
 build when the code grows something they do not know about.** That is
 deliberate; see [docs/testing.md](docs/testing.md).
 
@@ -62,6 +62,7 @@ deliberate; see [docs/testing.md](docs/testing.md).
 | a field in `schema.prisma` | `pnpm db:migrate:check` in CI — generate the migration, or the database and the schema disagree until a column is missing in production |
 | a `/support/*` route in `main.go` | `apps/web/test/unit/support-proxy-allowlist.test.ts` — the Next proxy forwards an allow-list; a route missing from it 404s in production with nothing in either log saying why |
 | a generator that maps random bytes onto an alphabet | `internal/utils/random_test.go` — use `utils.RandomString`; `%` over a byte is not uniform, and both suites keep the biased version to prove the statistic can tell |
+| the donation pool's owner id, in either language | `apps/web/test/unit/donation-pool-owner.test.ts` — `seed.mjs`, `db-clear-preserve-core.mjs` and `transaction_repository.go` must name the same id, or donations fail with "run `pnpm db:seed`" on a seeded database |
 
 ## Rules
 

@@ -88,11 +88,29 @@ serve() {
   # Found the hard way: an admin-member-list spec that passed three times alone
   # and failed inside the suite, with 91 rejections sitting in api.log. The
   # tempting fix was a retry, which would have hidden it permanently.
-  ( cd "$ROOT/apps/api" && \
-    DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" API_PORT="$API_PORT" \
-    CORS_ORIGINS="http://localhost:${WEB_PORT}" \
-    RATE_LIMIT_REQUESTS="${HN_TEST_RATE_LIMIT:-100000}" \
-    go run cmd/server/main.go > "$RUNDIR/api.log" 2>&1 & echo $! > "$RUNDIR/api.pid" )
+  # Built, not `go run`. Two reasons, both learned here.
+  #
+  # `go run` compiles to a temp binary and execs it as a CHILD, so the pid
+  # recorded below was the `go run` wrapper's and the fallback `pkill -f
+  # cmd/server/main.go` did not match the child either — its command line is
+  # /tmp/go-buildNNN/b001/exe/main. `down` therefore reported success while the
+  # API kept port ${API_PORT} bound, and the next `up --serve` polled /v1/health,
+  # got an answer from the OLD binary and moved on. That is the stale-process
+  # trap in docs/work-orders.md, and it is what made a full green browser run
+  # prove nothing about the code just written.
+  #
+  # Building also turns a compile error into a compiler message here, instead of
+  # a connection refused ninety seconds later. CI does the same, for the same
+  # reason.
+  say "building the API"
+  ( cd "$ROOT/apps/api" && go build -o "$RUNDIR/api-bin" ./cmd/server ) \
+    || die "the Go API did not compile"
+
+  DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" API_PORT="$API_PORT" \
+  CORS_ORIGINS="http://localhost:${WEB_PORT}" \
+  RATE_LIMIT_REQUESTS="${HN_TEST_RATE_LIMIT:-100000}" \
+  "$RUNDIR/api-bin" > "$RUNDIR/api.log" 2>&1 &
+  echo $! > "$RUNDIR/api.pid"
 
   say "starting Next on ${WEB_PORT}"
   ( cd "$ROOT/apps/web" && \
@@ -122,7 +140,22 @@ stop_servers() {
     rm -f "$pidfile"
   done
   pkill -f "next dev -p ${WEB_PORT}" 2>/dev/null || true
+  pkill -f "${RUNDIR}/api-bin" 2>/dev/null || true
   pkill -f "cmd/server/main.go" 2>/dev/null || true
+
+  # Last resort: whatever still holds the ports, whoever started it.
+  #
+  # The pid files and the pattern matches above both assume this script started
+  # the process. Neither is true after a crashed run, a killed terminal, or a
+  # server someone started by hand — and a survivor is worse than a failure to
+  # start, because the next run connects to it and passes. Ports, not names, are
+  # the thing that actually has to be free.
+  for port in "$API_PORT" "$WEB_PORT"; do
+    for pid in $(ss -lptnH "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u); do
+      say "port ${port} still held by pid ${pid} — stopping it"
+      kill "$pid" 2>/dev/null || true
+    done
+  done
 }
 
 print_env() {
