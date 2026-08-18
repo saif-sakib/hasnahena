@@ -109,7 +109,7 @@ untested.
 | GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | admin gallery + settings |
 | POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD | admin workers |
 | POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount | member transactions |
-| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints | `lib/api.ts` rewrite |
+| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints — an **allow-list** of `config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, method by method; anything else is 404 here and never reaches Go. Mutations are limited to 60/min per member address, because the Go limiter sees Vercel's ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
 | POST | `/api/v1/loans/applications` | member loan application | **nothing** — FR-10's missing UI ([WO-45](work-orders.md)) |
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | **nothing** — FR-11's missing UI ([WO-45](work-orders.md)) |
 | GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |

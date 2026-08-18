@@ -17,6 +17,13 @@ import { test, expect, devices, type Page } from '@playwright/test';
 // A mid-range Android, which is what this cooperative's members carry.
 test.use({ ...devices['Pixel 7'] });
 
+const REQUIRED_DOCUMENT_KEYS = [
+  'nidFrontImage',
+  'nidBackImage',
+  'memberPhotoImage',
+  'signatureImage',
+] as const;
+
 const VALID = {
   nameEn: 'Abdul Karim',
   fatherName: 'Mohammad Ali',
@@ -138,6 +145,86 @@ test.describe('registration on a phone', () => {
     // The assertion that fails without the scroll fix: the message existed in
     // the DOM before, several screens above where the member was looking.
     await expect(banner).toBeInViewport();
+  });
+
+  /**
+   * Reported by the owner: "in the registration last page it automatically
+   * takes us to the bottom, so someone easily missed there is a document
+   * section to submit" — together with an error naming the Documents step while
+   * standing on it.
+   *
+   * Two causes, both fixed, and the first is the surprising one.
+   *
+   * **The step submitted itself on arrival.** React reuses the nav button's DOM
+   * node when "Next" becomes "Complete Registration" — same component, same
+   * slot — so it only mutates `type`. `nextStep` is async, and its continuation
+   * runs as a microtask, *before* the browser performs the click's default
+   * action. One ordinary click therefore advanced to this step and then
+   * submitted it. Against the pre-fix page this test counted **three** alerts
+   * here; the fix is a `key` on each branch.
+   *
+   * **Then the error scrolled past the uploads.** React Hook Form's
+   * `shouldFocusError` defaults to true and focuses the first errored field,
+   * which on this step is the agreement checkbox — the LAST control, below the
+   * rules and the pledge — so the four upload slots went off the top.
+   */
+  test('arriving at the documents step shows the uploads, not the bottom of the page', async ({
+    page,
+  }) => {
+    await reachDocumentsStep(page);
+
+    // Nothing was submitted on the way in, so there is nothing to complain
+    // about yet. Filtered to alerts that actually say something: Next injects an
+    // always-empty `__next-route-announcer__` live region on every page, and
+    // counting it would make this assertion impossible to satisfy — the same
+    // class of framework false positive the accessibility suite excludes
+    // `nextjs-portal` for.
+    await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0);
+
+    // The thing the member is here to do has to be on screen.
+    await expect(page.getByRole('heading', { name: 'Required Documents' })).toBeInViewport();
+    await expect(page.locator('#nidFrontImage-slot')).toBeInViewport();
+  });
+
+  test('a blocked submit keeps the uploads on screen rather than jumping to the checkbox', async ({
+    page,
+  }) => {
+    await reachDocumentsStep(page);
+
+    // Neither the documents nor the agreement: the state a member is in the
+    // first time they press the button.
+    await page.getByRole('button', { name: 'Complete Registration' }).click();
+
+    // Both problems named at once. Reporting only the agreement sent the member
+    // round again to discover the photos, which is the round trip that made the
+    // upload section easy to miss in the first place.
+    const banner = page.getByRole('alert').first();
+    await expect(banner).toContainText(/NID front image/i);
+    await expect(banner).toContainText(/Agreement/i);
+
+    // The assertion that fails against the old code: shouldFocusError put the
+    // caret in #agreeToTerms and the browser scrolled it into view, which is
+    // several screens below this. Asserted on the heading rather than on a slot
+    // id, so the locator exists in both versions and a red run says what it
+    // means.
+    await expect(page.getByRole('heading', { name: 'Required Documents' })).toBeInViewport();
+
+    // All four flagged, not one at a time.
+    for (const key of REQUIRED_DOCUMENT_KEYS) {
+      await expect(page.locator(`#${key}-slot`)).toHaveText(/This file is required/);
+    }
+  });
+
+  // The member is standing on the Documents step; telling them to go there is
+  // an instruction to travel no distance.
+  test('an error on the current step does not tell the member to go to it', async ({ page }) => {
+    await reachDocumentsStep(page);
+
+    await page.getByRole('button', { name: 'Complete Registration' }).click();
+
+    const banner = page.getByRole('alert').first();
+    await expect(banner).toBeVisible();
+    await expect(banner).not.toContainText(/on the "Documents" step/i);
   });
 
   test('a duplicate caught by the server sends the member back to the field', async ({ page }) => {

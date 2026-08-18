@@ -222,31 +222,66 @@ the real middleware stack: a caller varying `X-Forwarded-For` is throttled on it
 knob — **the number of proxies in front of the process, 0 only when nothing
 is.**
 
-### SEC-15 · The support proxy forwards any path it is given `[~]` — **low**
+### SEC-15 · The support proxy forwards any path it is given `[x]` — **closed 2026-08-18**
 
-`app/api/v1/dashboard/support/[...path]/route.ts` joins the catch-all segments
+`app/api/v1/dashboard/support/[...path]/route.ts` joined the catch-all segments
 into the upstream URL without validation. Next decodes them, so `%2e%2e%2f`
-arrives as `../` and `fetch` normalises it — a caller can reach any path on the
+arrived as `../` and `fetch` normalised it — a caller could reach any path on the
 API base through this proxy.
 
-**This is not a privilege escalation, and saying so matters**: the Go API
+**It was not a privilege escalation, and saying so matters**: the Go API
 authorises every route itself and the `/admin` group is gated at the router, so
-the token is refused wherever it arrives. What remains is that all support
-traffic reaches the Go limiter from **Vercel's** address rather than the
-member's, so one member can exhaust support for everyone and their abuse is not
-attributable. Plus the SSE proxy does not forward the abort signal, so an
-abandoned browser leaks an upstream stream — which eats the RUN-02 drain window.
+the token is refused wherever it arrives. An unnecessary door, not an open safe.
 
-**Fix:** [WO-64](work-orders.md).
+**Closed by [WO-64](work-orders.md)**: an allow-list of the six support paths
+`main.go` mounts, method by method, checked against the Go router by a test that
+reads both files — so adding a support route upstream fails the build here rather
+than 404ing silently in production. `fetch` now carries `signal: req.signal`, so
+a member closing their browser ends the upstream stream.
 
-### SEC-16 · Modulo bias in generated passwords and codes `[~]` — **low**
+**The rate-limit half was not fixable as specified**, and the reasoning is in
+[ADR-021](decisions.md): forwarding the member's address as an `X-Forwarded-For`
+entry puts it at an index `TRUSTED_PROXIES` does not read, and no single value of
+that setting is correct for both the direct and the proxied path. The per-member
+limit now runs on the Next side instead, where Vercel supplies the address —
+see RUN-09 for what that still leaves.
 
-Three generators map random bytes onto an alphabet with `%`, which does not
-divide 256 evenly. The one that matters is the **password-change verification
-code**: `digits[buf[i] % 10]` makes digits 0–5 25% more likely than 6–9.
+### RUN-09 · The Go rate limiter keys on an address, not on a member `[~]` — **low**
 
-All three are `crypto/rand`-seeded, so this is a bias, **not** a predictability
-problem — do not describe it as the latter. **Fix:** [WO-65](work-orders.md).
+Every request through the support proxy reaches the Go limiter from **Vercel's**
+address, so all of it shares one bucket. [WO-64](work-orders.md) capped each
+member at 60 mutations a minute on the Next side, which means it now takes
+several abusive members rather than one to exhaust that shared bucket — an
+improvement, not a fix.
+
+The complete fix is to key the limiter on the authenticated user. The obstacle is
+ordering: the limiter is global middleware and runs before auth, and keying on an
+*unverified* token would let an attacker mint a fresh bucket per request by
+sending garbage. It needs the JWT verified in the middleware stack, which is a
+larger change than the one that surfaced it.
+
+**Not urgent.** Support is chat, not money; the money routes are reached
+directly, where the limiter already keys on the member correctly.
+
+### SEC-16 · Modulo bias in generated passwords and codes `[x]` — **closed 2026-08-18**
+
+Three generators mapped random bytes onto an alphabet with `%`, which does not
+divide 256 evenly. All three are `crypto/rand`-seeded, so this was a bias and
+**not** a predictability problem — do not describe it as the latter.
+
+**Closed by [WO-65](work-orders.md)**: rejection sampling in
+`utils.RandomString`, and `crypto.randomInt` in the TypeScript equivalent.
+
+**The order overstated one number and the record should not repeat it.** It said
+`digits[buf[i] % 10]` makes digits 0–5 "25% more likely" than 6–9. Measured, the
+counts are 26 byte values against 25 — **4%** more likely, or +1.6% and −2.3%
+against uniform. That is small enough that a per-symbol tolerance test would not
+have caught it reliably, which is why both suites use a chi-square instead. The
+62-character alphabet was the larger skew at **21%**.
+
+Both suites keep the old implementation alongside the new one and assert the
+statistic separates them, so a uniformity test that could never fail is not
+mistaken for evidence.
 
 ### Closed security items
 
@@ -299,9 +334,9 @@ changelog, because they are the shape of the next defect:
 
 | ID | Task | Notes |
 |---|---|---|
-| RUN-11 `[ ]` | Bound the email path and give it a context | `sendWithRetry` is 3 attempts × a 12 s timeout with 1.5 s backoff — **39 s worst case, synchronous, inside the approval handler**, against a 30 s `SERVER_SHUTDOWN_TIMEOUT`. A deploy during a slow Brevo call is a `SIGKILL` mid-request, which is the failure RUN-02 exists to prevent, reintroduced by a dependency's latency. No context propagation and an uninterruptible `time.Sleep`. [WO-62](work-orders.md) |
+| RUN-11 `[x]` | Bound the email path and give it a context | **Closed 2026-08-18.** Was 3 attempts × a 12 s timeout with 1.5 s backoff — **39 s worst case, synchronous, inside the approval handler**, against a 30 s `SERVER_SHUTDOWN_TIMEOUT`. Now a 10 s budget for the sequence, 4 s per attempt, and an interruptible backoff; `NewRequestWithContext` throughout. Approval still **waits** for delivery, deliberately — [ADR-022](decisions.md) explains why the `emailDelivered` field is the argument for waiting rather than against it, and why the caller's *cancellation* is dropped while its deadline is not. [WO-62](work-orders.md) |
 | CI-09 `[ ]` | Branch protection on `main` | No direct pushes, CI green to merge. **Needs a paid plan on a private repo** — `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |
-| CI-10 `[ ]` | Run the integration suite under `-race` | **Measured 2026-08-18: zero data races** across the full suite, in ~40 s. So this locks in a property that already holds rather than fixing anything — and it is the cheapest available guard for a system whose defining defect class is the lost update (LEDGER-01, LEDGER-05). [WO-66](work-orders.md) |
+| CI-10 `[x]` | Run the integration suite under `-race` | **Closed 2026-08-18.** Zero data races across the full suite, in ~40 s wall clock — so this locks in a property that already holds rather than fixing anything, and it is the cheapest available guard for a system whose defining defect class is the lost update (LEDGER-01, LEDGER-05). The fast `go test ./...` job stays without it so `pnpm test:go` remains quick, and `-race` needs cgo so it must never reach the `CGO_ENABLED=0` Dockerfile. [WO-66](work-orders.md) |
 | OBS-05 `[ ]` | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
 | OBS-07 `[ ]` | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
 | OBS-08 `[ ]` | Audit log viewer UI | FR-22 gap. The data is complete and `admin/audit-logs` already exists and is uncalled; nobody can read it without SQL |
@@ -386,7 +421,7 @@ is the record.
 | 2 | **Switch the monitoring on** | OBS-03, OBS-04 | Above. Dashboard work, not engineering, and everything below is being done blind until it is done |
 | 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07 (FR-08 done — [ADR-016](decisions.md) needed no migration) | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch. Now guarded by `pnpm db:migrate:check` in CI |
 | 4 | ~~Close the coverage gaps~~ | WO-53 → WO-55 | **Closed 2026-08-18.** The cleanup sweep, schema drift and the Cloudinary paths all have suites; DATA-06's backup is the only remainder and sits in block 6 |
-| 5 | **Finish the hardening** | SEC-15, SEC-16, RUN-11 | [WO-62](work-orders.md), [WO-64](work-orders.md), [WO-65](work-orders.md). The linters are done (WO-40) and SEC-14 is closed (WO-60) |
+| 5 | ~~**Finish the hardening**~~ | SEC-15, SEC-16, RUN-11, CI-10 | **Done 2026-08-18** — WO-62, WO-64, WO-65, WO-66. What is left of it is RUN-09 (a limiter keyed on the member, not the address) and DATA-06, neither of which blocks launch |
 | 6 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09 | OPS-07 first |
 | 7 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |
 

@@ -699,14 +699,14 @@ Not everything absent is a gap. These are decisions:
 
 | Not covered | Why |
 |---|---|
-| Brevo actually delivering mail | Testing a third party's SMTP proves nothing about this code. WO-52 tests the message; delivery is an operational check on the go-live list |
+| Brevo actually delivering mail | Testing a third party's SMTP proves nothing about this code. WO-52 tests the message and WO-62 tests the transport against an `httptest` stub — the budget, the retries, the hang; delivery itself is an operational check on the go-live list |
 | ~~The React Compiler lint findings~~ | **No longer deliberate.** The compiler is on as of 2026-08-18 and all 20 findings are cleared; `pnpm lint` reports 6 warnings, none of them this rule |
 | Load and stress testing | Out of scope in [product.md](product.md). TEST-31's 240 sustained postings is the ceiling this workload needs |
 | A generic accessibility audit | See the reasoning in `e2e/accessibility.spec.ts` — four specific checks beat a long advisory list nobody actions |
 
 ### The one-pass browser run
 
-**Proven 2026-08-18: 142 passed, 1 skipped, 10.2 minutes, exit code 0**, against
+**Proven 2026-08-18: 145 passed, 1 skipped, 7.4 minutes, exit code 0**, against
 `scripts/test-stack.sh up --serve` on an otherwise idle machine (load average
 0.6). That closes the one item the eight phases left unverified.
 
@@ -839,12 +839,12 @@ to the first.
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, and the FR/status/code three-way check |
-| `pnpm test:go` | nothing | pure Go: money arithmetic (including 400k property iterations), utils, middleware |
-| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps |
-| `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server. Plus the success paths: a real dispute, a real registration with Cloudinary stubbed, and the census that fails when a route returns an unserialised BigInt |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, the FR/status/code three-way check, and the census that holds the support proxy's allow-list against the Go router |
+| `pnpm test:go` | nothing | pure Go: money arithmetic (including 400k property iterations), utils, middleware, the email transport's timeout budget, and the chi-square uniformity of generated passwords and codes |
+| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** (WO-66) — ~40 s, zero races today |
+| `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server. Plus the success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit, and the census that fails when a route returns an unserialised BigInt |
 | `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. Runs in CI after `db:migrate` |
-| `pnpm test:e2e` | full stack | 143 browser specs: journeys, forms, the layout matrix (phone/desktop × en/bn), accessibility |
+| `pnpm test:e2e` | full stack | 146 browser specs: journeys, forms, the layout matrix (phone/desktop × en/bn), accessibility |
 
 The split is deliberate: the first two must stay fast enough to run on every
 save, so nothing that needs a database belongs in them. `test:routes` is a

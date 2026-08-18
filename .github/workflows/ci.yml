@@ -189,9 +189,22 @@ jobs:
       # -p 1 is required, not a tuning knob: these packages share one database
       # and each truncates it between tests. Go runs packages in parallel by
       # default, so without this they wipe each other's fixtures.
+      #
+      # WO-66. -race here and nowhere else. This system's defining defect class
+      # is concurrent money movement — LEDGER-01 and LEDGER-05 were both lost
+      # updates — and the concurrency tests that pin those fixes were running
+      # without a detector, so a reintroduced race would have had to corrupt a
+      # balance visibly to be noticed. The suite reports zero races today, so
+      # this locks in a property that already holds rather than starting a
+      # cleanup: about 40 seconds of CI for the one guarantee no assertion can
+      # make on its own.
+      #
+      # -race needs cgo. The runner has it; the deployed image is built
+      # CGO_ENABLED=0 and must stay that way. This is a test flag and must
+      # never reach the Dockerfile.
       - name: Integration tests
         working-directory: apps/api
-        run: go test ./... -tags=integration -count=1 -p 1
+        run: go test ./... -tags=integration -count=1 -p 1 -race
 
       # TEST-16. Drives the exported GET/POST/PUT/PATCH/DELETE of all 11 Next
       # route files directly, against this same database. It seeds its own

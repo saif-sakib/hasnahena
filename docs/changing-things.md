@@ -250,6 +250,10 @@ identical in both** or every login fails with a correct password.
    login lockout and the audit rows all key on a value the caller controls; too
    high and a forged entry is treated as infrastructure's. One knob, four
    consumers, both failure directions silent ([ADR-019](decisions.md)).
+   **It stays at 1 even though Vercel proxies the support routes** — that path is
+   one hop deeper, and there is no value correct for both, which is why the
+   support proxy limits per member on its own side instead
+   ([ADR-021](decisions.md)). Do not raise it to 2.
 3. **The stop grace period must exceed `SERVER_SHUTDOWN_TIMEOUT`** (30s default)
    or a deploy `SIGKILL`s the API mid-transaction. On Render this is a dashboard
    setting; in systemd it is `TimeoutStopSec`; in compose it is

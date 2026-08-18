@@ -446,6 +446,8 @@ export default function WorkerLoansPage() {
                           setSelectedLoan(loan);
                           setShowDetailModal(true);
                         }}
+                        title={locale === 'bn' ? 'ঋণের বিবরণ' : 'View Loan Details'}
+                        aria-label={locale === 'bn' ? 'ঋণের বিবরণ দেখুন' : 'View loan details'}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>

@@ -66,36 +66,23 @@ func generateFirstLoginToken() (string, error) {
 	return "first-login-" + hex.EncodeToString(buf), nil
 }
 
+// tempPasswordAlphabet omits I, l, 1, O and 0 — a temporary password is read
+// aloud down a phone line when email delivery fails, and those five are the
+// pairs that get misheard.
+const tempPasswordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
+
 func generateTempPassword() (string, error) {
-	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
-	buf := make([]byte, 12)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	out := make([]byte, 12)
-	for i := range out {
-		out[i] = chars[int(buf[i])%len(chars)]
-	}
-	return string(out), nil
+	return utils.RandomString(12, tempPasswordAlphabet)
 }
 
+// generateNumericCode issues the password-change verification code. Uniform per
+// digit: see utils.RandomString for why `%10` over a random byte was not
+// (WO-65).
 func generateNumericCode(length int) (string, error) {
 	if length <= 0 {
 		return "", errors.New("invalid code length")
 	}
-
-	const digits = "0123456789"
-	buf := make([]byte, length)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-
-	out := make([]byte, length)
-	for i := range buf {
-		out[i] = digits[int(buf[i])%10]
-	}
-
-	return string(out), nil
+	return utils.RandomString(length, "0123456789")
 }
 
 func validateStrongPassword(newPass string) error {
@@ -539,7 +526,7 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := h.emailService.SendStaffWelcomeEmail(req.Email, req.Name, role, req.Phone, req.TemporaryPassword, req.Locale); err != nil {
+	if err := h.emailService.SendStaffWelcomeEmail(r.Context(), req.Email, req.Name, role, req.Phone, req.TemporaryPassword, req.Locale); err != nil {
 		slog.Error("staff welcome email failed", "role", role, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "EMAIL_SEND_FAILED", summarizeEmailDeliveryError(err))
 		return
@@ -785,7 +772,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		deliveryError = "Email service is not configured"
 	} else if emailAddress == "" {
 		deliveryError = "Member email is not available"
-	} else if err := h.emailService.SendMemberApprovalEmail(emailAddress, candidate.NameEn, tempPassword, req.Locale); err != nil {
+	} else if err := h.emailService.SendMemberApprovalEmail(r.Context(), emailAddress, candidate.NameEn, tempPassword, req.Locale); err != nil {
 		slog.Error("member approval email failed", "userId", req.UserID, "error", err)
 		deliveryError = summarizeEmailDeliveryError(err)
 	} else {
@@ -1404,7 +1391,7 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		locale = "en"
 	}
 
-	if err := h.emailService.SendPasswordChangeVerificationCodeEmail(email, nameEn, code, locale); err != nil {
+	if err := h.emailService.SendPasswordChangeVerificationCodeEmail(r.Context(), email, nameEn, code, locale); err != nil {
 		_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix)
 		summary := summarizeEmailDeliveryError(err)
 		slog.Error("password change code email failed", "userId", auth.UserID, "reason", summary, "error", err)

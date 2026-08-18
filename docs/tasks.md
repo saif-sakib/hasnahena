@@ -159,28 +159,29 @@ Recorded rather than fixed, because each is a decision rather than a defect.
 question: *what is hurting a member, or will cost most to fix later?* Not by
 size, and not by how interesting the work is.
 
-Each row is self-contained — prompt with the order id (`do WO-64`) and the spec
-in [work-orders.md](work-orders.md) has the files, the change and the
-verification, so no re-exploration is needed.
+Nothing here is a work order any more — every one is closed. Rows below are
+owner tasks and product decisions; when one of them needs a spec someone can
+execute without re-reading the codebase, it becomes an order in
+[work-orders.md](work-orders.md) first.
 
 ### Now — nothing here is a member-facing defect
 
-WO-53 → WO-61 and WO-63 all closed on 2026-08-18. **No requirement is marked
-broken and no open order describes a member being told something untrue.** What
-is left is one operator task, four engineering orders and the product backlog.
+WO-53 → WO-66 all closed on 2026-08-18. **No requirement is marked broken and no
+open order describes a member being told something untrue.** What is left is two
+operator tasks and the product backlog.
 
 | # | Do this | Why it is first | Size |
 |---|---|---|---|
 | 1 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Not engineering: four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind, and the Monitor workflow fails twice a day | 1 h, yours |
-| 2 | **[WO-66](work-orders.md)** — run the race detector in CI | Measured at zero races today, so this locks in a property that already holds, for ~40 s of CI. Cheapest guard available for a system whose defining defect class is the lost update | 20 min |
+| 2 | **Set `TRUSTED_PROXIES=1` on Render** — [why](decisions.md) (ADR-019, ADR-021) | One environment variable. At the default `0`, a process behind a proxy attributes every member to the proxy's address: one 60/min bucket and one login lockout for the whole membership. The API logs a warning at boot when it is `0` outside development — check the Render log after the next deploy | 5 min, yours |
 
-### Then — correctness and hardening
-
-| # | Do this | Why | Size |
-|---|---|---|---|
-| 3 | **[WO-62](work-orders.md)** — email can outlive the shutdown drain | Worst case 39 s inside a handler against a 30 s drain: a deploy mid-approval is a `SIGKILL` mid-request | ½ day |
-| 4 | **[WO-64](work-orders.md)** — harden the support proxy | No escalation (the Go API re-authorises), but it leaks upstream SSE streams and puts all support traffic in one rate-limit bucket. [WO-60](work-orders.md) has landed, so `TRUSTED_PROXIES` is now the single knob both ends agree on | 2 h |
-| 5 | **[WO-65](work-orders.md)** — modulo bias in generated secrets | The password-change verification code makes digits 0–5 25% more likely than 6–9 | 2 h |
+**Every engineering work order is closed.** WO-62, WO-64, WO-65 and WO-66 landed
+on 2026-08-18; [work-orders.md](work-orders.md) lists nothing open. What the
+hardening left behind is RUN-09 (a rate limiter keyed on the member rather than
+the address) and DATA-06 (no Cloudinary backup) in
+[production-readiness.md](production-readiness.md) — neither blocks launch, and
+DATA-06 cannot be built until there is a real account to build it against
+([ADR-020](decisions.md)).
 
 ### Then — the schema, while it is still cheap
 

@@ -195,7 +195,12 @@ export default function AdminLoansPage() {
                     <button onClick={() => void handleDownloadLoan(l)} className="text-blue-600 hover:text-blue-800" title={locale === 'bn' ? 'ঋণ ডাউনলোড' : 'Download Loan'}>
                       <Download className="h-4 w-4" />
                     </button>
-                    <button onClick={() => { setSelectedLoan(l); setShowDetailModal(true); }} className="text-blue-600 hover:text-blue-800">
+                    <button
+                      onClick={() => { setSelectedLoan(l); setShowDetailModal(true); }}
+                      className="text-blue-600 hover:text-blue-800"
+                      title={locale === 'bn' ? 'ঋণের বিবরণ' : 'View Loan Details'}
+                      aria-label={locale === 'bn' ? 'ঋণের বিবরণ দেখুন' : 'View loan details'}
+                    >
                       <Eye className="h-4 w-4" />
                     </button>
                   </div>

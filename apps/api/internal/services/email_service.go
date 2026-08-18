@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -13,9 +14,31 @@ import (
 
 const (
 	brevoDefaultBaseURL = "https://api.brevo.com/v3"
-	brevoHTTPTimeout    = 12 * time.Second
 	brevoRetryAttempts  = 3
-	brevoRetryBackoff   = 1500 * time.Millisecond
+
+	// The whole retry sequence, end to end.
+	//
+	// It used to be unbounded in every practical sense: three attempts against a
+	// 12-second client with a 1.5-second sleep between them is 39 seconds of
+	// synchronous work inside the handler that approves a member. The graceful
+	// shutdown budget is SERVER_SHUTDOWN_TIMEOUT, 30 seconds by default, so a
+	// deploy landing during a slow Brevo call was a SIGKILL mid-request — the
+	// exact failure RUN-02 exists to prevent, reintroduced through a
+	// dependency's latency (WO-62).
+	//
+	// Ten seconds is generous for a transactional email API and leaves the drain
+	// two-thirds intact. TestTheWorstCaseFitsInsideTheShutdownDrain holds this
+	// against the shutdown default so the two cannot drift apart.
+	brevoSendBudget = 10 * time.Second
+
+	// One attempt. Without a per-attempt bound a single hung connection spends
+	// the entire budget and the retries that exist for exactly that case never
+	// run.
+	brevoAttemptTimeout = 4 * time.Second
+
+	// Short, because the budget is short. Interrupted by the budget expiring —
+	// the old time.Sleep could not be.
+	brevoRetryBackoff = 500 * time.Millisecond
 )
 
 type EmailConfig struct {
@@ -34,6 +57,13 @@ type EmailService struct {
 	appURL    string
 	enabled   bool
 	client    *http.Client
+
+	// Timings, as fields rather than as the constants directly, so a test can
+	// prove the budget is enforced in milliseconds instead of waiting out the
+	// real one. Nothing outside this package sets them.
+	sendBudget     time.Duration
+	attemptTimeout time.Duration
+	retryBackoff   time.Duration
 }
 
 type brevoSendEmailRequest struct {
@@ -86,8 +116,14 @@ func NewEmailService(cfg EmailConfig) *EmailService {
 		appURL:    appURL,
 		enabled:   enabled,
 		client: &http.Client{
-			Timeout: brevoHTTPTimeout,
+			// A backstop only. Every request carries its own deadline now, and
+			// this sits at the outer budget so it can never be the shorter of
+			// the two and quietly override the per-attempt bound.
+			Timeout: brevoSendBudget,
 		},
+		sendBudget:     brevoSendBudget,
+		attemptTimeout: brevoAttemptTimeout,
+		retryBackoff:   brevoRetryBackoff,
 	}
 }
 
@@ -220,12 +256,12 @@ func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, te
 // SendMemberApprovalEmail renders the message and hands it to the transport. The
 // rendering is buildMemberApprovalEmail, which is pure and therefore testable — see
 // email_service_test.go (WO-52). Nothing here reaches the network.
-func (s *EmailService) SendMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) error {
+func (s *EmailService) SendMemberApprovalEmail(ctx context.Context, to string, memberName string, temporaryPassword string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(to, memberName, temporaryPassword, locale)
 	if err != nil {
 		return err
 	}
-	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
 }
 
 func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) (subject, textBody, htmlBody string, err error) {
@@ -309,32 +345,62 @@ func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role 
 // SendStaffWelcomeEmail renders the message and hands it to the transport. The
 // rendering is buildStaffWelcomeEmail, which is pure and therefore testable — see
 // email_service_test.go (WO-52). Nothing here reaches the network.
-func (s *EmailService) SendStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
+func (s *EmailService) SendStaffWelcomeEmail(ctx context.Context, to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildStaffWelcomeEmail(to, staffName, role, phone, temporaryPassword, locale)
 	if err != nil {
 		return err
 	}
-	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
 }
 
-func (s *EmailService) sendWithRetry(to string, subject string, textBody string, htmlBody string) error {
+// sendWithRetry makes up to brevoRetryAttempts attempts inside one fixed budget.
+//
+// The caller's context is taken for its values and NOT for its cancellation,
+// which is deliberate and is the one part of this worth reading twice.
+//
+// Both cancellations a request context carries would do harm here. A client
+// disconnect: the approval has already committed and the HTTP response is what
+// carries the temporary password, so if the admin's browser has gone the email
+// is the only way the member will ever receive it — cancelling it is the worst
+// available outcome. A shutdown: in-flight requests are allowed to finish, that
+// being the entire point of the drain, and a bounded ten seconds finishes well
+// inside it.
+//
+// So the fix for WO-62 is the deadline, not the cancellation. What made the old
+// code dangerous was that it had no bound at all, not that it ignored ctx.
+func (s *EmailService) sendWithRetry(ctx context.Context, to string, subject string, textBody string, htmlBody string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.sendBudget)
+	defer cancel()
+
 	var lastErr error
 	for attempt := 1; attempt <= brevoRetryAttempts; attempt++ {
-		err := s.sendViaBrevo(to, subject, textBody, htmlBody)
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, s.attemptTimeout)
+		err := s.sendViaBrevo(attemptCtx, to, subject, textBody, htmlBody)
+		cancelAttempt()
 		if err == nil {
 			return nil
 		}
 		lastErr = fmt.Errorf("attempt %d: %w", attempt, err)
 
+		if ctx.Err() != nil {
+			return fmt.Errorf("gave up sending email after %s: %w", s.sendBudget, lastErr)
+		}
+
 		if attempt < brevoRetryAttempts {
-			time.Sleep(brevoRetryBackoff)
+			timer := time.NewTimer(s.retryBackoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("gave up sending email after %s: %w", s.sendBudget, lastErr)
+			case <-timer.C:
+			}
 		}
 	}
 
 	return fmt.Errorf("failed to send email after %d attempt(s): %w", brevoRetryAttempts, lastErr)
 }
 
-func (s *EmailService) sendViaBrevo(to string, subject string, textBody string, htmlBody string) error {
+func (s *EmailService) sendViaBrevo(ctx context.Context, to string, subject string, textBody string, htmlBody string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service not configured")
 	}
@@ -368,7 +434,7 @@ func (s *EmailService) sendViaBrevo(to string, subject string, textBody string, 
 	}
 
 	requestURL := s.baseURL + "/smtp/email"
-	req, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("failed to build brevo request: %w", err)
 	}
@@ -470,12 +536,12 @@ func (s *EmailService) buildPasswordChangeVerificationCodeEmail(to string, recip
 // SendPasswordChangeVerificationCodeEmail renders the message and hands it to the transport. The
 // rendering is buildPasswordChangeVerificationCodeEmail, which is pure and therefore testable — see
 // email_service_test.go (WO-52). Nothing here reaches the network.
-func (s *EmailService) SendPasswordChangeVerificationCodeEmail(to string, recipientName string, code string, locale string) error {
+func (s *EmailService) SendPasswordChangeVerificationCodeEmail(ctx context.Context, to string, recipientName string, code string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildPasswordChangeVerificationCodeEmail(to, recipientName, code, locale)
 	if err != nil {
 		return err
 	}
-	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
 }
 
 func (s *EmailService) buildPasswordResetEmail(to string, token string, locale string) (subject, textBody, htmlBody string, err error) {
@@ -519,10 +585,10 @@ func (s *EmailService) buildPasswordResetEmail(to string, token string, locale s
 // SendPasswordResetEmail renders the message and hands it to the transport. The
 // rendering is buildPasswordResetEmail, which is pure and therefore testable — see
 // email_service_test.go (WO-52). Nothing here reaches the network.
-func (s *EmailService) SendPasswordResetEmail(to string, token string, locale string) error {
+func (s *EmailService) SendPasswordResetEmail(ctx context.Context, to string, token string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildPasswordResetEmail(to, token, locale)
 	if err != nil {
 		return err
 	}
-	return s.sendWithRetry(strings.TrimSpace(to), subject, textBody, htmlBody)
+	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
 }

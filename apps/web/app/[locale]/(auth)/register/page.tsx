@@ -57,6 +57,9 @@ const steps = [
   { id: 'documents', icon: FileText },
 ];
 
+/** The uploads-and-agreement step. Named because three code paths test for it. */
+const DOCUMENTS_STEP = steps.length - 1;
+
 const emailSchema = z.string().email();
 type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken' | 'error';
 type RegisterFieldName = FieldPath<RegisterFormData>;
@@ -88,6 +91,46 @@ const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'memberPhotoImage',
   'signatureImage',
 ];
+
+/**
+ * The four uploads, named.
+ *
+ * At module scope rather than inline in the step, because the error summary has
+ * to name a missing document and the summary is built before the step renders.
+ * These are not schema fields — the files live in component state, not in the
+ * zod form — so nothing else knows what to call them.
+ */
+const DOCUMENT_LABELS: Record<RequiredDocumentKey, { en: string; bn: string; helperEn: string; helperBn: string }> = {
+  nidFrontImage: {
+    en: 'NID front image',
+    bn: 'NID কার্ডের সামনের ছবি',
+    helperEn: 'Capture the whole card, in focus',
+    helperBn: 'স্পষ্ট ও পূর্ণ ফ্রেমে তুলুন',
+  },
+  nidBackImage: {
+    en: 'NID back image',
+    bn: 'NID কার্ডের পেছনের ছবি',
+    helperEn: 'All text must be readable',
+    helperBn: 'সব লেখা স্পষ্ট দেখা যেতে হবে',
+  },
+  memberPhotoImage: {
+    en: 'Your passport photo',
+    bn: 'আপনার পাসপোর্ট সাইজ ছবি',
+    helperEn: 'Use a recent portrait photo',
+    helperBn: 'সাম্প্রতিক ছবি দিন',
+  },
+  signatureImage: {
+    en: 'Signature image',
+    bn: 'স্বাক্ষরের ছবি',
+    helperEn: 'Dark ink on white paper',
+    helperBn: 'সাদা কাগজে কালো কালিতে',
+  },
+};
+
+/** The id of the wrapper a document slot renders into, for scrolling to it. */
+function documentSlotId(key: RequiredDocumentKey): string {
+  return `${key}-slot`;
+}
 
 type DocumentSlot = {
   file: File;
@@ -247,6 +290,16 @@ export default function RegisterPage() {
     defaultValues: FORM_DEFAULT_VALUES,
     mode: 'onChange',
     reValidateMode: 'onChange',
+    // This form reveals errors itself — a summary banner at the top of the
+    // card, then a deliberate scroll to the first thing to fix. React Hook
+    // Form's default is to focus the first errored field instead, and on the
+    // Documents step that field is `agreeToTerms`: the LAST control on a very
+    // long step. So a blocked submit scrolled the member to the bottom of the
+    // page, below the rules and the pledge, with the four document slots left
+    // off-screen above them — which is how members came to submit without
+    // noticing there was anything to upload. Our own scrolling has to be the
+    // only scrolling, or the two fight and the field wins.
+    shouldFocusError: false,
   });
 
   const sameAsPermanent = watch('sameAsPermanent') ?? true;
@@ -281,6 +334,25 @@ export default function RegisterPage() {
       (element as HTMLElement).focus({ preventScroll: true });
     }, reduceMotion ? 0 : 300);
   }, []);
+
+  /**
+   * Mark every missing upload at once and report which they are.
+   *
+   * All four, not the first: flagging one at a time turned a single omission
+   * into four submit-and-read rounds, on a step where each round costs the
+   * member a scroll through the rules and the pledge.
+   */
+  const flagMissingDocuments = useCallback((): RequiredDocumentKey[] => {
+    const missing = REQUIRED_DOCUMENT_KEYS.filter((key) => !documentFiles[key]);
+    if (missing.length > 0) {
+      setDocumentErrors((prev) => {
+        const next = { ...prev };
+        for (const key of missing) next[key] = isBn ? 'এই ফাইলটি প্রয়োজন' : 'This file is required';
+        return next;
+      });
+    }
+    return missing;
+  }, [documentFiles, isBn]);
 
   const scrollToFormTop = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -622,16 +694,15 @@ export default function RegisterPage() {
     setSubmitError(null);
     setSubmitStage('idle');
 
-    const missingDocumentKey = REQUIRED_DOCUMENT_KEYS.find((key) => !documentFiles[key]);
-    if (missingDocumentKey) {
-      setDocumentErrors((prev) => ({
-        ...prev,
-        [missingDocumentKey]: isBn ? 'এই ফাইলটি প্রয়োজন' : 'This file is required',
-      }));
+    const missingDocuments = flagMissingDocuments();
+    if (missingDocuments.length > 0) {
+      const missingLabels = missingDocuments.map((key) =>
+        isBn ? DOCUMENT_LABELS[key].bn : DOCUMENT_LABELS[key].en,
+      );
       setSubmitError(
         isBn
-          ? 'নিবন্ধন সম্পন্ন করতে চারটি ছবিই দিতে হবে।'
-          : 'All four document photos are required to complete registration.',
+          ? `নিবন্ধন সম্পন্ন করতে চারটি ছবিই দিতে হবে। বাকি আছে: ${missingLabels.join(', ')}`
+          : `All four document photos are required to complete registration. Still needed: ${missingLabels.join(', ')}`,
       );
       revealErrorSummary();
       return;
@@ -888,12 +959,34 @@ export default function RegisterPage() {
     );
     const labels = fieldsOnTarget.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
 
+    // The uploads are component state, not schema fields, so the resolver has
+    // nothing to say about them and they were reported only *after* everything
+    // in the schema passed. A member who had not ticked the agreement was told
+    // about the agreement, fixed it, submitted again, and only then learned
+    // that four photos were also missing. Name both the first time.
+    const missingDocuments = targetStep === DOCUMENTS_STEP ? flagMissingDocuments() : [];
+    const documentLabels = missingDocuments.map((key) =>
+      isBn ? DOCUMENT_LABELS[key].bn : DOCUMENT_LABELS[key].en,
+    );
+    const allLabels = [...documentLabels, ...labels];
+
     setSubmitError(
-      isBn
-        ? `${stepTitles[targetStep]} ধাপে এই তথ্যগুলো ঠিক করুন: ${labels.join(', ')}`
-        : `Fix these on the "${stepTitles[targetStep]}" step: ${labels.join(', ')}`,
+      // No "on the X step" when they are already standing on step X: it reads
+      // as an instruction to go somewhere, and the member is there.
+      targetStep === currentStep
+        ? isBn
+          ? `এই তথ্যগুলো ঠিক করুন: ${allLabels.join(', ')}`
+          : `Please correct: ${allLabels.join(', ')}`
+        : isBn
+          ? `${stepTitles[targetStep]} ধাপে এই তথ্যগুলো ঠিক করুন: ${allLabels.join(', ')}`
+          : `Fix these on the "${stepTitles[targetStep]}" step: ${allLabels.join(', ')}`,
     );
     setCurrentStep(targetStep);
+
+    // One scroll, always to the summary. The summary sits directly above the
+    // upload slots, so revealing it puts both the list of problems and the
+    // boxes to fill on screen together — which is the whole difference from
+    // shouldFocusError, whose one focused field was the checkbox at the bottom.
     revealErrorSummary();
   };
 
@@ -961,28 +1054,11 @@ export default function RegisterPage() {
     key: RequiredDocumentKey;
     label: string;
     helper: string;
-  }> = [
-    {
-      key: 'nidFrontImage',
-      label: isBn ? 'NID কার্ডের সামনের ছবি' : 'NID front image',
-      helper: isBn ? 'স্পষ্ট ও পূর্ণ ফ্রেমে তুলুন' : 'Capture the whole card, in focus',
-    },
-    {
-      key: 'nidBackImage',
-      label: isBn ? 'NID কার্ডের পেছনের ছবি' : 'NID back image',
-      helper: isBn ? 'সব লেখা স্পষ্ট দেখা যেতে হবে' : 'All text must be readable',
-    },
-    {
-      key: 'memberPhotoImage',
-      label: isBn ? 'আপনার পাসপোর্ট সাইজ ছবি' : 'Your passport photo',
-      helper: isBn ? 'সাম্প্রতিক ছবি দিন' : 'Use a recent portrait photo',
-    },
-    {
-      key: 'signatureImage',
-      label: isBn ? 'স্বাক্ষরের ছবি' : 'Signature image',
-      helper: isBn ? 'সাদা কাগজে কালো কালিতে' : 'Dark ink on white paper',
-    },
-  ];
+  }> = REQUIRED_DOCUMENT_KEYS.map((key) => ({
+    key,
+    label: isBn ? DOCUMENT_LABELS[key].bn : DOCUMENT_LABELS[key].en,
+    helper: isBn ? DOCUMENT_LABELS[key].helperBn : DOCUMENT_LABELS[key].helperEn,
+  }));
 
   const handleDocumentChange = async (
     key: RequiredDocumentKey,
@@ -1764,7 +1840,11 @@ export default function RegisterPage() {
                         const slot = documentFiles[field.key];
                         const isProcessing = processingDocument === field.key;
                         return (
-                          <div key={field.key} className="space-y-2">
+                          <div
+                            key={field.key}
+                            id={documentSlotId(field.key)}
+                            className="space-y-2 scroll-mt-24"
+                          >
                             <Label htmlFor={field.key}>{field.label} *</Label>
                             <input
                               id={field.key}
@@ -1909,13 +1989,32 @@ export default function RegisterPage() {
                     {isBn ? 'পেছনে' : 'Back'}
                   </Button>
 
+                  {/* Distinct keys, deliberately, and load-bearing.
+
+                      Without them React sees one <Button> in one slot and reuses
+                      the same DOM node when the step changes: the node the member
+                      just clicked "Next" on becomes type="submit" in place. And
+                      `nextStep` is async — the continuation after `await
+                      trigger(...)` runs as a microtask, which is *before* the
+                      browser performs the click's default action. So a single
+                      ordinary click advanced to this step and then submitted it,
+                      and the member landed on the Documents step already being
+                      told about fields they had not been shown.
+
+                      A key forces a fresh node, and a node that did not exist
+                      when the click began has no default action to perform. */}
                   {!isLastStep ? (
-                    <Button type="button" onClick={nextStep} className="h-12 gap-1 sm:h-10 sm:gap-2">
+                    <Button
+                      key="next"
+                      type="button"
+                      onClick={nextStep}
+                      className="h-12 gap-1 sm:h-10 sm:gap-2"
+                    >
                       {isBn ? 'পরবর্তী' : 'Next'}
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   ) : (
-                    <Button type="submit" disabled={busy} className="h-12 gap-2 sm:h-10">
+                    <Button key="submit" type="submit" disabled={busy} className="h-12 gap-2 sm:h-10">
                       {busy ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

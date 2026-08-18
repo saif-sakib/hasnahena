@@ -276,7 +276,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, identifier string, loc
 		return err
 	}
 
-	return s.email.SendPasswordResetEmail(user.Email, tokenHex, locale)
+	return s.email.SendPasswordResetEmail(ctx, user.Email, tokenHex, locale)
 }
 
 func (s *AuthService) ValidateResetToken(ctx context.Context, token string) (*repositories.PasswordResetToken, error) {

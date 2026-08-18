@@ -461,3 +461,100 @@ Admin API, download to the same encrypted destination the `pg_dump` backup uses,
 and — because the `documents` table holds the URLs — reconcile the two so a
 missing asset is *detected* rather than discovered by an approver opening a
 blank image.
+
+### ADR-021 — The support proxy limits per member; `TRUSTED_PROXIES` stays at one
+
+**2026-08-18. WO-64.**
+
+Everything the browser calls goes cross-origin to the Go API except
+`/v1/dashboard/support/*`, which `lib/api.ts` rewrites to a same-origin Next
+proxy. That proxy joined the catch-all segments straight into the upstream URL,
+and Next hands them over already percent-decoded, so `%2e%2e%2f` arrived as
+`../` and `fetch` normalised it away before the request left. It is now an
+allow-list of the six paths `main.go` actually mounts, method by method.
+
+**It was never privilege escalation** and the record should say so: the Go API
+authorises every route itself and gates `/admin` at the router, so a member's
+token is refused there whichever door it arrives at. An unnecessary door, not an
+open safe.
+
+The order also asked the proxy to forward the member's address as an
+`X-Forwarded-For` entry so the Go limiter could stop attributing all support
+traffic to Vercel. **That does not work, and the reason is worth recording so
+nobody tries it again.** `ClientIP` reads the header from the trusted end —
+`parts[len(parts)-TRUSTED_PROXIES]` — because that is the only end a caller
+cannot choose. Two paths reach the API with different depths:
+
+| Path | Header at the API | `TRUSTED_PROXIES=1` reads |
+|---|---|---|
+| browser → Render | `member` | `member` ✓ |
+| browser → Render, member spoofing | `9.9.9.9, member` | `member` ✓ |
+| browser → Vercel → Render | `vercel` | `vercel` |
+| browser → Vercel → Render, proxy forwarding | `member, vercel` | `vercel` |
+
+Forwarding puts the member's address at an index the setting does not read.
+Raising it to 2 would read the member on the proxied path and a **spoofed entry**
+on the direct one — and it is one global number, so there is no setting that is
+right for both. `TRUSTED_PROXIES` stays at **1**, and the proxy deliberately
+sends no `X-Forwarded-For` at all.
+
+So the per-member limit lives on the Next side, where the member's address is
+known and Vercel sets it: 60 mutations per minute per caller, matching the Go
+default, through the same `consumeRateLimit` the registration and lookup routes
+use. Reads are not counted, exactly as `rateLimitExempt` does not count them
+over there.
+
+**What this does not fix:** the Go limiter still sees one address for all
+proxied traffic, so enough abusive members can still exhaust that bucket between
+them. The complete fix is a limiter keyed on the authenticated user rather than
+the address, which needs verified identity in middleware — the token cannot be
+trusted before it is checked, or an attacker mints a fresh bucket per request by
+sending garbage. Tracked in [production-readiness.md](production-readiness.md).
+
+**Also changed:** `fetch` now carries `signal: req.signal`, so a member closing
+their browser ends the upstream SSE stream instead of leaving it open for the
+life of the process — RUN-02 ends streams first at shutdown precisely because
+open streams eat the drain window. Note that nothing in the web client uses SSE
+today: the dashboard polls. The leak was real in the code, not in production.
+
+### ADR-022 — Member approval waits for the email, inside a ten-second budget
+
+**2026-08-18. WO-62.**
+
+`sendWithRetry` made three attempts against a 12-second client with a 1.5-second
+sleep between them: **39 seconds**, synchronous, inside the handler that approves
+a member. `SERVER_SHUTDOWN_TIMEOUT` is 30. A deploy landing during a slow Brevo
+call was a `SIGKILL` mid-request — the failure RUN-02 exists to prevent,
+reintroduced through a dependency's latency.
+
+The order asked whether approval should block on delivery at all, given that the
+handler reports `emailDelivered` and `deliveryError` separately and returns the
+temporary password in the response.
+
+**It should block.** Those two fields are the argument *for* waiting, not
+against it: they exist so the admin knows, while the member is still in front of
+them, whether to read the password out instead. Send it after the response and
+that signal becomes either absent or a guess, and the admin learns nothing.
+Ten seconds is a tolerable spinner for the one action in the system that hands
+someone their credentials.
+
+What made the old code dangerous was that it had no bound, not that it blocked.
+So: a 10-second budget for the whole sequence, 4 seconds per attempt so one hung
+connection cannot spend all of it, and an interruptible backoff.
+
+**The caller's context is taken for its values and not for its cancellation**,
+which is deliberate and is the part most likely to be "tidied up" later:
+
+- **A client disconnect must not cancel it.** The approval has already
+  committed, and the response carrying the password is exactly what was lost —
+  so the email is now the only way the member will ever receive it.
+- **A shutdown need not cancel it.** In-flight requests are allowed to finish;
+  that is what the drain is for, and ten seconds fits inside thirty with room.
+
+`TestTheCallersCancellationDoesNotCancelTheSend` and
+`TestTheWorstCaseFitsInsideTheShutdownDrain` hold both halves, the second
+against the real constants so the budget and the drain cannot drift apart.
+
+**Unchanged, and load-bearing:** `ApproveRegistration` has already committed
+before the send. A member's approval is never rolled back because an email
+failed.

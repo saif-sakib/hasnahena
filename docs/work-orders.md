@@ -9,30 +9,30 @@ Prompt with just the ID: **`do WO-57`** · `do WO-59 and WO-60`.
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Four orders are open: WO-62, WO-64, WO-65 and WO-66.**
+**No work order is open.** WO-62, WO-64, WO-65 and WO-66 — the last four —
+closed on 2026-08-18, with WO-53 → WO-61 and WO-63 earlier the same day. That
+is the whole of the 2026-08-18 code audit.
 
-Everything from WO-53 through WO-61, plus WO-63, closed on 2026-08-18 — the
-whole of the code audit's member-facing half. **No open order describes a member
-being told something untrue.** WO-58 fell out of WO-52, because once every
-notification message came from one tested builder there was nowhere left for a
-`%.2f` to live; **WO-28 was closed as a decision rather than a task**
-([ADR-018](decisions.md)) after the owner reviewed the `Official Infos/` files
-and determined none of it is live member data, which was the purge's entire
-justification. WO-55 closed on its testing half; the backup it depends on
-(DATA-06) is tracked in [production-readiness.md](production-readiness.md) and
-is the only part of that order still open.
+WO-58 fell out of WO-52, because once every notification message came from one
+tested builder there was nowhere left for a `%.2f` to live; **WO-28 was closed
+as a decision rather than a task** ([ADR-018](decisions.md)) after the owner
+reviewed the `Official Infos/` files and determined none of it is live member
+data, which was the purge's entire justification.
 
-Everything finished is one line per batch in [changelog.md](changelog.md). What
-was *learned* doing them is in [Traps](#traps-that-cost-a-session) below — read
-that before any work touching Docker, Prisma, migrations or the build config.
-Every entry there cost at least one session to find.
+**Two things a closed order left behind**, both tracked in
+[production-readiness.md](production-readiness.md) rather than here, because
+neither is a code change anyone can make today:
 
-| Order | What | Size |
-|---|---|---|
-| [WO-62](#wo-62--email-sending-can-outlive-the-shutdown-drain) | Email sending can outlive the shutdown drain | half a day |
-| [WO-64](#wo-64--harden-the-support-proxy) | Harden the support proxy | 2 hours |
-| [WO-65](#wo-65--modulo-bias-in-generated-passwords-and-codes) | Modulo bias in generated passwords and codes | 2 hours |
-| [WO-66](#wo-66--run-the-race-detector-in-ci) | Run the race detector in CI | 20 minutes |
+- **DATA-06** — no backup of the Cloudinary assets. WO-55 covered the upload
+  paths and the registration compensation path; the backup it asked for next
+  can only be built against a real account with real credentials.
+  [ADR-020](decisions.md) accepts the exposure until the first real member
+  document exists, and names that document as the trigger.
+- **A rate limiter keyed on the member rather than the address.** WO-64 put a
+  per-member limit on the Next side of the support proxy, which is where the
+  member's address is known; the Go limiter still sees one address for all
+  proxied traffic. Fixing that properly needs verified identity in middleware
+  — see [ADR-021](decisions.md) for why forwarding a header cannot do it.
 
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
 TEST-43`. **All of it is closed**: TEST-39 and TEST-40 with WO-51 and WO-52,
@@ -55,134 +55,11 @@ TEST-41 → 43 with WO-53 → WO-55.
   (CLAUDE.md rules 1, 2, 6).
 - Update [tasks.md](tasks.md) and tick the order here in the same commit.
 
----
 
 # Open
 
-## WO-62 · Email sending can outlive the shutdown drain
-
-**Why:** `sendWithRetry` retries 3 times with a 1.5 s backoff, against a client
-whose timeout is 12 s. **Worst case 3 × 12 + 2 × 1.5 = 39 seconds**, synchronous,
-inside the HTTP handler that approves a member.
-
-Three problems follow from that:
-
-1. **`SERVER_SHUTDOWN_TIMEOUT` is 30 s.** A deploy landing during a slow Brevo
-   call is a `SIGKILL` mid-request — the exact failure RUN-02 exists to prevent,
-   reintroduced by a dependency's latency.
-2. **No context.** `http.NewRequest`, not `NewRequestWithContext`, so neither a
-   client disconnect nor shutdown cancels the call. The `time.Sleep` between
-   attempts is likewise uninterruptible.
-3. An admin approving a member watches a spinner for up to 39 seconds.
-
-**Change**
-1. Thread `ctx` through: `NewRequestWithContext`, and replace `time.Sleep` with a
-   `select` on `ctx.Done()` and a timer.
-2. Bound the whole retry sequence with `context.WithTimeout` well under the
-   shutdown budget — 10 s total is generous for a transactional email.
-3. Decide, and write down, whether approval should block on delivery at all. The
-   handler already reports `emailDelivered` and `deliveryError` separately and
-   returns the temporary password in the response, so the admin can read it out
-   when delivery fails. That design says delivery is **not** required for the
-   approval to be correct — which argues for sending it after the response, with
-   the outcome recorded rather than awaited.
-
-**Watch:** whatever is decided, `ApproveRegistration` has already committed
-before the send. Never roll a member's approval back because an email failed.
-
-**Done when:** no email path can exceed 10 s, cancellation propagates, and a test
-covers a Brevo timeout without waiting 39 real seconds.
-
-## WO-64 · Harden the support proxy
-
-**Why:** `app/api/v1/dashboard/support/[...path]/route.ts` joins the catch-all
-segments straight into the upstream URL:
-
-```ts
-return `${getApiBase()}/v1/dashboard/support/${parts}${query}`;
-```
-
-Next decodes those segments, so `%2e%2e%2f` arrives as `../` and `fetch`
-normalises it away — a caller can reach **any** path on the API base through this
-proxy, not just `/support/*`.
-
-**This is not a privilege escalation**, and it is worth saying so plainly: the Go
-API authorises every route itself and the `/admin` group is gated at the router,
-so a member's token is refused there whichever door it arrives at. It is an
-unnecessary open door, not an open safe.
-
-Two real consequences remain:
-
-1. **All support traffic shares one rate-limit bucket** — the Go limiter sees
-   Vercel's address, not the member's. One member can exhaust support for
-   everyone, and their abuse is not attributable.
-2. **The SSE proxy leaks upstream streams.** `fetch` is called without
-   `signal: req.signal`, so when a member closes their browser the Go stream
-   stays open. RUN-02 ends SSE streams first at shutdown specifically to protect
-   the drain window; abandoned streams eat it.
-
-**Change**
-1. Allow-list the segments this proxy forwards — it serves a known handful
-   (`threads`, `messages`, `stream`, `stream/ticket`). Reject anything else with
-   404 rather than normalising it.
-2. Pass `signal: req.signal` to `fetch`, for the stream case especially.
-3. Forward the member's address as an `X-Forwarded-For` entry so the Go limiter
-   can key on the member rather than on Vercel. **WO-60 has landed**, so the Go
-   side is ready: `middleware.ClientIP` counts entries from the trusted end and
-   `TRUSTED_PROXIES` is the only knob. Vercel in front of Render is two hops, so
-   this change and that setting have to move together — get it wrong in the
-   other direction and every member shares Vercel's bucket again.
-
-**Done when:** a traversal attempt 404s, closing a stream closes the upstream
-one, and the two orders agree on how many proxies are in front.
-
-## WO-65 · Modulo bias in generated passwords and codes
-
-**Why:** three generators map random bytes onto an alphabet with `%`, which does
-not divide 256 evenly:
-
-| Where | Alphabet | Bias |
-|---|---|---|
-| `dashboard_handler.go` `generateTempPassword` | 62 chars | `256 % 62 = 8` — the first 8 characters are ~1.6% more likely |
-| `dashboard_handler.go` numeric code | 10 digits | `256 % 10 = 6` — digits 0–5 are 25% more likely than 6–9 |
-| `lib/api-utils.ts` `generateTemporaryPassword` | 62 chars | same as the first |
-
-The numeric one is the least academic: it is the **password-change verification
-code**, and the skew is large enough to matter to anyone guessing it.
-
-**Change:** rejection sampling, or `crypto/rand.Int(rand.Reader, big.NewInt(n))`
-in Go and `crypto.randomInt(n)` in Node — both are already available and neither
-needs a dependency. Then a statistical test: generate 100k characters and assert
-each symbol's frequency is within a tolerance of uniform. That test fails against
-the current code, which is the point.
-
-**Watch:** these are all `crypto/rand`-seeded already, so this is a bias fix, not
-a predictability fix. Do not describe it as the latter.
-
-## WO-66 · Run the race detector in CI
-
-**Why:** this is a system whose defining defect class is concurrent money
-movement — LEDGER-01 and LEDGER-05 were both lost updates. The suite has
-concurrency tests, and **nothing runs them under `-race`.**
-
-**Measured 2026-08-18:** the full integration suite under `-race` reports **zero
-data races**, in 19 s for `cmd/server` and 19 s for `repositories`. So this is
-not a cleanup task — it is locking in a property that currently holds, for about
-40 seconds of CI time.
-
-**Change:** add `-race` to the integration job in `.github/workflows/ci.yml`:
-
-```yaml
-run: go test ./... -tags=integration -count=1 -p 1 -race
-```
-
-Leave the fast `go test ./...` unit job without it so `pnpm test:go` stays quick.
-
-**Watch:** `-race` needs cgo, which is available on the runner but **not** in the
-`CGO_ENABLED=0` build used for the image. This is a test-only flag; do not let it
-near the Dockerfile.
-
-**Done when:** CI runs the integration suite under `-race` and is green.
+Nothing. New work goes in [tasks.md](tasks.md) first and becomes an order here
+only when it needs a spec someone can execute without re-reading the codebase.
 
 ---
 
@@ -191,14 +68,8 @@ near the Dockerfile.
 Moved to [changelog.md](changelog.md) — one line per batch, for WO-01 → WO-63
 and TEST-01 → TEST-43. The lessons that outlived the work are below.
 
-**One piece of a closed order is still open.** WO-55 covered the Cloudinary
-paths and the registration compensation path; it also said to "then do DATA-06 —
-an export job — because a covered upload path to an unbackupable store is still
-one deletion away from being unrecoverable". That remains true and remains
-undone. It is tracked as DATA-06 in
-[production-readiness.md](production-readiness.md) and as the last row of the
-backlog in [tasks.md](tasks.md), because it can only be built against a real
-Cloudinary account.
+Two pieces of closed orders outlived them — DATA-06 and the per-member rate
+limiter — and are described at the top of this file.
 
 # Traps that cost a session
 
@@ -291,6 +162,25 @@ than at build time. They are grouped by what you have to be touching to hit them
 
 ### Next, React and the build
 
+- **A single click can fire a handler and then submit the form, when a
+  conditional swaps a button's `type` in place.** `{!isLastStep ? <Button
+  type="button" onClick={next}/> : <Button type="submit"/>}` is one `<button>` in
+  one slot as far as reconciliation is concerned, so React mutates `type` on the
+  node the member just clicked instead of replacing it. `next` is `async`, and
+  the continuation after `await trigger(...)` runs as a **microtask — before the
+  browser performs the click's default action**. So the state update lands, the
+  node becomes `type="submit"`, and the browser then submits. One ordinary click,
+  no double tap: on the registration form this advanced to the Documents step and
+  submitted it in the same gesture, so the member arrived at an error about
+  fields they had not been shown yet. Give the branches distinct `key`s — a new
+  node has no pending default action.
+- **React Hook Form's `shouldFocusError` defaults to true and will fight your own
+  scrolling.** It focuses the first errored field, which scrolls it into view —
+  and on a long step "first errored field" can be the last control on the page.
+  The registration form's agreement checkbox is below the rules and the pledge,
+  so a blocked submit sent the member to the bottom with the four document slots
+  off-screen above them. A form that reveals its own errors has to turn it off.
+
 **`next-env.d.ts` churns on every run and must not be tracked.** `next dev`
 writes `import "./.next/dev/types/routes.d.ts"`; `next build` writes
 `import "./.next/types/routes.d.ts"`. A tracked copy therefore shows up modified
@@ -334,6 +224,13 @@ clean tree).
   in the context.
 
 ### Tests and evidence
+
+- **An `httptest` handler that does not drain the request body cannot tell that
+  the client has gone**, so `r.Context()` stays live and `Server.Close` blocks on
+  it — the suite hangs with no failure and no output. `net/http` learns of the
+  peer's departure from a read on the connection, and an unread body is what
+  that read returns instead. `io.Copy(io.Discard, r.Body)` first, then block.
+  Cost half an hour of thinking the code under test had a deadlock.
 
 - **A dead endpoint can look healthy in a test log.** WO-23 cited the guarantor
   route's "invalid vs valid id" discrimination as proof that `await params`

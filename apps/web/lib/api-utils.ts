@@ -72,12 +72,32 @@ export function serializeLoan<T extends object>(loan: T) {
 }
 
 /**
- * Generate a secure temporary password
+ * The alphabet for generated passwords.
+ *
+ * I, l, 1, O and 0 are absent on purpose: a temporary password gets read aloud
+ * down a phone line when email delivery fails, and those are the characters
+ * that get misheard. Kept in step with `tempPasswordAlphabet` in the Go API's
+ * dashboard_handler.go, which issues the same kind of credential.
+ */
+export const TEMPORARY_PASSWORD_ALPHABET =
+  'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+
+/**
+ * Generate a secure temporary password.
+ *
+ * `randomInt` rather than `randomBytes(...)[i] % length`. That modulo is not
+ * uniform: 256 = 4×62 + 8, so eight of the 62 characters land on five byte
+ * values each and the other 54 on four — a 21% surplus concentrated on a known
+ * prefix of the alphabet, which is a head start for anyone guessing. Node's
+ * `randomInt` rejection-samples internally and needs no dependency (WO-65).
+ *
+ * Still crypto-seeded either way, so this is a bias fix, not a predictability
+ * fix. The Go equivalent is utils.RandomString.
  */
 export function generateTemporaryPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-  const bytes = crypto.randomBytes(12);
   let out = '';
-  for (let i = 0; i < 12; i++) out += chars[bytes[i] % chars.length];
+  for (let i = 0; i < 12; i++) {
+    out += TEMPORARY_PASSWORD_ALPHABET[crypto.randomInt(TEMPORARY_PASSWORD_ALPHABET.length)];
+  }
   return out;
 }
