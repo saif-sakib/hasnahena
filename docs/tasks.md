@@ -1,12 +1,16 @@
 # Task Dashboard
 
-Live status of the platform. Re-verified against the code on **2026-08-17**,
-with the financial paths re-checked against a running Postgres 17 rather than by
-reading. Update this file in the same commit as the work it describes.
+Live status of the platform. Re-verified against the code on **2026-08-18**.
+Update this file in the same commit as the work it describes.
 
 This file tracks **product** work. Operational readiness lives in
-[production-readiness.md](production-readiness.md) (the *why*) and
-[work-orders.md](work-orders.md) (the *what to change* — prompt with `do WO-28`).
+[production-readiness.md](production-readiness.md) (the *why*),
+[work-orders.md](work-orders.md) (the *what to change* — prompt with `do WO-28`),
+and [testing.md](testing.md) (how any of it is proved).
+
+Everything already finished is one line per batch in
+[changelog.md](changelog.md). **Nothing done is listed here** — a status board
+that keeps its own history stops being readable as a status board.
 
 Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
@@ -17,28 +21,18 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **One open defect, and it is operational, not product.** Member records are
 > recoverable from git history. It is stated once, in full, where operational
 > state lives: [SEC-10](production-readiness.md) · [WO-28](work-orders.md).
-> Repeating it here is how the two pages used to disagree about it.
 >
-> **`[x]` The boundaries are under contract.** All 64 Go routes, all 21 Next
-> route methods, every balance-writing repository method, both document
-> renderers and every FR row on this page are covered by suites that fail the
-> build when the code grows something they do not know about. Phases 0–8 of
+> **The boundaries are under contract.** All 64 Go routes, all 21 Next route
+> methods, every balance-writing repository method, both document renderers and
+> every FR row on this page are covered by suites that fail the build when the
+> code grows something they do not know about. Phases 0–8 of
 > [testing.md](testing.md) are done and found **eighteen** defects, three of
 > which moved or misreported money.
 >
-> **Two of those bear directly on this table.** A requirement marked `[~]` here
-> must *still* be unimplemented in the source, or
+> **This page cannot quietly fall behind the code.** A requirement marked `[~]`
+> here must *still* be unimplemented in the source, or
 > `apps/web/test/unit/requirements.test.ts` fails and names the file that
-> implements it — so this page cannot quietly fall behind the code. And it
-> caught three rows here that were already wrong.
->
-> **Recently fixed, each with a regression test confirmed red first:** the six
-> ledger defects that destroyed or misreported money; the admin settings page,
-> which could not save *any* setting; the document-number allocator, which made
-> loan applications impossible; the statement PDF, which printed every receipt
-> number wrapped mid-digit; and the member dashboard, which showed a fabricated
-> `BDT 0` while loading and kept it forever on a failed fetch. One line per
-> batch in [changelog.md](changelog.md).
+> implements it. It caught three rows here that were already wrong.
 >
 > **Going to production?** Read [go-live.md](go-live.md) first. It orders the
 > remaining work by *what gets more expensive once real member data exists*,
@@ -47,14 +41,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **Run `pnpm db:migrate` before deploying** — schema changes ship as migrations,
 > not `db push` ([ADR-014](decisions.md)).
 
-### UI gaps found by the browser suite (2026-08-17)
-
-Recorded rather than fixed, because each is a decision rather than a defect.
-
-| Gap | Detail |
-|---|---|
-| `[ ]` No client-side role guard on the dashboards | A member who types `/en/dashboard/worker` sees the worker shell with no data in it. The API refuses every request (TEST-15/16 prove it), so nothing leaks — it is confusing, not dangerous. A redirect in the dashboard layout would fix it. `e2e/journeys.spec.ts` asserts the safety property (no other account's name or balance appears) and deliberately does *not* pin the current behaviour, which would make the gap harder to fix |
-| `[ ]` Admin and worker screens keep their copy inline | Those pages use `locale === 'bn' ? … : …` throughout rather than `messages/{en,bn}.json` (rule 5). They *are* translated — the `/bn` dashboards measure 84–97% Bengali — so this is a maintainability gap, not a member-facing one. New copy added in Phase 6 went into the message files |
+---
 
 ## Requirements
 
@@ -67,138 +54,139 @@ Recorded rather than fixed, because each is a decision rather than a defect.
 | FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
-| FR-08 | Withdrawal request with notice period | `[~]` | request + approval work; **3-month notice not validated — confirmed, no notice-period code exists anywhere in either app** |
+| FR-08 | Withdrawal request with notice period | `[~]` | request + approval work; **3-month notice not validated — no notice-period code exists anywhere in either app** |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
-| FR-10 | Max loan from configured caps | `[~]` | Members can now apply from the dashboard (WO-45). Personal cap enforced; **fairness and solvency caps still missing** |
-| FR-11 | Guarantor request + approval | `[x]` | Complete 2026-08-17 (WO-45). Guarantor required above `loan.guarantorThresholdAmount`, nominated by member ID with the name confirmed, approve/decline on the member dashboard. Two defects fixed on the way: the dashboard query was scanning 5 columns into 4 *and* filtering the legacy `PENDING` status, so the panel was always empty |
-| FR-12 | Approve → disburse → confirm | `[~]` | Go admin/worker endpoints exist, but the worker path (`CreateMemberLoan`) writes `status = 'ACTIVE'` directly, skipping `PENDING_GUARANTOR` → `PENDING_APPROVAL`. The documented lifecycle is reachable only via admin approval of a loan the UI cannot create |
-| FR-13 | Installments and late fees | `[~]` | installments recorded; **no late-fee logic at all** |
-| FR-14 | Default settlement waterfall | `[x]` | Ordering and proportionality correct, with or without a guarantor. Status change, all three recovery legs and the audit row now commit in one transaction (WO-42) |
+| FR-10 | Max loan from configured caps | `[~]` | members apply from the dashboard, personal cap enforced; **fairness and solvency caps still missing** |
+| FR-11 | Guarantor request + approval | `[x]` | required above `loan.guarantorThresholdAmount`, nominated by member ID, approve/decline on the member dashboard |
+| FR-12 | Approve → disburse → confirm | `[~]` | the worker path (`CreateMemberLoan`) writes `status = 'ACTIVE'` directly, skipping `PENDING_GUARANTOR` → `PENDING_APPROVAL`. The documented lifecycle is reachable only via admin approval of a loan the worker UI cannot create |
+| FR-13 | Installments and late fees | `[~]` | installments recorded; **no late-fee logic at all**, and see the late-fee question below |
+| FR-14 | Default settlement waterfall | `[x]` | ordering and proportionality correct with or without a guarantor; status change, all three recovery legs and the audit row commit in one transaction |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split |
-| FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, but no separate pool accounting |
+| FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, and `HN-ACC-DONATION` now exists as a real pool account; no per-fund accounting |
 | FR-17 | Member raises dispute | `[x]` | `/api/v1/member/transactions/{id}/dispute` |
 | FR-18 | Freeze disputed txn, notify admin | `[~]` | status freezes; admin correction flow is manual |
-| FR-19 | Append-only audit log | `[x]` | `audit_logs` written by both backends and **enforced by a database trigger** since 2026-08-16 — UPDATE is rejected outright (DATA-08) |
+| FR-19 | Append-only audit log | `[x]` | written by both backends and **enforced by a database trigger** — UPDATE is rejected outright (DATA-08) |
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 
 **14 complete, 8 partial.**
 
-## Open bugs
+---
 
-Verified against the source on 2026-08-17, financial paths against a real
-Postgres 17. Ledger defects carry `LEDGER-` ids and security defects `SEC-` ids
-in [production-readiness.md](production-readiness.md); fixed ones are in the
-[changelog](#changelog) rather than listed here.
+## Open product defects
 
-| | Bug | Evidence |
+Verified against the source on 2026-08-18.
+
+| | Defect | Evidence |
 |---|---|---|
-| `[!]` | **Next handlers ignore the token blacklist** (SEC-11) | `lib/auth.ts` and `lib/server-auth.ts` check signature and `exp` only. After logout or a password change the old token still edits settings, gallery, workers |
-| `[x]` | ~~No member loan-application or guarantor-approval UI~~ (FR-10/11) | Built 2026-08-17 by WO-45 |
-| `[x]` | ~~`availableGuarantors` leaked every member's savings~~ (SEC-13) | Fixed 2026-08-17 — the member loans endpoint returned the 50 wealthiest members' names and balances to any signed-in member |
-| `[x]` | ~~Concurrent postings destroy money~~ (LEDGER-01) | Fixed 2026-08-17 by WO-41 |
-| `[x]` | ~~Unguaranteed loan default recovers nothing~~ (LEDGER-02) | Fixed 2026-08-17 by WO-42 |
-| `[x]` | ~~Loan-approved notification divides by 100~~ (LEDGER-03) | Fixed 2026-08-17 by WO-43 |
-| `[x]` | ~~Donations bypass `document_sequences`, no audit row~~ (LEDGER-04) | Fixed 2026-08-17 by WO-43 |
-| `[ ]` | Withdrawal notice period is not validated (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema. `loan.noticePeriodMonths` is settable and read by nothing |
-| `[ ]` | `LoanStatus` carries legacy `PENDING`/`APPROVED` beside the spec states | Two vocabularies for one concept, both live in the enum |
-| `[ ]` | Support chat has no SSE client | **Confirmed: `EventSource` appears nowhere in `apps/web`.** The stream and its ticket endpoint are live and authenticated; the UI still polls. A client must `POST …/support/stream/ticket` and pass `?ticket=` on every connect |
-| `[ ]` | No 48-hour unconfirmed-transaction sweep | Needs the scheduler — OPS-08 |
+| `[ ]` | **Withdrawal notice period is not validated** (FR-08) | No `noticePeriod`-shaped identifier exists in the Go API, the web lib, or the schema. `loan.noticePeriodMonths` is settable from the admin UI and read by nothing |
+| `[ ]` | **`LoanStatus` carries legacy `PENDING`/`APPROVED`** beside the spec states | Two vocabularies for one concept, both live in the enum. This has already cost one bug — the guarantor panel filtered `PENDING` while applications create `PENDING_GUARANTOR` |
+| `[ ]` | **A worker-created loan skips the lifecycle** (FR-12) | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate`/`approvedAt` set in the same statement. No guarantor step, no approval step |
+| `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full-suite browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
+| `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
+| `[ ]` | **Loan repayment presets show paisa** | `getLoanRepaymentPresets` in `lib/utils.ts` computes `Math.round((installment / 4) * 100) / 100`, so the "weekly" quick-fill offers e.g. `1141.75` on all three money screens. All three round before submitting, so nothing wrong is posted — the member is shown a figure that is not the one that gets recorded, and a fractional taka violates rule 1 ([WO-56](work-orders.md)) |
 
-## Gaps
+### The late-fee question — flagged, not decided
+
+The loan agreement PDF prints *"Late payment may attract a fixed, interest-free
+late fee as set by foundation policy"*. Nothing implements a late fee, no policy
+records who would keep the money, and FR-13 names one. This is pinned in both
+directions by `apps/api/internal/money/shariah_test.go`: implementing a fee fails
+the suite, and removing the clause from the agreement fails it too. **Rule 3 says
+stop and flag rather than choose** — this is the flag. Someone with authority over
+foundation policy has to answer it before FR-13 can close either way.
+
+---
+
+## Coverage gaps under watch
+
+The eight testing phases are done. These are the things they deliberately or
+accidentally do **not** cover, recorded so that "the suite is green" is never
+mistaken for "this is checked". Each has a work order.
+
+| | Gap | Why it matters | Order |
+|---|---|---|---|
+| `[ ]` | **Nothing pins EN/BN message parity** | 300 keys each and identical today, but "full EN/BN parity on all user-facing strings" is a stated quality bar with no test behind it. The browser matrix only catches a missing key on a page it happens to visit, in a locale it happens to render | [WO-51](work-orders.md) |
+| `[ ]` | **`email_service.go` has no tests at all** | 488 lines, and every member-facing notification passes through it carrying an amount. LEDGER-03 was a wrong amount *in a notification* — the exact shape this file can still produce. The suites assert a notification row **exists**; none reads what it says | [WO-52](work-orders.md) |
+| `[ ]` | **The cleanup loop is untested** | `startCleanupLoop` (RUN-06) sweeps expired tokens and rate limits hourly. A sweep that stops sweeping is completely silent — the table just grows | [WO-53](work-orders.md) |
+| `[ ]` | **No migration-drift check** | `schema.prisma` and `prisma/migrations/` can disagree and CI will not notice, because CI applies the migrations and never compares them to the schema. The failure surfaces as a runtime column error in production | [WO-54](work-orders.md) |
+| `[ ]` | **Cloudinary paths are untested and unbacked** | Upload, transform and delete have no test on either surface, and DATA-06 means the assets have no backup either. NID images are regulatory documents | [WO-55](work-orders.md) · DATA-06 |
+| `[x]` | ~~The browser suite had never completed in one pass~~ | **Proven 2026-08-18: 142 passed, 1 skipped, 10.2 minutes, exit 0.** Recorded in [testing.md](testing.md#the-one-pass-browser-run) | — |
+| `[ ]` | **`e2e/admin-dashboard.spec.ts` has never run anywhere** | It skips unless `E2E_ADMIN_IDENTIFIER` and `E2E_ADMIN_PASSWORD` are set, and neither `scripts/test-stack.sh env` nor the CI e2e job sets them. It is the "1 skipped" in every run. `journeys.spec.ts` already covers admin login through the fixtures, so this is redundant rather than missing coverage — wire it to `ACCOUNTS.ADMIN` or delete it, but do not leave a spec that reads as covered and never executes | — |
+
+---
+
+## UI gaps
+
+Recorded rather than fixed, because each is a decision rather than a defect.
+
+| | Gap | Detail |
+|---|---|---|
+| `[ ]` | No client-side role guard on the dashboards | A member who types `/en/dashboard/worker` sees the worker shell with no data in it. The API refuses every request (TEST-15/16 prove it), so nothing leaks — it is confusing, not dangerous. A redirect in the dashboard layout would fix it. `e2e/journeys.spec.ts` asserts the safety property and deliberately does *not* pin the current behaviour, which would make the gap harder to fix |
+| `[ ]` | Admin and worker screens keep their copy inline | Those pages use `locale === 'bn' ? … : …` throughout rather than `messages/{en,bn}.json` (rule 5). They *are* translated — the `/bn` dashboards measure 84–97% Bengali — so this is a maintainability gap, not a member-facing one. New copy goes into the message files |
+
+---
+
+## Data gaps
 
 - `[ ]` **Cloudinary assets have no backup** (`DATA-06`) — NID and member photos
   are regulatory documents in one third-party account with no export. The nightly
   dump covers the database and nothing else. **The largest remaining data gap.**
 - `[ ]` **No data retention or erasure policy** (`DATA-07`) — decide now what a
   member's erasure request means when the audit log is append-only by design.
+  It is a schema question, so deciding it late means discovering you needed a
+  column.
 - `[ ]` No audit viewer UI (`OBS-08`, FR-22) — the data is complete; nobody can
   read it without SQL.
 
+---
+
 ## Suggested order
 
-**[Batch L](work-orders.md#batch-l--ledger-integrity) is done** (WO-41 → WO-44).
-The git-history purge (WO-28) is now next. Then:
+The go-live sequence is in [go-live.md](go-live.md) and takes precedence — it
+orders by what gets more expensive once real member data exists. This is the
+product-work order within that.
 
-1. **SEC-11** — Next handlers must check the token blacklist. Now the largest
-   open defect.
-2. **Collapse the legacy loan statuses** — this already cost a bug: the member
-   dashboard's guarantor query filtered `PENDING` while applications create
-   `PENDING_GUARANTOR`, so the panel was silently empty (fixed in WO-45) — an enum value cannot be dropped once
-   rows reference it.
-3. **Donation fund types** (FR-15/16) — schema plus admin UI, cheap only while
-   the donation table is empty.
-4. ~~WO-45 — loan-application and guarantor UI.~~ **Done 2026-08-17.** FR-12 is
-   still partial: the worker path writes `status = 'ACTIVE'` directly, so a
-   worker-created loan skips the lifecycle a member-created one now follows.
-5. **Fairness and solvency caps** (FR-10), then late fees (FR-13).
-6. **Withdrawal notice period** (FR-08) — the policy is in
-   [product.md](product.md); nothing enforces it.
-7. **Admin audit viewer UI** and worker SLA colouring (FR-21/22).
+1. **[WO-28](work-orders.md) — purge git history.** Not product work, but every
+   commit below lands on top of it and it is the only open disclosure.
+2. **Turn the monitoring on.** Sentry, `/metrics` and UptimeRobot are all built
+   and none is switched on in any running environment — see
+   [production-readiness.md](production-readiness.md#the-monitoring-is-built-and-switched-off).
+   This is an afternoon of dashboard work, not engineering, and until it is done
+   every other item on this list is being worked on blind.
+3. **Collapse the legacy loan statuses** — an enum value cannot be dropped once
+   rows reference it, so this is cheap exactly once.
+4. **Donation fund types** (FR-15/16) — schema plus admin UI, cheap only while
+   the donation table is empty. Zakat funds especially cannot be reconstructed
+   after the fact.
+5. **Withdrawal notice period** (FR-08) — the policy is in
+   [product.md](product.md); nothing enforces it, and it is a schema change.
+6. **[WO-54](work-orders.md) migration drift, then [WO-51](work-orders.md)
+   message parity** — both are small, both are enumerating checks that stop a
+   whole class of drift, and both get more valuable the more schema and copy
+   changes land.
+7. **Fix FR-12's worker path** so a worker-created loan follows the same
+   lifecycle a member-created one does.
 8. **OPS-07 reconciliation job** — sum of transactions vs account balances. Had
    this existed, LEDGER-01 would have been a nightly alert instead of an audit
-   finding. The regression tests now guard the two known shapes; this guards the
-   ones nobody has thought of. Treat it as the ledger's smoke alarm.
-
-## Priority test scenarios
-
-Financial-integrity first. 1–3 and 5 are covered by
-`pnpm test:integration`; the gaps are marked.
-
-> **The 2026-08-17 lesson.** All 17 integration tests were green while
-> LEDGER-01 and LEDGER-02 were live. Both were found by asking *what does the
-> suite never do* — it never ran two postings at once, and it never seeded a
-> loan without a guarantor. A green suite bounds the cases it contains and says
-> nothing about the ones it does not. Scenarios 7 and 8 below now close those two
-> blind spots, in
-> [`ledger_integrity_integration_test.go`](../apps/api/internal/repositories/ledger_integrity_integration_test.go).
->
-> Each of those tests was run against the **pre-fix** code and confirmed to fail
-> with the symptom it names. A regression test written after the fix, and never
-> seen to fail, proves only that today's code passes it.
-
-1. Wrong amount processed → member disputes → admin corrects → every step
-   traceable in `audit_logs`. **Covered.**
-2. Loan cap enforcement, including recalculation after a deposit. **Covered.**
-3. Default waterfall: borrower → guarantor (proportional) → donation pool →
-   residual debt. **Covered**, including pool depletion.
-4. Withdrawal blocking: active loan, active guarantee, notice period. **Partly** —
-   the notice period has no code to test (FR-08).
-5. Audit immutability: no update, no delete, corrections append. **Covered
-   behaviourally**, not at the database level (DATA-08).
-6. **Not covered at all: the guarantor flow.** Integration coverage stops at the
-   Go API, and FR-11 lives in a Next route handler — which is exactly how a
-   permanently-400ing endpoint went unnoticed. Add coverage with [WO-29](work-orders.md).
-7. **Concurrency. Covered** (WO-41) — 20 parallel deposits must sum exactly, 10
-   parallel withdrawals against a 2-withdrawal balance must yield exactly 2, and
-   concurrent postings must not collide on a receipt number.
-8. **A loan with no guarantor. Covered** (WO-42) — recovery from the borrower,
-   residual debt when they cannot cover it, and atomicity of the status change.
-
-Exit bar: zero critical or high defects in financial flows, 80% coverage on core
-modules. **Financial flows now meet it** — LEDGER-01→04 are closed and covered.
-SEC-11 is high but is an auth defect, not a financial one.
+   finding. The regression tests guard the two known shapes; this guards the ones
+   nobody has thought of. Treat it as the ledger's smoke alarm.
+9. **Fairness and solvency caps** (FR-10), then the late-fee decision (FR-13).
+10. **[WO-52](work-orders.md) notification content, [WO-53](work-orders.md)
+    cleanup loop, [WO-55](work-orders.md) Cloudinary** — the remaining coverage
+    gaps, in that order of value.
+11. **Admin audit viewer UI** and worker SLA colouring (FR-21/22).
 
 ---
 
-## Changelog
+## Where everything else lives
 
-Compressed 2026-08-16. Full narratives are in
-[changelog.md](changelog.md); the durable lessons are
-in [Traps](work-orders.md#traps-that-cost-a-session); the decisions are in
-[decisions.md](decisions.md).
-
-| Date | What | Notable |
-|---|---|---|
-| 2026-08-17 | **Batch L** (WO-41 → WO-44) — ledger integrity | Full audit against a running Postgres 17. **Concurrent postings were destroying money** — 20 parallel deposits left 1 deposit's worth — and the default waterfall failed outright on any loan without a guarantor, after committing DEFAULTED. Balance writes are now relative ([ADR-015](decisions.md)); recovery shares the status change's transaction. Also removed: a worker withdrawal endpoint that reported success while doing nothing, and 5 uncalled Next handlers. 7 regression tests, **each verified to fail against the pre-fix code first**. Integration suite 17 → 24 |
-| 2026-08-16 | **Batch G** (WO-23 → WO-26) — Next 14 → 16.3.1, React 18 → 19.2.8, next-intl 3 → 4.13.6, ESLint 8 → 9, Tailwind 3 → 4.3.3 | **`pnpm audit` 41 → 0.** Tailwind's codemod silently dropped `tailwindcss-animate`, killing 81 animation classes across 17 files. `sharp` closed itself — the override WO-23 declined to force was never needed |
-| 2026-08-16 | **Batch F** (WO-20 → WO-22) — Dockerfiles, compose, `.dockerignore` | Verified by *running* the images; three defects survived static review, all runtime-only. `.dockerignore` turned out to be a secret-containment control |
-| 2026-08-16 | **Batch E** (WO-17 → WO-19) — metrics, Sentry, alerting | `/metrics` is token-gated: the exposition is business data. Alerting split three ways on cost grounds. Found a startup context being handed to a background loop — gauges froze, which looks exactly like a calm system |
-| 2026-08-16 | **Dependency incident + policy** | Three Dependabot majors merged together broke the Vercel build. Majors are now ignored for npm and Go entirely — a major is a migration, not an update. Actions are the deliberate exception |
-| 2026-08-16 | **Batch D** (WO-14 → WO-16) — backups, migrations, seed | The restore is a *script*, not a paragraph, and CI drills it on every push. `db push` retired ([ADR-014](decisions.md)) |
-| 2026-08-15 | **Batch C** (WO-10 → WO-13) — tests + CI | **Found: no money method wrote an `audit_logs` row** — deposit, withdrawal, disbursement and repayment all moved money with no trail. And the donation-pool waterfall leg was broken two ways, so debt vanished with no ledger row and one donation could settle unlimited defaults |
-| 2026-08-15 | **Money lifecycle verified against a real database** | Two live bugs: `document_sequences."updatedAt"` NOT NULL with no default broke *all four* money flows as a generic 500; and a non-UTC session clock made every new token born revoked |
-| 2026-08-15 | **Batch B** (WO-06 → WO-09) — runtime hardening | Deploys no longer kill the API mid-transaction. Member emails out of the logs |
-| 2026-08-15 | **Batch A** (WO-01 → WO-05) — security defects | SEC-01→05, SEC-07. Token revocation actually revokes; the `/admin` group is gated at the router so a new handler is protected by where it is mounted |
-| — | Documents rebuilt: English-only, vector, paginated ([ADR-010](decisions.md), [ADR-012](decisions.md)) · sequential reference numbers ([ADR-013](decisions.md)) · new logo ([ADR-011](decisions.md)) · environment untangled · dead-code cleanup | |
+| Looking for | Read |
+|---|---|
+| What has already been done | [changelog.md](changelog.md) |
+| Why an operational task exists | [production-readiness.md](production-readiness.md) |
+| Exactly what to change for a task | [work-orders.md](work-orders.md) |
+| What the test suites cover, and what they do not | [testing.md](testing.md) |
+| The order to do things in before launch | [go-live.md](go-live.md) |
+| Why the code contradicts an older assumption | [decisions.md](decisions.md) |

@@ -9,14 +9,27 @@ Prompt with just the ID: **`do WO-28`** · `do WO-27 and WO-40`.
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Three orders are open.** Everything finished is one line per batch in
+**Nine orders are open** — three carried over, six opened 2026-08-18 by the
+documentation pass. Everything finished is one line per batch in
 [changelog.md](changelog.md). What was *learned* doing them is in
 [Traps](#traps-that-cost-a-session) below — read that before any work touching
 Docker, Prisma, migrations or the build config. Every entry there cost at least
 one session to find.
 
+| Order | What | Size |
+|---|---|---|
+| [WO-27](#wo-27--react-compiler-lint-cleanup---9-of-31-done) | React Compiler lint cleanup | deferred — needs a data-fetching library |
+| [WO-28](#wo-28--purge-member-data-and-binaries-from-git-history-) | **Purge member data from git history** | ½ day + GitHub Support |
+| [WO-40](#wo-40--enable-errcheck-and-staticcheck-) | Enable `errcheck` and `staticcheck` | half a day |
+| [WO-51](#wo-51--pin-enbn-message-parity-) | Pin EN/BN message parity | under an hour |
+| [WO-52](#wo-52--test-what-a-notification-actually-says-) | Test what a notification actually *says* | half a day |
+| [WO-53](#wo-53--prove-the-cleanup-loop-sweeps-) | Prove the cleanup loop sweeps | 2 hours |
+| [WO-54](#wo-54--fail-ci-on-prisma-schema-drift-) | Fail CI on Prisma schema drift | 1 hour |
+| [WO-55](#wo-55--cover-the-cloudinary-paths-) | Cover the Cloudinary paths | half a day |
+| [WO-56](#wo-56--loan-repayment-presets-must-be-whole-taka-) | Loan repayment presets must be whole taka | 20 minutes |
+
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
-TEST-38`.
+TEST-43`. **TEST-39 → 43 are open** and are WO-51 → WO-55 above.
 
 ### Standing rules for every order
 
@@ -186,15 +199,200 @@ Fix the first three groups, decide on `RealIP` against `TRUSTED_PROXIES`, then
 flip both linters on in `apps/api/.golangci.yml`. The 23 conventional findings
 (`defer tx.Rollback()`, `Close()`) are already excluded there.
 
----
----
+## WO-51 · Pin EN/BN message parity `[ ]`
+
+**Why:** [product.md](product.md) states "Full EN/BN parity on all user-facing
+strings" as a quality bar. Nothing enforces it. The two files hold **300 keys
+each and are identical today** — which is exactly the moment to pin it, because
+the check costs nothing to add and everything to add later once they have
+drifted.
+
+The browser matrix (`e2e/matrix.spec.ts`) does catch an untranslated key, but
+only on a page it happens to visit, in a locale it happens to render, and only
+once the key has already reached a screen. This catches it at `pnpm test:unit`,
+in under a second, without a database or a browser.
+
+**Change** — one new file, `apps/web/test/unit/messages.test.ts`:
+
+1. Flatten both `messages/en.json` and `messages/bn.json` to dotted key paths.
+2. Assert the two key sets are equal, and **name the missing keys in the failure
+   message** on both sides. "283 !== 284" is not a bug report.
+3. Assert no value in `bn.json` is byte-identical to its `en.json` counterpart
+   *and* longer than ~25 characters — a long untranslated string is a copy-paste
+   that passed review. Keep an explicit allowlist for the ones that are correctly
+   identical (`BDT`, brand names, `Hasnahena`), because there will be some.
+4. Assert every `{placeholder}` in an `en` value appears in the `bn` one. A
+   dropped `{amount}` renders the literal braces to a member.
+
+**Watch:** this is an enumerating suite, so it will fail the build the first time
+someone adds a key to one file only. That is the point — say so in the file
+header, the way the other four enumerating suites do, or the next person will
+"fix" it by deleting the assertion.
+
+**Done when:** `pnpm test:unit` covers it; deleting one key from `bn.json` fails
+with that key named; restoring it passes.
+
+## WO-52 · Test what a notification actually *says* `[ ]`
+
+**Why:** `apps/api/internal/services/email_service.go` is 488 lines and has
+**zero tests**. Every member-facing notification passes through it carrying an
+amount, and **LEDGER-03 was a wrong amount in a notification** — a `÷100` that
+told a member their ৳50,000 loan was "BDT 500.00". The current suites assert a
+notification row **exists** (`failure_injection_integration_test.go` counts them);
+nothing reads what it says.
+
+This is the last unguarded surface where money is rendered to a member. The
+document renderers got TEST-23→25; the screens got TEST-26→30; notifications got
+a row count.
+
+**Change**
+
+1. Extract the body-building from the sending, if it is not already separable —
+   a pure `func(…) (subject, body string)` per notification type is what makes
+   this testable without a mail server. **Do not add a mock SMTP.**
+2. Table test over every notification type, asserting for each:
+   - the amount appears **exactly once**, formatted as whole taka, equal to the
+     `int64` passed in — no `/100`, no `*100`, no decimal point;
+   - no other number in the body is mistakable for the amount;
+   - required member-identifying fields are present, and nothing else is (the
+     same PII discipline the Sentry scrubbers apply);
+   - both an `int64` boundary value and `0` render sensibly.
+3. Add the same census discipline the balance writers have: enumerate the
+   notification-building functions **from the source**, and fail if one has no
+   test. That is what caught LEDGER-05, and this file has the same shape — a set
+   of similar functions where the next one gets added without the test.
+
+**Watch:** rule 1. If any part of the pipeline takes a `float64` or formats with
+a fraction, that is the defect, not the test.
+
+**Done when:** a deliberate `/100` reintroduced anywhere in the body builders
+fails the suite, verified by making the change and seeing it red before reverting.
+
+## WO-53 · Prove the cleanup loop sweeps `[ ]`
+
+**Why:** RUN-06's `startCleanupLoop` in `cmd/server/main.go` sweeps expired
+tokens and rate limits every `CLEANUP_INTERVAL` (default 1 h). It has no test.
+**A sweep that stops sweeping is completely silent** — no error, no log line
+worth noticing, just `token_blacklist` and `rate_limits` growing until a query
+gets slow months later. It is also the exact shape RUN-06 was written to fix:
+`CleanupExpiredTokens` and `CleanupExpiredRateLimits` sat written-and-never-called
+for months and looked like working code.
+
+**Change** — an integration test in `internal/repositories`:
+
+1. Seed `token_blacklist` and `rate_limits` rows with expiries in the past and in
+   the future.
+2. Call the sweep functions directly and assert **only** the expired rows are
+   gone. A sweep that deletes too much is worse than one that deletes nothing.
+3. Assert the sweep is bounded: the loop wraps each pass in a 1-minute context, so
+   a cancelled context must return without deleting a partial set or panicking.
+4. Separately, assert in `cmd/server` that `startCleanupLoop` is **wired** — the
+   same enumeration idea as the route contract. A loop nobody starts is the
+   original defect.
+
+**Watch:** the loop ties itself to the shutdown context. A test that starts the
+real loop must cancel it, or the package hangs.
+
+**Done when:** deleting the `startCleanupLoop(...)` call from `main.go` fails the
+suite.
+
+## WO-54 · Fail CI on Prisma schema drift `[ ]`
+
+**Why:** CI applies `prisma/migrations/` and never compares the result to
+`schema.prisma`. The two can disagree — an edit to the schema with no generated
+migration is one keystroke away — and **nothing notices until a column is missing
+in production**, which surfaces as a runtime error on a money path.
+
+This is cheap and it is the guard for [ADR-014](decisions.md): `db push` is
+retired precisely so the migrations are the truth, and that only holds if
+something checks.
+
+**Change** — one step in `.github/workflows/ci.yml`, in the `integration` job
+after `pnpm db:migrate`:
+
+```bash
+pnpm --filter @hasnahena/web exec prisma migrate diff \
+  --from-url "$DATABASE_URL" \
+  --to-schema-datamodel prisma/schema.prisma \
+  --exit-code
+```
+
+`--exit-code` returns 2 when there is a difference, so the job fails with the
+diff printed. Add the same as a `db:migrate:check` script in `package.json` so it
+is runnable locally.
+
+**Watch:** the `audit_logs` immutability trigger (DATA-08) is **not modelled by
+Prisma** — it lives in a migration only. Confirm `migrate diff` does not report
+it as drift; if it does, the check has to compare schema-to-schema rather than
+database-to-schema, and the trigger's absence from `schema.prisma` needs the
+comment above `model AuditLog` to say so even more loudly.
+
+**Done when:** adding a field to `schema.prisma` without generating a migration
+fails CI, verified locally before pushing.
+
+## WO-55 · Cover the Cloudinary paths `[ ]`
+
+**Why:** upload, transform and delete have no test on either surface, and
+**DATA-06 means the assets have no backup either**. NID front/back, passport
+photos and nominee photos are regulatory documents. The combination — untested
+write path, no export, single third-party account — is the weakest link in the
+data story now that the database is drilled on every push.
+
+**Change**
+
+1. Unit-test the pure parts with no network: the signature/params builder, the
+   public-id derivation, the transformation string, and the file-type and
+   size validation. A NID image that silently uploads as the wrong resource type
+   is unrecoverable in the same way a wrong balance is.
+2. Test the **failure** path, which is the one that matters: a rejected upload
+   must not leave a member row referencing a URL that does not exist. Assert the
+   registration path either commits both or neither.
+3. Do **not** test against the real Cloudinary account from CI. Stub the HTTP
+   client at the boundary.
+4. Then do DATA-06 — an export job — because a covered upload path to an
+   unbackupable store is still one deletion away from being unrecoverable.
+
+**Done when:** the validation and failure paths are covered, and DATA-06 has a
+decision recorded even if the answer is "accept the risk until launch".
+
+## WO-56 · Loan repayment presets must be whole taka `[ ]`
+
+**Why:** rule 1 — money is whole taka, no paisa. `getLoanRepaymentPresets` in
+`apps/web/lib/utils.ts` computes:
+
+```ts
+const weekly = Math.round((installmentAmount / 4) * 100) / 100;
+```
+
+so the "weekly" quick-fill offers a member `1141.75` for a ৳4,567 installment. It
+is used on three money screens — `member/loans`, `worker/loans` and
+`admin/members/[id]`. All three call `Math.round()` before submitting, so nothing
+wrong is *posted*; the defect is that **the member is shown a figure that is not
+the one that gets recorded**, and a fractional taka appears in the UI of a
+platform whose first rule says it cannot.
+
+**Change**
+
+1. `const weekly = Math.round(installmentAmount / 4);` — one line.
+2. Add it to `apps/web/lib/utils.test.ts` (create it): assert every preset is an
+   integer for a range of installment amounts including ones not divisible by 4,
+   and that each is clamped to `[0, remainingAmount]`.
+3. While there, check the three call sites still round on submit. They should
+   become no-ops, not be removed — defence in depth on a money path is not
+   duplication.
+
+**Watch:** `formatCurrency` already truncates for display, which is why nobody
+saw this. The presets write into a text input, not through the formatter.
+
+**Done when:** the new unit test fails against the current line and passes after
+the change.
 
 ---
 
 # Completed work
 
 Moved to [changelog.md](changelog.md) — one line per batch, for WO-01 → WO-50
-and TEST-01 → TEST-38. The lessons that outlived the work are below.
+and TEST-01 → TEST-43. The lessons that outlived the work are below.
 
 # Traps that cost a session
 

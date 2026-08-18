@@ -49,7 +49,7 @@ OBS/PKG id.
   allocator months earlier and never carried to the TypeScript one. Grep both.
 ---
 
-## Testing phases — TEST-01 → TEST-38
+## Testing phases — TEST-01 → TEST-43
 
 Full findings, with the reasoning, are in [testing.md](testing.md).
 
@@ -64,3 +64,13 @@ Full findings, with the reasoning, are in [testing.md](testing.md).
 | **6** Interface | TEST-26 → 30 | The member dashboard rendered a **fabricated "BDT 0"** while loading, and kept it forever if the fetch failed — a member could be shown a zero balance that was not theirs. Twenty-plus icon-only controls across the dashboards had no accessible name; eight settings labels were not associated with their inputs; five aria-labels were hardcoded English. A dead identical ternary collapsed. All 75 layout cells (phone/desktop × en/bn) already passed |
 | **7** Non-functional | TEST-31 → 35 | 240 sustained postings reconcile exactly against the ledger, with no receipt collisions and one audit row each. Every list read is flat in query count. Every failure path leaves nothing behind — including receipt numbers, which a rolled-back posting gives back. **The e2e suite was silently rate-limited**: 60 requests/minute per address, 91 rejections in one run, which read as flaky ordering |
 | **8** Documentation | TEST-36 → 38 | This file. `work-orders.md` 1,023 → open orders plus traps; the duplicated banners in `production-readiness.md` and `tasks.md` cross-linked instead of repeated; `testing.md` became the permanent guide and the four enumerating suites are listed in CLAUDE.md |
+| **9** Coverage gaps | TEST-39 → 43 | Opened 2026-08-18, not closed. Five surfaces no assertion reaches: EN/BN message parity (300 keys each, identical, pinned by nothing), `email_service.go` (488 lines, zero tests, and LEDGER-03 was a wrong amount *in a notification*), the hourly cleanup loop, Prisma schema drift, and the Cloudinary paths. Specs are [WO-51 → WO-55](work-orders.md) |
+
+---
+
+## Documentation passes
+
+| Date | What |
+|---|---|
+| 2026-08-18 | **Status reconciled against the source.** `tasks.md` still listed SEC-11 as a live defect three weeks after it was closed, still cited WO-29 as the fix for an uncovered guarantor flow that WO-29 had already closed, and carried a duplicate of the changelog. `production-readiness.md` carried four completed phase tables in full. Both were cut to open work only. Found on the way: **the monitoring is built and switched off** — Sentry, `/metrics` and UptimeRobot all exist in code and none is receiving anything, which is how a Sentry onboarding email ended up being the trigger for this pass. Also opened Phase 9 (five uncovered surfaces) and WO-51 → WO-56, and **proved the full browser suite in one pass** — 142 passed, 1 skipped, 10.2 minutes |
+| 2026-08-17 | **TEST-36 → 38.** `work-orders.md` 1,023 lines → open orders plus traps; completed batches compressed into this file; `testing.md` became the permanent guide; the four enumerating suites listed in `CLAUDE.md` |

@@ -108,8 +108,9 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one |
 | [docs/go-live.md](docs/go-live.md) | **the order to do remaining work in before real member data exists** — read before any pre-production planning |
-| [docs/tasks.md](docs/tasks.md) | done vs. open — **update when you finish work** |
-| [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **Live security defects at the top** |
+| [docs/tasks.md](docs/tasks.md) | the status board: open work only, plus what the suites do **not** cover — **update when you finish work** |
+| [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **Live defects at the top** — member records in git history, and monitoring that is built and switched off |
+| [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch. The only doc that keeps history |
 | [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs; no codebase exploration needed |
 
 Conventions (Go errors, TS strictness, quoted camelCase SQL, commit format): [CONTRIBUTING.md](CONTRIBUTING.md).

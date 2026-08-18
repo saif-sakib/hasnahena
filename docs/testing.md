@@ -613,6 +613,77 @@ before anything is slow is a number nobody trusts:
 
 ---
 
+## Phase 9 — What the suites still do not cover `TEST-39 … TEST-43`
+
+Opened 2026-08-18. Phases 0–8 closed the boundary gap and found eighteen
+defects. This phase exists because **"the suite is green" and "this is checked"
+are different statements**, and the whole point of the eight phases above was
+that nobody could tell them apart. Every entry below is a surface no assertion
+currently reaches, written down so it stops being invisible.
+
+Each has an execution spec in [work-orders.md](work-orders.md); this table is the
+*why*, and [tasks.md](tasks.md#coverage-gaps-under-watch) is the status.
+
+| ID | Uncovered surface | Why it is the next place a defect hides | Order |
+|---|---|---|---|
+| **TEST-39** | **EN/BN message parity** | 300 keys each, identical today. "Full EN/BN parity on all user-facing strings" is a stated quality bar in [product.md](product.md) with nothing behind it. The layout matrix catches an untranslated key only on a page it visits, in a locale it renders, after the key already reached a screen | [WO-51](work-orders.md) |
+| **TEST-40** | **What a notification says** | `email_service.go` is 488 lines with zero tests, and every member-facing notification carries an amount through it. **LEDGER-03 was a wrong amount in a notification.** The suites assert a notification row *exists*; none reads it. This is the last unguarded surface where money is rendered to a member | [WO-52](work-orders.md) |
+| **TEST-41** | **The cleanup loop** | `startCleanupLoop` sweeps expired tokens and rate limits hourly and has no test. A sweep that stops sweeping is completely silent — the table just grows. It is also the RUN-06 shape exactly: `CleanupExpiredTokens` sat written-and-never-called for months and looked like working code | [WO-53](work-orders.md) |
+| **TEST-42** | **Prisma schema drift** | CI applies the migrations and never compares the result to `schema.prisma`. The two can disagree, and nothing notices until a column is missing in production. [ADR-014](decisions.md) retired `db push` so the migrations are the truth — which only holds if something checks | [WO-54](work-orders.md) |
+| **TEST-43** | **The Cloudinary paths** | Upload, transform and delete are untested on both surfaces, and DATA-06 means the assets have no backup either. NID front/back and nominee photos are regulatory documents. Untested write path + no export + one third-party account is the weakest link in the data story now that the database is drilled on every push | [WO-55](work-orders.md) |
+
+**Two of these five are worth more than the other three**, and it is worth being
+explicit about which: TEST-40, because it guards money rendered to a member and
+we have already shipped that exact defect once; and TEST-42, because it is an
+hour of work that fails the build on a whole class of drift.
+
+### What is deliberately still uncovered
+
+Not everything absent is a gap. These are decisions:
+
+| Not covered | Why |
+|---|---|
+| Brevo actually delivering mail | Testing a third party's SMTP proves nothing about this code. WO-52 tests the message; delivery is an operational check on the go-live list |
+| The React Compiler lint findings | The compiler is off, so the rules describe a hypothetical. See [WO-27](work-orders.md) |
+| Load and stress testing | Out of scope in [product.md](product.md). TEST-31's 240 sustained postings is the ceiling this workload needs |
+| A generic accessibility audit | See the reasoning in `e2e/accessibility.spec.ts` — four specific checks beat a long advisory list nobody actions |
+
+### The one-pass browser run
+
+**Proven 2026-08-18: 142 passed, 1 skipped, 10.2 minutes, exit code 0**, against
+`scripts/test-stack.sh up --serve` on an otherwise idle machine (load average
+0.6). That closes the one item the eight phases left unverified.
+
+It had been unproven for a while, and how that happened is the useful part: four
+earlier attempts were killed because the machine was saturated by unrelated
+processes, and **a Playwright run starved of CPU produces timeouts that read
+exactly like defects**. The run that finally completed was not a different test
+suite; it was the same suite on a quiet machine.
+
+So: before acting on a browser failure, check `uptime` and re-run the single spec
+on its own. Two of the Phase 6 "failures" were the machine. One — the rate
+limiting — was real, and the only thing that separated them was
+`grep -c 429 .test-stack/api.log`.
+
+**The 1 skipped is `e2e/admin-dashboard.spec.ts`.** It guards itself behind
+`E2E_ADMIN_IDENTIFIER` / `E2E_ADMIN_PASSWORD`, and neither `test-stack.sh env`
+nor the CI e2e job sets them — so that spec has **never run in any environment**.
+It is not a coverage hole (`journeys.spec.ts` signs in as an admin through the
+fixtures and asserts more), but a permanently-skipped spec is worse than no spec:
+it reads as covered in every report. Wire it to `ACCOUNTS.ADMIN` or delete it.
+
+That matters more than it sounds: **an e2e failure on a loaded machine is not
+evidence of a bug, and it is not evidence of a working system either.** Before
+acting on one, check the load, and re-run the single spec on its own. Two of the
+Phase 6 "failures" were the machine; one — the rate limiting — was real, and the
+only way to tell them apart was `grep -c 429 .test-stack/api.log`.
+
+Video recording is off by default (`PWVIDEO=1` re-enables it) precisely because
+it costs an ffmpeg process per test, around 30% of a core, on a machine that may
+not have it to spare.
+
+---
+
 ## The order it was done in, and why
 
 ```

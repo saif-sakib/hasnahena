@@ -132,6 +132,31 @@ executed rather than one you are reading.
 `BACKUP_PASSPHRASE` lives. A backup nobody else can decrypt is a backup that
 depends on one person being reachable.
 
+### 1.5 Switch the monitoring on — it is built and it is off
+
+Sentry, `/metrics` and UptimeRobot are all written, correct and **receiving
+nothing**, because no environment has the credentials set. Sentry said so itself:
+it emailed to report that a Next.js project existed and no errors had ever
+arrived.
+
+This belongs in Stage 1 for a reason that is not the usual one. It does not get
+more expensive later — it gets *less useful* later. The window where you most
+need to see an exception is the first week of real member traffic, and a
+monitoring stack switched on during that week is one you are also debugging
+during that week.
+
+| Set | Where | Skipping it means |
+|---|---|---|
+| `SENTRY_DSN` | **Render** | Go API exceptions go nowhere |
+| `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel**, then **redeploy** | Web exceptions go nowhere. `NEXT_PUBLIC_*` is baked at build time — a restart is not enough |
+| `METRICS_TOKEN`, the same value in both | **Render** *and* **GitHub secrets** | `/metrics` 404s, and the Monitor workflow **fails twice a day** rather than passing silently |
+| An UptimeRobot monitor on `/v1/ready` | UptimeRobot | Nothing tells you the API is down |
+
+Then prove each one end to end rather than assuming a set variable is a working
+one — the checks are in
+[production-readiness.md](production-readiness.md#the-monitoring-is-built-and-switched-off)
+and on the Stage 3 list below.
+
 ---
 
 ## Stage 2 — The cutover
@@ -207,8 +232,12 @@ Run the release checklist in [deployment.md](deployment.md), then:
       ([ADR-012](decisions.md)) — confirm that is what the foundation expects to
       hand a member
 - [ ] Confirm `/metrics` answers with the token and 404s without it
-- [ ] Confirm Sentry receives a test error from both apps
+- [ ] Confirm Sentry receives a test error from **both** apps, tagged with the
+      right environment and release. If nothing arrives, the DSN is unset — the
+      integration is deliberately silent without one (Stage 1.5)
 - [ ] Confirm UptimeRobot is actually monitoring `/v1/ready`
+- [ ] Run the Monitor workflow by hand and confirm it passes rather than exiting
+      1 on a missing `METRICS_TOKEN`
 - [ ] Check **Render's stop grace period exceeds `SERVER_SHUTDOWN_TIMEOUT`**
       (30 s default) or a deploy will `SIGKILL` mid-transaction
 
@@ -224,10 +253,8 @@ These cost the same whenever they are done, so they should not delay launch.
 |---|---|---|
 | React Compiler lint cleanup | [WO-27](work-orders.md) | **Still deferred.** The compiler is not enabled, so the 20 remaining findings change nothing at runtime, and the obvious fix was tried and measured — it does not clear the rule. Needs these screens moved onto a data-fetching library |
 | Enable `errcheck` + `staticcheck` | [WO-40](work-orders.md) | **The one to do first.** 21 of the 44 findings are real, including 2 unchecked `tx.Exec` of the exact shape that made debt vanish once already |
-| ~~Build and push images in CI~~ | [WO-34](work-orders.md) | **Done 2026-08-16** — GHCR, tagged by commit SHA |
-| ~~Split `user_repository.go`~~ | [WO-38](work-orders.md) | **Done 2026-08-16** — nine files by domain, verified byte-identical |
-| ~~Web unit tests~~ | [WO-36](work-orders.md) | **Done 2026-08-16** — 32 tests, ~1s, in CI |
-| Log aggregation, dashboard, audit viewer | OBS-05/07/08 | You have metrics and Sentry. These make them nicer to read |
+| Close the coverage gaps | [WO-51 → WO-55](work-orders.md) | **WO-52 and WO-54 are the exceptions — do those two in Stage 1.** A notification that misreports an amount is a member-facing money defect, and schema drift is cheapest to catch before there are rows. The other three can wait |
+| Log aggregation, dashboard, audit viewer | OBS-05/07/08 | You have metrics and Sentry — *once they are switched on*. These make them nicer to read |
 | Cloudinary asset backup | DATA-06 | **The exception — do this as soon as real NID images exist.** It is Stage 1 work that simply cannot be done before there is anything to back up |
 | Host move | INF-01 → INF-12 | Only once everything above is quiet |
 
