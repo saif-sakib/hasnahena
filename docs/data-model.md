@@ -11,7 +11,7 @@
 4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
 6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`, `DON-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)). `RecordDonation` was the last exception and was fixed by [LEDGER-04](production-readiness.md).
-7. **The donation pool is a row, not a computed total.** `RecordDonation` locks `accounts` where `accountNumber = 'HN-ACC-DONATION'` and credits it, so that row must exist or every donation fails. Nothing created it until 2026-08-17 — `pnpm db:seed` does now, `pnpm db:clear` preserves it at a zero balance, and a missing row answers 503 naming the fix. The default *waterfall* is different: it sums `transactions` (donated minus already drawn) rather than reading this balance, which is why loan recovery kept working while recording a donation could not.
+7. **The donation pool is a row, not a computed total.** `RecordDonation` locks the `accounts` row whose `userId` is `system_donation_fund` and credits it, so that row must exist or every donation fails. It used to be found by `accountNumber = 'HN-ACC-DONATION'`; that column is gone ([ADR-023](decisions.md)), and `accounts.userId` is unique, so the lookup still names exactly one row under `FOR UPDATE`. Nothing created it until 2026-08-17 — `pnpm db:seed` does now, `pnpm db:clear` preserves it at a zero balance, and a missing row answers 503 naming the fix. The default *waterfall* is different: it sums `transactions` (donated minus already drawn) rather than reading this balance, which is why loan recovery kept working while recording a donation could not.
 8. **`transactions."processedBy"` is a foreign key to `users.id`, not a name.** It looks like a display field and is not; writing a person's name into it raises `transactions_processedBy_fkey`. A deleted Next handler did exactly that and 500'd on every call. Render the name by joining `users`, the way `member_repository.go` does.
 
 ## Entities
@@ -22,7 +22,7 @@
 | `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User` |
 | `Nominee` → `nominees` | name, relationship, NID, phone, photo | 1-1 `User`, cascade delete |
 | `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | many-1 `User`, cascade |
-| `Account` → `accounts` | `accountNumber`, `savingsBalance`, `loanBalance`, `isLoanEligible`, `maxLoanAmount` | 1 per `User` |
+| `Account` → `accounts` | `savingsBalance`, `loanBalance`, `isLoanEligible`, `maxLoanAmount` | 1 per `User`, enforced — `userId` is unique. **No account number**: it held a copy of `users.memberId` ([ADR-023](decisions.md)) |
 | `Transaction` → `transactions` | type, amount, receipt no., status, dispute fields, balance snapshots, `processedBy` | `Account`, `User`, optional `Loan` |
 | `Loan` → `loans` | `loanNumber`, principal/remaining, installment plan, dates, purpose, status | borrower, optional guarantor, approver, `Account` |
 | `SupportThread` / `SupportMessage` | member↔staff chat, `deleteAt` TTL | member, processing staff |

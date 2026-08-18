@@ -150,7 +150,6 @@ const STATEMENT = {
   memberName: 'Rahima Khatun',
   memberId: 'ACC-KH-33001',
   memberPhone: '01712345678',
-  accountNumber: 'ACC-KH-33001',
   periodStart: '2026-07-01T00:00:00.000Z',
   periodEnd: '2026-07-31T00:00:00.000Z',
   openingBalance: 10000,
@@ -319,7 +318,6 @@ describe('buildLoanAgreement', () => {
 const CERT = {
   memberName: 'Rahima Khatun',
   memberId: 'ACC-KH-33001',
-  accountNumber: 'ACC-KH-33001',
   memberSince: '2024-03-15T00:00:00.000Z',
   phone: '01712345678',
   address: 'Bhekutia, Sadar, Jashore',
@@ -381,5 +379,56 @@ describe.each(ALL)('every document (%s)', (_name, build) => {
   it('prints no "undefined", "null" or "NaN"', () => {
     const text = visibleText(build()).join(' ');
     expect(text).not.toMatch(/\bundefined\b|\bnull\b|\bNaN\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-023 — a member is identified once per document.
+// ---------------------------------------------------------------------------
+
+/**
+ * The statement used to print the member id twice: once as "Member ID" and
+ * again as "Account No", because `accounts.accountNumber` held a copy of
+ * `users.memberId`. The membership certificate did the same. The column is
+ * gone, but the shape of the mistake is easy to reintroduce — anything that
+ * derives a second "number" from the member id and gives it its own label.
+ *
+ * So this asserts the outcome rather than the absence of a column: whatever a
+ * document calls the member, the member's id appears on it exactly once.
+ */
+describe('a document identifies the member exactly once', () => {
+  const MEMBER_ID = 'ACC-KH-33001';
+
+  /** Every field value, plus the reference block, as a reader would see them. */
+  function occurrencesOfMemberId(model: DocumentModel): string[] {
+    const labels: string[] = [];
+    if (model.refValue === MEMBER_ID) labels.push(model.refLabel);
+    for (const block of model.blocks) {
+      if (block.kind === 'fields') {
+        for (const f of block.fields) if (f.value === MEMBER_ID) labels.push(f.label);
+      }
+      if (block.kind === 'tiles') {
+        for (const t of block.tiles) if (t.value === MEMBER_ID) labels.push(t.label);
+      }
+    }
+    return labels;
+  }
+
+  // The invariant is about *names*, not counts. A document may repeat the id —
+  // the statement carries it in the header reference and again in the account
+  // holder block, which is normal for a printed statement. What it must never do
+  // is call it two different things, because a member comparing two labelled
+  // rows has no way to know they are the same number and reasonably concludes
+  // one of them is something else they were never told about.
+  it('the statement gives it a single name', () => {
+    const labels = occurrencesOfMemberId(buildStatement({ ...STATEMENT, memberId: MEMBER_ID }));
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(labels)]).toEqual(['Member ID']);
+  });
+
+  it('the membership certificate gives it a single name', () => {
+    const labels = occurrencesOfMemberId(buildMembershipCertificate({ ...CERT, memberId: MEMBER_ID }));
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(labels)]).toEqual(['Member ID']);
   });
 });

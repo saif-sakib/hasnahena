@@ -96,8 +96,23 @@ async function seedAdmin(prisma) {
   // database, silently seeding config and no admin would leave something that
   // looks seeded and cannot be logged into, so that still fails loudly.
   if (!email) {
+    // "An admin exists" has to mean an admin somebody can log in as, not merely
+    // a row with an admin role. The donation pool's owner is exactly such a row
+    // — role ADMIN so it can hold an account, INACTIVE with a password hash
+    // bcrypt can never match, by design — and it satisfied this check. Once the
+    // pool existed, re-running the seed on a database whose real admin had been
+    // removed printed "admin: skipped" and exited 0, leaving the thing the
+    // comment above promises cannot happen: seeded, and impossible to log into.
+    //
+    // Both conditions, deliberately. ACTIVE is the property that matters;
+    // naming the system id as well keeps the intent legible if a future system
+    // account is created ACTIVE for some other reason.
     const anyAdmin = await prisma.user.findFirst({
-      where: { role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] } },
+      where: {
+        role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
+        status: UserStatus.ACTIVE,
+        id: { not: DONATION_OWNER_ID },
+      },
       select: { id: true, email: true, phone: true },
     });
 
@@ -179,8 +194,8 @@ async function seedConfig(prisma) {
 }
 
 // The donation pool is a real account in the ledger, not a computed total:
-// RecordDonation locks `accounts` where accountNumber = 'HN-ACC-DONATION' and
-// credits it, so without this row every attempt to record a donation failed
+// RecordDonation locks the account owned by DONATION_OWNER_ID and credits it,
+// so without this row every attempt to record a donation failed
 // with a 500 and the message "Failed to record donation". Nothing in the schema,
 // the migrations or the application ever created it — only a test did — so it
 // would have been missing on the day the foundation recorded its first
@@ -190,12 +205,16 @@ async function seedConfig(prisma) {
 // user must never be able to log in: `passwordHash` is a string bcrypt can
 // never produce a match for, and the status is INACTIVE, so the auth gate
 // refuses it even if someone later sets a password.
-const DONATION_ACCOUNT_NUMBER = 'HN-ACC-DONATION';
+// The pool is identified by its owner, not by an account number: there is no
+// account number any more (ADR-023), and `accounts.userId` is unique, so this
+// id names exactly one row — which matters because the Go side takes
+// FOR UPDATE on it. Keep it in step with DonationFundUserID in
+// apps/api/internal/repositories/transaction_repository.go.
 const DONATION_OWNER_ID = 'system_donation_fund';
 
 async function seedDonationPool(prisma) {
   const existing = await prisma.account.findUnique({
-    where: { accountNumber: DONATION_ACCOUNT_NUMBER },
+    where: { userId: DONATION_OWNER_ID },
     select: { id: true },
   });
   if (existing) {
@@ -224,7 +243,6 @@ async function seedDonationPool(prisma) {
 
   await prisma.account.create({
     data: {
-      accountNumber: DONATION_ACCOUNT_NUMBER,
       savingsBalance: BigInt(0),
       loanBalance: BigInt(0),
       isLoanEligible: false,
@@ -232,7 +250,7 @@ async function seedDonationPool(prisma) {
       userId: DONATION_OWNER_ID,
     },
   });
-  console.log(`donation pool: created ${DONATION_ACCOUNT_NUMBER}`);
+  console.log(`donation pool: created, owned by ${DONATION_OWNER_ID}`);
 }
 
 async function main() {

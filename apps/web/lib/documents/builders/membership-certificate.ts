@@ -11,7 +11,6 @@ export function buildMembershipCertificate(
   const orgName = getOrgNameEn(org);
 
   const details: Field[] = [
-    { label: 'Account No', value: orDash(data.accountNumber) },
     { label: 'Member since', value: formatDate(data.memberSince) },
     { label: 'Mobile', value: orDash(data.phone) },
     { label: 'Issued on', value: formatDate(new Date().toISOString()) },

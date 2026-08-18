@@ -286,7 +286,6 @@
     "nomineeRelation": "Relationship",
     "nomineeNid": "Nominee NID",
     "updateNominee": "Update Nominee",
-    "accountNumber": "Account Number",
     "memberSince": "Member Since",
     "memberStatus": "Member Status",
     "active": "Active",

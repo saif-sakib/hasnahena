@@ -161,7 +161,7 @@ const REQUIREMENTS: Record<string, Coverage> = {
   },
   'FR-16': {
     gap: 'the pool is not withdrawable, but there is no separate pool accounting',
-    // The pool account exists (HN-ACC-DONATION) and the waterfall depletes it;
+    // The pool account exists (owned by system_donation_fund) and the waterfall depletes it;
     // what is missing is per-fund accounting, which FR-15 gates.
   },
   'FR-17': {

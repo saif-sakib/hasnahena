@@ -403,15 +403,19 @@ func TestMemberLoansDoesNotLeakOtherMembers(t *testing.T) {
 // LEDGER-04 — donations are sequential, and they leave a trail.
 // ---------------------------------------------------------------------------
 
-// seedDonationAccount creates the real HN-ACC-DONATION account that
+// seedDonationAccount creates the real donation pool account that
 // RecordDonation posts into. seedDonationPool next door only inserts DONATION
 // ledger rows, which is enough for the waterfall (it sums transactions) but not
 // for recording a donation, which needs the account row to lock.
+//
+// The owner id is not arbitrary: RecordDonation finds the pool by it, because
+// there is no account number any more (ADR-023). It must equal
+// repositories.DonationFundUserID.
 func seedDonationAccount(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
-	const owner = "donation_fund"
+	const owner = DonationFundUserID
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO users (id, email, phone, "passwordHash", role, status,
 			"nameEn", "fatherName", "motherName", gender, "maritalStatus", "childrenCount",
@@ -423,9 +427,9 @@ func seedDonationAccount(t *testing.T) string {
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance",
+		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
 			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 'HN-ACC-DONATION', 0, 0, false, 0, NOW(), NOW(), $1)
+		VALUES ('acct_' || $1, 0, 0, false, 0, NOW(), NOW(), $1)
 	`, owner); err != nil {
 		t.Fatalf("seed donation account: %v", err)
 	}

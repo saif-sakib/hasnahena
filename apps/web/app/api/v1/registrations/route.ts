@@ -321,7 +321,6 @@ export async function POST(req: Request) {
       await tx.$executeRawUnsafe(MEMBER_ID_ADVISORY_LOCK_SQL);
       const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_MEMBER_ID_SQL);
       const memberId = formatMemberId(Number(nextSeq));
-      const accountNumber = memberId;
 
       return tx.user.create({
         data: {
@@ -379,9 +378,8 @@ export async function POST(req: Request) {
             },
           },
 
-          accounts: {
+          account: {
             create: {
-              accountNumber,
               isLoanEligible: false,
               maxLoanAmount: BigInt(0),
               savingsBalance: BigInt(0),

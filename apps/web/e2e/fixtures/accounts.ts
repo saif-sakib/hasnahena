@@ -107,11 +107,12 @@ export async function seedAccounts(openingBalance = 50_000): Promise<void> {
     });
   }
 
+  // Keyed on the owner: `accounts.userId` is unique and there is no account
+  // number any more (ADR-023).
   await db().account.upsert({
-    where: { accountNumber: ACCOUNTS.MEMBER.memberId },
+    where: { userId: ACCOUNTS.MEMBER.id },
     update: { savingsBalance: BigInt(openingBalance), loanBalance: BigInt(0) },
     create: {
-      accountNumber: ACCOUNTS.MEMBER.memberId,
       savingsBalance: BigInt(openingBalance),
       loanBalance: BigInt(0),
       isLoanEligible: true,
@@ -124,7 +125,7 @@ export async function seedAccounts(openingBalance = 50_000): Promise<void> {
 /** The member's current savings, for asserting a posting actually landed. */
 export async function memberSavings(): Promise<bigint> {
   const account = await db().account.findUnique({
-    where: { accountNumber: ACCOUNTS.MEMBER.memberId },
+    where: { userId: ACCOUNTS.MEMBER.id },
     select: { savingsBalance: true },
   });
   return account?.savingsBalance ?? BigInt(0);

@@ -8,7 +8,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  CreditCard,
   UserCheck,
   Edit2,
   Save,
@@ -38,7 +37,6 @@ import {
 
 interface UserProfile {
   memberId: string;
-  accountNumber: string;
   nameEn: string;
   nameBn: string;
   fatherName: string;
@@ -130,7 +128,6 @@ export default function ProfilePage() {
     const p = profileData?.profile;
     return {
       memberId: p?.memberId ?? '',
-      accountNumber: p?.accountNumber ?? '',
       nameEn: p?.nameEn ?? '',
       nameBn: p?.nameBn ?? '',
       fatherName: p?.fatherName ?? '',
@@ -277,7 +274,6 @@ export default function ProfilePage() {
         {
           memberName: profile.nameEn || profile.nameBn,
           memberId: profile.memberId || 'N/A',
-          accountNumber: profile.accountNumber || undefined,
           memberSince: profile.memberSince || new Date().toISOString(),
           phone: profile.phone || undefined,
           address: formatAddress(profile.permanentAddress),
@@ -326,11 +322,10 @@ export default function ProfilePage() {
             <div className="text-center sm:text-left text-white flex-1">
               <h2 className="text-2xl font-bold">{locale === 'bn' ? profile.nameBn : profile.nameEn}</h2>
               <p className="opacity-90">{profile.memberId}</p>
+              {/* The account-number chip that used to sit here printed the
+                  member id a second time, one line below the line above it
+                  (ADR-023). */}
               <div className="mt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
-                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-white/20">
-                  <CreditCard className="h-3 w-3" />
-                  {profile.accountNumber}
-                </span>
                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
                   profile.status === 'ACTIVE' ? 'bg-green-500' : 'bg-amber-500'
                 }`}>

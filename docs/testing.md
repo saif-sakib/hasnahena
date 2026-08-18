@@ -256,7 +256,8 @@ not reach.**
    one statement, so there is no window between them. Verified failing against
    the committed method.
 2. **The donation pool account did not exist.** `RecordDonation` locks
-   `accounts` where `accountNumber = 'HN-ACC-DONATION'`. Nothing in the schema,
+   the `accounts` row owned by `system_donation_fund` (it was
+   `accountNumber = 'HN-ACC-DONATION'` until ADR-023). Nothing in the schema,
    the migrations or the application ever created that row — only a test did —
    so the foundation's first real donation would have failed with a 500 and
    "Failed to record donation". `pnpm db:seed` creates it now, `pnpm db:clear`

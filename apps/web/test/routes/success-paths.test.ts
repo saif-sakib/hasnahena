@@ -40,9 +40,9 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
 
   beforeAll(async () => {
     process.env.JWT_SECRET = TEST_JWT_SECRET;
-    await seedRoleUsers();
+    const roleUserIds = await seedRoleUsers();
     const account = await testPrisma().account.findUnique({
-      where: { accountNumber: 'RT-ACC-MEMBER' },
+      where: { userId: roleUserIds.MEMBER },
       select: { id: true },
     });
     accountId = account!.id;

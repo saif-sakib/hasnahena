@@ -30,7 +30,6 @@ const statementWith = (transactions: StatementTransaction[], closing = 0) =>
     memberName: 'Rahima Khatun',
     memberId: 'ACC-KH-33001',
     memberPhone: '01712345678',
-    accountNumber: 'ACC-KH-33001',
     periodStart: '2026-01-01T00:00:00.000Z',
     periodEnd: '2026-12-31T00:00:00.000Z',
     openingBalance: 0,

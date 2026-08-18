@@ -146,7 +146,6 @@ export function buildStatement(
         { label: 'Name', value: orDash(data.memberName) },
         { label: 'Member ID', value: orDash(data.memberId) },
         { label: 'Mobile', value: orDash(data.memberPhone) },
-        { label: 'Account No', value: orDash(data.accountNumber) },
         {
           label: 'Statement period',
           value: `${formatDate(data.periodStart)} — ${formatDate(data.periodEnd)}`,

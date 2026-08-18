@@ -21,11 +21,21 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
-// ErrDonationPoolMissing means the HN-ACC-DONATION account does not exist.
+// DonationFundUserID owns the donation pool account.
+//
+// The pool is found by its owner rather than by an account number, because
+// there is no longer an account number: `accounts.accountNumber` was always a
+// copy of the owner's memberId and was removed (ADR-023). This id is set
+// explicitly by `pnpm db:seed`, and `accounts.userId` is unique, so the lookup
+// below names exactly one row — which matters, because it takes FOR UPDATE on a
+// money path.
+const DonationFundUserID = "system_donation_fund"
+
+// ErrDonationPoolMissing means the donation pool account does not exist.
 // It is a deployment fault rather than a request fault, so the handler answers
 // 503 and names the fix instead of 500 and naming nothing.
 var ErrDonationPoolMissing = errors.New(
-	"donation pool account HN-ACC-DONATION is missing — run `pnpm db:seed` against this database")
+	"the donation pool account (owned by " + DonationFundUserID + ") is missing — run `pnpm db:seed` against this database")
 
 // FR-08. A member gives notice by requesting the withdrawal; the request row is
 // the notice, and its createdAt starts the clock. Nothing may pay out against a
@@ -802,9 +812,9 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 	err = tx.QueryRow(ctx, `
 		SELECT id::text, "userId"::text, COALESCE("savingsBalance", 0)::bigint
 		FROM accounts
-		WHERE "accountNumber" = 'HN-ACC-DONATION'
+		WHERE "userId" = $1
 		FOR UPDATE
-	`).Scan(&donationAccID, &donationUserID, &donationBalance)
+	`, DonationFundUserID).Scan(&donationAccID, &donationUserID, &donationBalance)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Nothing in the schema, the migrations or the application created this
 		// row until 2026-08-17 — only a test did — so on a fresh deployment

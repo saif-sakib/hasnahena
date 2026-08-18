@@ -83,14 +83,11 @@ export interface StatementData {
   totalDeposits: number;
   totalWithdrawals: number;
   transactions: StatementTransaction[];
-  /** Optional account number printed in the statement header. */
-  accountNumber?: string;
 }
 
 export interface MembershipCertificateData {
   memberName: string;
   memberId: string;
-  accountNumber?: string;
   memberSince: string;
   phone?: string;
   address?: string;

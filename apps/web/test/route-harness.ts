@@ -180,10 +180,9 @@ export async function seedRoleUsers(): Promise<Record<TestRole, string>> {
     });
     if (role === 'MEMBER') {
       await db.account.upsert({
-        where: { accountNumber: `RT-ACC-${role}` },
+        where: { userId: id },
         update: {},
         create: {
-          accountNumber: `RT-ACC-${role}`,
           savingsBalance: BigInt(50000),
           loanBalance: BigInt(0),
           isLoanEligible: true,

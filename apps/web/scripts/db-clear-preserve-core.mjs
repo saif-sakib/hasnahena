@@ -101,7 +101,7 @@ async function resolveAdmin(prisma) {
 }
 
 // Kept in step with scripts/seed.mjs, which creates them.
-const DONATION_ACCOUNT_NUMBER = 'HN-ACC-DONATION';
+// Identified by its owner — there is no account number any more (ADR-023).
 const DONATION_OWNER_ID = 'system_donation_fund';
 
 async function main() {
@@ -153,10 +153,10 @@ async function main() {
       // to leave a *working* environment behind, not one that needs a second
       // command to be usable.
       await tx.account.deleteMany({
-        where: { accountNumber: { not: DONATION_ACCOUNT_NUMBER } },
+        where: { userId: { not: DONATION_OWNER_ID } },
       });
       await tx.account.updateMany({
-        where: { accountNumber: DONATION_ACCOUNT_NUMBER },
+        where: { userId: DONATION_OWNER_ID },
         data: { savingsBalance: BigInt(0), loanBalance: BigInt(0) },
       });
       await tx.document.deleteMany({});
@@ -182,7 +182,7 @@ async function main() {
     console.log('Database cleanup completed.');
     console.log(`Kept admin user: ${admin.email || admin.id} (${admin.role})`);
     console.log('Preserved tables: system_config, gallery_items');
-    console.log(`Preserved account: ${DONATION_ACCOUNT_NUMBER} (reset to 0)`);
+    console.log(`Preserved the donation pool account owned by ${DONATION_OWNER_ID} (reset to 0)`);
     console.log('Counts (before -> after):');
 
     for (const key of Object.keys(after)) {

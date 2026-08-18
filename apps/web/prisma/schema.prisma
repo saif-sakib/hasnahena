@@ -127,7 +127,7 @@ model User {
   presentAddressId String?  @unique
 
   nominee                 Nominee?
-  accounts                Account[]
+  account                 Account?
   transactions            Transaction[]    @relation("UserTransactions")
   processedTransactions   Transaction[]    @relation("ProcessedTransactions")
   loans                   Loan[]           @relation("Borrower")
@@ -203,9 +203,18 @@ model Document {
 // FINANCIAL ACCOUNTS
 // ============================================================
 
+/// One account per user, and the relation is one-to-one because that is what
+/// every query already assumed — member lookups all read `WHERE "userId" = $1`
+/// and expect a single row.
+///
+/// There is no `accountNumber`. It used to exist and was always set to the
+/// owner's `memberId`, in both creation paths, so a member's statement printed
+/// the same string twice under two labels. `users.memberId` is the one
+/// identifier (ADR-008, ADR-023): it exists before any account does, it has a
+/// format members read aloud, and it is what the receipt and the loan agreement
+/// had always used on their own.
 model Account {
-  id            String @id @default(cuid())
-  accountNumber String @unique // হিসাব নং
+  id String @id @default(cuid())
 
   // Balances (stored in Taka for precision)
   savingsBalance BigInt @default(0) // সঞ্চয় স্থিতি
@@ -220,7 +229,7 @@ model Account {
 
   // Relations
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
+  userId String @unique
 
   transactions Transaction[]
   loans        Loan[]

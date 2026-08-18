@@ -140,7 +140,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
 
     const user = await testPrisma().user.findUnique({
       where: { id: body.user!.id },
-      include: { documents: true, nominee: true, accounts: true },
+      include: { documents: true, nominee: true, account: true },
     });
     expect(user?.status).toBe('PENDING');
     expect(user?.memberId).toBeTruthy();
@@ -153,7 +153,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     expect(user?.nominee?.name).toBe('Test Nominee');
     // An account with an opening balance of zero, not no account: the member
     // has somewhere to deposit the moment they are approved.
-    expect(user?.accounts[0]?.savingsBalance).toBe(BigInt(0));
+    expect(user?.account?.savingsBalance).toBe(BigInt(0));
 
     // WO-59. This notification used to be started and never awaited, so on a
     // platform that freezes the function at the response it might never be

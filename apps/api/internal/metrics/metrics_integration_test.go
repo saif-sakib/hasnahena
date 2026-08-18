@@ -66,9 +66,9 @@ func TestBusinessSnapshotCountsWhatItClaims(t *testing.T) {
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance",
+		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
 			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('ma1', 'ACC-M1', 10000, 0, true, 0, NOW(), NOW(), 'mu1')
+		VALUES ('ma1', 10000, 0, true, 0, NOW(), NOW(), 'mu1')
 	`); err != nil {
 		t.Fatalf("seed account: %v", err)
 	}

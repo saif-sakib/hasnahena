@@ -110,10 +110,10 @@ func seedMember(t *testing.T, id, memberID string, savings int64) string {
 	}
 
 	_, err = testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance",
+		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
 			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, $2, $3, 0, true, 0, NOW(), NOW(), $1)
-	`, id, memberID, savings)
+		VALUES ('acct_' || $1, $2, 0, true, 0, NOW(), NOW(), $1)
+	`, id, savings)
 	if err != nil {
 		t.Fatalf("seed account %s: %v", id, err)
 	}

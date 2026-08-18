@@ -247,8 +247,8 @@ func walkRoutes(t *testing.T, r chi.Router) []string {
 	return out
 }
 
-// ensureDonationPool recreates HN-ACC-DONATION, which `pnpm db:seed` creates in
-// a real environment.
+// ensureDonationPool recreates the donation pool account, which `pnpm db:seed`
+// creates in a real environment.
 //
 // This package cannot assume the seed survived: the repositories suite
 // truncates every table between tests, and `go test ./...` runs both against
@@ -256,6 +256,8 @@ func walkRoutes(t *testing.T, r chi.Router) []string {
 // behind is how a suite passes locally and fails in CI depending on the order
 // the packages ran in.
 func ensureDonationPool(ctx context.Context) {
+	// repositories.DonationFundUserID — the pool is found by its owner now that
+	// there is no account number (ADR-023).
 	const owner = "system_donation_fund"
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO users (id, email, phone, "passwordHash", role, status,
@@ -267,10 +269,10 @@ func ensureDonationPool(ctx context.Context) {
 		panic("seed donation fund user: " + err.Error())
 	}
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance",
+		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
 			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 'HN-ACC-DONATION', 0, 0, false, 0, NOW(), NOW(), $1)
-		ON CONFLICT ("accountNumber") DO NOTHING
+		VALUES ('acct_' || $1, 0, 0, false, 0, NOW(), NOW(), $1)
+		ON CONFLICT ("userId") DO NOTHING
 	`, owner); err != nil {
 		panic("seed donation account: " + err.Error())
 	}
@@ -310,9 +312,9 @@ func seedRoleUser(t *testing.T, role string) string {
 	// have nothing to do with authorization.
 	if role == "MEMBER" {
 		_, err = testPool.Exec(context.Background(), `
-			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance",
+			INSERT INTO accounts (id, "savingsBalance", "loanBalance",
 			                      "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES ('acct_' || $1, $1, 0, 0, true, 0, NOW(), NOW(), $1)
+			VALUES ('acct_' || $1, 0, 0, true, 0, NOW(), NOW(), $1)
 			ON CONFLICT (id) DO NOTHING
 		`, id)
 		if err != nil {

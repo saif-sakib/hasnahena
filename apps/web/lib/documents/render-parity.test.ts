@@ -118,7 +118,6 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
         memberName: 'Rahima Khatun',
         memberId: 'ACC-KH-33001',
         memberPhone: '01712345678',
-        accountNumber: 'ACC-KH-33001',
         periodStart: '2026-07-01T00:00:00.000Z',
         periodEnd: '2026-07-31T00:00:00.000Z',
         openingBalance: 10000,
@@ -155,7 +154,6 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
       buildMembershipCertificate({
         memberName: 'Rahima Khatun',
         memberId: 'ACC-KH-33001',
-        accountNumber: 'ACC-KH-33001',
         memberSince: '2024-03-15T00:00:00.000Z',
         phone: '01712345678',
         address: 'Bhekutia, Sadar, Jashore',

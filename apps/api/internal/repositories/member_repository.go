@@ -567,7 +567,6 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 	const profileQuery = `
 		SELECT
 			COALESCE(u."memberId", ''),
-			COALESCE(a."accountNumber", ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."fatherName", ''),
@@ -582,15 +581,14 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 			u.status::text,
 			COALESCE(u."avatarUrl", '')
 		FROM users u
-		LEFT JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1
 		LIMIT 1
 	`
-	var memberID, accountNumber, nameEn, nameBn, fatherName, motherName, phone, email, nidNumber, maritalStatus, gender, status, avatarURL string
+	var memberID, nameEn, nameBn, fatherName, motherName, phone, email, nidNumber, maritalStatus, gender, status, avatarURL string
 	var dob *time.Time
 	var createdAt time.Time
 	if err := r.db.QueryRow(ctx, profileQuery, userID).Scan(
-		&memberID, &accountNumber, &nameEn, &nameBn, &fatherName, &motherName, &phone, &email,
+		&memberID, &nameEn, &nameBn, &fatherName, &motherName, &phone, &email,
 		&nidNumber, &dob, &maritalStatus, &gender, &createdAt, &status, &avatarURL,
 	); err != nil {
 		return nil, err
@@ -683,7 +681,6 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 
 	profile := map[string]interface{}{
 		"memberId":         memberID,
-		"accountNumber":    accountNumber,
 		"nameEn":           nameEn,
 		"nameBn":           nameBn,
 		"fatherName":       fatherName,

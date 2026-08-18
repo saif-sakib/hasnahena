@@ -611,17 +611,16 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 
 	if !accountExists {
 		const createAccountQuery = `
-			INSERT INTO accounts (id, "accountNumber", "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES (gen_random_uuid()::text, $2, 0, 0, true, 0, NOW(), NOW(), $1)
+			INSERT INTO accounts (id, "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
+			VALUES (gen_random_uuid()::text, 0, 0, true, 0, NOW(), NOW(), $1)
 		`
-		if _, err := tx.Exec(ctx, createAccountQuery, userID, memberID); err != nil {
-			return err
-		}
-	} else {
-		if _, err := tx.Exec(ctx, `UPDATE accounts SET "accountNumber" = $2, "updatedAt" = NOW() WHERE "userId" = $1`, userID, memberID); err != nil {
+		if _, err := tx.Exec(ctx, createAccountQuery, userID); err != nil {
 			return err
 		}
 	}
+	// Nothing to re-sync when the account already exists. It used to carry an
+	// "accountNumber" that had to be kept equal to the member id — two columns
+	// holding one value, which is the redundancy ADR-023 removed.
 
 	// Parameterised rather than inlined in the SQL so the wording lives with
 	// every other notification in internal/notify and is covered by its census
