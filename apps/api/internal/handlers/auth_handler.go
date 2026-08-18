@@ -25,19 +25,15 @@ func NewAuthHandler(authService *services.AuthService, securityService *services
 	}
 }
 
-// getClientIP extracts the real client IP from request headers
+// getClientIP is the address a login attempt is attributed to.
+//
+// It used to read the LEFTMOST X-Forwarded-For entry — the end the caller
+// writes — and this value keys the login lockout. Varying one header therefore
+// gave an attacker a fresh allowance of failed attempts per request, which is
+// the lockout not existing. It now goes through the same resolver as the access
+// log and the rate limiter (WO-60).
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For first (for proxied requests)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	return appmw.RequestClientIP(r)
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {

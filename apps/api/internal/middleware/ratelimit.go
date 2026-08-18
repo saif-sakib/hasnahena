@@ -110,19 +110,26 @@ func (l *rateLimiter) sweep(now time.Time) {
 	}
 }
 
-// clientIP returns the address to key the limiter on.
+// ClientIP returns the address this request should be attributed to: the one
+// the limiter keys on, the one the access log records, and the one an audit row
+// stores as evidence. One function, so those three cannot disagree.
 //
 // This is the part that decides whether the limiter is real. chi's RealIP
-// middleware — mounted in main.go, and deprecated upstream for exactly this
-// reason — overwrites r.RemoteAddr with the LEFTMOST X-Forwarded-For entry,
-// which is supplied by the caller and therefore attacker-controlled. Keying on
-// it would let one client mint a fresh quota per request by varying a header.
+// middleware — deprecated upstream for exactly this reason, and removed from
+// this process by WO-60 — overwrote r.RemoteAddr with the LEFTMOST
+// X-Forwarded-For entry, which is supplied by the caller and therefore
+// attacker-controlled. Keying on it let one client mint a fresh quota per
+// request by varying a header.
 //
 // X-Forwarded-For grows left to right, each proxy appending the address it
 // received the connection from. So the trustworthy entry is counted from the
 // RIGHT: with one proxy in front (Render), the last entry is the address Render
 // saw, and everything to its left is whatever the client chose to claim.
-func clientIP(r *http.Request, trustedProxies int) string {
+//
+// TRUSTED_PROXIES is the single knob: set it to the number of proxies in front
+// of this process, and to 0 only when nothing is. Too low and real members
+// share one bucket; too high and the header is believed.
+func ClientIP(r *http.Request, trustedProxies int) string {
 	if trustedProxies > 0 {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
@@ -136,9 +143,9 @@ func clientIP(r *http.Request, trustedProxies int) string {
 		}
 	}
 
-	// Direct connection, or no proxy configured. RemoteAddr may have been
-	// rewritten by chi's RealIP; with TrustedProxies=0 that is the operator
-	// saying nothing is in front, so there is nothing better to use.
+	// Direct connection, or no proxy configured: the TCP peer, which no header
+	// can change. This is what chi's RealIP used to destroy before the limiter
+	// ever ran.
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -191,7 +198,7 @@ func RateLimit(cfg RateLimitConfig, stop <-chan struct{}) func(http.Handler) htt
 				return
 			}
 
-			ok, retryAfter := l.allow(clientIP(r, cfg.TrustedProxies), time.Now())
+			ok, retryAfter := l.allow(ClientIP(r, cfg.TrustedProxies), time.Now())
 			if !ok {
 				secs := int(retryAfter.Seconds()) + 1
 				w.Header().Set("Retry-After", strconv.Itoa(secs))

@@ -27,10 +27,66 @@ export interface UploadResult {
   format?: string;
 }
 
-function ensureCloudinaryConfigured() {
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    throw new Error('Cloudinary is not configured. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.');
+/**
+ * The credentials are missing, not the image host.
+ *
+ * A distinct type because the two are different problems with different people
+ * to wake up: this one is an environment variable nobody set on Render or
+ * Vercel, and it must not be reported as "failed to upload" (WO-63).
+ */
+export class CloudinaryConfigurationError extends Error {
+  constructor(missing: string[]) {
+    super(`Cloudinary is not configured. Set ${missing.join(', ')}.`);
+    this.name = 'CloudinaryConfigurationError';
   }
+}
+
+function ensureCloudinaryConfigured() {
+  const missing = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'].filter(
+    (key) => !process.env[key],
+  );
+  if (missing.length > 0) {
+    throw new CloudinaryConfigurationError(missing);
+  }
+}
+
+/**
+ * The options one upload is sent with.
+ *
+ * Pure, and exported, because this is the decision that cannot be seen
+ * afterwards: `preserveOriginal` is what stops a registration document being
+ * re-encoded, and an NID scan silently uploaded with the wrong settings is
+ * unrecoverable in the same way a wrong balance is.
+ */
+export function buildUploadOptions(folder: string, options: UploadOptions = {}): Record<string, unknown> {
+  const uploadOptions: Record<string, unknown> = {
+    folder: `hasnahena/${folder}`,
+    resource_type: options.resource_type || 'image',
+    transformation: options.transformation,
+    format: options.format,
+    use_filename: options.useFilename,
+    unique_filename: options.uniqueFilename,
+    overwrite: options.overwrite,
+  };
+  if (!options.preserveOriginal) {
+    uploadOptions.quality = options.quality || 'auto';
+    uploadOptions.fetch_format = 'auto';
+  }
+  return uploadOptions;
+}
+
+/** Square, cropped to the face — see uploadAvatar. */
+export const AVATAR_TRANSFORMATION = [
+  { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+  { quality: 'auto', fetch_format: 'auto' },
+] as const;
+
+/** Which settings folder an image belongs in. */
+export function settingsImageFolder(imageType: string): string {
+  if (imageType.includes('partner')) return 'settings/partners';
+  if (imageType.includes('logo')) return 'settings/logo';
+  if (imageType.includes('hero')) return 'settings/hero';
+  return 'settings/icons';
 }
 
 /**
@@ -47,22 +103,8 @@ export async function uploadImage(
   try {
     ensureCloudinaryConfigured();
     const result = await new Promise<any>((resolve, reject) => {
-      const uploadOptions: Record<string, unknown> = {
-        folder: `hasnahena/${folder}`,
-        resource_type: options.resource_type || 'image',
-        transformation: options.transformation,
-        format: options.format,
-        use_filename: options.useFilename,
-        unique_filename: options.uniqueFilename,
-        overwrite: options.overwrite,
-      };
-      if (!options.preserveOriginal) {
-        uploadOptions.quality = options.quality || 'auto';
-        uploadOptions.fetch_format = 'auto';
-      }
-
       const uploadStream = cloudinary.uploader.upload_stream(
-        uploadOptions,
+        buildUploadOptions(folder, options),
         (error, result) => {
           if (error) reject(error);
           else resolve(result);
@@ -80,8 +122,15 @@ export async function uploadImage(
       format: result.format,
     };
   } catch (error) {
+    // A missing secret is not an upload failure, and saying so cost an
+    // operator the difference between reading one environment variable and
+    // opening a support ticket with an image host (WO-63).
+    if (error instanceof CloudinaryConfigurationError) throw error;
     console.error('Cloudinary upload error:', error);
-    throw new Error('Failed to upload image to Cloudinary');
+    // `cause` keeps the quota message, the rejected file type, the timeout —
+    // whatever Cloudinary actually said — attached to the error the caller
+    // logs, instead of replacing all of them with one sentence.
+    throw new Error('Failed to upload image to Cloudinary', { cause: error });
   }
 }
 
@@ -93,9 +142,16 @@ export async function deleteImage(publicId: string): Promise<boolean> {
   try {
     ensureCloudinaryConfigured();
     const result = await cloudinary.uploader.destroy(publicId);
-    return result.result === 'ok';
+    if (result.result !== 'ok') {
+      // Every caller ignores this boolean, so the log line is the only record
+      // that an asset was left behind. `not found` here usually means the
+      // public id was derived wrongly, not that the file is already gone.
+      console.warn(`Cloudinary did not delete ${publicId}: ${result.result}`);
+      return false;
+    }
+    return true;
   } catch (error) {
-    console.error('Cloudinary delete error:', error);
+    console.error(`Cloudinary delete error for ${publicId}:`, error);
     return false;
   }
 }
@@ -119,7 +175,27 @@ export function extractPublicId(url: string): string | null {
     }
 
     const uploadPath = pathWithoutQuery.slice(uploadIndex + uploadMarker.length);
-    const normalizedPath = uploadPath.replace(/^v\d+\//, '');
+
+    // Everything between `/upload/` and the public id is delivery instruction:
+    // any number of chained transformation segments (`w_400,h_400`, `q_auto`,
+    // `t_named_preset`) and at most one version (`v1712345678`), in that order.
+    // Stripping only the version left `w_400,h_400/v1712/hasnahena/...` as the
+    // "public id" — an id that names nothing, so `destroy` reported not-found
+    // and every replaced avatar stayed in the account forever (WO-63).
+    //
+    // A transformation parameter is one to three letters, an underscore and a
+    // value; a chained set is comma-separated. A folder named `id_cards` would
+    // be ambiguous by the same rule, which is why this application uploads
+    // everything under `hasnahena/` — see buildUploadOptions.
+    const isTransformation = (segment: string) =>
+      segment.includes(',') || /^[a-z]{1,3}_[^/]*$/.test(segment);
+    const isVersion = (segment: string) => /^v\d+$/.test(segment);
+
+    const segments = uploadPath.split('/');
+    while (segments.length > 1 && isTransformation(segments[0])) segments.shift();
+    if (segments.length > 1 && isVersion(segments[0])) segments.shift();
+
+    const normalizedPath = segments.join('/');
     const lastDotIndex = normalizedPath.lastIndexOf('.');
     if (lastDotIndex === -1) {
       return normalizedPath;
@@ -153,10 +229,7 @@ export async function uploadAvatar(
   role: string
 ): Promise<UploadResult> {
   return uploadImage(fileBuffer, `profiles/${role}/${userId}`, {
-    transformation: [
-      { width: 400, height: 400, crop: 'fill', gravity: 'face' },
-      { quality: 'auto', fetch_format: 'auto' },
-    ],
+    transformation: AVATAR_TRANSFORMATION,
     format: 'jpg',
   });
 }
@@ -185,15 +258,7 @@ export async function uploadSettingsImage(
   fileBuffer: Buffer,
   imageType: string
 ): Promise<UploadResult> {
-  const folder = imageType.includes('partner')
-    ? 'settings/partners'
-    : imageType.includes('logo')
-    ? 'settings/logo'
-    : imageType.includes('hero')
-    ? 'settings/hero'
-    : 'settings/icons';
-
-  return uploadImage(fileBuffer, folder, {
+  return uploadImage(fileBuffer, settingsImageFolder(imageType), {
     transformation: [
       { quality: 'auto:best', fetch_format: 'auto' },
     ],
@@ -207,10 +272,16 @@ export async function uploadSettingsImage(
 export async function deleteOldAvatar(oldAvatarUrl: string | null): Promise<boolean> {
   if (!oldAvatarUrl) return true;
 
+  // Hosted elsewhere: nothing of ours to remove, so nothing failed.
   if (!isCloudinaryUrl(oldAvatarUrl)) return true;
 
   const publicId = extractPublicId(oldAvatarUrl);
-  if (!publicId) return false;
+  if (!publicId) {
+    // Callers ignore the boolean, so without this the asset is orphaned with
+    // no record of it anywhere — a leak with no evidence.
+    console.warn(`Could not derive a Cloudinary public id from ${oldAvatarUrl}; the old avatar was left in place.`);
+    return false;
+  }
 
   return deleteImage(publicId);
 }

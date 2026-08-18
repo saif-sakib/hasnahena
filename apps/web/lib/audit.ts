@@ -33,6 +33,24 @@ interface AuditLogParams {
   oldValue?: object;
   newValue?: object;
   details?: string;
+  /**
+   * The request being handled, when the caller has it.
+   *
+   * `headers()` throws outside a request scope, and it used to throw *before*
+   * the insert — so any context where it is unavailable lost the audit row
+   * entirely rather than losing the caller's address. Passing the request
+   * avoids the lookup; failing the lookup no longer costs the row.
+   */
+  request?: Request;
+}
+
+/** Where the caller appears to be, or `unknown`. Never throws. */
+async function callerOrigin(request?: Request): Promise<{ userIp: string; userAgent?: string }> {
+  const source = request?.headers ?? (await headers().catch(() => null));
+  if (!source) return { userIp: 'unknown' };
+  const userIp =
+    source.get('x-forwarded-for')?.split(',')[0]?.trim() || source.get('x-real-ip') || 'unknown';
+  return { userIp, userAgent: source.get('user-agent') || undefined };
 }
 
 /**
@@ -40,11 +58,7 @@ interface AuditLogParams {
  */
 export async function createAuditLog(params: AuditLogParams): Promise<void> {
   try {
-    const headersList = await headers();
-    const userIp = headersList.get('x-forwarded-for')?.split(',')[0]?.trim()
-      || headersList.get('x-real-ip')
-      || 'unknown';
-    const userAgent = headersList.get('user-agent') || undefined;
+    const { userIp, userAgent } = await callerOrigin(params.request);
 
     await prisma.auditLog.create({
       data: {

@@ -23,13 +23,24 @@ export function formatDate(date: string | Date, locale: string = 'en') {
   });
 }
 
-/** Weekly/monthly/full quick-fill amounts for loan repayment (installmentAmount is per month). */
+/**
+ * Weekly/monthly/full quick-fill amounts for loan repayment (installmentAmount
+ * is per month).
+ *
+ * Every figure here is whole taka (rule 1). These write into an amount box the
+ * member submits, and the screens round again on the way out — so a fractional
+ * preset would show one number and post another. WO-56.
+ */
 export function getLoanRepaymentPresets(installmentAmount: number, remainingAmount: number) {
-  const weekly = Math.round((installmentAmount / 4) * 100) / 100;
+  const wholeTaka = (amount: number) => (Number.isFinite(amount) ? Math.max(Math.trunc(amount), 0) : 0);
+
+  const remaining = wholeTaka(remainingAmount);
+  const monthly = wholeTaka(installmentAmount);
+
   return {
-    weekly: Math.min(Math.max(weekly, 0), remainingAmount),
-    monthly: Math.min(Math.max(installmentAmount, 0), remainingAmount),
-    full: Math.max(remainingAmount, 0),
+    weekly: Math.min(Math.round(monthly / 4), remaining),
+    monthly: Math.min(monthly, remaining),
+    full: remaining,
   };
 }
 

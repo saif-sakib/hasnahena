@@ -1306,10 +1306,9 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 	}
 
 	// Create audit log
-	userIP := r.Header.Get("X-Forwarded-For")
-	if userIP == "" {
-		userIP = r.RemoteAddr
-	}
+	// The address the whole process agrees on, not the leftmost header entry —
+	// which the caller writes, and which is stored here as evidence (WO-60).
+	userIP := appmw.RequestClientIP(r)
 	// Checked: an audit row that silently fails to write is a rule-6 problem —
 	// the log is the only record that this account's password was changed, and
 	// by whom. The write cannot be undone here (the password has changed), so it
@@ -1413,10 +1412,9 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		return
 	}
 
-	userIP := r.Header.Get("X-Forwarded-For")
-	if userIP == "" {
-		userIP = r.RemoteAddr
-	}
+	// The address the whole process agrees on, not the leftmost header entry —
+	// which the caller writes, and which is stored here as evidence (WO-60).
+	userIP := appmw.RequestClientIP(r)
 	// Checked: an audit row that silently fails to write is a rule-6 problem —
 	// the log is the only record that this account's password was changed, and
 	// by whom. The write cannot be undone here (the password has changed), so it
@@ -1551,10 +1549,9 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	}
 
 	// Create audit log
-	userIP := r.Header.Get("X-Forwarded-For")
-	if userIP == "" {
-		userIP = r.RemoteAddr
-	}
+	// The address the whole process agrees on, not the leftmost header entry —
+	// which the caller writes, and which is stored here as evidence (WO-60).
+	userIP := appmw.RequestClientIP(r)
 	// Checked: an audit row that silently fails to write is a rule-6 problem —
 	// the log is the only record that this account's password was changed, and
 	// by whom. The write cannot be undone here (the password has changed), so it

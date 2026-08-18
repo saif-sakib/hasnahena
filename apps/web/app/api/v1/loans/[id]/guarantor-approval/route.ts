@@ -60,8 +60,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    // Notify the borrower about guarantor's decision
-    prisma.notification.create({
+    // Awaited: an unsettled promise is not a background task, it is work the
+    // platform may simply never do (WO-59). Caught, because the guarantor's
+    // decision is recorded either way.
+    await prisma.notification.create({
       data: {
         type: payload.accepted ? 'LOAN_REQUEST' : 'LOAN_REJECTED',
         title: payload.accepted ? 'Guarantor Approved' : 'Guarantor Declined',
@@ -81,7 +83,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // If accepted, notify admins that loan is ready for approval
     if (payload.accepted) {
-      prisma.notification.create({
+      await prisma.notification.create({
         data: {
           type: 'LOAN_REQUEST',
           title: 'Loan Ready for Approval',

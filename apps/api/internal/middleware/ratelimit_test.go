@@ -66,8 +66,8 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 			if tc.xff != "" {
 				r.Header.Set("X-Forwarded-For", tc.xff)
 			}
-			if got := clientIP(r, tc.trustedProxies); got != tc.want {
-				t.Fatalf("clientIP = %q, want %q", got, tc.want)
+			if got := ClientIP(r, tc.trustedProxies); got != tc.want {
+				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
 			}
 		})
 	}

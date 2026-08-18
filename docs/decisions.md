@@ -372,3 +372,92 @@ is in this file's history at the commit that removed WO-28 — `git log -- docs/
 - **The exemption is for these specific files only.** Real member data
   committed after launch is a different question with a different answer, and
   the cheapest moment to rewrite history is always now rather than later.
+
+---
+
+### ADR-019 — One function decides where a request came from
+
+**Status:** accepted · 2026-08-18 · closes WO-60 · removes chi's `middleware.RealIP`.
+
+Four places in the Go API answered "which address is this caller?" and three of
+them read the **leftmost** `X-Forwarded-For` entry — the end the caller writes:
+
+- chi's `middleware.RealIP`, which overwrote `r.RemoteAddr` with it for every
+  request in the process, so the access log recorded an address the caller chose
+  and, at the default `TRUSTED_PROXIES=0`, the rate limiter keyed on it too;
+- `getClientIP` in `auth_handler.go`, which is what the **login lockout** counts
+  failed attempts against;
+- three inline header reads in `dashboard_handler.go`, which store the result in
+  an `audit_logs` row as evidence of who changed a password.
+
+`middleware.clientIP` was the only one that was right, and it was already
+unit-tested with a comment explaining exactly why the leftmost entry cannot be
+trusted. It made no difference: `RealIP` had destroyed its input three
+middlewares earlier.
+
+**The decision:** there is now exactly one resolver, `middleware.ClientIP(r,
+trustedProxies)`, counting entries from the trusted end. `Logging` calls it once
+per request and puts the answer in the request context; `RequestClientIP(r)`
+reads it back, and every handler uses that. `RealIP` is not mounted, and
+`mountMiddleware` carries a comment saying why so it is not re-added as an
+obvious improvement.
+
+`TRUSTED_PROXIES` is the single knob and it is a deployment fact, not a request
+one: **set it to the number of proxies in front of the process, and to 0 only
+when nothing is.** Too low and real members share one bucket; too high and the
+header is believed. Render is 1.
+
+That first failure is new, and it is the price of this change: `RealIP` used to
+give every caller a distinct — if forgeable — identity, so nobody noticed the
+setting. Without it, a process behind a proxy with `TRUSTED_PROXIES=0` sees the
+proxy's address on every request and throttles the whole membership as one
+client. **`main.go` therefore logs a warning at boot** when the count is 0
+outside development, because a silent misconfiguration here is a rate limiter
+that rejects real members.
+
+**Consequences**
+
+- The access log gains a `peer` field whenever the attributed address and the
+  TCP peer differ. With a proxy in front they differ on every request; with none
+  configured, a difference means someone sent a header claiming otherwise.
+- A handler must never read `X-Forwarded-For` itself. `RequestClientIP` falls
+  back to the TCP peer for a request that did not pass through `Logging`, which
+  is the safe direction to fail.
+- The middleware stack moved out of `main()` into `mountMiddleware`, for the
+  same reason `mountRoutes` did: the defect lived in the composition, and a
+  stack built inline cannot be exercised by a test.
+
+---
+
+### ADR-020 — The Cloudinary assets have no backup, and that is accepted until launch
+
+**Status:** accepted, provisional · 2026-08-18 · closes the WO-55 half of DATA-06 · **needs the owner's confirmation**.
+
+Registration documents — NID front and back, member photo, signature — live only
+in Cloudinary. There is no export, no second copy, and the account is a free tier
+with a quota. The database has an encrypted nightly `pg_dump` drilled on every
+push (DATA-01 → 05); the images have nothing.
+
+WO-55 asked for a decision "even if the answer is *accept the risk until
+launch*". This is that answer, with the reasoning written down so it can be
+revisited rather than forgotten:
+
+- **There is nothing to lose yet.** The platform holds no real member documents;
+  every asset in the account today came from a test.
+- **The failure is bounded and recoverable while that is true.** A lost image is
+  a member asked to photograph their NID again — not a lost balance, and not a
+  record that cannot be reconstructed.
+- **The cost of building it now is a script that cannot be tested**, because
+  testing it means real credentials and real assets. An export job written
+  against an empty account is a hypothesis, and this repository has already paid
+  for one of those (see the Dockerfile trap).
+
+**The trigger is the first real member document**, not a date. From that moment
+the exposure is a regulatory record held in one place by one third party, and
+the job has to exist before the account does anything unexpected.
+
+**What it will need when it is built:** list `hasnahena/registrations/**` via the
+Admin API, download to the same encrypted destination the `pg_dump` backup uses,
+and — because the `documents` table holds the URLs — reconcile the two so a
+missing asset is *detected* rather than discovered by an approver opening a
+blank image.

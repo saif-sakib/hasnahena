@@ -9,39 +9,34 @@ Prompt with just the ID: **`do WO-57`** · `do WO-59 and WO-60`.
 Line numbers are anchors, not guarantees — match on the quoted code, not the
 number.
 
-**Thirteen orders are open.** WO-27, WO-40, WO-51, WO-52 and WO-58 closed on
-2026-08-18 — WO-58 fell out of WO-52, because once every notification message
-came from one tested builder there was nowhere left for a `%.2f` to live.
-**WO-28 was closed as a decision rather than a task** ([ADR-018](decisions.md)):
-the owner reviewed the `Official Infos/` files and determined none of it is live
-member data, which was the purge's entire justification. Of the rest, three were
-opened by the 2026-08-18 documentation pass and **ten by the 2026-08-18 code
-audit**, which read the Go API, the Next routes and the shared libraries looking
-for defects rather than for gaps. Everything finished is one line per batch in
-[changelog.md](changelog.md). What was *learned* doing them is in
-[Traps](#traps-that-cost-a-session) below — read that before any work touching
-Docker, Prisma, migrations or the build config. Every entry there cost at least
-one session to find.
+**Four orders are open: WO-62, WO-64, WO-65 and WO-66.**
+
+Everything from WO-53 through WO-61, plus WO-63, closed on 2026-08-18 — the
+whole of the code audit's member-facing half. **No open order describes a member
+being told something untrue.** WO-58 fell out of WO-52, because once every
+notification message came from one tested builder there was nowhere left for a
+`%.2f` to live; **WO-28 was closed as a decision rather than a task**
+([ADR-018](decisions.md)) after the owner reviewed the `Official Infos/` files
+and determined none of it is live member data, which was the purge's entire
+justification. WO-55 closed on its testing half; the backup it depends on
+(DATA-06) is tracked in [production-readiness.md](production-readiness.md) and
+is the only part of that order still open.
+
+Everything finished is one line per batch in [changelog.md](changelog.md). What
+was *learned* doing them is in [Traps](#traps-that-cost-a-session) below — read
+that before any work touching Docker, Prisma, migrations or the build config.
+Every entry there cost at least one session to find.
 
 | Order | What | Size |
 |---|---|---|
-| [WO-53](#wo-53--prove-the-cleanup-loop-sweeps) | Prove the cleanup loop sweeps | 2 hours |
-| [WO-54](#wo-54--fail-ci-on-prisma-schema-drift) | Fail CI on Prisma schema drift | 1 hour |
-| [WO-55](#wo-55--cover-the-cloudinary-paths) | Cover the Cloudinary paths | half a day |
-| [WO-56](#wo-56--loan-repayment-presets-must-be-whole-taka) | Loan repayment presets must be whole taka | 20 minutes |
-| [WO-57](#wo-57--a-dispute-reports-failure-while-succeeding--the-defect-to-fix-first) | **A dispute reports failure while succeeding** — FR-17 broken, proven | 1 hour |
-| [WO-59](#wo-59--three-notification-writes-are-fire-and-forget) | Three notification writes are fire-and-forget | 1 hour |
-| [WO-60](#wo-60--remove-chis-realip-log-and-throttle-on-the-same-address) | Remove chi's `RealIP`; log and throttle on one address | 2 hours |
-| [WO-61](#wo-61--serializeloan-and-serializetransaction-turn-zero-into-null) | Serialisers turn a legitimate zero into null | 1 hour |
 | [WO-62](#wo-62--email-sending-can-outlive-the-shutdown-drain) | Email sending can outlive the shutdown drain | half a day |
-| [WO-63](#wo-63--cloudinary-undeletable-assets-and-swallowed-errors) | Cloudinary: undeletable assets, swallowed errors | half a day |
 | [WO-64](#wo-64--harden-the-support-proxy) | Harden the support proxy | 2 hours |
 | [WO-65](#wo-65--modulo-bias-in-generated-passwords-and-codes) | Modulo bias in generated passwords and codes | 2 hours |
 | [WO-66](#wo-66--run-the-race-detector-in-ci) | Run the race detector in CI | 20 minutes |
 
 Testing work is tracked separately in [testing.md](testing.md) as `TEST-01 …
-TEST-43`. **TEST-41 → 43 are open** and are WO-53 → WO-55 above; TEST-39 and
-TEST-40 closed with WO-51 and WO-52.
+TEST-43`. **All of it is closed**: TEST-39 and TEST-40 with WO-51 and WO-52,
+TEST-41 → 43 with WO-53 → WO-55.
 
 ### Standing rules for every order
 
@@ -53,7 +48,9 @@ TEST-40 closed with WO-51 and WO-52.
   findings were cleared by WO-27. **Do not let that count grow.**
 - A regression test must be seen to **fail against the pre-fix code** before it
   is allowed to pass. A test written after the fix, never observed red, proves
-  only that today's code passes it.
+  only that today's code passes it. When a test *cannot* be made to fail — see
+  the floating-promise trap below — say so in the test rather than letting it
+  stand as proof.
 - Money changes stay in the Go API, one transaction, with an `audit_logs` row
   (CLAUDE.md rules 1, 2, 6).
 - Update [tasks.md](tasks.md) and tick the order here in the same commit.
@@ -61,290 +58,6 @@ TEST-40 closed with WO-51 and WO-52.
 ---
 
 # Open
-
-## WO-53 · Prove the cleanup loop sweeps
-
-**Why:** RUN-06's `startCleanupLoop` in `cmd/server/main.go` sweeps expired
-tokens and rate limits every `CLEANUP_INTERVAL` (default 1 h). It has no test.
-**A sweep that stops sweeping is completely silent** — no error, no log line
-worth noticing, just `token_blacklist` and `rate_limits` growing until a query
-gets slow months later. It is also the exact shape RUN-06 was written to fix:
-`CleanupExpiredTokens` and `CleanupExpiredRateLimits` sat written-and-never-called
-for months and looked like working code.
-
-**Change** — an integration test in `internal/repositories`:
-
-1. Seed `token_blacklist` and `rate_limits` rows with expiries in the past and in
-   the future.
-2. Call the sweep functions directly and assert **only** the expired rows are
-   gone. A sweep that deletes too much is worse than one that deletes nothing.
-3. Assert the sweep is bounded: the loop wraps each pass in a 1-minute context, so
-   a cancelled context must return without deleting a partial set or panicking.
-4. Separately, assert in `cmd/server` that `startCleanupLoop` is **wired** — the
-   same enumeration idea as the route contract. A loop nobody starts is the
-   original defect.
-
-**Watch:** the loop ties itself to the shutdown context. A test that starts the
-real loop must cancel it, or the package hangs.
-
-**Done when:** deleting the `startCleanupLoop(...)` call from `main.go` fails the
-suite.
-
-## WO-54 · Fail CI on Prisma schema drift
-
-**Why:** CI applies `prisma/migrations/` and never compares the result to
-`schema.prisma`. The two can disagree — an edit to the schema with no generated
-migration is one keystroke away — and **nothing notices until a column is missing
-in production**, which surfaces as a runtime error on a money path.
-
-This is cheap and it is the guard for [ADR-014](decisions.md): `db push` is
-retired precisely so the migrations are the truth, and that only holds if
-something checks.
-
-**Change** — one step in `.github/workflows/ci.yml`, in the `integration` job
-after `pnpm db:migrate`:
-
-```bash
-pnpm --filter @hasnahena/web exec prisma migrate diff \
-  --from-url "$DATABASE_URL" \
-  --to-schema-datamodel prisma/schema.prisma \
-  --exit-code
-```
-
-`--exit-code` returns 2 when there is a difference, so the job fails with the
-diff printed. Add the same as a `db:migrate:check` script in `package.json` so it
-is runnable locally.
-
-**Watch:** the `audit_logs` immutability trigger (DATA-08) is **not modelled by
-Prisma** — it lives in a migration only. Confirm `migrate diff` does not report
-it as drift; if it does, the check has to compare schema-to-schema rather than
-database-to-schema, and the trigger's absence from `schema.prisma` needs the
-comment above `model AuditLog` to say so even more loudly.
-
-**Done when:** adding a field to `schema.prisma` without generating a migration
-fails CI, verified locally before pushing.
-
-## WO-55 · Cover the Cloudinary paths
-
-**Why:** upload, transform and delete have no test on either surface, and
-**DATA-06 means the assets have no backup either**. NID front/back, passport
-photos and nominee photos are regulatory documents. The combination — untested
-write path, no export, single third-party account — is the weakest link in the
-data story now that the database is drilled on every push.
-
-**Change**
-
-1. Unit-test the pure parts with no network: the signature/params builder, the
-   public-id derivation, the transformation string, and the file-type and
-   size validation. A NID image that silently uploads as the wrong resource type
-   is unrecoverable in the same way a wrong balance is.
-2. **The compensation path is already written — cover it, do not rewrite it.**
-   This order originally called for making registration commit both the user row
-   and the uploads or neither. The audit found `registrations/route.ts` already
-   does exactly that: it records each `publicId` the moment it lands rather than
-   after all four settle, deletes them all on failure, deletes the user row, and
-   answers 503. It is the most careful error handling in the repository. What is
-   missing is a **test**, so assert it rather than redesign it: a failing upload
-   leaves no user, no document rows and no orphaned assets.
-3. Do **not** test against the real Cloudinary account from CI. Stub the HTTP
-   client at the boundary.
-4. [WO-63](#wo-63--cloudinary-undeletable-assets-and-swallowed-errors) fixes two
-   real defects in the same file and should land first — testing
-   `extractPublicId` is most of this order, and it is currently wrong.
-5. Then do DATA-06 — an export job — because a covered upload path to an
-   unbackupable store is still one deletion away from being unrecoverable.
-
-**Done when:** the validation and failure paths are covered, and DATA-06 has a
-decision recorded even if the answer is "accept the risk until launch".
-
-## WO-56 · Loan repayment presets must be whole taka
-
-**Why:** rule 1 — money is whole taka, no paisa. `getLoanRepaymentPresets` in
-`apps/web/lib/utils.ts` computes:
-
-```ts
-const weekly = Math.round((installmentAmount / 4) * 100) / 100;
-```
-
-so the "weekly" quick-fill offers a member `1141.75` for a ৳4,567 installment. It
-is used on three money screens — `member/loans`, `worker/loans` and
-`admin/members/[id]`. All three call `Math.round()` before submitting, so nothing
-wrong is *posted*; the defect is that **the member is shown a figure that is not
-the one that gets recorded**, and a fractional taka appears in the UI of a
-platform whose first rule says it cannot.
-
-**Change**
-
-1. `const weekly = Math.round(installmentAmount / 4);` — one line.
-2. Add it to `apps/web/lib/utils.test.ts` (create it): assert every preset is an
-   integer for a range of installment amounts including ones not divisible by 4,
-   and that each is clamped to `[0, remainingAmount]`.
-3. While there, check the three call sites still round on submit. They should
-   become no-ops, not be removed — defence in depth on a money path is not
-   duplication.
-
-**Watch:** `formatCurrency` already truncates for display, which is why nobody
-saw this. The presets write into a text input, not through the formatter.
-
-**Done when:** the new unit test fails against the current line and passes after
-the change.
-
-## WO-57 · A dispute reports failure while succeeding — **the defect to fix first**
-
-**Why:** FR-17 is effectively broken in production. A member who disputes a wrong
-posting is told the platform could not record it, while it did.
-
-**Proven 2026-08-18**, by driving the real handler against a real Postgres:
-
-```
-[dispute] Error: TypeError: Do not know how to serialize a BigInt
-PROBE STATUS: 500 BODY: {"ok":false,"error":"Failed to record the dispute"}
-PROBE DB STATUS AFTER: DISPUTED
-```
-
-The last line is the whole problem. The transaction **is** frozen, the
-`TRANSACTION_DISPUTED` audit row **is** written, and the member is shown a
-failure. They retry, and the second attempt answers `409
-DISPUTE_ALREADY_RAISED` — which reads as a second failure. From the member's
-side the platform has twice refused to hear an objection about their money.
-
-**Cause.** [`dispute/route.ts`](../apps/web/app/api/v1/member/transactions/[id]/dispute/route.ts)
-ends with:
-
-```ts
-return NextResponse.json({ ok: true, data: updated }, { status: 200 });
-```
-
-`updated` is the raw Prisma `Transaction`, whose `amount`, `savingsAfter`,
-`loanAfter` and `disputeCorrectAmount` are `BigInt`. `NextResponse.json` calls
-`JSON.stringify`, which throws on a BigInt. The throw lands in the route's own
-`catch`, `routeErrorStatus` does not recognise a `TypeError`, and it falls
-through to the generic 500.
-
-**Why no suite caught it.** `routes.contract.test.ts` drives this route with
-`id: 'no-such-txn'`, so it only ever exercises the 404. **The success path of
-this route has never been executed by a test.** That is the finding to
-generalise, not the BigInt.
-
-**Change**
-1. Serialise before returning. `lib/api-utils.ts` already has
-   `serializeTransaction` for exactly this — it is currently **unused**. Use it,
-   after fixing WO-61 (it turns a legitimate `0` into `null`).
-2. Add a regression test that drives the **success** path, seeded with an account
-   and a `PROCESSED` transaction owned by the caller. It must be seen to fail
-   against the current code first — it will, with the TypeError above.
-3. Then audit the other routes for the same shape. Only this one returns a raw
-   BigInt-bearing model today (`loans/applications` and `guarantor-approval` both
-   go through `serializeLoan`), so this is a one-line fix plus a class of test.
-4. Consider a `BigInt.prototype.toJSON` polyfill and **reject it**: a global
-   coercion makes every BigInt silently become a string in every response,
-   changing shapes nobody reviewed. Serialise explicitly at the boundary.
-
-**Also fix while here:** `correctAmount: z.number().optional()` accepts a
-negative. A member cannot owe a negative correction — add `.positive()`.
-
-**Done when:** the success path returns 200 with a JSON body, the regression test
-has been seen red first, and `pnpm test:routes` covers a successful dispute.
-
-## WO-59 · Three notification writes are fire-and-forget
-
-**Why:** on Vercel the function can be frozen the moment the response is
-returned. A promise that has not settled is simply not finished — no error, no
-retry, no log.
-
-```ts
-prisma.notification.create({ … }).catch((err) => console.error(…));   // not awaited
-return NextResponse.json({ ok: true, user: created }, { status: 201 });
-```
-
-| Site | What is lost |
-|---|---|
-| `registrations/route.ts:455` | **The admin is never told a registration is waiting.** The member sees "submitted" and waits for an approval nobody knows to give |
-| `guarantor-approval/route.ts:63` | The borrower is not told their guarantor accepted or declined |
-| `guarantor-approval/route.ts:83` | Admins are not told a loan is ready for approval |
-
-The two notification writes in `loans/applications/route.ts` are already
-`await`ed, which is what makes these three look like oversights rather than a
-decision.
-
-**Change:** `await` them. They are a single indexed insert against a warm pool —
-the latency argument for not awaiting does not survive measurement. If a genuine
-fire-and-forget is ever wanted, Next 16 has `after()` from `next/server`, which
-is the supported way to run work after the response and is *not* what a bare
-floating promise does.
-
-**Watch:** awaiting means a failed notification now fails the request. That is
-wrong for registration — the member's account was created and must not be
-rolled back over a notification. Await it, catch it, log it, and **still return
-201**. The point is to know it failed, not to fail because of it.
-
-**Done when:** no floating promise remains in `app/api`, and a test asserts the
-admin notification row exists after a successful registration.
-
-## WO-60 · Remove chi's `RealIP`; log and throttle on the same address
-
-**Why:** `main.go:172` mounts `middleware.RealIP`, which staticcheck flags as
-`SA1019` — deprecated precisely because it overwrites `r.RemoteAddr` with the
-**leftmost** `X-Forwarded-For` entry, a value the caller supplies.
-
-Two consequences, and the second is the one that matters:
-
-1. **The access log records an address the caller chose.** Every `http_request`
-   line carries `"ip": r.RemoteAddr`, which is now attacker-controlled. An
-   access log that cannot be trusted to say where a request came from is not
-   evidence, and this is a financial system whose logs exist to answer "who did
-   this".
-2. **With the default `TRUSTED_PROXIES=0`, the rate limiter keys on that same
-   spoofable value**, so one client mints a fresh quota per request by varying a
-   header. `clientIP()` handles this correctly *when* `TrustedProxies > 0`, and
-   `.env.render.example` sets it to 1 — but the default is 0, and the code
-   comments themselves say the fallback has "nothing better to use". It does:
-   the true TCP peer, which `RealIP` destroyed before the limiter ran.
-
-**Change**
-1. Delete `r.Use(middleware.RealIP)`. Nothing else depends on the rewrite.
-2. Export the limiter's `clientIP(r, trustedProxies)` and use it in the logging
-   middleware, so the log and the throttle agree on who the caller is.
-3. Log the raw peer as well when they differ — a mismatch is a signal.
-4. Keep `TRUSTED_PROXIES` as the single knob and state the failure mode where an
-   operator will see it: **set it to the number of proxies in front of the
-   process, and to 0 only when nothing is.**
-
-**Verify:** with the change, `curl -H 'X-Forwarded-For: 1.2.3.4'` against a local
-API must be throttled on the loopback address, not on `1.2.3.4`. Confirm by
-exceeding the limit with a varying header — before the fix it never triggers.
-
-**Done when:** `SA1019` is gone, log and limiter use one function, and the
-spoofing check above fails to bypass the limit.
-
-## WO-61 · `serializeLoan` and `serializeTransaction` turn zero into null
-
-**Why:** both use a truthiness guard on a `BigInt`:
-
-```ts
-amount: tx.amount ? Number(tx.amount) : null,
-```
-
-`BigInt(0)` is falsy. So every legitimate zero becomes `null`:
-
-- a fully repaid loan reports `remainingAmount: null` rather than `0`
-- a new loan reports `totalPaid: null` and `applicationFee: null`
-- a transaction that took a balance to exactly zero reports `savingsAfter: null`
-  — the passbook snapshot for "you withdrew your last taka" comes back blank
-
-The last one is the one to care about: `savingsAfter`/`loanAfter` exist so the
-printed passbook can show a running balance, and a blank is not a balance.
-
-**Change**
-1. Guard on `!= null`, not truthiness, in all twelve fields.
-2. Type them. Both functions take `any` and spread it, which is how a BigInt got
-   past the compiler in the first place — see WO-57.
-3. `serializeTransaction` is currently **called from nowhere**. Do not delete it:
-   WO-57 needs it. But note it in the review — a serialiser that exists and is
-   unused while a route hand-rolls its own response is exactly the shape that
-   produced WO-57.
-
-**Done when:** a unit test covers zero for every field of both serialisers.
 
 ## WO-62 · Email sending can outlive the shutdown drain
 
@@ -380,54 +93,6 @@ before the send. Never roll a member's approval back because an email failed.
 **Done when:** no email path can exceed 10 s, cancellation propagates, and a test
 covers a Brevo timeout without waiting 39 real seconds.
 
-## WO-63 · Cloudinary: undeletable assets and swallowed errors
-
-**Why:** two defects in `lib/cloudinary.ts`, and they compound DATA-06 — these
-are NID scans and member photos in one account with no backup.
-
-**1. `extractPublicId` cannot parse a URL with a transformation in it.** It
-strips a leading `v123/` but not a transformation segment, so:
-
-```
-/upload/w_400,h_400/v1712/hasnahena/profiles/member/abc.jpg
-        └──────────┴── left in the "public id"
-```
-
-returns `w_400,h_400/v1712/hasnahena/profiles/member/abc`. `deleteImage` then
-gets a public id that does not exist, returns `result !== 'ok'`, and
-`deleteOldAvatar` returns `false` — **silently**, because every caller ignores
-the boolean. Avatars are uploaded with a `width/height/crop/gravity`
-transformation, so this is the normal path, not an edge case. Old avatars
-accumulate forever in a store that has a quota and no export.
-
-**2. `uploadImage` destroys the error it caught.**
-
-```ts
-} catch (error) {
-  console.error('Cloudinary upload error:', error);
-  throw new Error('Failed to upload image to Cloudinary');
-}
-```
-
-A missing `CLOUDINARY_API_SECRET`, an exceeded quota, and a rejected file type
-are three very different operational problems that all surface as one sentence.
-`ensureCloudinaryConfigured()` throws a precise message and this catch overwrites
-it — so a misconfiguration reads as a runtime failure.
-
-**Change**
-1. Parse the public id properly: split the path after `/upload/`, drop a leading
-   version segment **and** any leading transformation segment (one that contains
-   `,` or matches `^[a-z]_`), then strip the extension. Table-test it against
-   real URL shapes: plain, versioned, transformed, versioned+transformed, nested
-   folder, and a non-Cloudinary URL.
-2. Preserve the cause: `throw new Error('…', { cause: error })`, and let
-   `ensureCloudinaryConfigured`'s error through unchanged.
-3. Make `deleteOldAvatar`'s `false` mean something — log it with the URL, or
-   return the reason. A cleanup that fails silently is a leak with no evidence.
-
-**Done when:** the parser is table-tested, a failed delete is visible in the log,
-and a configuration error says it is a configuration error.
-
 ## WO-64 · Harden the support proxy
 
 **Why:** `app/api/v1/dashboard/support/[...path]/route.ts` joins the catch-all
@@ -462,9 +127,11 @@ Two real consequences remain:
    404 rather than normalising it.
 2. Pass `signal: req.signal` to `fetch`, for the stream case especially.
 3. Forward the member's address as an `X-Forwarded-For` entry so the Go limiter
-   can key on the member rather than on Vercel — this interacts with
-   [WO-60](#wo-60--remove-chis-realip-log-and-throttle-on-the-same-address),
-   so do that one first and set `TRUSTED_PROXIES` to match.
+   can key on the member rather than on Vercel. **WO-60 has landed**, so the Go
+   side is ready: `middleware.ClientIP` counts entries from the trusted end and
+   `TRUSTED_PROXIES` is the only knob. Vercel in front of Render is two hops, so
+   this change and that setting have to move together — get it wrong in the
+   other direction and every member shares Vercel's bucket again.
 
 **Done when:** a traversal attempt 404s, closing a stream closes the upstream
 one, and the two orders agree on how many proxies are in front.
@@ -521,8 +188,17 @@ near the Dockerfile.
 
 # Completed work
 
-Moved to [changelog.md](changelog.md) — one line per batch, for WO-01 → WO-50
+Moved to [changelog.md](changelog.md) — one line per batch, for WO-01 → WO-63
 and TEST-01 → TEST-43. The lessons that outlived the work are below.
+
+**One piece of a closed order is still open.** WO-55 covered the Cloudinary
+paths and the registration compensation path; it also said to "then do DATA-06 —
+an export job — because a covered upload path to an unbackupable store is still
+one deletion away from being unrecoverable". That remains true and remains
+undone. It is tracked as DATA-06 in
+[production-readiness.md](production-readiness.md) and as the last row of the
+backlog in [tasks.md](tasks.md), because it can only be built against a real
+Cloudinary account.
 
 # Traps that cost a session
 
@@ -639,6 +315,24 @@ clean tree).
 - **`output: 'standalone'` is gated behind `DOCKER_BUILD=1`** so a Docker concern
   cannot change what `pnpm build` emits for Vercel.
 
+### Composition — a correct function defeated by what surrounds it
+
+- **chi's `RealIP` destroyed the rate limiter's input three middlewares before
+  it ran.** `clientIP` was right, was unit-tested, and had a comment explaining
+  exactly why the leftmost X-Forwarded-For entry must never be trusted — and the
+  limiter was still keying on that entry, because `RealIP` had already written
+  it into `r.RemoteAddr`. **Nothing about the function was wrong; the stack
+  around it was.** The test that catches this had to drive the whole stack,
+  which is why `mountMiddleware` was extracted from `main()` — the same move
+  that made the routes testable.
+- **Three handlers had their own copy of the same decision.** `getClientIP` in
+  `auth_handler.go` and three inline `r.Header.Get("X-Forwarded-For")` blocks in
+  `dashboard_handler.go` each answered "who is calling" differently from the
+  limiter. The login lockout counted failed attempts against the caller-supplied
+  end, so varying one header stepped around it entirely. When a fact about a
+  request is security-relevant, resolve it **once**, in middleware, and put it
+  in the context.
+
 ### Tests and evidence
 
 - **A dead endpoint can look healthy in a test log.** WO-23 cited the guarantor
@@ -662,6 +356,18 @@ clean tree).
   briefly looked like the test being weak rather than the revert being partial.
   Restore the method from `git show HEAD:<path>`, not by editing back what you
   remember changing.
+- **Some defects cannot be reproduced by a test, and saying so is part of the
+  fix.** WO-59's floating `prisma.notification.create(...)` fails only where the
+  runtime freezes at the response — Node settles the promise regardless, so the
+  obvious test ("the notification row exists afterwards") passes against the
+  broken code. That test is still worth having, as a contract; the *regression*
+  guard is a census that reads the source for a Prisma call in statement
+  position. Write the note in the test, or the next reader will trust it.
+- **`golangci-lint` compiles the test files too, with `build-tags: integration`.**
+  A new `_test.go` helper named `post` collided with one in a tagged file in the
+  same package: `go test ./cmd/server/` was green, `go build` was green, and the
+  linter reported a `typecheck` failure that reads like a configuration problem.
+  It is not — it is a real redeclaration that only the tagged build sees.
 - **A detector must search code, not prose.** A rule forbidding the word
   "markup" in the money paths flagged `loan_repository.go` — for its own header
   comment, which states the rule. A check that fires on its own documentation

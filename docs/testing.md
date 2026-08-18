@@ -613,13 +613,14 @@ before anything is slow is a number nobody trusts:
 
 ---
 
-## Phase 9 — What the suites still do not cover `TEST-39 … TEST-43`
+## Phase 9 — What the suites still do not cover `TEST-39 … TEST-43` — **done**
 
-Opened 2026-08-18. Phases 0–8 closed the boundary gap and found eighteen
-defects. This phase exists because **"the suite is green" and "this is checked"
-are different statements**, and the whole point of the eight phases above was
-that nobody could tell them apart. Every entry below is a surface no assertion
-currently reaches, written down so it stops being invisible.
+Opened and closed 2026-08-18. Phases 0–8 closed the boundary gap and found
+eighteen defects. This phase exists because **"the suite is green" and "this is
+checked" are different statements**, and the whole point of the eight phases
+above was that nobody could tell them apart. Every entry below was a surface no
+assertion reached; writing them down is what made them stop being invisible, and
+three of the five turned out to have a live defect sitting behind them.
 
 Each has an execution spec in [work-orders.md](work-orders.md); this table is the
 *why*, and [tasks.md](tasks.md#coverage-gaps-under-watch) is the status.
@@ -628,9 +629,9 @@ Each has an execution spec in [work-orders.md](work-orders.md); this table is th
 |---|---|---|---|
 | **TEST-39** `[x]` | **EN/BN message parity** — closed 2026-08-18 | `apps/web/test/unit/messages.test.ts`: equal key sets, no long untranslated copy-paste, every `{placeholder}` carried through. All four assertions were confirmed red — by deleting a key, by pasting an English string, by stripping a placeholder — before being allowed to pass | [WO-51](work-orders.md) |
 | **TEST-40** `[x]` | **What a notification says** — closed 2026-08-18 | `apps/api/internal/notify/`: every message is a pure `(title, message)` builder, table-tested at seven amounts including `0` and the int64 ceiling, plus two censuses — one fails when a builder has no test row, the other when a repository builds a message itself. `email_service.go` is covered for its escaping asymmetry (HTML escaped, text not). **The defect it was written to guard was already present** — LEDGER-07, now fixed | [WO-52](work-orders.md) |
-| **TEST-41** | **The cleanup loop** | `startCleanupLoop` sweeps expired tokens and rate limits hourly and has no test. A sweep that stops sweeping is completely silent — the table just grows. It is also the RUN-06 shape exactly: `CleanupExpiredTokens` sat written-and-never-called for months and looked like working code | [WO-53](work-orders.md) |
-| **TEST-42** | **Prisma schema drift** | CI applies the migrations and never compares the result to `schema.prisma`. The two can disagree, and nothing notices until a column is missing in production. [ADR-014](decisions.md) retired `db push` so the migrations are the truth — which only holds if something checks | [WO-54](work-orders.md) |
-| **TEST-43** | **The Cloudinary paths** | Upload, transform and delete are untested on both surfaces, and DATA-06 means the assets have no backup either. NID front/back and nominee photos are regulatory documents. Untested write path + no export + one third-party account is the weakest link in the data story now that the database is drilled on every push | [WO-55](work-orders.md) |
+| **TEST-41** `[x]` | **The cleanup loop** — closed 2026-08-18 | Two halves, because the defect has two. `internal/services/cleanup_integration_test.go` proves the sweep deletes expired rows **and only those** — a sweep that deletes too much un-revokes a logged-out token and clears an attacker's lockout — and that a cancelled context deletes nothing. `cmd/server/wiring_test.go` reads main.go's AST and fails if nothing starts the loop, or if it is started with `startupCtx`, the ten-second startup context that would make it run once and stop | [WO-53](work-orders.md) |
+| **TEST-42** `[x]` | **Prisma schema drift** — closed 2026-08-18 | `pnpm db:migrate:check` (`prisma migrate diff --exit-code`) runs in CI right after `db:migrate`. Verified both ways against a real migrated database: no difference today, exit 2 with the column printed when a field is added to `schema.prisma` without generating a migration. The `audit_logs` immutability trigger is **not** reported as drift — it is invisible to `migrate diff`, which is the same property that makes [WO-33](work-orders.md) delicate | [WO-54](work-orders.md) |
+| **TEST-43** `[x]` | **The Cloudinary paths** — closed 2026-08-18 | `lib/cloudinary.test.ts` table-tests the public-id parser against every URL shape (plain, versioned, transformed, chained, named, nested, non-Cloudinary) — it was returning an id that names nothing for the transformed shape, which is the normal one. `lib/image-utils.test.ts` covers the type and size gate. `test/routes/registration.test.ts` drives the compensation path with the client stubbed: an upload failure leaves no user, no document rows and **no orphaned assets**. Nothing touches the real account — it holds members' NID scans. **DATA-06, the missing backup, is not closed by this** | [WO-55](work-orders.md) |
 
 ### What the 2026-08-18 code audit found, and why Phase 9 grew
 
@@ -643,7 +644,7 @@ That is the finding worth keeping. Some of it was reachable by tools:
 | Tool | Ran | Result |
 |---|---|---|
 | `go vet` | whole API | clean |
-| `golangci-lint` errcheck + staticcheck | whole API | **19 findings** — 12 unchecked errors, `SA1019 middleware.RealIP` |
+| `golangci-lint` errcheck + staticcheck | whole API | **19 findings** — 12 unchecked errors, `SA1019 middleware.RealIP`. All fixed; `RealIP` removed by WO-60, so there are no staticcheck suppressions left |
 | `go test -race` unit | whole API | clean |
 | `go test -race` integration | whole API, real Postgres | **zero data races** in ~40 s — now [WO-66](work-orders.md) |
 | `next build` | web | clean |
@@ -669,6 +670,13 @@ what a permitted caller gets back. That is the gap Phase 9 now owns, and the
 cheapest way to close it is a rule rather than a list: **every route in the
 contract table needs at least one row that drives it to a 2xx.**
 
+`test/routes/success-paths.test.ts` starts that, and generalises the specific
+defect rather than just fixing it: alongside the driven dispute it walks every
+route file and fails if any of them hands a row from a BigInt-bearing model
+(`transaction`, `loan`, `account`, `documentSequence`) straight to
+`NextResponse.json`. That census would have caught WO-57 the day it was written,
+without anyone thinking to test that route.
+
 Second lesson, cheaper to state: **the same function can write one correct record
 and one wrong one.** Every posting in `transaction_repository.go` wrote an audit
 line with `%d BDT` — correct — and a member notification with `BDT %.2f` from a
@@ -682,8 +690,8 @@ before it ever reached the format string.
 **Two of these five were worth more than the other three**, and the call held up:
 TEST-40, because it guards money rendered to a member and we had already shipped
 that exact defect once — writing it found the defect sitting there a second time;
-and TEST-42, still open, an hour of work that fails the build on a whole class of
-drift.
+and TEST-42 — an hour of work that fails the build on a whole class of drift,
+closed the same day it was called for.
 
 ### What is deliberately still uncovered
 
@@ -834,7 +842,8 @@ to the first.
 | `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, and the FR/status/code three-way check |
 | `pnpm test:go` | nothing | pure Go: money arithmetic (including 400k property iterations), utils, middleware |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps |
-| `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server |
+| `pnpm test:routes` | Postgres | the 21 Next route methods, driven directly — no browser, no server. Plus the success paths: a real dispute, a real registration with Cloudinary stubbed, and the census that fails when a route returns an unserialised BigInt |
+| `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. Runs in CI after `db:migrate` |
 | `pnpm test:e2e` | full stack | 143 browser specs: journeys, forms, the layout matrix (phone/desktop × en/bn), accessibility |
 
 The split is deliberate: the first two must stay fast enough to run on every

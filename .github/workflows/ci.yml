@@ -107,8 +107,8 @@ jobs:
       # staticcheck, unused. errcheck and staticcheck were the staged half —
       # 44 findings when configured, 0 now — so this step is green rather than
       # advisory, and a finding here is a defect introduced by the diff under
-      # test. The one suppression is SA1019 on chi's RealIP, which WO-60 owns;
-      # see apps/api/.golangci.yml for why it is a nolint and not an exclusion.
+      # test. WO-60 removed the last suppression (SA1019 on chi's RealIP) along
+      # with the middleware itself, so nothing is nolint'd for staticcheck.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -172,6 +172,20 @@ jobs:
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
+      # WO-54. The migrations are the truth (ADR-014), and that only holds if
+      # something checks. An edit to schema.prisma with no generated migration
+      # is one keystroke away, and nothing notices until a column is missing in
+      # production — which surfaces as a runtime error on a money path. This
+      # compares the just-migrated database against schema.prisma and exits
+      # non-zero with the diff printed.
+      #
+      # Runs here rather than in the `web` job because it needs a migrated
+      # database, and this is the job that has one.
+      - name: Schema drift
+        run: pnpm db:migrate:check
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
       # -p 1 is required, not a tuning knob: these packages share one database
       # and each truncates it between tests. Go runs packages in parallel by
       # default, so without this they wipe each other's fixtures.
@@ -231,6 +245,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: apps/api/go.sum
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -240,6 +259,27 @@ jobs:
           SEED_ADMIN_EMAIL=admin@hasnahena.test \
           SEED_ADMIN_PASSWORD=ci-password-1234567 \
             pnpm db:seed
+
+      # The browser talks to the Go API directly (NEXT_PUBLIC_API_URL), so
+      # without this every spec that logs in fails: login, the dashboards and
+      # all four money journeys. `playwright.config.ts` starts Next itself but
+      # knows nothing about this process — the local equivalent is
+      # `scripts/test-stack.sh up --serve`, which starts both.
+      #
+      # Built rather than `go run`, so a compile error fails here with a
+      # compiler message instead of as a connection refused sixty seconds later.
+      - name: Start the Go API
+        working-directory: apps/api
+        run: |
+          go build -o /tmp/hasnahena-api ./cmd/server
+          /tmp/hasnahena-api > /tmp/api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:8081/v1/health; then
+              echo "API is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become ready:"; cat /tmp/api.log; exit 1
 
       # Only chromium. The specs assert layout and visibility on a Pixel 7
       # viewport, which chromium emulates; three engines would triple the run
@@ -258,6 +298,16 @@ jobs:
         with:
           name: playwright-report
           path: apps/web/playwright-report
+
+      # The API log is where a whole-suite failure explains itself: a run that
+      # trips the rate limiter renders empty pages in the *later* specs, which
+      # reads as flaky ordering until `grep -c 429` says otherwise.
+      - name: Upload the API log when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-log
+          path: /tmp/api.log
           retention-days: 7
 
   restore:

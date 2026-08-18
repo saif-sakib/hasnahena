@@ -451,8 +451,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create notification for admins (non-blocking)
-    prisma.notification.create({
+    // Awaited, not fire-and-forget. On Vercel the function can be frozen the
+    // moment the response is returned, and a promise that has not settled is
+    // simply not finished — so the admin was never told a registration was
+    // waiting, while the member sat waiting for an approval nobody knew to
+    // give (WO-59).
+    //
+    // Caught and logged rather than thrown: the member's account exists by
+    // now, and must not be rolled back because a notification failed. The
+    // point is to know it failed, not to fail because of it.
+    await prisma.notification.create({
       data: {
         type: 'NEW_REGISTRATION',
         title: 'New Member Registration',

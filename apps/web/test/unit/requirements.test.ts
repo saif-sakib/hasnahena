@@ -165,20 +165,16 @@ const REQUIREMENTS: Record<string, Coverage> = {
     // what is missing is per-fund accounting, which FR-15 gates.
   },
   'FR-17': {
-    // [!] in tasks.md as of 2026-08-18, and this row is why the board and the
-    // code cannot disagree about it.
+    // Was [!] from 2026-08-18 until WO-57 landed the same day. The endpoint had
+    // always authorised correctly, frozen the transaction and written the audit
+    // row — and then answered 500, because it returned the raw Prisma row and
+    // `NextResponse.json` cannot serialise a BigInt. The member was told their
+    // dispute failed while it succeeded.
     //
-    // The endpoint exists, authorises correctly, freezes the transaction and
-    // writes the audit row — and then answers 500, because it returns the raw
-    // Prisma row and `NextResponse.json` cannot serialise a BigInt. The member
-    // is told their dispute failed while it succeeded. Proven against a real
-    // database; the reproduction is in WO-57.
-    //
-    // The contract suite drives this route with a non-existent id, so it only
-    // ever exercises the 404 — the success path has never been executed by a
-    // test. Move this back to { covered } when WO-57 lands *with* a test that
-    // drives a successful dispute.
-    gap: 'the dispute is recorded but the member is told it failed — WO-57',
+    // The contract suite drove this route with a non-existent id, so it only
+    // ever exercised the 404. That is the finding this row now guards: a
+    // requirement is not proven by a test of its refusals.
+    covered: 'test/routes/success-paths.test.ts — a successful dispute answers 200 with a serialised body, and the audit row is there',
   },
   'FR-18': {
     // The freeze and the notification both work — routes.contract.test.ts

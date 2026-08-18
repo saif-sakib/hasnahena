@@ -14,6 +14,11 @@ import (
 // facts to the access log line after the middleware has already started.
 type ctxKeyRequestState struct{}
 
+// ctxKeyClientIP carries the address this request is attributed to, resolved
+// once by Logging so that the access log, the rate limiter and any audit row a
+// handler writes all name the same caller.
+type ctxKeyClientIP struct{}
+
 type requestState struct {
 	mu     sync.Mutex
 	userID string
@@ -29,6 +34,26 @@ func (s *requestState) getUserID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.userID
+}
+
+// RequestClientIP returns the address this request is attributed to.
+//
+// Set by Logging from ClientIP, so a handler recording who did something gets
+// the same answer the limiter and the access log got. Falls back to the TCP
+// peer for a request that did not pass through Logging, which keeps handler
+// tests working — and is the safe direction to fail, because the peer is the
+// one value no caller can choose.
+//
+// Never read X-Forwarded-For directly in a handler. Three did, taking the
+// LEFTMOST entry, which is the attacker-supplied end: two recorded it as the
+// address a password change came from, and the login lockout counted failed
+// attempts against it — so varying one header stepped around the lockout
+// entirely (WO-60).
+func RequestClientIP(r *http.Request) string {
+	if ip, ok := r.Context().Value(ctxKeyClientIP{}).(string); ok && ip != "" {
+		return ip
+	}
+	return ClientIP(r, 0)
 }
 
 // SetRequestUserID records who a request turned out to belong to, so the access
@@ -89,12 +114,28 @@ func (rr *responseRecorder) Unwrap() http.ResponseWriter {
 // Register this BEFORE Recoverer so that Logging is the outer wrapper. A panic
 // is then converted to a 500 by Recoverer while still inside this wrapper, so
 // the panic gets an access log line with the right status instead of vanishing.
-func Logging(next http.Handler) http.Handler {
+//
+// Takes the trusted-proxy count because the address a request came from is a
+// deployment fact, not a request one — see ClientIP. Before WO-60 this logged
+// r.RemoteAddr after chi's RealIP had overwritten it with a caller-supplied
+// header, so the field naming where a request came from was chosen by whoever
+// sent it. An access log that cannot be trusted on that point is not evidence,
+// and in a financial system the log exists to answer "who did this".
+func Logging(trustedProxies int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return loggingHandler(next, trustedProxies)
+	}
+}
+
+func loggingHandler(next http.Handler, trustedProxies int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
+		clientIP := ClientIP(r, trustedProxies)
 		state := &requestState{}
-		r = r.WithContext(context.WithValue(r.Context(), ctxKeyRequestState{}, state))
+		ctx := context.WithValue(r.Context(), ctxKeyRequestState{}, state)
+		ctx = context.WithValue(ctx, ctxKeyClientIP{}, clientIP)
+		r = r.WithContext(ctx)
 		recorder := &responseRecorder{ResponseWriter: w}
 
 		defer func() {
@@ -111,7 +152,14 @@ func Logging(next http.Handler) http.Handler {
 				"status", status,
 				"bytes", recorder.bytes,
 				"durationMs", time.Since(start).Milliseconds(),
-				"ip", r.RemoteAddr,
+				"ip", clientIP,
+			}
+			// The TCP peer, when it is not the address being attributed. With a
+			// proxy in front they differ on every request and the pair is the
+			// full picture; with no proxy configured they differ only when
+			// someone sent a header claiming otherwise, which is a signal.
+			if peer := ClientIP(r, 0); peer != clientIP {
+				attrs = append(attrs, "peer", peer)
 			}
 			if userID := state.getUserID(); userID != "" {
 				attrs = append(attrs, "userId", userID)

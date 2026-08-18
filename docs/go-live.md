@@ -253,8 +253,8 @@ These cost the same whenever they are done, so they should not delay launch.
 | Item | Order | Status / why it can wait |
 |---|---|---|
 | ~~React Compiler lint cleanup~~ | [WO-27](work-orders.md) | **Done 2026-08-18.** 15 screens moved onto SWR, all 20 findings cleared, compiler enabled. `reactCompiler` is top-level in Next 16 — the `experimental.` key the order assumed is silently ignored |
-| ~~Enable `errcheck` + `staticcheck`~~ | [WO-40](work-orders.md) | **Done 2026-08-18.** 19 findings fixed, 0 remain, both linters on in CI. One suppression: `SA1019` on chi's `RealIP`, which [WO-60](work-orders.md) owns |
-| Close the coverage gaps | [WO-53 → WO-55](work-orders.md) | **WO-54 is the exception — do it in Stage 1**, because schema drift is cheapest to catch before there are rows. WO-51 and WO-52 are done; the other two can wait |
+| ~~Enable `errcheck` + `staticcheck`~~ | [WO-40](work-orders.md) | **Done 2026-08-18.** 19 findings fixed, 0 remain, both linters on in CI. The one suppression — `SA1019` on chi's `RealIP` — went with the middleware itself when [WO-60](work-orders.md) landed |
+| ~~Close the coverage gaps~~ | [WO-53 → WO-55](work-orders.md) | **Done 2026-08-18**, including the drift check that was called out for Stage 1. `pnpm db:migrate:check` runs in CI after `db:migrate` — so the Stage 1.2 schema changes below are now guarded rather than trusted |
 | Log aggregation, dashboard, audit viewer | OBS-05/07/08 | You have metrics and Sentry — *once they are switched on*. These make them nicer to read |
 | Cloudinary asset backup | DATA-06 | **The exception — do this as soon as real NID images exist.** It is Stage 1 work that simply cannot be done before there is anything to back up |
 | Host move | INF-01 → INF-12 | Only once everything above is quiet |

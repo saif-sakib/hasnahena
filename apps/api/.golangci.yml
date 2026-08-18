@@ -45,13 +45,13 @@ linters:
   #                    format character in a test literal, and SA1019 on chi's
   #                    `middleware.RealIP`.
   #
-  # That SA1019 is the one finding **suppressed rather than fixed**, with a
-  # `//nolint:staticcheck` at cmd/server/main.go. staticcheck flags RealIP as
-  # deprecated and spoofable — independently reaching the same conclusion that
-  # writing the RUN-07 rate limiter reached by hand. Removing it changes how the
-  # access log and the throttle identify a caller, which needs its own
-  # verification, so it is specced separately as WO-60. Delete the nolint with
-  # the middleware, not before.
+  # That SA1019 was the one finding suppressed rather than fixed, with a
+  # `//nolint:staticcheck` at cmd/server/main.go. **WO-60 removed the middleware
+  # on 2026-08-18 and the nolint with it**, so there are no staticcheck
+  # suppressions left in this repository. staticcheck had independently reached
+  # the conclusion the RUN-07 rate limiter reached by hand: RealIP rewrites
+  # r.RemoteAddr from a caller-supplied header, so both the access log and the
+  # throttle keyed on a value the caller chose.
 
   settings:
     # Applies once errcheck is enabled. Kept here so the exclusions are reviewed

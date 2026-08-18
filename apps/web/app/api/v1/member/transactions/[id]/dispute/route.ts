@@ -5,11 +5,15 @@ import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { createAuditLog } from '@/lib/audit';
+import { serializeTransaction } from '@/lib/api-utils';
 import { TransactionStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
   reason: z.string().min(3),
-  correctAmount: z.number().optional(),
+  // A member cannot claim the correct amount was negative: money moves in one
+  // direction and the sign is the transaction type. Without this the dispute
+  // records a figure no correction could ever post.
+  correctAmount: z.number().positive().optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -59,12 +63,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       entityType: 'TRANSACTION',
       entityId: tx.id,
       userId: auth.id,
+      request: req,
       details: payload.correctAmount != null
         ? `Disputed: ${payload.reason.trim()} (member states the correct amount is ${payload.correctAmount})`
         : `Disputed: ${payload.reason.trim()}`,
     });
 
-    return NextResponse.json({ ok: true, data: updated }, { status: 200 });
+    // Serialised, never the raw row: `NextResponse.json` calls
+    // `JSON.stringify`, which throws on the BigInt columns — and by this point
+    // the dispute is already recorded. The throw was caught below and answered
+    // 500, so a member objecting to a posting was told the platform had failed
+    // to hear them while it had, in fact, frozen the transaction and written
+    // the audit row (WO-57).
+    return NextResponse.json({ ok: true, data: serializeTransaction(updated) }, { status: 200 });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: 'Validation failed', details: err.flatten() }, { status: 400 });

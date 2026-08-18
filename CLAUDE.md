@@ -15,7 +15,8 @@ pnpm lint                                      pnpm db:clear   # keep admin+gall
 pnpm test:unit  # web unit tests, no DB        pnpm test:e2e   # Playwright; needs a running stack + seed
 pnpm test:go    # Go unit tests, no DB needed  pnpm test:stack # bring the whole test rig up in one command
 pnpm test:integration   # Go + real Postgres: repositories, the 64-route contract, hostile input
-pnpm test:routes        # the 21 Next route methods + real Postgres; no browser, no server
+pnpm test:routes        # the Next route methods + real Postgres; no browser, no server
+pnpm db:migrate:check   # the migrated database still matches schema.prisma (CI runs this)
 cd apps/api && go build ./...                  # Go check
 ```
 
@@ -42,9 +43,9 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Seven suites enumerate rather than list, and will fail the build when the code
-grows something they do not know about.** That is deliberate; see
-[docs/testing.md](docs/testing.md).
+**Ten suites and one CI check enumerate rather than list, and will fail the
+build when the code grows something they do not know about.** That is
+deliberate; see [docs/testing.md](docs/testing.md).
 
 | Add this | And this fails until you act |
 |---|---|
@@ -55,6 +56,10 @@ grows something they do not know about.** That is deliberate; see
 | a notification builder | `internal/notify/messages_test.go` — `TestEveryBuilderIsTested` reads `messages.go`; every builder needs a table row |
 | a notification message built **outside** `internal/notify` | `internal/notify/repositories_test.go` — a string literal or a float verb in a repository fails |
 | a key in `messages/{en,bn}.json` | `apps/web/test/unit/messages.test.ts` — both files, no untranslated copy-paste, no dropped `{placeholder}` |
+| a Next route that returns a row from `transaction`, `loan`, `account` or `documentSequence` | `apps/web/test/routes/success-paths.test.ts` — serialise it; `JSON.stringify` throws on a BigInt *after* your write has committed |
+| a Prisma call in a route handler | `apps/web/test/unit/floating-promises.test.ts` — await it. On Vercel an unsettled promise is work that never happens |
+| a background loop in `main()` | `apps/api/cmd/server/wiring_test.go` — reads the AST; a loop nobody starts is the original RUN-06 defect, and `startupCtx` makes it run exactly once |
+| a field in `schema.prisma` | `pnpm db:migrate:check` in CI — generate the migration, or the database and the schema disagree until a column is missing in production |
 
 ## Rules
 
@@ -102,6 +107,9 @@ apps/api/internal/money/          pure loan/installment/waterfall/schedule arith
                                   Put new money maths HERE, not inline in SQL
 apps/api/internal/notify/         every member- and staff-facing notification string. Pure builders,
                                   whole taka, table-tested with a census. Nothing else may build one
+apps/api/internal/middleware/     the global stack, mounted by mountMiddleware in main.go. ClientIP is the
+                                  ONLY place that decides a caller's address — never read X-Forwarded-For
+                                  in a handler; use RequestClientIP(r) (ADR-019)
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)

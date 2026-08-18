@@ -43,7 +43,7 @@ contained is in [changelog.md](changelog.md).
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
 | Session revocation | `[x]` | Both backends check `token_blacklist` on every authenticated request (SEC-01, SEC-11) |
 | Documents / PDFs | `[x]` | Vector text, paginated, English-only ([ADR-012](decisions.md), [ADR-013](decisions.md)). Column widths are measured against their content rather than eyeballed |
-| Automated tests | `[~]` | All eight phases done and the boundary gap closed — then a code audit found **ten more defects the suites do not reach**. They prove *who may call a route* and very little about what it returns to a caller who is allowed: WO-57's route had a test that only ever drove its 404. See [testing.md](testing.md) and [tasks.md](tasks.md#coverage-gaps-under-watch) |
+| Automated tests | `[~]` | Nine phases done — then a code audit found **ten defects the suites did not reach**. They prove *who may call a route* and very little about what it returns to a caller who is allowed: WO-57's route had a test that only ever drove its 404. Nine of the ten are closed, and each closure added the *census* rather than the single case. See [testing.md](testing.md) and [tasks.md](tasks.md#coverage-gaps-under-watch) |
 | CI/CD | `[x]` | Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration + route tests, browser suite, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
 | Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases, images built and pushed to GHCR by CI. **Nothing in production consumes them yet** — they exist so the history is there for INF-06 |
 | Observability | `[~]` | The code is complete and none of it is enabled. See below |
@@ -193,27 +193,34 @@ whole route, which would break the public site.
 Low, and it is genuinely low: the policy is published to members anyway. It is on
 this page so that the *narrowing* is not mistaken for the *split*.
 
-### SEC-14 · The access log records an address the caller chose `[!]` — **medium**
+### SEC-14 · The access log records an address the caller chose `[x]` — **closed 2026-08-18**
 
-`main.go:172` mounts chi's `middleware.RealIP`, which staticcheck flags as
-`SA1019`. It is deprecated for exactly this reason: it overwrites
-`r.RemoteAddr` with the **leftmost** `X-Forwarded-For` entry, which the caller
-supplies.
+chi's `middleware.RealIP` overwrote `r.RemoteAddr` with the **leftmost**
+`X-Forwarded-For` entry, which the caller supplies. The access log recorded that
+value as `"ip"` — **an access log that cannot be trusted to say where a request
+came from is not evidence**, and in a financial system the log exists to answer
+"who did this".
 
-The access log then records that value as `"ip"`. **An access log that cannot be
-trusted to say where a request came from is not evidence**, and in a financial
-system the log exists to answer "who did this".
+Fixing it found two more victims of the same value, both worse than the log:
 
-The rate limiter is a second victim but a partial one: `clientIP()` reads
-`X-Forwarded-For` from the **right** and is correct whenever `TRUSTED_PROXIES >
-0` — `.env.render.example` sets it to 1 and explains why. The default is **0**,
-and in that configuration the limiter falls back to the `RemoteAddr` that
-`RealIP` already rewrote, so a caller mints a fresh quota per request by varying
-a header.
+- the **login lockout** counted failed attempts against it (`getClientIP` in
+  `auth_handler.go`), so varying one header per attempt stepped around the
+  lockout entirely;
+- three `audit_logs` rows recording who changed a password stored it as
+  evidence.
 
-**Fix:** [WO-60](work-orders.md) — delete `RealIP`, and have the logger and the
-limiter share one `clientIP` function so they cannot disagree about who the
-caller is.
+And at the default `TRUSTED_PROXIES=0` the rate limiter keyed on it too, so one
+client minted a fresh quota per request. `clientIP()` was correct the whole time
+and made no difference, because `RealIP` had rewritten its input three
+middlewares earlier.
+
+**Closed by [WO-60](work-orders.md)** — `RealIP` removed, one exported
+`ClientIP` used by the limiter, resolved once by `Logging` and read back by every
+handler through `RequestClientIP`. See [ADR-019](decisions.md). Proven by driving
+the real middleware stack: a caller varying `X-Forwarded-For` is throttled on its
+15th request and was never throttled before. `TRUSTED_PROXIES` is the single
+knob — **the number of proxies in front of the process, 0 only when nothing
+is.**
 
 ### SEC-15 · The support proxy forwards any path it is given `[~]` — **low**
 
@@ -298,7 +305,7 @@ changelog, because they are the shape of the next defect:
 | OBS-05 `[ ]` | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
 | OBS-07 `[ ]` | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
 | OBS-08 `[ ]` | Audit log viewer UI | FR-22 gap. The data is complete and `admin/audit-logs` already exists and is uncalled; nobody can read it without SQL |
-| DATA-06 `[ ]` | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **The largest remaining data gap** — the nightly dump covers the database and nothing else |
+| DATA-06 `[ ]` | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **The largest remaining data gap** — the nightly dump covers the database and nothing else. **Decision recorded 2026-08-18** ([ADR-020](decisions.md)): accepted until the first real member document exists, because there is nothing to lose yet and an export job written against an empty account cannot be tested. The trigger is that first document, not a date. The *upload* paths are now covered and the undeletable-asset defect is fixed ([WO-55](work-orders.md), [WO-63](work-orders.md)), so what is left here is purely the second copy |
 | DATA-07 `[ ]` | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path. The audit log is append-only by design, so decide **now** what a member's erasure request means — it is a schema question |
 
 ---
@@ -374,18 +381,18 @@ is the record.
 
 | # | Block | Tasks | Order |
 |---|---|---|---|
-| 0 | **Fix what is hurting a member** | FR-17, the dropped notifications (LEDGER-07 closed 2026-08-18) | [WO-57](work-orders.md), [WO-59](work-orders.md). Not on this page's usual axis — these are wrong *now*, which beats everything that is merely expensive later |
+| 0 | ~~Fix what is hurting a member~~ | FR-17, the dropped notifications, LEDGER-07 | **Closed 2026-08-18** — [WO-57](work-orders.md), [WO-59](work-orders.md). Nothing on the board now tells a member something untrue |
 | 1 | ~~Purge git history~~ | SEC-10, SEC-06 | **Closed as a decision** — [ADR-018](decisions.md). Not live member data |
 | 2 | **Switch the monitoring on** | OBS-03, OBS-04 | Above. Dashboard work, not engineering, and everything below is being done blind until it is done |
-| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07 (FR-08 done — [ADR-016](decisions.md) needed no migration) | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch |
-| 4 | **Close the coverage gaps** | [WO-53 → WO-55](work-orders.md) | [tasks.md](tasks.md#coverage-gaps-under-watch) — what the eight testing phases do not reach |
-| 5 | **Finish the linters and the hardening** | 19 `errcheck`/`staticcheck` findings — 6 unchecked audit writes and **2 unchecked `InvalidateAllUserTokens`, a password change that revokes nothing** — plus SEC-14/15/16 and RUN-11 | [WO-40](work-orders.md), [WO-60 → WO-65](work-orders.md) |
+| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07 (FR-08 done — [ADR-016](decisions.md) needed no migration) | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch. Now guarded by `pnpm db:migrate:check` in CI |
+| 4 | ~~Close the coverage gaps~~ | WO-53 → WO-55 | **Closed 2026-08-18.** The cleanup sweep, schema drift and the Cloudinary paths all have suites; DATA-06's backup is the only remainder and sits in block 6 |
+| 5 | **Finish the hardening** | SEC-15, SEC-16, RUN-11 | [WO-62](work-orders.md), [WO-64](work-orders.md), [WO-65](work-orders.md). The linters are done (WO-40) and SEC-14 is closed (WO-60) |
 | 6 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09 | OPS-07 first |
 | 7 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |
 
-**Block 1 is not like the rest of this list.** It is a disclosure that has
-already happened and continues for as long as the objects exist. Everything else
-here is ordinary backlog by comparison.
+**Blocks 0, 1 and 4 closed on 2026-08-18**, which changes what this list is: it
+no longer starts with something that is wrong now. Block 2 is the one to do
+next, and it is not engineering.
 
 The blocks that used to head this list — backups, tests, CI, observability code,
 containers — are done, and they are what turned "it works" into "it works, and if
@@ -422,6 +429,11 @@ defect rather than describing a past one.
   test that drove the route with a non-existent id and asserted the 404. Every
   authorization case passed; the success path had never run. When a suite is
   built from "who is allowed", ask what it does once someone is.
+- **A correct function can be defeated by what surrounds it.** SEC-14's
+  `clientIP` was right, was unit-tested, and carried a comment explaining the
+  exact attack — while the limiter it served keyed on the spoofable value,
+  because a middleware three layers up had already overwritten its input. Unit
+  tests cannot see this. The one that caught it drives the whole stack.
 
 ---
 

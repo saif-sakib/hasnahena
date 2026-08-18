@@ -167,37 +167,33 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService, securityService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	// SA1019 suppressed, not resolved. RealIP is deprecated because it rewrites
-	// r.RemoteAddr from a caller-supplied X-Forwarded-For, which makes both the
-	// access log and — at the default TRUSTED_PROXIES=0 — the rate limiter key
-	// on a value the caller chose. Removing it is WO-60, which also has to move
-	// the logging middleware onto clientIP() so the log and the throttle agree.
-	// That is a behaviour change with its own verification, so it does not ride
-	// along with turning the linters on (WO-40). Delete this line and the nolint
-	// together when WO-60 lands.
-	r.Use(middleware.RealIP) //nolint:staticcheck // SA1019 — WO-60 owns the removal
-	// Logging sits outside Recoverer so a panic is turned into a 500 while still
-	// inside the access-log wrapper, and therefore gets logged with that status.
-	r.Use(appmw.Logging)
-	r.Use(appmw.Metrics)
-	r.Use(middleware.Recoverer)
-	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter
-	// registered outside it would never see one (RUN-08).
-	r.Use(observability.Recoverer)
-	r.Use(appmw.CORS(config.CORSOrigins, config.EnableHSTS))
+	// TRUSTED_PROXIES decides which X-Forwarded-For entry is believed, and four
+	// things read the answer: the rate limiter, the access log, the login
+	// lockout and the audit rows (ADR-019). Both ways of getting it wrong are
+	// silent, so the count this process is running with is stated at boot.
+	if config.TrustedProxies == 0 && config.Environment != "development" {
+		slog.Warn("TRUSTED_PROXIES is 0: every caller behind a proxy is attributed to the proxy's address, "+
+			"so they share one rate-limit bucket and one lockout. Set it to the number of proxies in front "+
+			"of this process (Render is 1).", "environment", config.Environment)
+	} else {
+		slog.Info("caller address resolution", "trustedProxies", config.TrustedProxies)
+	}
 
-	// RUN-07. Mounted after CORS so a throttled request still carries the
-	// headers a browser needs to read the 429 — a rejection the browser reports
-	// as a CORS failure tells the member nothing.
+	r := chi.NewRouter()
+
 	limiterStop := make(chan struct{})
 	defer close(limiterStop)
-	r.Use(appmw.RateLimit(appmw.RateLimitConfig{
-		Requests:       config.RateLimitRequests,
-		Window:         config.RateLimitWindow,
+	mountMiddleware(r, middlewareConfig{
+		CORSOrigins:    config.CORSOrigins,
+		EnableHSTS:     config.EnableHSTS,
 		TrustedProxies: config.TrustedProxies,
-	}, limiterStop))
+		RateLimit: appmw.RateLimitConfig{
+			Requests:       config.RateLimitRequests,
+			Window:         config.RateLimitWindow,
+			TrustedProxies: config.TrustedProxies,
+		},
+		LimiterStop: limiterStop,
+	})
 
 	metrics.Register(dbPool)
 
@@ -246,6 +242,57 @@ func main() {
 // routerDeps is everything the route table needs. It exists so mountRoutes can
 // be called from a test with a real database and no Brevo, no Sentry and no
 // listening socket — see cmd/server/routes_integration_test.go.
+// middlewareConfig is the deployment half of the stack: who is in front of this
+// process, and what a caller is allowed to do.
+type middlewareConfig struct {
+	CORSOrigins []string
+	EnableHSTS  bool
+
+	// TrustedProxies is how many reverse proxies sit in front. It decides which
+	// X-Forwarded-For entry is believed — see middleware.ClientIP — and it is
+	// the one knob an operator has to get right: set it to the number of proxies
+	// in front of this process, and to 0 only when nothing is.
+	TrustedProxies int
+
+	RateLimit   appmw.RateLimitConfig
+	LimiterStop <-chan struct{}
+}
+
+// mountMiddleware is the global middleware stack, in order.
+//
+// Extracted from main() by WO-60 for the same reason mountRoutes was: the
+// defect it fixes lives in the *order and composition* of this stack, and a
+// stack built inline in main() cannot be exercised by a test. Removing chi's
+// RealIP is a one-line change whose effect is only visible end to end — the
+// limiter keeping its grip on a caller who varies a header.
+func mountMiddleware(r chi.Router, cfg middlewareConfig) {
+	r.Use(middleware.RequestID)
+
+	// chi's middleware.RealIP is deliberately NOT mounted (WO-60). It overwrote
+	// r.RemoteAddr with the leftmost X-Forwarded-For entry — a value the caller
+	// supplies — so the access log recorded an address the caller chose, and at
+	// the default TRUSTED_PROXIES=0 the limiter keyed on it too, handing one
+	// client a fresh quota per request for the cost of varying a header.
+	// Everything that needs the caller's address now goes through
+	// middleware.ClientIP, which counts from the trusted end.
+
+	// Logging sits outside Recoverer so a panic is turned into a 500 while still
+	// inside the access-log wrapper, and therefore gets logged with that status.
+	// It also resolves the caller's address once, for everything downstream.
+	r.Use(appmw.Logging(cfg.TrustedProxies))
+	r.Use(appmw.Metrics)
+	r.Use(middleware.Recoverer)
+	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter
+	// registered outside it would never see one (RUN-08).
+	r.Use(observability.Recoverer)
+	r.Use(appmw.CORS(cfg.CORSOrigins, cfg.EnableHSTS))
+
+	// RUN-07. Mounted after CORS so a throttled request still carries the
+	// headers a browser needs to read the 429 — a rejection the browser reports
+	// as a CORS failure tells the member nothing.
+	r.Use(appmw.RateLimit(cfg.RateLimit, cfg.LimiterStop))
+}
+
 type routerDeps struct {
 	auth            *handlers.AuthHandler
 	dashboard       *handlers.DashboardHandler
