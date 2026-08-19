@@ -1,8 +1,12 @@
 package repositories
 
 // Support chat, its retention policy, and the SSE tickets from SEC-05.
-// EnsureSupportSchema also creates sse_tickets on boot, so a deploy that skipped
-// the migration still works.
+//
+// These tables come from migrations only (WO-70). The bootstrap that used to
+// create them at boot was a second, subtly different definition of tables
+// schema.prisma already owned — "so a deploy that skipped the migration still
+// works" is the reasoning it carried, and the cost of that safety net was a
+// database whose shape depended on which definition happened to run first.
 
 import (
 	"context"
@@ -95,64 +99,40 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 	return tx.Commit(ctx)
 }
 
-func (r *UserRepository) EnsureSupportSchema(ctx context.Context) error {
-	statements := []string{
-		// Document number series (receipts, withdrawals, loans, repayments).
-		// Created here as well as in schema.prisma so a deploy that has not yet
-		// run `db push` cannot break a money-moving transaction.
-		`CREATE TABLE IF NOT EXISTS document_sequences (
-			series TEXT NOT NULL,
-			year INTEGER NOT NULL,
-			counter BIGINT NOT NULL DEFAULT 0,
-			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-			"updatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-			PRIMARY KEY (series, year)
-		)`,
-		`CREATE TABLE IF NOT EXISTS support_threads (
-			id TEXT PRIMARY KEY,
-			"memberUserId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			status TEXT NOT NULL DEFAULT 'OPEN',
-			"processedByUserId" TEXT,
-			"processedAt" TIMESTAMP NULL,
-			"deleteAt" TIMESTAMP NOT NULL,
-			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-			"updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS support_messages (
-			id TEXT PRIMARY KEY,
-			"threadId" TEXT NOT NULL REFERENCES support_threads(id) ON DELETE CASCADE,
-			"senderUserId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			message TEXT NOT NULL,
-			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_support_threads_member ON support_threads("memberUserId")`,
-		`CREATE INDEX IF NOT EXISTS idx_support_threads_status_updated ON support_threads(status, "updatedAt" DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_support_threads_delete_at ON support_threads("deleteAt")`,
-		// Short-lived single-purpose credentials for EventSource connections,
-		// which cannot send an Authorization header (SEC-05). Only the SHA-256
-		// hash is stored, as with token_blacklist.
-		`CREATE TABLE IF NOT EXISTS sse_tickets (
-			"ticketHash" TEXT PRIMARY KEY,
-			"userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			purpose TEXT NOT NULL,
-			"expiresAt" TIMESTAMP NOT NULL,
-			"createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sse_tickets_expires_at ON sse_tickets("expiresAt")`,
-		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created ON support_messages("threadId", "createdAt" ASC)`,
-		// Additional index for faster latest message lookups (covering index)
-		`CREATE INDEX IF NOT EXISTS idx_support_messages_thread_created_desc ON support_messages("threadId", "createdAt" DESC) INCLUDE (message, "senderUserId")`,
-		`INSERT INTO system_config (id, key, value, "updatedAt")
-		 VALUES ('support_chat_retention_' || substring(md5(random()::text), 1, 12), 'support.chatRetentionDays', '10', NOW())
-		 ON CONFLICT (key) DO NOTHING`,
-	}
-	for _, stmt := range statements {
-		if _, err := r.db.Exec(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// EnsureSupportSchema is retired (WO-70).
+//
+// It ran `CREATE TABLE IF NOT EXISTS` at every boot for `document_sequences`,
+// `support_threads`, `support_messages` and `sse_tickets` — all four of which
+// are also defined in schema.prisma and created by the 0_init migration. Two
+// definitions of the same tables, in two languages, with nothing checking that
+// they agree.
+//
+// They did not agree, and the differences were exactly the dangerous kind —
+// invisible on a database where the other definition happened to run first:
+//
+//   document_sequences."updatedAt"   migration: TIMESTAMP(3) NOT NULL, no default
+//                                    bootstrap: TIMESTAMP NOT NULL DEFAULT NOW()
+//
+// which is the divergence that once broke all four money flows at once, as a
+// generic 500, when a `db push` stripped the default the bootstrap had supplied
+// (see docs/data-model.md).
+//
+//   idx_support_messages_thread_created_desc
+//                                    migration: plain (threadId, createdAt DESC)
+//                                    bootstrap: the same, INCLUDE (message, senderUserId)
+//
+// Same index name plus IF NOT EXISTS means whichever ran first wins silently.
+// Migrations run first in every environment, so the covering variant has never
+// actually existed anywhere — it was a no-op that read like an optimisation.
+// Not reinstated: Prisma cannot express INCLUDE, so it would have to be
+// hand-written SQL that `prisma migrate diff` cannot see, and that category
+// already holds the audit_logs trigger and the CHECK constraints. A covering
+// index on the smallest hot path is not worth a third invisible object.
+//
+// Migrations are now the only definition. `pnpm db:migrate` runs in every
+// environment, and `pnpm db:migrate:check` fails the build when the database
+// and schema.prisma disagree — which is the guarantee this function was
+// pretending to provide.
 
 // CreateSSETicket stores a hashed stream ticket. Expired rows are swept on the
 // way in, so the table stays bounded without needing a scheduled job.

@@ -210,8 +210,12 @@ func TestApprovingARequestThatDoesNotExist(t *testing.T) {
 // Loan lifecycle
 // ---------------------------------------------------------------------------
 
+// Every LoanStatus the enum holds. WO-71 removed the legacy "PENDING" and
+// "APPROVED" labels, so this is seven rather than nine — and the point of
+// keeping the list exhaustive is that adding an eighth without deciding whether
+// it can be approved fails here rather than in production.
 var allLoanStatuses = []string{
-	"PENDING", "APPROVED", "PENDING_GUARANTOR", "PENDING_APPROVAL",
+	"PENDING_GUARANTOR", "PENDING_APPROVAL",
 	"ACTIVE", "COMPLETED", "SETTLED", "DEFAULTED", "REJECTED",
 }
 

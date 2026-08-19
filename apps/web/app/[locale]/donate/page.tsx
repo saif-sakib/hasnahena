@@ -57,43 +57,111 @@ export default async function DonatePage({ params }: PageProps) {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
-              <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-[24px] flex items-center justify-center mb-6">
-                <Building2 className="w-10 h-10" />
-              </div>
-              <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
-                {locale === 'bn' ? 'ব্যাংক একাউন্ট' : 'Bank Account'}
-              </h2>
-              <div className="space-y-3 text-zinc-600 dark:text-zinc-400">
-                 <p className="font-medium text-lg">{settings['bank.name'] || 'Islami Bank Bangladesh PLC'}</p>
-                 <p>{locale === 'bn' ? 'একাউন্ট নাম:' : 'Account Name:'} {settings['bank.accountName'] || 'Hasnahena Foundation'}</p>
-                 <p className="font-mono text-zinc-800 dark:text-zinc-200 my-2 text-xl px-4 py-2 bg-zinc-100 dark:bg-zinc-950 rounded-xl inline-block">
-                    {settings['bank.accountNo'] || '2050 0000 0000 0000'}
-                 </p>
-                 <p>{locale === 'bn' ? 'শাখা:' : 'Branch:'} {settings['bank.branch'] || 'Local Office'}</p>
-              </div>
-            </div>
+          {/*
+            WO-67. Both cards render only when an admin has published the
+            details behind them.
 
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
-              <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 rounded-[24px] flex items-center justify-center mb-6">
-                <QrCode className="w-10 h-10" />
+            They used to fall back to hardcoded literals — the bank card to the
+            account number `2050 0000 0000 0000`, the mobile card to
+            `+880 1700-000000` — and because none of the `bank.*` keys was in
+            SYSTEM_CONFIG_KEYS, those fallbacks were not fallbacks: the settings
+            endpoint rejects any key it does not declare, so no admin screen
+            could ever replace them. A donor reading this page was being given a
+            placeholder account number to send money to.
+
+            An empty state is the right failure here rather than a default. A
+            missing number is a question someone asks; a plausible wrong one is
+            money sent somewhere it cannot be recovered from.
+          */}
+          {(() => {
+            const bankAccountNo = settings['bank.accountNo']?.trim();
+            const bankName = settings['bank.name']?.trim();
+            const bankAccountName = settings['bank.accountName']?.trim();
+            const bankBranch = settings['bank.branch']?.trim();
+            const mobileNumbers: Array<[string, string]> = (
+              [
+                ['bKash', settings['donation.bkash']?.trim()],
+                ['Nagad', settings['donation.nagad']?.trim()],
+                ['Rocket', settings['donation.rocket']?.trim()],
+              ] as Array<[string, string | undefined]>
+            ).filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+            // The account number is the load-bearing field: a bank card without
+            // one cannot be acted on, so it is what decides whether the card
+            // exists at all. The rest degrade to omitted lines.
+            const showBank = Boolean(bankAccountNo);
+            const showMobile = mobileNumbers.length > 0;
+
+            if (!showBank && !showMobile) {
+              return (
+                <div className="rounded-[32px] border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-10 text-center">
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    {locale === 'bn'
+                      ? 'অনুদানের তথ্য শীঘ্রই প্রকাশ করা হবে। অনুগ্রহ করে যোগাযোগ পাতার মাধ্যমে আমাদের সাথে যোগাযোগ করুন।'
+                      : 'Donation details will be published shortly. Please reach us through the contact page in the meantime.'}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className={showBank && showMobile ? 'grid md:grid-cols-2 gap-8' : 'grid gap-8 max-w-xl mx-auto'}>
+                {showBank && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
+                    <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-[24px] flex items-center justify-center mb-6">
+                      <Building2 className="w-10 h-10" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
+                      {locale === 'bn' ? 'ব্যাংক একাউন্ট' : 'Bank Account'}
+                    </h2>
+                    <div className="space-y-3 text-zinc-600 dark:text-zinc-400">
+                      {bankName && <p className="font-medium text-lg">{bankName}</p>}
+                      {bankAccountName && (
+                        <p>
+                          {locale === 'bn' ? 'একাউন্ট নাম:' : 'Account Name:'} {bankAccountName}
+                        </p>
+                      )}
+                      <p className="font-mono text-zinc-800 dark:text-zinc-200 my-2 text-xl px-4 py-2 bg-zinc-100 dark:bg-zinc-950 rounded-xl inline-block">
+                        {bankAccountNo}
+                      </p>
+                      {bankBranch && (
+                        <p>
+                          {locale === 'bn' ? 'শাখা:' : 'Branch:'} {bankBranch}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {showMobile && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
+                    <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 rounded-[24px] flex items-center justify-center mb-6">
+                      <QrCode className="w-10 h-10" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
+                      {locale === 'bn' ? 'মোবাইল ব্যাংকিং' : 'Mobile Banking'}
+                    </h2>
+                    <div className="space-y-4 text-zinc-600 dark:text-zinc-400">
+                      {mobileNumbers.map(([label, number]) => (
+                        <div key={label}>
+                          <p>{label}</p>
+                          <p className="font-mono text-indigo-600 dark:text-indigo-400 font-bold text-2xl tracking-wider">
+                            {number}
+                          </p>
+                        </div>
+                      ))}
+                      <p className="text-sm px-4 py-2 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 rounded-full inline-flex mt-4">
+                        {locale === 'bn'
+                          ? '* অনুদান পাঠানোর পর অনুগ্রহ করে মেসেজ দিয়ে নিশ্চিত করবেন।'
+                          : '* Please confirm via SMS after sending the donation.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
-              <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
-                {locale === 'bn' ? 'মোবাইল ব্যাংকিং (বিকাশ / নগদ)' : 'Mobile Banking (bKash / Nagad)'}
-              </h2>
-              <div className="space-y-4 text-zinc-600 dark:text-zinc-400">
-                 <p>{locale === 'bn' ? 'নাম্বার:' : 'Number:'}</p>
-                 <p className="font-mono text-indigo-600 dark:text-indigo-400 font-bold text-3xl tracking-wider">
-                    {settings['contact.phone'] || '+880 1700-000000'}
-                 </p>
-                 <p className="text-sm px-4 py-2 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 rounded-full inline-flex mt-4">
-                    {locale === 'bn' ? '* অনুদান পাঠানোর পর অনুগ্রহ করে মেসেজ দিয়ে নিশ্চিত করবেন।' : '* Please confirm via SMS after sending the donation.'}
-                 </p>
-              </div>
-            </div>
-          </div>
-          
+            );
+          })()}
+
         </div>
       </main>
       <Footer settings={settings} />

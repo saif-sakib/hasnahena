@@ -77,6 +77,12 @@ const DEFAULT_LANDING_SETTINGS: Record<string, string> = {
   'hero.partnerLogo1': '',
   'hero.partnerLogo2': '',
   'hero.partnerLogo3': '',
+  // WO-67. Read by /donate. Until these were added here the page could only ever
+  // show its hardcoded fallbacks, because the endpoint rejects undeclared keys.
+  'bank.name': '',
+  'bank.accountName': '',
+  'bank.accountNo': '',
+  'bank.branch': '',
 };
 
 const parseNumberSetting = (value: unknown, fallback: number) => {
@@ -638,6 +644,65 @@ export default function AdminSettingsPage() {
                       />
                     </div>
                   </div>
+
+                  {/*
+                    WO-67. Bank transfer details for /donate.
+
+                    Leave the account number blank and the whole bank card is
+                    hidden on the public page. That is deliberate: what these
+                    replaced was a hardcoded `2050 0000 0000 0000` that looked
+                    like a real account and could not be changed from anywhere.
+                  */}
+                  <div className="border-t border-gray-200 my-4" />
+
+                  <div className="space-y-1">
+                    <h4 className="font-semibold text-sm">Bank Transfer Details (Donate page)</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Shown on the public donate page. Leave the account number empty
+                      to hide the bank card entirely — better a visible gap than a
+                      number a donor might send money to by mistake.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Bank Name</Label>
+                      <Input
+                        value={landingSettings['bank.name']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.name': e.target.value })}
+                        placeholder="e.g. Islami Bank Bangladesh PLC"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Account Name</Label>
+                      <Input
+                        value={landingSettings['bank.accountName']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.accountName': e.target.value })}
+                        placeholder="e.g. Hasnahena Foundation"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Account Number</Label>
+                      <Input
+                        value={landingSettings['bank.accountNo']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.accountNo': e.target.value })}
+                        placeholder="empty hides the bank card"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Branch</Label>
+                      <Input
+                        value={landingSettings['bank.branch']}
+                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.branch': e.target.value })}
+                        placeholder="e.g. Jashore Branch"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 my-4" />
 
                     <div className="space-y-2">
                       <Label>Donation Reference Note</Label>

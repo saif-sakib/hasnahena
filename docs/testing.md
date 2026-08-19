@@ -13,9 +13,9 @@ is one line per phase in [changelog.md](changelog.md). This file is what you nee
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, and the source censuses |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, and the source censuses — including foreign-key index coverage and the settings keys pages read |
 | `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes |
-| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
+| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
 | `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
 | `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. CI runs it after `db:migrate` |
 | `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility |
@@ -76,7 +76,7 @@ left behind would pass or fail on package ordering.
 
 ## Writing an assertion that stays true
 
-- **Enumerate, do not list.** Thirteen suites and one CI check derive their
+- **Enumerate, do not list.** Seventeen suites and one CI check derive their
   coverage from the source and fail the build when the code grows something they
   do not know about. The table of what each one demands is in
   [CLAUDE.md](../CLAUDE.md) — read it before adding a route, a balance writer, a

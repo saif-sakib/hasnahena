@@ -29,6 +29,7 @@ import {
   MessageCircle,
   Send,
   ArrowLeft,
+  Building2,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
@@ -127,6 +128,9 @@ const adminSecondaryNav = [
   { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
   { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
   { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
+  // WO-72. Branches became manageable when users.assignedBranch stopped being a
+  // free string.
+  { name: 'branches', href: '/branches', icon: Building2, en: 'Branches', bn: 'শাখাসমূহ' },
   { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
 ];
 

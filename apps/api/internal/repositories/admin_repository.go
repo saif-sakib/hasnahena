@@ -40,12 +40,21 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 			u.status::text,
 			u."createdAt",
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
 			COALESCE(addr.district, ''),
-			u.role::text
+			u.role::text,
+			-- WO-72. Three different things were being called "area" here: this
+			-- district (which is what the staff list actually displayed), the
+			-- free-text users."assignedBranch" that only the Next create/update
+			-- responses ever read, and a branches table nothing touched at all.
+			-- The branch is now a row, and it is returned as one.
+			COALESCE(b.id::text, ''),
+			COALESCE(b.name, ''),
+			COALESCE(b.code, '')
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
+		LEFT JOIN branches b ON b.id = u."assignedBranchId"
 		WHERE ` + roleFilter + `
 		ORDER BY u."createdAt" DESC
 	`
@@ -58,26 +67,35 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, memberIDValue, name, email, phone, nid, status, area, role string
+		var branchID, branchName, branchCode string
 		var createdAt time.Time
 		var savingsBalance, activeLoan int64
-		if scanErr := rows.Scan(&id, &memberIDValue, &name, &email, &phone, &nid, &status, &createdAt, &savingsBalance, &activeLoan, &area, &role); scanErr != nil {
+		if scanErr := rows.Scan(&id, &memberIDValue, &name, &email, &phone, &nid, &status, &createdAt,
+			&savingsBalance, &activeLoan, &area, &role, &branchID, &branchName, &branchCode); scanErr != nil {
 			continue
 		}
+		var branch interface{}
+		if branchID != "" {
+			branch = map[string]interface{}{"id": branchID, "name": branchName, "code": branchCode}
+		}
 		result = append(result, map[string]interface{}{
-			"id":              id,
-			"uid":             memberIDValue,
-			"memberId":        memberIDValue,
-			"name":            name,
-			"email":           email,
-			"phone":           phone,
-			"nidNumber":       nid,
-			"status":          strings.ToUpper(status),
-			"joinDate":        createdAt.Format(time.RFC3339),
-			"currentDeposit":  savingsBalance,
-			"activeLoan":      activeLoan,
-			"area":            area,
-			"role":            strings.ToUpper(role),
-			"assignedArea":    area,
+			"id":             id,
+			"uid":            memberIDValue,
+			"memberId":       memberIDValue,
+			"name":           name,
+			"email":          email,
+			"phone":          phone,
+			"nidNumber":      nid,
+			"status":         strings.ToUpper(status),
+			"joinDate":       createdAt.Format(time.RFC3339),
+			"currentDeposit": savingsBalance,
+			"activeLoan":     activeLoan,
+			"area":           area,
+			"role":           strings.ToUpper(role),
+			// `area` stays the permanent-address district, which is what it has
+			// always been and is the useful column for a member. `branch` is the
+			// staff member's assigned office and is null for members.
+			"branch":          branch,
 			"address":         area,
 			"lastActive":      createdAt.Format(time.RFC3339),
 			"lastTransaction": createdAt.Format(time.RFC3339),
@@ -281,7 +299,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			), '[]'::jsonb) as documents
 		FROM users u
 		LEFT JOIN addresses a ON a."userPermanentId" = u.id
-		LEFT JOIN addresses pa ON pa.id = u."presentAddressId"
+		LEFT JOIN addresses pa ON pa."userPresentId" = u.id
 		LEFT JOIN nominees n ON n."userId" = u.id
 		WHERE u.status = 'PENDING' AND u.role = 'MEMBER'
 		ORDER BY u."createdAt" DESC

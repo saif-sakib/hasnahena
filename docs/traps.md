@@ -11,6 +11,13 @@ another doc, add it here and link instead.
 
 ## Money and concurrency
 
+- **An invariant enforced only in application code is a claim about today's
+  code.** This schema had no CHECK constraint at all, and two backends writing
+  the same tables. Measured against the unconstrained database: it accepted a
+  negative savings balance, a zero-amount posting, a loan owing more than its
+  principal, and **a loan carrying an application fee** — the last one a rule-3
+  violation that only a test stood between. Put the invariant where neither
+  service can go around it (WO-69).
 - **A balance written absolutely is a lost update.** Read the balance, add in Go,
   write the total back, and twenty concurrent ৳1,000 deposits leave ৳1,000 with
   ৳20,000 of ledger rows. Write it relatively (`SET "x" = "x" + $1 … RETURNING`)
@@ -48,6 +55,31 @@ another doc, add it here and link instead.
 
 ## Prisma and migrations
 
+- **Two definitions of one table will disagree, and `IF NOT EXISTS` makes the
+  disagreement silent.** The Go API ran `CREATE TABLE IF NOT EXISTS` at boot for
+  four tables `schema.prisma` also owns. On any database that already had them
+  the DDL was a no-op, so the divergence was invisible — until it wasn't:
+  `document_sequences."updatedAt"` was `NOT NULL DEFAULT NOW()` in the bootstrap
+  and `NOT NULL` with no default in the migration, which is the shape that once
+  broke all four money flows at once as a generic 500. A second index with the
+  same name went further: the bootstrap's covering variant had **never existed
+  anywhere**, because migrations run first and the second creator does nothing.
+  It read like an optimisation and was a no-op (WO-70).
+- **Dropping an enum label is a runtime error in every query that still names
+  it, and nothing compiles it.** Collapsing the legacy `LoanStatus` values missed
+  three occurrences: the ones found read `IN ('APPROVED','ACTIVE')` and the ones
+  missed read `IN ('APPROVED', 'ACTIVE')` — one space. A grep finds what you
+  thought to grep for. `enum-literals.test.ts` re-derives both sides instead and
+  asserts every member of a comparison list shares one enum; `'APPROVED'` looks
+  legitimate label-by-label, because it is a `RequestStatus`, and is still
+  nonsense next to a `LoanStatus`.
+- **`prisma migrate diff` generates a shape, not a data migration.** For the
+  Block S change it emitted, in order: an enum swap with no `UPDATE` first (fails
+  outright the moment a row holds a removed label), a `DROP COLUMN
+  users."presentAddressId"` with no backfill into the new column (discards every
+  member's present address), and `ADD COLUMN … NOT NULL` with no default (fails
+  on any existing row). Read generated migration SQL before applying it, and
+  write the data steps yourself.
 - **`@updatedAt` emits no database default.** Neither `db push` nor a generated
   migration writes one — Prisma applies it client-side. Hand-written SQL must set
   `"createdAt"` and `"updatedAt"` itself, or the first insert fails a NOT NULL
@@ -270,6 +302,27 @@ another doc, add it here and link instead.
 
 ## Interface
 
+- **A `|| 'fallback'` on a value nobody can set is not a fallback.** The public
+  `/donate` page read four `bank.*` keys that were absent from
+  `SYSTEM_CONFIG_KEYS`, so `PUT /api/v1/settings` — which rejects the whole
+  request on one unknown key — could never write them. The hardcoded
+  `2050 0000 0000 0000` was therefore the only account number the page could ever
+  display, to anyone deciding where to send a donation. `/contact` had the same
+  shape with `contact@example.com`. The allow-list already guarded the write
+  side; nothing guarded the read side, and a census of `settings['…']` reads
+  against the allow-list closes it in one assertion (WO-67).
+- **When a page needs a fact the organisation already has, do not add a second
+  key for it.** `contact.email`/`phone`/`address` were a duplicate of
+  `org.email`/`org.phone`/`org.address`, which are declared, seeded with the real
+  details and printed on every generated document. The fix was deleting the
+  duplicate, not declaring it — same shape as ADR-023.
+- **A swallowed query error becomes a fabricated balance.** `GetMemberDashboardData`
+  ended `if err != nil { stats = DashboardStats{} }` — so when its query broke,
+  every member got a **200 response** reading "Current Balance: BDT 0" with no
+  error, nothing to retry, and nothing to distinguish it from the truth. This is
+  TEST-26's worst finding on the server side, and it stayed hidden for as long as
+  the query happened to work. `pgx.ErrNoRows` is the one case that legitimately
+  means zero; everything else must fail loudly.
 - **Never initialise a money figure to zero.** The member dashboard's initial
   state was four zeros, so it displayed "Current Balance: BDT 0" until the fetch
   resolved — and its `catch` discarded the error and kept those zeros permanently

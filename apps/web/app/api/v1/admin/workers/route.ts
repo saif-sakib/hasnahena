@@ -9,12 +9,58 @@ import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
+/**
+ * WO-72. Staff rows always come back with their branch joined, so no caller has
+ * to remember to ask for it and no response can carry a branch id the client
+ * then has to resolve on its own.
+ */
+const STAFF_SELECT = {
+  id: true,
+  nameEn: true,
+  email: true,
+  phone: true,
+  role: true,
+  status: true,
+  memberId: true,
+  createdAt: true,
+  assignedBranch: { select: { id: true, name: true, code: true } },
+} as const;
+
+type BranchSummary = { id: string; name: string; code: string } | null;
+
+function toBranchSummary(branch: BranchSummary): BranchSummary {
+  return branch ?? null;
+}
+
+/**
+ * Resolves the submitted branch id, refusing one that does not exist.
+ *
+ * `null` and `undefined` both mean "no branch", which is legitimate — an admin
+ * account is not assigned to an office. What is never legitimate is an id that
+ * names nothing: the previous free-text column accepted anything, which is how
+ * a typo became a branch that existed on exactly one row.
+ */
+async function resolveBranch(branchId: string | null | undefined): Promise<
+  { ok: true; id: string | null } | { ok: false; message: string }
+> {
+  if (branchId === null || branchId === undefined || branchId === '') {
+    return { ok: true, id: null };
+  }
+  const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true } });
+  if (!branch) return { ok: false, message: 'Unknown branch' };
+  return { ok: true, id: branch.id };
+}
+
 const createStaffSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
   role: z.enum(['WORKER', 'ADMIN']),
-  assignedArea: z.string().optional(),
+  // WO-72. Was a free string written straight into `users.assignedBranch`, so a
+  // typo created a branch that existed on exactly one row and renaming an office
+  // left every worker pointing at the old name. It is now a Branch id, validated
+  // against the table before the write.
+  assignedBranchId: z.string().trim().min(1).nullish(),
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
 
@@ -23,7 +69,11 @@ const updateStaffSchema = z.object({
   name: z.string().min(2),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
   role: z.enum(['WORKER', 'ADMIN']),
-  assignedArea: z.string().optional(),
+  // WO-72. Was a free string written straight into `users.assignedBranch`, so a
+  // typo created a branch that existed on exactly one row and renaming an office
+  // left every worker pointing at the old name. It is now a Branch id, validated
+  // against the table before the write.
+  assignedBranchId: z.string().trim().min(1).nullish(),
 });
 
 const updateStaffStatusSchema = z.object({
@@ -50,7 +100,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, email, phone, role, assignedArea, locale } = parsed.data;
+    const { name, email, phone, role, assignedBranchId, locale } = parsed.data;
+
+    const branch = await resolveBranch(assignedBranchId);
+    if (!branch.ok) {
+      return NextResponse.json({ ok: false, error: branch.message }, { status: 400 });
+    }
+    const resolvedBranchId = branch.id;
+
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPhone = phone.trim();
 
@@ -79,19 +136,9 @@ export async function POST(req: Request) {
         nameEn: name.trim(),
         fatherName: name.trim(),
         motherName: name.trim(),
-        assignedBranch: assignedArea?.trim() || null,
+        assignedBranchId: resolvedBranchId,
       },
-      select: {
-        id: true,
-        nameEn: true,
-        email: true,
-        phone: true,
-        role: true,
-        status: true,
-        memberId: true,
-        createdAt: true,
-        assignedBranch: true,
-      },
+      select: STAFF_SELECT,
     });
 
     await prisma.passwordResetToken.create({
@@ -157,7 +204,7 @@ export async function POST(req: Request) {
         phone: created.phone,
         role: created.role,
         status: created.status,
-        assignedArea: created.assignedBranch || '',
+        branch: toBranchSummary(created.assignedBranch),
         joinDate: created.createdAt.toISOString(),
       },
     });
@@ -188,13 +235,20 @@ export async function PUT(req: Request) {
       );
     }
 
-    const { id, name, phone, role, assignedArea } = parsed.data;
+    const { id, name, phone, role, assignedBranchId } = parsed.data;
+
+    const branch = await resolveBranch(assignedBranchId);
+    if (!branch.ok) {
+      return NextResponse.json({ ok: false, error: branch.message }, { status: 400 });
+    }
+    const resolvedBranchId = branch.id;
+
     const normalizedPhone = phone.trim();
 
     // Get old values for audit
     const oldUser = await prisma.user.findUnique({
       where: { id },
-      select: { nameEn: true, phone: true, role: true, assignedBranch: true },
+      select: { nameEn: true, phone: true, role: true, assignedBranchId: true },
     });
 
     const existingPhone = await prisma.user.findFirst({
@@ -214,19 +268,9 @@ export async function PUT(req: Request) {
         nameEn: name.trim(),
         phone: normalizedPhone,
         role: role === 'ADMIN' ? UserRole.ADMIN : UserRole.WORKER,
-        assignedBranch: assignedArea?.trim() || null,
+        assignedBranchId: resolvedBranchId,
       },
-      select: {
-        id: true,
-        nameEn: true,
-        email: true,
-        phone: true,
-        role: true,
-        status: true,
-        memberId: true,
-        createdAt: true,
-        assignedBranch: true,
-      },
+      select: STAFF_SELECT,
     });
 
     // Audit log for worker update
@@ -249,7 +293,7 @@ export async function PUT(req: Request) {
         phone: updated.phone,
         role: updated.role,
         status: updated.status,
-        assignedArea: updated.assignedBranch || '',
+        branch: toBranchSummary(updated.assignedBranch),
         joinDate: updated.createdAt.toISOString(),
       },
     });
@@ -288,17 +332,7 @@ export async function PATCH(req: Request) {
 
     const existing = await prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        nameEn: true,
-        email: true,
-        phone: true,
-        role: true,
-        status: true,
-        memberId: true,
-        createdAt: true,
-        assignedBranch: true,
-      },
+      select: STAFF_SELECT,
     });
 
     if (!existing) {
@@ -314,17 +348,7 @@ export async function PATCH(req: Request) {
       data: {
         status: status === 'ACTIVE' ? UserStatus.ACTIVE : UserStatus.INACTIVE,
       },
-      select: {
-        id: true,
-        nameEn: true,
-        email: true,
-        phone: true,
-        role: true,
-        status: true,
-        memberId: true,
-        createdAt: true,
-        assignedBranch: true,
-      },
+      select: STAFF_SELECT,
     });
 
     await createAuditLog({
@@ -346,7 +370,7 @@ export async function PATCH(req: Request) {
         phone: updated.phone,
         role: updated.role,
         status: updated.status,
-        assignedArea: updated.assignedBranch || '',
+        branch: toBranchSummary(updated.assignedBranch),
         joinDate: updated.createdAt.toISOString(),
       },
     });

@@ -58,11 +58,9 @@ func TestMain(m *testing.M) {
 		panic("cannot ping TEST_DATABASE_URL: " + err.Error())
 	}
 
-	repo := NewUserRepository(testPool)
-	if err := repo.EnsureSupportSchema(ctx); err != nil {
-		panic("EnsureSupportSchema failed: " + err.Error())
-	}
-
+	// The schema comes from `pnpm db:migrate`, which scripts/test-stack.sh runs
+	// before these suites. Creating it here as well is what WO-70 removed: two
+	// definitions, one of them subtly different, and whichever ran first won.
 	code := m.Run()
 	testPool.Close()
 	os.Exit(code)

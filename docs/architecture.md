@@ -23,7 +23,7 @@ Two backends share one database. That is deliberate but bounded — see [ADR-001
 | Deposits, withdrawals, loans, repayments, donations, approvals, reports | **Go** | financial writes must be transactional + audited |
 | Support chat (incl. SSE stream) | **Go**, proxied through Next at `/api/v1/dashboard/support/*` | avoids mixed-content/CORS on the stream |
 | Public registration submit | **Next** | needs Cloudinary upload + Prisma in one request |
-| Gallery, system settings, audit-log viewer, worker CRUD | **Next** | CMS-style admin, no ledger impact |
+| Gallery, system settings, audit-log viewer, worker CRUD, branches | **Next** | CMS-style admin, no ledger impact |
 | Transaction dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
 
 Rule of thumb: **if it changes a balance, it belongs in Go.**
@@ -100,7 +100,7 @@ internal/utils            response envelope, validation, id + document-number ge
 
 `pgx` runs in `QueryExecModeSimpleProtocol` because Neon's pgBouncer pooler conflicts with server-side prepared statements. Keep it.
 
-`EnsureSupportSchema` creates support-chat tables at boot — the one place the Go side touches DDL.
+The Go side touches **no** DDL. It used to create the support-chat tables at boot with `CREATE TABLE IF NOT EXISTS`, alongside the migration that also creates them — two definitions that disagreed ([WO-70](work-orders.md)). Migrations are the only definition now, and `schema_ownership_test.go` fails if a repository issues DDL again.
 
 ## Environments
 

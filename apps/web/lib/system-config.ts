@@ -95,6 +95,24 @@ export const SYSTEM_CONFIG_KEYS = [
   'branding.favicon',
   'branding.dashboardLogo',
 
+  // Bank transfer details for the public /donate page.
+  //
+  // Added 2026-08-19 (WO-67). The page had been reading all four of these since
+  // it was written, and none of them was declared here — so `PUT
+  // /api/v1/settings` would have rejected them and no admin screen offered
+  // them. The `|| 'literal'` fallbacks in the page were therefore not fallbacks
+  // at all: they were the only values it could ever render, and one of them was
+  // the account number `2050 0000 0000 0000` set in a highlighted monospace box
+  // under the heading "Bank Account".
+  //
+  // Seeded EMPTY, deliberately. On this page specifically a plausible-looking
+  // wrong number is worse than a visible gap, because a donor can act on it —
+  // so the page hides the whole card until an admin fills these in.
+  'bank.name',
+  'bank.accountName',
+  'bank.accountNo',
+  'bank.branch',
+
   // Support.
   'support.chatRetentionDays',
 ] as const;

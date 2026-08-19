@@ -139,11 +139,12 @@ func main() {
 	}
 	defer dbPool.Close()
 
+	// WO-70 removed an EnsureSupportSchema call here. It ran CREATE TABLE IF NOT
+	// EXISTS at every boot for four tables schema.prisma also defines, so the
+	// database had two definitions that nothing checked for agreement — and they
+	// disagreed. Migrations are the only definition now; `pnpm db:migrate` runs
+	// in every environment and CI fails on drift.
 	userRepo := repositories.NewUserRepository(dbPool)
-	if err := userRepo.EnsureSupportSchema(context.Background()); err != nil {
-		slog.Error("failed to ensure support schema", "error", err)
-		os.Exit(1)
-	}
 	securityService := services.NewSecurityService(dbPool)
 	emailService := services.NewEmailService(services.EmailConfig{
 		BrevoAPIKey:  config.BrevoAPIKey,

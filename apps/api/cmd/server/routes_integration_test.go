@@ -72,9 +72,8 @@ func TestMain(m *testing.M) {
 	if err := testPool.Ping(ctx); err != nil {
 		panic("cannot ping TEST_DATABASE_URL: " + err.Error())
 	}
-	if err := repositories.NewUserRepository(testPool).EnsureSupportSchema(ctx); err != nil {
-		panic("EnsureSupportSchema failed: " + err.Error())
-	}
+	// Schema comes from `pnpm db:migrate` (scripts/test-stack.sh), not from the
+	// application at boot — see WO-70.
 	ensureDonationPool(ctx)
 
 	os.Setenv("JWT_SECRET", testJWTSecret)

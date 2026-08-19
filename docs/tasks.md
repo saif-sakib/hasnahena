@@ -10,18 +10,17 @@ being readable as a status board. Update this file in the same commit as the wor
 
 Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
-> **One thing is wrong and it is public.** The `/donate` page shows a bank
-> account number no admin can change — the four `bank.*` keys it reads are not in
-> the settings allow-list, so the hardcoded `2050 0000 0000 0000` placeholder is
-> the only value it can ever display. [WO-67](work-orders.md), do it first.
->
-> One thing is wrong operationally: the **monitoring is built and switched off**
+> **No requirement is broken.** One thing is wrong operationally: the
+> **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
 >
-> **A plan now exists for the rest.** [work-orders.md](work-orders.md) holds
-> WO-67 → WO-84 in six blocks — database, performance, security, SEO,
-> future-proofing — each independently executable with `do WO-67` or
-> `do block S`.
+> **Blocks R and S are done** (WO-67 → 72, 2026-08-19): the `/donate` and
+> `/contact` pages no longer show unchangeable placeholder details, every foreign
+> key is indexed, the database has CHECK constraints of its own, migrations are
+> the only definition of the schema, the legacy `LoanStatus` values are gone and
+> branches are a real relation. [work-orders.md](work-orders.md) holds
+> WO-73 → 84 — performance, security, SEO, future-proofing — each executable with
+> `do WO-73` or `do block T`.
 >
 > **This page cannot quietly fall behind the code.** A requirement not marked
 > `[x]` must *still* be unimplemented in the source, or
@@ -68,12 +67,10 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
 | | Defect | Evidence |
 |---|---|---|
-| `[ ]` | **`LoanStatus` carries legacy `PENDING`/`APPROVED`** beside the spec states | Two vocabularies for one concept, both live in the enum. It has already cost one bug — the guarantor panel filtered `PENDING` while applications create `PENDING_GUARANTOR` |
 | `[ ]` | **A worker-created loan skips the lifecycle** (FR-12) | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate`/`approvedAt` in the same statement. No guarantor step, no approval step |
 | `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
 | `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
 | `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text, against rule 5. The builders are now in one place each — `apps/api/internal/notify/messages.go` and `apps/web/lib/notify.ts` — so this is a translation job rather than a hunt |
-| `[!]` | **`/donate` shows an unchangeable placeholder bank account** | The page reads four `bank.*` keys that are absent from `SYSTEM_CONFIG_KEYS`, absent from the seed, and rejected by `PUT /api/v1/settings`. Public and money-facing — [WO-67](work-orders.md) |
 
 ### The late-fee question — flagged, not decided
 
@@ -130,9 +127,6 @@ without re-reading the codebase, it becomes one in
 | 1 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind and the Monitor workflow fails twice a day. ~1 h, yours |
 | 2 | **Set `TRUSTED_PROXIES=1` on Render** — [why](decisions.md) (ADR-019, ADR-021) | One variable. At the default `0` a process behind a proxy attributes every member to the proxy's address: one 60/min bucket and one login lockout for the whole membership. The API logs a warning at boot when it is `0` outside development. 5 min, yours |
 
-Both are now specified: [WO-67](work-orders.md) for the donate page, and
-`do block S` for everything below.
-
 ### Then — the schema, while it is still cheap
 
 Everything here is a migration today, and a migration **plus a backfill plus a
@@ -142,9 +136,11 @@ a generated migration fails the build rather than a production query.
 
 | # | Do this | Why now |
 |---|---|---|
-| 3 | **Collapse the legacy `LoanStatus` values** | Postgres will not drop an enum label that any row still references |
-| 4 | **Donation fund types** (FR-15/16) | Zakat funds cannot be reconstructed after the fact. Cheap only while the donation table is empty |
-| 5 | **Decide DATA-07** (retention and erasure) | It decides whether you need a `deletedAt` or an anonymisation path — a schema question |
+| 3 | **Donation fund types** (FR-15/16) | Zakat funds cannot be reconstructed after the fact. Cheap only while the donation table is empty |
+| 4 | **Decide DATA-07** (retention and erasure) | It decides whether you need a `deletedAt` or an anonymisation path — a schema question |
+
+The legacy `LoanStatus` values were the third item here and are gone
+([WO-71](work-orders.md)).
 
 ### Then — the rest of the product
 

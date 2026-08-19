@@ -519,7 +519,11 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
 			COALESCE(COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int, 0) as active_loans,
 			COALESCE(COUNT(CASE WHEN status = 'DEFAULTED' THEN 1 END)::int, 0) as defaulted_loans,
-			COALESCE(COUNT(CASE WHEN status = 'PENDING' THEN 1 END)::int, 0) as pending_loans,
+			-- WO-71: was status = 'PENDING', the legacy label. Applications
+			-- create PENDING_GUARANTOR or PENDING_APPROVAL, so this counted
+			-- nothing and the admin dashboard reported zero pending loans no
+			-- matter how many were waiting.
+			COALESCE(COUNT(CASE WHEN status IN ('PENDING_GUARANTOR', 'PENDING_APPROVAL') THEN 1 END)::int, 0) as pending_loans,
 			COALESCE(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int, 0) as completed_loans
 		FROM loans
 	`
@@ -690,8 +694,7 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 // nothing outstanding — in both cases marking it defaulted describes something
 // that did not happen.
 var defaultableStatuses = map[string]bool{
-	"ACTIVE":   true,
-	"APPROVED": true, // legacy value, still present in older rows
+	"ACTIVE": true,
 }
 
 func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
@@ -980,7 +983,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 			u.status::text,
 			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'

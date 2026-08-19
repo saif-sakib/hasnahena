@@ -73,6 +73,21 @@ const CONFIG_DEFAULTS = [
   { key: 'org.phone', value: '+880 1712-345678', description: 'Public contact phone' },
   { key: 'org.email', value: 'info@hasnahenafoundation.com', description: 'Public contact email' },
   { key: 'org.website', value: 'hasnahenafoundation.com', description: 'Public website' },
+
+  // Bank transfer details for /donate (WO-67).
+  //
+  // Seeded EMPTY on purpose, unlike every other row here. The page hides its
+  // bank card entirely while the account number is blank, because the thing
+  // being replaced was a hardcoded placeholder — `2050 0000 0000 0000` — that a
+  // donor could read as real and send money to. A visible gap is recoverable;
+  // a plausible wrong account number is not.
+  //
+  // The admin fills these in on Settings → Organisation. Until then the card
+  // does not render, which is the intended state and not a defect.
+  { key: 'bank.name', value: '', description: 'Bank name shown on /donate — empty hides the bank card' },
+  { key: 'bank.accountName', value: '', description: 'Bank account holder name shown on /donate' },
+  { key: 'bank.accountNo', value: '', description: 'Bank account number shown on /donate — empty hides the bank card' },
+  { key: 'bank.branch', value: '', description: 'Bank branch shown on /donate' },
 ];
 
 function requiredEnv(name, hint) {
@@ -253,6 +268,41 @@ async function seedDonationPool(prisma) {
   console.log(`donation pool: created, owned by ${DONATION_OWNER_ID}`);
 }
 
+/**
+ * The foundation's own office (WO-72).
+ *
+ * `branches` existed from the first migration and nothing ever wrote a row to
+ * it, while `users.assignedBranch` held a free-text office name with no link
+ * back — so there was a table modelling branches and a string modelling
+ * branches, and neither knew about the other.
+ *
+ * The code `KH` matches the prefix inside `utils.MemberIDPrefix`
+ * ("ACC-KH-33"). They are **not** connected in code and deliberately so: member
+ * IDs are read aloud and written into paper passbooks, so their format is fixed
+ * (ADR-008) rather than derived from whatever rows happen to be in this table.
+ * The match is a convention for humans reading both.
+ *
+ * Idempotent on `code`, so re-seeding never creates a second Bhekutia and never
+ * overwrites an address an admin has corrected.
+ */
+async function seedBranches(prisma) {
+  const existing = await prisma.branch.findUnique({ where: { code: 'KH' }, select: { id: true } });
+  if (existing) {
+    console.log('branches: already present, leaving alone');
+    return;
+  }
+  const branch = await prisma.branch.create({
+    data: {
+      name: 'Bhekutia',
+      code: 'KH',
+      address: 'Bhekutia, Sadar, Jashore, Bangladesh',
+      isActive: true,
+    },
+    select: { id: true, name: true, code: true },
+  });
+  console.log(`branches: created ${branch.name} (${branch.code})`);
+}
+
 async function main() {
   loadDatabaseEnv();
   if (!process.env.DATABASE_URL) {
@@ -264,6 +314,7 @@ async function main() {
     await seedAdmin(prisma);
     await seedConfig(prisma);
     await seedDonationPool(prisma);
+    await seedBranches(prisma);
     console.log('seed complete');
   } finally {
     await prisma.$disconnect();

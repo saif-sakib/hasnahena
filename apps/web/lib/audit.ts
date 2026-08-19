@@ -17,13 +17,20 @@ export type AuditAction =
   | 'WORKER_CREATED'
   | 'WORKER_UPDATED'
   | 'SETTINGS_UPDATED'
-  | 'TRANSACTION_DISPUTED';
+  | 'TRANSACTION_DISPUTED'
+  // WO-72. Branches became a managed entity when `users.assignedBranch` stopped
+  // being a free string; closing an office reassigns staff, so it is audited.
+  | 'BRANCH_CREATED'
+  | 'BRANCH_UPDATED'
+  | 'BRANCH_DEACTIVATED'
+  | 'BRANCH_DELETED';
 
 export type AuditEntityType =
   | 'USER'
   | 'LOAN'
   | 'TRANSACTION'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'BRANCH';
 
 interface AuditLogParams {
   action: AuditAction;

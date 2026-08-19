@@ -26,7 +26,7 @@ another's.
 - **New to the project:** [product.md](product.md) → [architecture.md](architecture.md) → [setup.md](setup.md).
 - **Changing something:** [changing-things.md](changing-things.md) for the how, then [decisions.md](decisions.md) — which will tell you whether an idea was already tried and rejected.
 - **Going to production:** [go-live.md](go-live.md) for the order. One thing is wrong right now and it is operational: the monitoring is built and switched off ([production-readiness.md](production-readiness.md)).
-- **Writing tests:** [testing.md](testing.md). Thirteen suites and one CI check fail the build when the code grows something they do not know about — the table of what each demands is in [CLAUDE.md](../CLAUDE.md).
+- **Writing tests:** [testing.md](testing.md). Seventeen suites and one CI check fail the build when the code grows something they do not know about — the table of what each demands is in [CLAUDE.md](../CLAUDE.md).
 - **Debugging something inexplicable:** [traps.md](traps.md) first. Most of what has gone wrong here has gone wrong before.
 
 [CLAUDE.md](../CLAUDE.md) at the repo root is the compact entry point for AI

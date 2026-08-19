@@ -18,8 +18,8 @@ do later, the same principle as [go-live.md](go-live.md).
 
 | Block | What | Orders | Why here |
 |---|---|---|---|
-| **R** | Live defects | WO-67 | Public and money-facing. Do it today |
-| **S** | Database — correctness, constraints, redundancy | WO-68 → 72 | Every one is a migration now and a migration **plus a backfill** after go-live |
+| ~~**R**~~ | ~~Live defects~~ | WO-67 | **Done 2026-08-19** |
+| ~~**S**~~ | ~~Database — correctness, constraints, redundancy~~ | WO-68 → 72 | **Done 2026-08-19** |
 | **T** | Performance | WO-73 → 75 | The dominant cost driver is architectural, not a tuning knob |
 | **U** | Security | WO-76 → 78 | One real gap, two known-and-accepted narrowings |
 | **V** | SEO | WO-79 → 81 | Cheap, independent, and blocked by nothing |
@@ -40,252 +40,29 @@ can be done in any order.
 
 ---
 
-# Block R — the live defect
+# Blocks R and S — closed 2026-08-19
 
-## WO-67 · The donate page shows a bank account nobody can change
+WO-67 → WO-72 are done. What they contained is one row in
+[changelog.md](changelog.md); what they *taught* is in [traps.md](traps.md). Two
+things are worth repeating here, because both were found by the work rather than
+specified by it:
 
-**Severity: high. Public, money-facing, and live now.**
-
-`app/[locale]/donate/page.tsx` renders four `bank.*` values with hardcoded
-fallbacks, in a large highlighted monospace box:
-
-```tsx
-<p className="font-medium text-lg">{settings['bank.name'] || 'Islami Bank Bangladesh PLC'}</p>
-<p>… {settings['bank.accountName'] || 'Hasnahena Foundation'}</p>
-<p className="font-mono … text-xl …">{settings['bank.accountNo'] || '2050 0000 0000 0000'}</p>
-<p>… {settings['bank.branch'] || 'Local Office'}</p>
-```
-
-**None of those four keys is in `SYSTEM_CONFIG_KEYS`, none is seeded, and
-`PUT /api/v1/settings` rejects the entire request on an unrecognised key.** So
-the fallbacks are not fallbacks — they are the only values the page can ever
-show, and no admin can change them through any screen. A donor reading that page
-is being given a placeholder account number to send money to.
-
-This is the mirror image of the WO-46 defect: there, a control posted keys the
-allow-list did not know; here, a page *reads* keys the allow-list will not let
-anyone write.
-
-**Do:**
-
-1. Add `bank.name`, `bank.accountName`, `bank.accountNo`, `bank.branch` to
-   `SYSTEM_CONFIG_KEYS` in `apps/web/lib/system-config.ts`.
-2. Seed them in `apps/web/scripts/seed.mjs` as **empty strings**, not as the
-   current placeholders. An empty value must render as "not yet published"
-   rather than as a plausible account number — a wrong number is worse than a
-   missing one on this page specifically.
-3. Give them controls on the admin settings page, in the existing Organisation
-   tab.
-4. Replace the `|| 'literal'` fallbacks with the empty-state treatment from (2),
-   and hide the whole bank card when the account number is unset.
-
-**Prove it:** a unit test that fails when any `settings['…']` literal in
-`app/[locale]/**` names a key absent from `SYSTEM_CONFIG_KEYS`. Written as a
-census, so the *class* is closed rather than these four keys — walk the page
-files for `settings['x']` / `settings["x"]` and diff against the allow-list. It
-must be seen red against today's code, naming all four.
-
-**Also check while you are there:** the same census will tell you whether any
-other page reads an undeclared key. Fix whatever it names in this order.
-
-**Action for the owner:** the real bank details have to be typed into the admin
-settings screen after this ships. Until they are, the card stays hidden — which
-is the intended behaviour, not a bug.
-
----
-
-# Block S — database
-
-Everything here is cheap exactly once. After real member data exists, each is a
-migration **plus a backfill plus a plan for rows written in between**.
-
-## WO-68 · Index the five unindexed foreign keys
-
-`Loan.guarantorId` carries the worst of it. It is filtered in nine places
-including a **correlated subquery evaluated per row** of the member list:
-
-```sql
-EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
-```
-
-With no index that is a sequential scan of `loans` for every member rendered.
-At today's row counts it is invisible; it degrades as the square of membership,
-and the member list is the screen a worker opens most.
-
-| Model | Column | Queried by |
-|---|---|---|
-| `Loan` | `guarantorId` | `member_repository.go:158,518,672` · `worker_repository.go:310` · `transaction_repository.go:361,1074` · 3 joins |
-| `Loan` | `accountId` | `loan_repository.go:392` join |
-| `Transaction` | `loanId` | `loan_repository.go:650` — a loan's repayment history |
-| `Document` | `userId` | `worker_repository.go:464` · `admin_repository.go:280` — every approval screen |
-| `SupportThread` | `processedByUserId` | staff thread filters |
-| `SseTicket` | `userId` | ticket issue and cleanup |
-
-**Do:** add `@@index` for each in `schema.prisma`, generate one migration with
-`pnpm db:migrate:dev`, apply it.
-
-For `guarantorId` prefer `@@index([guarantorId, status])` — the predicate is
-always `guarantorId = ? AND status IN (…)`, so a composite index answers it from
-the index alone.
-
-**Prove it:** extend the FK-coverage idea into a test that reads
-`schema.prisma`, extracts every `@relation(fields: [...])` scalar, and fails when
-one has no index with that column **leading**. That closes the class: the next
-foreign key someone adds fails the build until it is indexed. Verify it red by
-removing one of the new indexes.
-
-**Note the second reason this matters:** Postgres takes a row lock on the
-referenced parent for FK checks, and an unindexed child makes deleting or
-updating a parent scan the whole child table. `pnpm db:clear` already feels this.
-
-## WO-69 · Give the database its own opinion about money
-
-**There is not one `CHECK` constraint in the entire schema.** Every money
-invariant — no negative balance, no zero-amount posting, no more instalments paid
-than exist, no fee — is enforced only in application code, by **two** backends
-that write the same tables.
-
-The application enforcement is correct today. That is not the point: the database
-is the last line of defence, it is the one both backends must pass through, and
-it is the only layer that stays true when someone runs a repair query by hand at
-2am.
-
-**Do:** one migration adding constraints. Prisma cannot model `CHECK`, so this is
-hand-written SQL in the migration, like the `audit_logs` trigger.
-
-```sql
-ALTER TABLE accounts
-  ADD CONSTRAINT accounts_savings_non_negative CHECK ("savingsBalance" >= 0),
-  ADD CONSTRAINT accounts_loan_non_negative    CHECK ("loanBalance" >= 0);
-
-ALTER TABLE transactions
-  ADD CONSTRAINT transactions_amount_positive CHECK (amount > 0);
-
-ALTER TABLE loans
-  ADD CONSTRAINT loans_principal_positive   CHECK ("principalAmount" > 0),
-  ADD CONSTRAINT loans_remaining_in_range   CHECK ("remainingAmount" >= 0
-                                                   AND "remainingAmount" <= "principalAmount"),
-  ADD CONSTRAINT loans_installments_in_range CHECK ("paidInstallments" >= 0
-                                                    AND "paidInstallments" <= "totalInstallments"),
-  -- Rule 3, as a database constraint rather than a convention.
-  ADD CONSTRAINT loans_zero_fee CHECK ("applicationFee" = 0);
-```
-
-`loans_zero_fee` is the one to be deliberate about. `applicationFee` is already
-pinned in both directions by `requirements.test.ts` and
-`lifecycle_integration_test.go`, so this adds no new *policy* — it moves the
-guarantee from "a test would catch it" to "the write fails". For a Shariah
-constraint that is the right place for it.
-
-**`remainingAmount <= principalAmount`** is the one most likely to reject a real
-write, because the default waterfall and repayment both touch it. Run the full
-integration suite before trusting it, and if a legitimate path violates it, that
-path is the finding — report it rather than dropping the constraint.
-
-**Prove it:** an integration test per constraint that attempts the illegal write
-with raw SQL and asserts the error. Seen red by running it before the migration.
-
-**Also record** in [data-model.md](data-model.md) that `CHECK` constraints are
-invisible to `prisma migrate diff` in the same way the `audit_logs` trigger is —
-so a future `--from-empty` baseline drops them silently. That is now two things
-in that category, which is worth stating once, loudly.
-
-## WO-70 · One source of truth for the schema
-
-`EnsureSupportSchema` runs `CREATE TABLE IF NOT EXISTS` at **every boot** of the
-Go API for `document_sequences`, `support_threads`, `support_messages` and
-`sse_tickets` — plus their indexes. All four are **also** modelled in
-`schema.prisma` and created by the `0_init` migration.
-
-Two definitions of the same tables, in two languages, with no check that they
-agree. This has already cost one production incident: `document_sequences` was
-created by this bootstrap **with `DEFAULT NOW()`**, a later `db push` stripped
-it, and all four money flows broke at once with a generic 500
-([data-model.md](data-model.md)).
-
-`IF NOT EXISTS` is what makes it dangerous rather than obviously broken — on a
-migrated database the DDL is a silent no-op, so the divergence is invisible until
-the day something creates the table from the wrong definition.
-
-**Do:**
-
-1. Confirm the migrated schema and the bootstrap DDL agree **column for column**
-   today. Any difference is a finding: report it before changing anything.
-2. Delete the DDL from `EnsureSupportSchema`. Keep the function only if it still
-   does something else; if it is now empty, remove it and its call in `main.go`.
-3. Migrations become the only path. `pnpm db:migrate` already runs everywhere.
-
-**Prove it:** `wiring_test.go` already reads `main()`'s AST — extend it to fail
-if any repository method issues `CREATE TABLE`, `CREATE INDEX` or `ALTER TABLE`.
-Seen red against today's code.
-
-**Why this is worth a whole order:** it is the structural form of the trap that
-has bitten this repository twice — *two backends over one schema drift*. Every
-other instance was a fix applied to one side and not the other. This one is a
-whole schema defined on both sides.
-
-## WO-71 · Collapse the legacy `LoanStatus` values
-
-`LoanStatus` carries `PENDING` and `APPROVED` beside the spec-aligned
-`PENDING_GUARANTOR` / `PENDING_APPROVAL`. **`PENDING` is still the schema
-default**, so new rows keep being written into the legacy vocabulary.
-
-It has already cost one bug: the guarantor panel filtered `PENDING` while
-applications create `PENDING_GUARANTOR`, so a guarantor never saw their request.
-Live queries still name the legacy values —
-`WHERE l.status IN ('APPROVED','ACTIVE')` appears in four repositories.
-
-**Postgres will not drop an enum label any row still references**, which is why
-this is a Block S item and not a Block W one.
-
-**Do:**
-
-1. Map every legacy value: `PENDING → PENDING_APPROVAL`, `APPROVED → ACTIVE`.
-   Confirm that mapping against `product.md`'s lifecycle before writing it — if
-   it is wrong the migration is unrecoverable after real loans exist.
-2. Migration: `UPDATE loans SET status = …` for both, then change the column
-   default to `PENDING_GUARANTOR`, then drop the two labels.
-3. Grep **both** backends for the literals and update every one. `IN
-   ('APPROVED','ACTIVE')` becomes `IN ('ACTIVE')`.
-4. Update `data-model.md`'s enum list.
-
-**Prove it:** `lifecycle_integration_test.go` already walks all nine
-`LoanStatus` values — it will fail until the table matches. Add an assertion
-that the enum has exactly the seven spec values, so the labels cannot come back.
-
-## WO-72 · Two more redundancies, and one asymmetry
-
-Smaller than WO-67 → 71, and grouped because each is a five-line change.
-
-**1. `Branch` is a dead model.** Nothing reads or writes the `branches` table
-except `db:clear` deleting from it. Meanwhile `User.assignedBranch` is a **free
-string** with no relation to it, written by the admin worker form as
-`assignedArea`. A table modelling branches and a string column modelling
-branches, unconnected — the same shape as the `accountNumber` duplication
-([ADR-023](decisions.md)).
-
-Decide one way and write it down: either make `assignedBranch` a real FK to
-`Branch` and give branches an admin screen, or **drop the `Branch` model** and
-keep the string. For a single-branch foundation in Vekutia, dropping it is
-almost certainly right — but that is the owner's call, so ask before dropping a
-table.
-
-**2. The two 1-1 address relations point in opposite directions.**
-`permanentAddress` puts the foreign key on `Address` (`userPermanentId`);
-`presentAddress` puts it on `User` (`presentAddressId`). Same cardinality, same
-lifecycle, two shapes — so every query and every cascade rule has to be written
-twice and one of them is always the surprising one. Pick the `Address`-side
-form for both (it cascades correctly on user deletion) and migrate.
-
-**3. `Transaction` carries both `accountId` and `userId`; `Loan` carries both
-`accountId` and `borrowerId`.** Since [ADR-023](decisions.md) made
-`accounts.userId` unique, each pair is two paths to one fact and they can
-disagree. Do **not** drop the columns — they are load-bearing for query shape.
-Instead add the constraint that they cannot diverge, as a trigger or a composite
-FK, and a reconciliation assertion in WO-82's job.
-
-**Prove it:** for (3), an integration test that writes a transaction whose
-`userId` is not the account's owner and asserts it is refused. Seen red first.
+- **The census found more than the order predicted.** WO-67 was written about
+  four undeclared `bank.*` keys. The test that closed it walks every
+  `settings['…']` read in `app/` and `components/`, and named **seven** — the
+  other three were `contact.email`/`phone`/`address` on the public `/contact`
+  page, which showed `contact@example.com` as the foundation's address. Those
+  were not declared *or* added: `org.email`/`org.phone`/`org.address` already
+  existed, seeded with the real details and printed on every generated document,
+  so the fix was to delete the duplicate rather than legitimise it.
+- **Two definitions of one table disagreed in exactly the predicted way.** WO-70
+  asked for the bootstrap DDL and the migration to be compared before removing
+  either. `document_sequences."updatedAt"` was `NOT NULL DEFAULT NOW()` in the
+  bootstrap and `NOT NULL` with no default in the migration — the divergence that
+  once broke all four money flows at once. And
+  `idx_support_messages_thread_created_desc` was a covering index in one and a
+  plain one in the other, so the covering variant had **never existed anywhere**:
+  same name plus `IF NOT EXISTS` means the second creator is a silent no-op.
 
 ---
 

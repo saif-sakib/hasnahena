@@ -23,7 +23,7 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 			-- money nobody has handed over yet.
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
-			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status IN ('APPROVED','ACTIVE') AND "createdAt"::date = CURRENT_DATE), 0)::bigint
+			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status = 'ACTIVE' AND "createdAt"::date = CURRENT_DATE), 0)::bigint
 	`
 	var totalMembers, pendingRequests, todayDeposits, todayWithdrawals, todayLoans int64
 	if err := r.db.QueryRow(ctx, statsQuery).Scan(&totalMembers, &pendingRequests, &todayDeposits, &todayWithdrawals, &todayLoans); err != nil {
@@ -90,19 +90,26 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 			u.status::text,
 			COALESCE(u."avatarUrl", ''),
 			COALESCE(u."memberId", ''),
-			COALESCE(u."assignedBranch", ''),
+			-- WO-72: the assigned branch is a row now, not a free string on the
+			-- user. Joined rather than selected so a renamed office is renamed
+			-- everywhere at once, which is the whole point of the change.
+			COALESCE(b.name, ''),
+			COALESCE(b.code, ''),
 			u."createdAt",
 			COALESCE((SELECT COUNT(*)::int FROM transactions WHERE "processedBy" = u.id), 0) as transactions_processed
 		FROM users u
+		LEFT JOIN branches b ON b.id = u."assignedBranchId"
 		WHERE u.id = $1
 	`
 
-	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId, assignedBranch string
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	var branchName, branchCode string
 	var createdAt time.Time
 	var transactionsProcessed int
 
 	if err := r.db.QueryRow(ctx, query, userID).Scan(
-		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId, &assignedBranch, &createdAt, &transactionsProcessed); err != nil {
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId,
+		&branchName, &branchCode, &createdAt, &transactionsProcessed); err != nil {
 		return nil, err
 	}
 
@@ -116,7 +123,8 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 		"status":                status,
 		"avatarUrl":             avatarUrl,
 		"memberId":              memberId,
-		"assignedBranch":        assignedBranch,
+		"assignedBranch":        branchName,
+		"assignedBranchCode":    branchCode,
 		"joinedAt":              createdAt.Format(time.RFC3339),
 		"transactionsProcessed": transactionsProcessed,
 	}, nil
@@ -150,7 +158,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 		FROM loans l
 		JOIN users u ON u.id = l."borrowerId"
 		LEFT JOIN users g ON g.id = l."guarantorId"
-		WHERE l.status IN ('PENDING', 'PENDING_GUARANTOR', 'PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')
+		WHERE l.status IN ('PENDING_GUARANTOR', 'PENDING_APPROVAL', 'ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')
 		ORDER BY l."createdAt" DESC
 		LIMIT 100
 	`
@@ -303,11 +311,11 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			u.status::text,
 			u."createdAt",
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'DEPOSIT' AND t.status = 'CONFIRMED'), 0)::bigint,
 			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL' AND t.status = 'CONFIRMED'), 0)::bigint,
 			COALESCE(addr.district, '') || ', ' || COALESCE(addr."policeStation", '') || ', ' || COALESCE(addr.village, ''),
-			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status = 'ACTIVE')
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id

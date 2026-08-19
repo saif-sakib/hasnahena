@@ -6,8 +6,12 @@ package repositories
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"hasnahena/apps/api/internal/money"
 )
@@ -82,7 +86,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			COALESCE((
 				SELECT SUM(l."remainingAmount")::bigint
 				FROM loans l
-				WHERE l."borrowerId" = $1 AND l.status IN ('APPROVED', 'ACTIVE')
+				WHERE l."borrowerId" = $1 AND l.status = 'ACTIVE'
 			), 0) as loan_balance,
 			COALESCE(a."maxLoanAmount", 0)::bigint as loan_eligibility
 		FROM accounts a
@@ -98,14 +102,25 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	}
 
 	var stats DashboardStats
-	err := r.db.QueryRow(ctx, statsQuery, userID).Scan(
+	if err := r.db.QueryRow(ctx, statsQuery, userID).Scan(
 		&stats.CurrentBalance,
 		&stats.TotalDeposited,
 		&stats.LoanBalance,
 		&stats.LoanEligibility,
-	)
-	if err != nil {
-		stats = DashboardStats{}
+	); err != nil {
+		// Returning zeros here was the shape of TEST-26's worst finding, on the
+		// server side rather than the client: a member whose savings are ৳73,500
+		// shown "Current Balance: BDT 0", with no error, nothing to retry, and
+		// nothing to distinguish it from the truth.
+		//
+		// It was not hypothetical. WO-71 removed the legacy 'APPROVED' label from
+		// LoanStatus and this query still named it, so every member dashboard
+		// answered 200 with four zeros — a silently wrong balance rather than a
+		// visible failure. `pgx.ErrNoRows` is the one case that legitimately
+		// means zero: a member approved but with no account row yet.
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("member dashboard stats for %s: %w", userID, err)
+		}
 	}
 	data.Stats = stats
 
@@ -184,7 +199,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			l."totalInstallments"
 		FROM loans l
 		WHERE l."borrowerId" = $1
-		  AND l.status IN ('APPROVED', 'ACTIVE')
+		  AND l.status = 'ACTIVE'
 		ORDER BY l."updatedAt" DESC
 		LIMIT 1
 	`
@@ -615,7 +630,7 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 			COALESCE(pra."houseNo", ''), COALESCE(pra.village, ''), COALESCE(pra."union", ''), COALESCE(pra."policeStation", ''), COALESCE(pra.district, '')
 		FROM users u
 		LEFT JOIN addresses pa ON pa."userPermanentId" = u.id
-		LEFT JOIN addresses pra ON pra.id = u."presentAddressId"
+		LEFT JOIN addresses pra ON pra."userPresentId" = u.id
 		WHERE u.id = $1
 	`
 	var pHouse, pVillage, pUnion, pPs, pDistrict, prHouse, prVillage, prUnion, prPs, prDistrict string
@@ -668,8 +683,8 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 	const summaryQuery = `
 		SELECT
 			COALESCE(a."savingsBalance", 0)::bigint,
-			EXISTS(SELECT 1 FROM loans l WHERE l."borrowerId" = $1 AND l.status IN ('APPROVED','ACTIVE')),
-			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = $1 AND l.status IN ('APPROVED','ACTIVE'))
+			EXISTS(SELECT 1 FROM loans l WHERE l."borrowerId" = $1 AND l.status = 'ACTIVE'),
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = $1 AND l.status = 'ACTIVE')
 		FROM accounts a
 		WHERE a."userId" = $1
 		ORDER BY a."createdAt" DESC

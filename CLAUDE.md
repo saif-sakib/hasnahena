@@ -43,7 +43,7 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Thirteen suites and one CI check enumerate rather than list, and will fail the
+**Seventeen suites and one CI check enumerate rather than list, and will fail the
 build when the code grows something they do not know about.** That is
 deliberate — a list a human maintains goes stale the day it is written. See
 [docs/testing.md](docs/testing.md).
@@ -61,6 +61,10 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | a Prisma call in a route handler | `apps/web/test/unit/floating-promises.test.ts` — await it. On Vercel an unsettled promise is work that never happens |
 | a background loop in `main()` | `apps/api/cmd/server/wiring_test.go` — reads the AST; a loop nobody starts is the original RUN-06 defect, and `startupCtx` makes it run exactly once |
 | a field in `schema.prisma` | `pnpm db:migrate:check` in CI — generate the migration, or the database and the schema disagree until a column is missing in production |
+| a **foreign key** in `schema.prisma` | `apps/web/test/unit/foreign-key-indexes.test.ts` — index it, with the column *leading*. An unindexed FK is a sequential scan on read **and** on every write to the parent row |
+| a `settings['…']` read in a page | `apps/web/test/unit/settings-keys-read.test.ts` — declare the key in `SYSTEM_CONFIG_KEYS`, or the page's `\|\| 'fallback'` is the only value it can ever show and no admin can change it |
+| `CREATE TABLE` / `ALTER TABLE` in a repository | `apps/api/internal/repositories/schema_ownership_test.go` — migrations are the only definition of this schema (WO-70); a second one disagrees eventually and `IF NOT EXISTS` makes it silent |
+| a label removed from an enum in `schema.prisma` | `apps/web/test/unit/enum-literals.test.ts` — every Go SQL comparison must name labels of **one** enum. A stale label is a runtime error inside a query that no compiler sees |
 | a `/support/*` route in `main.go` | `apps/web/test/unit/support-proxy-allowlist.test.ts` — the Next proxy forwards an allow-list; a route missing from it 404s in production with nothing in either log saying why |
 | a generator that maps random bytes onto an alphabet | `internal/utils/random_test.go` — use `utils.RandomString`; `%` over a byte is not uniform, and both suites keep the biased version to prove the statistic can tell |
 | the donation pool's owner id, in either language | `apps/web/test/unit/donation-pool-owner.test.ts` — `seed.mjs`, `db-clear-preserve-core.mjs` and `transaction_repository.go` must name the same id, or donations fail with "run `pnpm db:seed`" on a seeded database |
@@ -75,6 +79,11 @@ deliberate — a list a human maintains goes stale the day it is written. See
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
 6. `audit_logs` is append-only. Corrections append.
+5a. **The database enforces the money invariants too.** CHECK constraints reject
+   a negative balance, a non-positive posting, a loan owing more than its
+   principal, and any non-zero `applicationFee` — rule 3 at a layer neither
+   backend can go around. They are invisible to `prisma migrate diff`, like the
+   `audit_logs` trigger, so a `--from-empty` baseline would drop them silently.
 6a. **A `transactions` row is not necessarily money that moved.** A `PENDING`
    withdrawal is a member's *notice* (FR-08) and a `PENDING` deposit is a
    request; only `CONFIRMED` moved money. Any aggregate over `transactions` must

@@ -100,7 +100,7 @@ an admin changed it.
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-Eleven handlers, 21 exported methods. The "called by" column is the audited
+Twelve handlers, 25 exported methods. The "called by" column is the audited
 answer, not an intention — grep every `/api/v1/...` literal in `app/`,
 `components/`, `lib/`, `hooks/` and `e2e/` if you change it. Only
 `admin/audit-logs` has no caller, and it is OBS-08's backend waiting on its
@@ -118,6 +118,7 @@ exercised, so treat it as untested.
 | GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints — an **allow-list** of `config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, method by method; anything else is 404 here and never reaches Go. Mutations are limited to 60/min per member address, because the Go limiter sees Vercel's ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
 | POST | `/api/v1/loans/applications` | member loan application | `components/dashboard/loan-application-form.tsx` |
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | `components/dashboard/guarantor-requests.tsx` |
+| GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branch CRUD — offices staff are assigned to. `DELETE` **deactivates** rather than deletes when staff are assigned, because `assignedBranch` is `SetNull` and deleting would silently unassign them ([WO-72](work-orders.md)) | admin branches page, worker branch picker |
 | GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
 
 **Five handlers were removed** once it was clear none had a caller: two that

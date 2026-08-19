@@ -185,7 +185,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			return err
 		}
 		normalizedLoanStatus := strings.ToUpper(strings.TrimSpace(loanStatus))
-		if normalizedLoanStatus != "ACTIVE" && normalizedLoanStatus != "APPROVED" {
+		if normalizedLoanStatus != "ACTIVE" {
 			return fmt.Errorf("loan is not active")
 		}
 		if amount > remainingAmount {
@@ -357,8 +357,8 @@ func (r *UserRepository) CreateMemberWithdrawalNotice(ctx context.Context, membe
 			a.id::text,
 			COALESCE(u."nameEn", ''),
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
-			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE')),
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status = 'ACTIVE'),
 			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL' AND t.status IN ('PENDING','PROCESSED')), 0)::bigint
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
@@ -1070,8 +1070,8 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 			u.status::text,
 			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('APPROVED','ACTIVE')), 0)::bigint,
-			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status IN ('APPROVED','ACTIVE'))
+			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
+			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status = 'ACTIVE')
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role = 'MEMBER'

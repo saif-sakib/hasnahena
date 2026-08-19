@@ -31,6 +31,7 @@ import {
 
 import * as auditLogs from '@/app/api/v1/admin/audit-logs/route';
 import * as adminWorkers from '@/app/api/v1/admin/workers/route';
+import * as adminBranches from '@/app/api/v1/admin/branches/route';
 import * as authLogin from '@/app/api/v1/auth/login/route';
 import * as supportProxy from '@/app/api/v1/dashboard/support/[...path]/route';
 import * as gallery from '@/app/api/v1/gallery/route';
@@ -83,6 +84,41 @@ const ROUTES: Array<{
     method: 'GET',
     handler: asHandler(auditLogs.GET),
     path: '/api/v1/admin/audit-logs',
+    contract: { roles: ADMINS },
+  },
+  {
+    // WO-72. Branches became a managed entity when users.assignedBranch stopped
+    // being a free string. Admin-only throughout: a branch decides which office
+    // a worker belongs to, so it is staff configuration, not member data.
+    name: 'GET /api/v1/admin/branches',
+    file: 'v1/admin/branches',
+    method: 'GET',
+    handler: asHandler(adminBranches.GET),
+    path: '/api/v1/admin/branches',
+    contract: { roles: ADMINS },
+  },
+  {
+    name: 'POST /api/v1/admin/branches',
+    file: 'v1/admin/branches',
+    method: 'POST',
+    handler: asHandler(adminBranches.POST),
+    path: '/api/v1/admin/branches',
+    contract: { roles: ADMINS, body: {} },
+  },
+  {
+    name: 'PUT /api/v1/admin/branches',
+    file: 'v1/admin/branches',
+    method: 'PUT',
+    handler: asHandler(adminBranches.PUT),
+    path: '/api/v1/admin/branches',
+    contract: { roles: ADMINS, body: {} },
+  },
+  {
+    name: 'DELETE /api/v1/admin/branches',
+    file: 'v1/admin/branches',
+    method: 'DELETE',
+    handler: asHandler(adminBranches.DELETE),
+    path: '/api/v1/admin/branches?id=no-such-branch',
     contract: { roles: ADMINS },
   },
   {

@@ -37,6 +37,22 @@ export default async function ContactPage({ params }: PageProps) {
     return acc;
   }, {} as Record<string, string>);
 
+  // WO-67. These used to read `contact.phone` / `contact.email` /
+  // `contact.address` — three keys that were never in SYSTEM_CONFIG_KEYS, so
+  // `PUT /api/v1/settings` would reject them and no admin screen offered them.
+  // The `|| 'literal'` fallbacks were therefore the only values this page could
+  // ever show, and one of them was `contact@example.com` presented as the
+  // foundation's email address.
+  //
+  // `org.*` is the answer rather than declaring three more keys: those are
+  // already declared, already seeded with the real details, and already what the
+  // letterhead on every generated document uses. A second copy of the
+  // organisation's address is the ADR-023 shape — two places for one fact, kept
+  // equal by hand.
+  const orgPhone = settings['org.phone']?.trim() || '';
+  const orgEmail = settings['org.email']?.trim() || '';
+  const orgAddress = settings['org.address']?.trim() || '';
+
   return (
     <>
       <Header settings={settings} />
@@ -66,7 +82,7 @@ export default async function ContactPage({ params }: PageProps) {
                   <Phone className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ফোন' : 'Phone'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.phone'] || '+8801234567890'}</p>
+                <p className="text-zinc-600 dark:text-zinc-400">{orgPhone}</p>
               </div>
               
               <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
@@ -74,7 +90,7 @@ export default async function ContactPage({ params }: PageProps) {
                   <Mail className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ইমেইল' : 'Email'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.email'] || 'contact@example.com'}</p>
+                <p className="text-zinc-600 dark:text-zinc-400">{orgEmail}</p>
               </div>
 
               <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
@@ -82,7 +98,7 @@ export default async function ContactPage({ params }: PageProps) {
                   <MapPin className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{settings['contact.address'] || 'Vekutia, Jashore, Bangladesh'}</p>
+                <p className="text-zinc-600 dark:text-zinc-400">{orgAddress}</p>
               </div>
             </div>
 
@@ -96,7 +112,7 @@ export default async function ContactPage({ params }: PageProps) {
                 <p className="text-zinc-500 dark:text-zinc-400 max-w-sm">
                    {locale === 'bn' ? 'বিস্তারিত আলোচনার জন্য সরাসরি ফোনে কল করতে পারেন অথবা আমাদের অফিসে যোগাযোগ করতে পারেন।' : 'For detailed discussions, please call directly or visit our office.'}
                 </p>
-                <a href={`tel:${settings['contact.phone']}`}>
+                <a href={`tel:${orgPhone}`}>
                   <Button variant="outline" className="mt-4 rounded-full px-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30">
                      {locale === 'bn' ? 'কল করুন' : 'Call Now'}
                   </Button>

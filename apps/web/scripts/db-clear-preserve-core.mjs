@@ -134,8 +134,11 @@ async function main() {
       await tx.user.update({
         where: { id: admin.id },
         data: {
-          // Detach direct FK to addresses before removing address rows.
-          presentAddressId: null,
+          // WO-72 moved the present-address foreign key onto `addresses`, the
+          // same side the permanent one has always lived on, so there is no
+          // longer a column on `users` to detach — deleting the address rows
+          // below is sufficient for both. `approvedBy` is still a self-reference
+          // on `users` and still has to be cleared first.
           approvedBy: null,
         },
       });

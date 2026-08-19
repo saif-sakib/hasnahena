@@ -54,12 +54,22 @@ enum TransactionStatus {
   REVERSED
 }
 
+/// The loan lifecycle, and only the lifecycle.
+///
+/// `PENDING` and `APPROVED` used to sit here too, kept "for compatibility with
+/// older UI mocks" — two vocabularies for one concept, with `PENDING` as the
+/// column default, so every new row was written into the legacy one. That cost
+/// at least two real defects: the guarantor panel filtered `PENDING` while
+/// applications create `PENDING_GUARANTOR`, so a guarantor never saw their
+/// request; and `GetLoanStats` counted `status = 'PENDING'` as "pending loans",
+/// which meant the admin dashboard reported zero pending loans no matter how
+/// many were waiting.
+///
+/// Collapsed by WO-71: `PENDING` → `PENDING_APPROVAL`, `APPROVED` → `ACTIVE`.
+/// Postgres will not drop an enum label any row still references, which is why
+/// this had to happen before real loans existed.
 enum LoanStatus {
-  // Kept legacy values for compatibility with older UI mocks.
-  PENDING
-  APPROVED
-
-  // Spec-aligned loan workflow states (used by member UI).
+  // Application, in order.
   PENDING_GUARANTOR
   PENDING_APPROVAL
   ACTIVE
@@ -122,9 +132,14 @@ model User {
   approvedUsers  User[]    @relation("UserApprovals")
 
   // Relations
+  /// Both address relations put the foreign key on `Address`, and that symmetry
+  /// is deliberate (WO-72). `presentAddress` used to hold its key here instead —
+  /// same cardinality, same lifecycle, opposite shape — so every query and every
+  /// cascade rule had to be written twice and one of the two was always the
+  /// surprising one. Owning both from `Address` also means deleting a user
+  /// cascades to both rows; the old shape orphaned the present address.
   permanentAddress Address? @relation("PermanentAddress")
-  presentAddress   Address? @relation("PresentAddress", fields: [presentAddressId], references: [id])
-  presentAddressId String?  @unique
+  presentAddress   Address? @relation("PresentAddress")
 
   nominee                 Nominee?
   account                 Account?
@@ -140,12 +155,19 @@ model User {
   sseTickets              SseTicket[]      @relation("UserSseTickets")
 
   // Worker-specific
-  assignedBranch String?
+  /// The office a worker is assigned to. Members do not have one.
+  ///
+  /// Was a free-text string with no referential integrity until WO-72: renaming
+  /// a branch left every worker pointing at the old name, and a typo created a
+  /// branch that existed only on that one row.
+  assignedBranch   Branch? @relation("AssignedBranch", fields: [assignedBranchId], references: [id], onDelete: SetNull)
+  assignedBranchId String?
 
   @@index([status, createdAt])
   @@index([role, status])
   @@index([approvedBy, approvedAt])
   @@index([approvedAt])
+  @@index([assignedBranchId])
   @@map("users")
 }
 
@@ -160,10 +182,11 @@ model Address {
   country       String  @default("বাংলাদেশ")
 
   // Relations
-  userPermanent   User?   @relation("PermanentAddress", fields: [userPermanentId], references: [id])
+  userPermanent   User?   @relation("PermanentAddress", fields: [userPermanentId], references: [id], onDelete: Cascade)
   userPermanentId String? @unique
 
-  userPresent User? @relation("PresentAddress")
+  userPresent   User?   @relation("PresentAddress", fields: [userPresentId], references: [id], onDelete: Cascade)
+  userPresentId String? @unique
 
   @@map("addresses")
 }
@@ -196,6 +219,9 @@ model Document {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
 
+  // Read on every approval screen: worker_repository and admin_repository both
+  // fetch a member's documents by owner (WO-68).
+  @@index([userId])
   @@map("documents")
 }
 
@@ -277,6 +303,8 @@ model Transaction {
   @@index([accountId, createdAt(sort: Desc)])
   @@index([receiptNumber])
   @@index([processedBy, processedAt])
+  // A loan's repayment history — loan_repository.GetLoanRepayments (WO-68).
+  @@index([loanId])
   @@map("transactions")
 }
 
@@ -305,7 +333,7 @@ model Loan {
   purpose        String? // গ্রহণের উদ্দেশ্য
   applicationFee BigInt  @default(0) // আবেদন ফি
 
-  status LoanStatus @default(PENDING)
+  status LoanStatus @default(PENDING_GUARANTOR)
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -330,6 +358,12 @@ model Loan {
   @@index([status, createdAt])
   @@index([borrowerId, status])
   @@index([approvedBy, approvedAt])
+  // WO-68. `guarantorId` is filtered in nine places and always together with
+  // status — including a correlated EXISTS evaluated once per row of the member
+  // list. Composite, so that predicate is answered from the index rather than
+  // by reading each candidate row to check its status.
+  @@index([guarantorId, status])
+  @@index([accountId])
   @@map("loans")
 }
 
@@ -337,6 +371,18 @@ model Loan {
 // SYSTEM
 // ============================================================
 
+/// A physical office. Until 2026-08-19 this table existed and nothing read or
+/// wrote it, while `users.assignedBranch` held a free-text branch name with no
+/// link to it — a table modelling branches and a string modelling branches, not
+/// connected to each other. That is the ADR-023 shape: one fact, two homes, kept
+/// equal by hand or not at all (WO-72).
+///
+/// `code` is the human-readable prefix (`KH` for Bhekutia). Note that member IDs
+/// are generated from the hardcoded constant `utils.MemberIDPrefix`
+/// ("ACC-KH-33"), NOT from this column — a second branch therefore needs a code
+/// change in `member_id.go` as well as a row here. That is recorded rather than
+/// fixed: making the prefix dynamic would change the format of an identifier
+/// members read aloud and write into paper passbooks (ADR-008).
 model Branch {
   id      String  @id @default(cuid())
   name    String
@@ -346,7 +392,11 @@ model Branch {
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  staff User[] @relation("AssignedBranch")
+
+  @@index([isActive, name])
   @@map("branches")
 }
 
@@ -425,6 +475,8 @@ model SupportThread {
   @@index([memberUserId], map: "idx_support_threads_member")
   @@index([status, updatedAt(sort: Desc)], map: "idx_support_threads_status_updated")
   @@index([deleteAt], map: "idx_support_threads_delete_at")
+  // Staff filtering their own processed threads (WO-68).
+  @@index([processedByUserId])
   @@map("support_threads")
 }
 
@@ -549,6 +601,8 @@ model SseTicket {
   createdAt  DateTime @default(now())
 
   @@index([expiresAt], map: "idx_sse_tickets_expires_at")
+  // Tickets are issued and revoked per user (WO-68).
+  @@index([userId])
   @@map("sse_tickets")
 }
 

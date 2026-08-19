@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Search,
@@ -41,6 +41,10 @@ interface Worker {
   phone: string;
   role: 'WORKER' | 'ADMIN';
   status: 'ACTIVE' | 'INACTIVE';
+  // WO-72. The branch is a row now. `assignedArea` survives as the *display*
+  // string derived from it, so the search box and the table keep working
+  // unchanged; `branchId` is what the form posts.
+  branchId: string;
   assignedArea: string;
   joinDate: string;
   processedDeposits: number;
@@ -55,8 +59,15 @@ interface WorkerApiResponse {
   phone: string;
   role: 'WORKER' | 'ADMIN';
   status: 'ACTIVE' | 'INACTIVE';
-  assignedArea: string;
+  branch: { id: string; name: string; code: string } | null;
   joinDate: string;
+}
+
+interface BranchOption {
+  id: string;
+  name: string;
+  code: string;
+  isActive: boolean;
 }
 
 function normalizeWorker(worker: any): Worker {
@@ -66,7 +77,8 @@ function normalizeWorker(worker: any): Worker {
     status: worker.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
     processedDeposits: Number(worker.currentDeposit || worker.processedDeposits || 0),
     processedLoans: Number(worker.activeLoan || worker.processedLoans || 0),
-    assignedArea: worker.assignedArea || worker.area || '',
+    branchId: worker.branch?.id || '',
+    assignedArea: worker.branch ? `${worker.branch.name} (${worker.branch.code})` : '',
     joinDate: worker.joinDate || worker.createdAt || new Date().toISOString(),
     lastActive: worker.lastActive || worker.joinDate || new Date().toISOString(),
   };
@@ -126,14 +138,37 @@ export default function AdminWorkersPage() {
     email: '',
     phone: '',
     role: 'WORKER' as 'WORKER' | 'ADMIN',
-    assignedArea: '',
+    assignedBranchId: '',
   });
   const [editWorker, setEditWorker] = useState({
     name: '',
     phone: '',
-    assignedArea: '',
+    assignedBranchId: '',
     role: 'WORKER' as 'WORKER' | 'ADMIN',
   });
+  const [branches, setBranches] = useState<BranchOption[]>([]);
+
+  // WO-72. The branch picker's options. Same-origin Next route, so a plain
+  // fetch rather than useApi, which resolves against the Go API base.
+  useEffect(() => {
+    let cancelled = false;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+    fetch('/api/v1/admin/branches', {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload?.ok) return;
+        setBranches(payload.data as BranchOption[]);
+      })
+      .catch(() => {
+        // A missing picker is not worth failing the page over — the field is
+        // optional, and the server refuses an unknown id anyway.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
 
   const filteredWorkers = useMemo(
@@ -191,13 +226,13 @@ export default function AdminWorkersPage() {
         email: newWorker.email,
         phone: newWorker.phone,
         role: newWorker.role,
-        assignedArea: newWorker.assignedArea,
+        assignedBranchId: newWorker.assignedBranchId || null,
         locale,
       });
 
       await loadWorkers();
       setShowAddModal(false);
-      setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedArea: '' });
+      setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedBranchId: '' });
       toast({
         title: locale === 'bn' ? 'সফল' : 'Success',
         description:
@@ -224,7 +259,7 @@ export default function AdminWorkersPage() {
     setEditWorker({
       name: worker.name,
       phone: worker.phone,
-      assignedArea: worker.assignedArea,
+      assignedBranchId: worker.branchId,
       role: worker.role,
     });
     setShowEditModal(true);
@@ -240,7 +275,7 @@ export default function AdminWorkersPage() {
         name: editWorker.name,
         phone: editWorker.phone,
         role: editWorker.role,
-        assignedArea: editWorker.assignedArea,
+        assignedBranchId: editWorker.assignedBranchId || null,
       });
 
       await loadWorkers();
@@ -502,7 +537,7 @@ export default function AdminWorkersPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div><span className="text-gray-500">{locale === 'bn' ? 'ইমেইল' : 'Email'}</span><p>{selectedWorker.email || '-'}</p></div>
                 <div><span className="text-gray-500">{locale === 'bn' ? 'ফোন' : 'Phone'}</span><p>{selectedWorker.phone}</p></div>
-                <div><span className="text-gray-500">{locale === 'bn' ? 'এলাকা' : 'Area'}</span><p>{selectedWorker.assignedArea || '-'}</p></div>
+                <div><span className="text-gray-500">{locale === 'bn' ? 'শাখা' : 'Branch'}</span><p>{selectedWorker.assignedArea || '-'}</p></div>
                 <div><span className="text-gray-500">{locale === 'bn' ? 'যোগদান' : 'Joined'}</span><p>{new Date(selectedWorker.joinDate).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}</p></div>
                 <div><span className="text-gray-500">{locale === 'bn' ? 'জমা প্রসেস' : 'Deposits'}</span><p>{selectedWorker.processedDeposits}</p></div>
                 <div><span className="text-gray-500">{locale === 'bn' ? 'ঋণ প্রসেস' : 'Loans'}</span><p>{selectedWorker.processedLoans}</p></div>
@@ -541,8 +576,23 @@ export default function AdminWorkersPage() {
               </select>
             </div>
             <div>
-              <Label className="text-sm">{locale === 'bn' ? 'এলাকা' : 'Area'}</Label>
-              <Input value={newWorker.assignedArea} onChange={(e) => setNewWorker({ ...newWorker, assignedArea: e.target.value })} placeholder={locale === 'bn' ? 'এলাকা' : 'Area'} className="mt-1" />
+              <Label className="text-sm">{locale === 'bn' ? 'শাখা' : 'Branch'}</Label>
+              <select
+                aria-label={locale === 'bn' ? 'শাখা' : 'Branch'}
+                value={newWorker.assignedBranchId}
+                onChange={(e) => setNewWorker({ ...newWorker, assignedBranchId: e.target.value })}
+                className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
+              >
+                <option value="">{locale === 'bn' ? 'কোনো শাখা নয়' : 'No branch'}</option>
+                {branches
+                  .filter((b) => b.isActive || b.id === newWorker.assignedBranchId)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                      {b.isActive ? '' : locale === 'bn' ? ' — নিষ্ক্রিয়' : ' — inactive'}
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
           <DialogFooter>
@@ -567,8 +617,23 @@ export default function AdminWorkersPage() {
               <Input value={editWorker.phone} onChange={(e) => setEditWorker((prev) => ({ ...prev, phone: e.target.value }))} className="mt-1" />
             </div>
             <div>
-              <Label className="text-sm">{locale === 'bn' ? 'এলাকা' : 'Area'}</Label>
-              <Input value={editWorker.assignedArea} onChange={(e) => setEditWorker((prev) => ({ ...prev, assignedArea: e.target.value }))} className="mt-1" />
+              <Label className="text-sm">{locale === 'bn' ? 'শাখা' : 'Branch'}</Label>
+              <select
+                aria-label={locale === 'bn' ? 'শাখা' : 'Branch'}
+                value={editWorker.assignedBranchId}
+                onChange={(e) => setEditWorker((prev) => ({ ...prev, assignedBranchId: e.target.value }))}
+                className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
+              >
+                <option value="">{locale === 'bn' ? 'কোনো শাখা নয়' : 'No branch'}</option>
+                {branches
+                  .filter((b) => b.isActive || b.id === editWorker.assignedBranchId)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.code})
+                      {b.isActive ? '' : locale === 'bn' ? ' — নিষ্ক্রিয়' : ' — inactive'}
+                    </option>
+                  ))}
+              </select>
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>

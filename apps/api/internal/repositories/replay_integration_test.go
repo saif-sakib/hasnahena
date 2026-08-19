@@ -137,10 +137,8 @@ func TestOnlyALiveLoanCanBeDefaulted(t *testing.T) {
 		reasoning string
 	}{
 		{"ACTIVE", true, "disbursed and outstanding — the only real default"},
-		{"APPROVED", true, "legacy value for the same state"},
 		{"PENDING_GUARANTOR", false, "never disbursed; there is nothing to recover"},
 		{"PENDING_APPROVAL", false, "never disbursed"},
-		{"PENDING", false, "legacy, never disbursed"},
 		{"COMPLETED", false, "already repaid in full"},
 		{"SETTLED", false, "already closed"},
 		{"REJECTED", false, "never became a loan"},

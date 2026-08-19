@@ -38,9 +38,13 @@ export default async function SupportPage({ params }: PageProps) {
   }, {} as Record<string, string>);
 
   const isBn = locale === 'bn';
-  const supportEmail = settings['org.email'] || settings['contact.email'] || 'contact@hasnahena.org';
-  const supportPhone = settings['org.phone'] || settings['contact.phone'] || '+880 1XXX-XXXXXX';
-  const supportAddress = settings['org.address'] || settings['contact.address'] || 'Vekutia, Jashore, Bangladesh';
+  // WO-67. The `settings['contact.*']` second choice is gone: those keys were
+  // never declared in SYSTEM_CONFIG_KEYS, so no admin could ever set one and the
+  // branch was unreachable. `org.*` is declared, seeded, and printed on every
+  // generated document.
+  const supportEmail = settings['org.email']?.trim() || '';
+  const supportPhone = settings['org.phone']?.trim() || '';
+  const supportAddress = settings['org.address']?.trim() || '';
 
   return (
     <>
