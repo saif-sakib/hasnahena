@@ -74,7 +74,7 @@ export function buildLoanAgreement(
 
   const borrower: Field[] = [
     { label: 'Name', value: orDash(data.memberName) },
-    { label: 'Member ID', value: orDash(data.memberId) },
+    { label: 'Account No', value: orDash(data.accountNo) },
     { label: 'Mobile', value: orDash(data.memberPhone) },
     { label: 'Disbursement date', value: formatDate(data.disbursementDate) },
   ];
@@ -121,7 +121,7 @@ export function buildLoanAgreement(
     refLabel: 'Loan No',
     refValue: orDash(data.loanNumber),
     documentId: documentIdFromReference('LOAN', data.loanNumber),
-    filename: documentFilename('Loan-Agreement', data.loanNumber || data.memberId),
+    filename: documentFilename('Loan-Agreement', data.loanNumber || data.accountNo),
     org,
     blocks,
   };

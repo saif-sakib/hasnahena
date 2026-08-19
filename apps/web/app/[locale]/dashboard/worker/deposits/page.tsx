@@ -27,7 +27,7 @@ type TransactionType = FormTransactionType | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYME
 
 interface Transaction {
   id: string;
-  memberId: string;
+  accountNo: string;
   memberName: string;
   memberPhone: string;
   type: TransactionType;
@@ -61,7 +61,7 @@ export default function WorkerDepositsPage() {
       (transactionsData ?? [])
         .map((item) => ({
           id: String(item.id ?? ''),
-          memberId: String(item.memberId ?? ''),
+          accountNo: String(item.accountNo ?? ''),
           memberName: String(item.memberName ?? ''),
           memberPhone: String(item.memberPhone ?? ''),
           type: String(item.type ?? '').toUpperCase() as TransactionType,
@@ -103,7 +103,7 @@ export default function WorkerDepositsPage() {
         amount: t.amount,
         date: t.date,
         memberName: t.memberName,
-        memberId: t.memberId,
+        accountNo: t.accountNo,
         memberPhone: t.memberPhone,
         balanceAfter: t.balanceAfter,
         notes: t.notes,

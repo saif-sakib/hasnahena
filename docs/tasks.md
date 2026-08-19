@@ -14,18 +14,30 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
 >
-> **Blocks R, S, T and U are done** (WO-67 → 78, 2026-08-19): the `/donate` and
+> **Every work-order block is done** (WO-67 → 84, 2026-08-19). The `/donate` and
 > `/contact` pages no longer show unchangeable placeholder details, every foreign
 > key is indexed, the database has CHECK constraints of its own, migrations are
-> the only definition of the schema, the legacy `LoanStatus` values are gone,
-> branches are a real relation, **20 marketing routes are prerendered instead of
-> hitting Neon on every visit**, an idle dashboard tab makes two requests a
-> minute instead of twenty-six and a hidden one makes none, the web app has a
-> **Content-Security-Policy** (report-only until `CSP_ENFORCE=1`), the settings
-> endpoint serves three tiers instead of one, and the Go rate limiter keys on the
-> member rather than on Vercel's address. [work-orders.md](work-orders.md) holds
-> WO-79 → 84 — SEO and future-proofing — each executable with `do WO-79` or
-> `do block V`.
+> the only definition of the schema, **20 marketing routes are prerendered
+> instead of hitting Neon on every visit**, an idle dashboard tab makes two
+> requests a minute instead of twenty-six and a hidden one makes none, the web
+> app has a **Content-Security-Policy** (report-only until `CSP_ENFORCE=1`), the
+> settings endpoint serves three tiers instead of one, the Go rate limiter keys
+> on the member rather than on Vercel's address, every public page carries
+> `NGO`/`WebSite`/`BreadcrumbList` structured data built from the `org.*`
+> settings, and **the ledger is summed and compared to the stored balances every
+> hour** (WO-82) — which found two live defects in the default-recovery waterfall
+> on its first run.
+>
+> There is now a [runbook.md](runbook.md) for the night something breaks. Its one
+> unproven step is the restore rehearsal, which needs the Neon account.
+>
+> **Two owner-reported items closed 2026-08-19.** The admin withdrawal screen was
+> reporting both of FR-08's ordinary refusals as `500 Failed to process
+> withdrawal`; it answers 409 with the reason and the payable-from date now, and
+> the screen lists the notices it can actually settle. And the member identifier
+> is called **`accountNo`** everywhere — column, code, documents and both
+> languages ([ADR-029](decisions.md)); the value and its `ACC-KH-33001` format
+> are unchanged.
 >
 > **This page cannot quietly fall behind the code.** A requirement not marked
 > `[x]` must *still* be unimplemented in the source, or

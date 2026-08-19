@@ -28,7 +28,7 @@ import { CONTENT_WIDTH, PAGE } from './theme';
 const statementWith = (transactions: StatementTransaction[], closing = 0) =>
   buildStatement({
     memberName: 'Rahima Khatun',
-    memberId: 'ACC-KH-33001',
+    accountNo: 'ACC-KH-33001',
     memberPhone: '01712345678',
     periodStart: '2026-01-01T00:00:00.000Z',
     periodEnd: '2026-12-31T00:00:00.000Z',
@@ -270,7 +270,7 @@ describe('oversized input', () => {
     const model = buildLoanAgreement({
       loanNumber: 'LOAN-2026-000007',
       memberName: LONG_NAME,
-      memberId: 'ACC-KH-33001',
+      accountNo: 'ACC-KH-33001',
       memberPhone: '01712345678',
       memberAddress: LONG_ADDRESS,
       principalAmount: 100000000,
@@ -315,7 +315,7 @@ describe('oversized input', () => {
       amount: 100,
       date: 'not-a-date',
       memberName: 'A',
-      memberId: 'B',
+      accountNo: 'B',
       memberPhone: 'C',
       balanceAfter: 100,
     });
@@ -359,7 +359,7 @@ describe('English-only enforcement (ADR-012)', () => {
     // is worse than one that is plainly English.
     const model = buildMembershipCertificate({
       memberName: 'Rahima Khatun',
-      memberId: 'ACC-KH-33001',
+      accountNo: 'ACC-KH-33001',
       memberSince: '2024-03-15T00:00:00.000Z',
     }, { nameEn: 'Hasnahena Foundation', name: 'হাসনাহেনা ফাউন্ডেশন' });
 
@@ -387,7 +387,7 @@ describe('document numbers (ADR-013)', () => {
       amount: 100,
       date: '2026-08-17T10:30:00.000Z',
       memberName: 'A',
-      memberId: 'ACC-KH-33001',
+      accountNo: 'ACC-KH-33001',
       memberPhone: 'C',
       balanceAfter: 100,
     });
@@ -408,7 +408,7 @@ describe('document numbers (ADR-013)', () => {
       amount: 1,
       date: '2026-08-17T10:30:00.000Z',
       memberName: 'A',
-      memberId: 'B',
+      accountNo: 'B',
       memberPhone: 'C',
       balanceAfter: 1,
     });
@@ -422,7 +422,7 @@ describe('document numbers (ADR-013)', () => {
     expect(
       buildMembershipCertificate({
         memberName: 'A',
-        memberId: 'ACC-KH-33001',
+        accountNo: 'ACC-KH-33001',
         memberSince: '2024-03-15T00:00:00.000Z',
       }).documentId,
     ).toBe('CERT-ACC-KH-33001');
@@ -433,7 +433,7 @@ describe('document numbers (ADR-013)', () => {
     // the same second collided. Nothing here may reintroduce that.
     const ids = [
       statementWith([], 0).documentId,
-      buildMembershipCertificate({ memberName: 'A', memberId: 'ACC-KH-33001', memberSince: '2024-03-15' }).documentId,
+      buildMembershipCertificate({ memberName: 'A', accountNo: 'ACC-KH-33001', memberSince: '2024-03-15' }).documentId,
     ];
     for (const id of ids) {
       expect(id).not.toMatch(/\d{10,}/);

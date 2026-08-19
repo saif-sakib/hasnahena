@@ -172,7 +172,7 @@ export async function seedRoleUsers(): Promise<Record<TestRole, string>> {
         passwordHash: 'x-not-a-valid-bcrypt-hash',
         role: role as never,
         status: 'ACTIVE',
-        memberId: `RT-${role}`,
+        accountNo: `RT-${role}`,
         nameEn: `Route ${role}`,
         fatherName: '-',
         motherName: '-',

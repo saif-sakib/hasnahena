@@ -17,7 +17,7 @@ still true.
 | [ADR-005](#adr-005--two-response-shapes-and-which-one-is-canonical) | Two response shapes, and which one is canonical | accepted |
 | [ADR-006](#adr-006--auth-is-self-hosted-jwt) | Auth is self-hosted JWT | accepted |
 | [ADR-007](#adr-007--no-redis-no-separate-cache-tier) | No Redis, no separate cache tier | accepted |
-| [ADR-008](#adr-008--member-ids-are-acc-kh-) | Member IDs are `ACC-KH-#####` | accepted |
+| [ADR-008](#adr-008--member-ids-are-acc-kh-) | Account numbers are `ACC-KH-#####` | accepted |
 | [ADR-009](#adr-009--formal-specification-pdfs-retired) | Formal specification PDFs retired | accepted |
 | [ADR-010](#adr-010--documents-are-rendered-in-the-browser-then-rasterised) | Documents are rendered in the browser, then rasterised | superseded |
 | [ADR-011](#adr-011--one-trimmed-transparent-logo-asset-set) | One trimmed, transparent logo asset set | accepted |
@@ -32,9 +32,13 @@ still true.
 | [ADR-020](#adr-020--the-cloudinary-assets-have-no-backup-and-that-is-accepted-until-launch) | The Cloudinary assets have no backup, and that is accepted until launch | provisional |
 | [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-stays-at-one) | The support proxy limits per member; `TRUSTED_PROXIES` stays at one | accepted |
 | [ADR-022](#adr-022--member-approval-waits-for-the-email-inside-a-ten-second-budget) | Member approval waits for the email, inside a ten-second budget | accepted |
-| [ADR-023](#adr-023--one-member-identifier-usersmemberid) | One member identifier: `users.memberId` | accepted |
+| [ADR-023](#adr-023--one-member-identifier-usersaccountno) | One member identifier: `users.accountNo` | accepted |
 | [ADR-024](#adr-024--two-content-security-policies-chosen-per-route) | Two Content-Security-Policies, chosen per route | accepted |
 | [ADR-025](#adr-025--the-rate-limiter-keys-on-the-verified-member) | The rate limiter keys on the verified member | accepted |
+| [ADR-026](#adr-026--a-disputed-posting-is-money-that-moved) | A disputed posting is money that moved | accepted |
+| [ADR-027](#adr-027--the-reconciliation-job-reports-and-never-repairs) | The reconciliation job reports and never repairs | accepted |
+| [ADR-028](#adr-028--a-public-page-renders-without-a-database) | A public page renders without a database | accepted |
+| [ADR-029](#adr-029--the-identifier-is-called-an-account-number) | The identifier is called an account number | accepted |
 
 ---
 
@@ -113,9 +117,9 @@ Revisit only when a real background-job need appears (installment reminders, tim
 
 **Status:** accepted · commit `5db86b7`.
 
-Account and member identifiers are human-readable and branch-prefixed (`ACC-KH-33001`) because they are read aloud and written into paper passbooks. Generation lives in `apps/api/internal/utils/member_id.go`. Primary keys remain `cuid()` — the member ID is a display identifier, never a foreign key.
+Account numbers are human-readable and branch-prefixed (`ACC-KH-33001`) because they are read aloud and written into paper passbooks. Generation lives in `apps/api/internal/utils/account_no.go`. Primary keys remain `cuid()` — the account number is a display identifier, never a foreign key.
 
-`users.memberId` is the platform's **only** member identifier — see [ADR-023](#adr-023--one-member-identifier-usersmemberid).
+`users.accountNo` is the platform's **only** member identifier — see [ADR-023](#adr-023--one-member-identifier-usersaccountno) and [ADR-029](#adr-029--the-identifier-is-called-an-account-number) for why it is spelled that way.
 
 The one-off backfill (`scripts/migrate-member-ids.sql`) was deleted 2026-08-19 once it had run everywhere: it renumbers every member in one transaction, which is destructive against a live database and useful to nobody now. Recover it from `5db86b7` if it is ever needed again.
 
@@ -607,7 +611,7 @@ failed.
 
 ---
 
-### ADR-023 — One member identifier: `users.memberId`
+### ADR-023 — One member identifier: `users.accountNo`
 
 **Status:** accepted · 2026-08-18.
 
@@ -615,13 +619,12 @@ Reported by the owner: the statement prints "Member ID" and
 "Account No" as two labelled rows holding the same string.
 
 It was not a rendering mistake. `accounts.accountNumber` was **assigned the
-owner's `memberId`** in both places an account could be created — `const
-accountNumber = memberId` in the registration route, and the same `memberID`
-parameter in `ApproveRegistration`, which additionally re-synced it on every
-approval. Two columns, one value, kept equal by hand.
+owner's identifier** in both places an account could be created — `const
+accountNumber = memberId` in the registration route, and the same parameter in
+`ApproveRegistration`, which additionally re-synced it on every approval. Two
+columns, one value, kept equal by hand.
 
-**`memberId` is the one that survives**, and the codebase had already half
-decided this:
+**One of the two survives**, and the codebase had already half decided which:
 
 - It is the **member's** identity, not an account's, and it exists before any
   account does — a `PENDING` registration has one.
@@ -645,7 +648,9 @@ also states the invariant every query already assumed, and the Prisma relation
 becomes `User.account Account?` instead of a list nothing ever put two things in.
 
 **No information is lost.** For a member account the value is still in
-`users.memberId`; for the pool, the literal is replaced by the owner id.
+`users.accountNo` (called `users.memberId` when this was written — see
+[ADR-029](#adr-029--the-identifier-is-called-an-account-number)); for the pool,
+the literal is replaced by the owner id.
 
 **What this does not do:** it does not rule out a future where one member holds
 several accounts (a separate zakat fund, say — FR-15/16 contemplates per-fund
@@ -701,12 +706,22 @@ is four `noindex` routes that read no database rendering per request.
 
 **The residual risk, stated plainly rather than buried.** An inline XSS on a
 marketing page would execute, and the session token is in `localStorage` on the
-same origin. What holds that down is that those pages have no XSS sink — there is
-no `dangerouslySetInnerHTML`, no `innerHTML` and no `eval` anywhere in `app/`,
-`components/` or `lib/`, so every admin-controlled string they render goes
-through React's escaping — and `connect-src`/`img-src` deny the usual
-exfiltration paths even if one appeared. This is a real tradeoff, not a free win,
-and the day Next can nonce a prerendered page it should be revisited.
+same origin. What holds that down is that those pages have almost no XSS sink —
+there is no `innerHTML` and no `eval` anywhere in `app/`, `components/` or
+`lib/`, so every admin-controlled string they render goes through React's
+escaping — and `connect-src`/`img-src` deny the usual exfiltration paths even if
+one appeared. This is a real tradeoff, not a free win, and the day Next can nonce
+a prerendered page it should be revisited.
+
+**"Almost" is WO-79.** Structured data cannot be written as a text child: React
+HTML-escapes it, entities are not decoded inside a `<script>` element, and the
+JSON reaches the crawler unparseable — Next's own JSON-LD guide specifies
+`dangerouslySetInnerHTML` for exactly this reason. So there is now one sink, in
+`components/seo/structured-data.tsx`. It takes an object rather than a string,
+builds the graph itself, and serialises through a function that escapes `<`, so
+an admin who types `</script>` into the organisation name produces inert text.
+`test/unit/csp.test.ts` counts the occurrences across all three directories and
+fails on a second one — the claim in this paragraph is a test, not a sentence.
 
 **Rollout.** Report-only by default; `CSP_ENFORCE=1` on Vercel switches the
 header name and nothing else. A policy that breaks the dashboard gets removed in
@@ -769,3 +784,134 @@ request, never to permit one.
 - With no verifier wired — which is how every existing middleware test builds
   the stack — behaviour is byte-for-byte what it was before, and a test asserts
   that so those tests keep meaning what they meant.
+
+---
+
+## ADR-026 — A disputed posting is money that moved
+
+**Context.** [ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout)
+established that only `CONFIRMED` moved money: a `PENDING` withdrawal is a
+member's notice and a `PENDING` deposit is a request, and four aggregates were
+counting intentions as income.
+
+WO-82's reconciliation needed the same question answered for the *other*
+statuses, and found that `PATCH /api/v1/member/transactions/{id}/dispute` flips a
+**CONFIRMED** posting to `DISPUTED` and changes no balance. The dispute is the
+member's claim that the amount was wrong; it is the first step of a correction,
+not the correction.
+
+**Decision.** For reconciliation, money moved when the status is `CONFIRMED`
+**or** `DISPUTED`. `PENDING`, `PROCESSED`, `REJECTED` and `REVERSED` are not
+money that moved.
+
+This does not weaken ADR-016. An aggregate over *requests* — pending deposits
+awaiting a worker, income this month — still filters on `CONFIRMED` alone; a
+disputed posting is not new income. The two questions are different and now have
+different answers written down.
+
+**Consequences.** `repositories.settledStatuses` is the single place the list
+lives, and `TestADisputedPostingIsStillMoneyThatMoved` pins it. Had the job
+counted `CONFIRMED` alone, every open dispute would have raised a drift alarm —
+an alert that is always firing, which is the same as no alert.
+
+---
+
+## ADR-027 — The reconciliation job reports and never repairs
+
+**Context.** WO-82 (OPS-07) sums the ledger hourly and compares it to the stored
+balances. The obvious next step, once drift is detected, is to correct it.
+
+**Decision.** It never does. On drift it writes an `audit_logs` row, logs a
+`slog` error, and sets the `hasnahena_ledger_drift_*` gauges. A human decides
+what to do.
+
+**Why.** An automated correction to a ledger is a second defect written on top of
+the first, and it destroys the evidence needed to understand the first. If the
+drift came from a lost update, the surviving value and the missing one are the
+only record of what happened; overwriting the balance to match a sum erases the
+question of which posting was lost and who is owed money. `audit_logs` is
+append-only for the same reason (rule 6), and corrections append.
+
+There is a practical argument too: a repair loop that is subtly wrong corrupts
+every account it touches on a schedule, at night, with nobody watching.
+
+**Consequences.** `cmd/server/wiring_test.go` reads the source of
+`startReconciliationLoop` and `reconcile_repository.go` and fails on any
+`UPDATE accounts`, `UPDATE loans`, `UPDATE transactions` or balance assignment,
+so this stays true rather than being remembered. The one write the job is
+allowed is the append-only audit row.
+
+The job's first pass also found two live defects in `waterfallRecoveryTx` that no
+existing test caught — recovery rows written `PENDING` while the savings had
+already been deducted, and `accounts."loanBalance"` never reduced — which is the
+argument for the whole order in one sentence.
+
+---
+
+## ADR-028 — A public page renders without a database
+
+**Context.** [WO-73](work-orders.md) moved the marketing pages' `system_config`
+and `galleryItem` reads from request time to **build** time by prerendering them.
+The Docker image is built with `DATABASE_URL` pointing at a placeholder that does
+not exist — the Dockerfile says so, and says why — so the next image build failed
+with `Export encountered an error on /[locale]/donate/page`.
+
+Six of the eight pages had no `try` of their own; the two that did survived,
+which made it look like a bug in two pages rather than a missing contract on one
+function.
+
+**Decision.** `getPublicSettings()` and `getPublicGalleryItems()` never reject.
+An unreachable database yields an empty map and an empty gallery, and the page
+renders its fallback copy. Each page carries `revalidate = 3600`, so a build
+without data self-heals within an hour of the first request.
+
+The `catch` sits **outside** `unstable_cache`, not inside it. `unstable_cache`
+stores resolved values and never rejections, so catching inside would memoise the
+empty map and pin every public page to its hardcoded fallback for the whole
+revalidate window after one transient Neon blip.
+
+**Consequences.** `test/unit/public-content-fallback.test.ts` asserts both
+halves, and asserts them against a mocked `next/cache` — the real
+`unstable_cache` throws `Invariant: incrementalCache missing` outside a Next
+server, and the very `catch` under test swallows it, so the first version of that
+file passed with the query never running.
+
+---
+
+## ADR-029 — The identifier is called an account number
+
+**Status:** accepted · 2026-08-19.
+
+[ADR-023](#adr-023--one-member-identifier-usersaccountno) settled that there is
+exactly **one** identifier a member is given. It did not settle what to call it,
+and it kept the name the surviving column happened to have: `memberId`.
+
+That name was the weaker half of the pair it replaced. The values have always
+begun `ACC-`; the two documents that showed both labels showed the *other* one,
+"Account No", against the same string; and a member at a desk asks for their
+account number, not their member ID.
+
+**Decision.** The column is `users.accountNo`, the Go helpers are
+`utils.FormatAccountNo` and friends in `internal/utils/account_no.go`, the
+TypeScript is `lib/account-no.ts`, the JSON field on every API response is
+`accountNo`, and every document, screen and email says **Account No** /
+**অ্যাকাউন্ট নং**.
+
+**What did not change.** The value, its format (`ACC-KH-33001`), the
+advisory-locked sequence allocator behind it, and ADR-023's rule that nothing may
+print it under a second name. `apps/web/lib/documents/builders.test.ts` still
+asserts every generated document labels it exactly once, and now asserts that
+label is "Account No".
+
+**The migration is hand-written and has to be.** `prisma migrate diff` cannot
+see a rename: it emits `DROP COLUMN` + `ADD COLUMN`, which discards every
+member's number. `ALTER TABLE … RENAME COLUMN` carries the data, the unique
+index and the constraint across untouched. This is the third migration in this
+project that had to be written by hand for the same class of reason, and the
+first two are named in `20260819130000_rename_member_id_to_account_no`.
+
+**One ambiguity the rename exposed rather than created.** `memberId` also named
+the *route parameter* and the handler locals on
+`/v1/dashboard/worker/members/{…}`, where it has always meant the member's row
+id — a cuid, not an account number. Those are `{memberUserId}` now. The URLs are
+unchanged; a chi pattern placeholder is not part of the path.

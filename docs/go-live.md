@@ -55,13 +55,26 @@ afterwards every one needs a backfill.
 `pnpm db:migrate:check` runs in CI, so a schema edit without a generated
 migration fails the build rather than a production query.
 
-### 1.2 Build the reconciliation job (OPS-07)
+### 1.2 ~~Build the reconciliation job (OPS-07)~~ — done, WO-82
 
-Sum of transactions versus account balances, alerting on drift. **Build it as
-part of this stage, not Phase 7.** It is the only control that catches the *next*
-ledger defect: a wrong balance looks exactly like a correct balance until someone
-adds it up, and that is how LEDGER-01 survived 17 green integration tests and
-several audits. Had this job existed it would have been a nightly alert.
+Five invariants, summed hourly against the stored balances, reporting to
+`audit_logs`, `slog` and `hasnahena_ledger_drift_*`. It never corrects anything
+([ADR-027](decisions.md)).
+
+**It earned its place before it ever ran in production.** Writing the invariants
+down was enough to find two live defects in `waterfallRecoveryTx` that no existing
+test caught: recovery rows written `PENDING` while the savings had already been
+deducted, and `accounts."loanBalance"` never reduced, so a member whose savings
+were taken to settle a default kept seeing the whole debt. That is the argument
+for this item, restated as a fact.
+
+**What is left here is operational, not code:** alert on
+`hasnahena_ledger_drift_rows > 0`, and on
+`hasnahena_ledger_reconciled_timestamp_seconds` going stale — a drift gauge
+reading zero is indistinguishable from a job that has not run since the last
+deploy, and the second is the more likely failure. That needs the monitoring in
+1.4 switched on first. [runbook.md §2](runbook.md#2-a-disputed-or-wrong-transaction)
+is what to do when it fires.
 
 ### 1.3 Prove the backup works, on data you can afford to lose
 
@@ -84,6 +97,13 @@ rather than one you are reading.
 **Also confirm the restore is possible without you.** Write down where
 `BACKUP_PASSPHRASE` lives. A backup nobody else can decrypt is a backup that
 depends on one person being reachable.
+
+The procedure is now written out step by step in
+[runbook.md §4](runbook.md#4-restore-from-backup), together with what to do when
+restoring for real — suspend the API first, restore into a branch, verify, then
+repoint `DATABASE_URL` in **both** hosts. **It has never been rehearsed against a
+Neon branch**, and the runbook says so on its own line until somebody does it and
+dates it.
 
 ### 1.4 Switch the monitoring on — it is built and it is off
 
@@ -212,7 +232,8 @@ Four things, and none of them is a feature:
 2. **A restore you have performed**, not one you have written down. Stage 1.3.
 3. **A data model you are not going to change.** Stage 1.1 is the difference
    between a migration and a migration plus a backfill plus an apology.
-4. **Somebody other than you being able to do it.** OPS-06 — where the secrets
+4. **Somebody other than you being able to do it.** [runbook.md](runbook.md) is
+   now written for exactly that person. OPS-06 — where the secrets
    live, which host owns which variable, how to restore. One person can currently
    deploy this, and that person is also the one who would be unavailable in the
    scenario where it matters.

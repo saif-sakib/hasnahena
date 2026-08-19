@@ -34,7 +34,7 @@ interface Deposit {
 
 interface MemberProfileResponse {
   profile?: {
-    memberId?: string;
+    accountNo?: string;
     nameEn?: string;
     phone?: string;
   };
@@ -43,8 +43,8 @@ interface MemberProfileResponse {
   };
 }
 
-function getMemberDisplayId(profile: MemberProfileResponse | null): string {
-  return profile?.profile?.memberId?.trim() || 'N/A';
+function getAccountNoForDisplay(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.accountNo?.trim() || 'N/A';
 }
 
 function getMemberDisplayName(profile: MemberProfileResponse | null): string {
@@ -153,7 +153,7 @@ export default function DepositsPage() {
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
     const statementDoc = buildStatement({
       memberName: getMemberDisplayName(memberProfile),
-      memberId: getMemberDisplayId(memberProfile),
+      accountNo: getAccountNoForDisplay(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
       periodStart: oneYearAgo.toISOString(),
       periodEnd: now.toISOString(),
@@ -182,7 +182,7 @@ export default function DepositsPage() {
       amount: deposit.amount,
       date: deposit.date,
       memberName: getMemberDisplayName(memberProfile),
-      memberId: getMemberDisplayId(memberProfile),
+      accountNo: getAccountNoForDisplay(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
       balanceAfter: (deposit.balanceAfter || 0),
       processedBy: deposit.processedBy,

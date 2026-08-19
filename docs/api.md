@@ -75,8 +75,8 @@ an admin changed it.
 |---|---|
 | GET | `/v1/dashboard/worker` |
 | GET | `/v1/dashboard/worker/{members,requests,loans,transactions,profile}` |
-| GET | `/v1/dashboard/worker/members/{memberId}` |
-| POST | `/v1/dashboard/worker/members/{memberId}/{deposit,withdrawal,loan,loan-payment}` |
+| GET | `/v1/dashboard/worker/members/{memberUserId}` |
+| POST | `/v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal,loan,loan-payment}` |
 | PUT | `/v1/dashboard/worker/profile` |
 
 ### Admin

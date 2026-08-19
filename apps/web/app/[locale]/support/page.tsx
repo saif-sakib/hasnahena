@@ -8,6 +8,7 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { StructuredData } from '@/components/seo/structured-data';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -53,6 +54,7 @@ export default async function SupportPage({ params }: PageProps) {
 
   return (
     <>
+      <StructuredData locale={normalizeLocale(locale)} path="/support" settings={settings} />
       <Header settings={settings} />
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-24 pb-16">
         <div className="container-wide max-w-4xl">

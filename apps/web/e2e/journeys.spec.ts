@@ -111,7 +111,7 @@ test.describe('journeys', () => {
     await expect(page.locator('body'), 'the profile does not show the signed-in member')
       .toContainText('E2E MEMBER', { timeout: 20_000 });
     await expect(page.locator('body'), 'the profile does not show the member id')
-      .toContainText(ACCOUNTS.MEMBER.memberId, { timeout: 20_000 });
+      .toContainText(ACCOUNTS.MEMBER.accountNo, { timeout: 20_000 });
   });
 
   // -------------------------------------------------------------------------

@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MEMBER_ID_PREFIX,
-  formatMemberId,
-  formatMemberSequenceNumber,
-  parseMemberSequence,
-  isStandardMemberId,
-  NEXT_MEMBER_ID_SQL,
-} from './member-id';
+  ACCOUNT_NO_PREFIX,
+  formatAccountNo,
+  formatAccountSequenceNumber,
+  parseAccountSequence,
+  isStandardAccountNo,
+  NEXT_ACCOUNT_NO_SQL,
+} from './account-no';
 
 describe('member id formatting', () => {
   it('pads to three digits', () => {
-    expect(formatMemberSequenceNumber(1)).toBe('001');
-    expect(formatMemberSequenceNumber(42)).toBe('042');
-    expect(formatMemberSequenceNumber(999)).toBe('999');
+    expect(formatAccountSequenceNumber(1)).toBe('001');
+    expect(formatAccountSequenceNumber(42)).toBe('042');
+    expect(formatAccountSequenceNumber(999)).toBe('999');
   });
 
   it('stops padding rather than truncating past 999', () => {
@@ -20,20 +20,20 @@ describe('member id formatting', () => {
     // widening it must not change any existing id, so 1000 has to grow, never
     // wrap — an id that collides with an existing member is unrecoverable once
     // it is printed on a passbook.
-    expect(formatMemberSequenceNumber(1000)).toBe('1000');
-    expect(formatMemberId(1000)).toBe('ACC-KH-331000');
+    expect(formatAccountSequenceNumber(1000)).toBe('1000');
+    expect(formatAccountNo(1000)).toBe('ACC-KH-331000');
   });
 
   it('builds ids on the documented prefix', () => {
-    expect(formatMemberId(1)).toBe(`${MEMBER_ID_PREFIX}001`);
-    expect(formatMemberId(7)).toBe('ACC-KH-33007');
+    expect(formatAccountNo(1)).toBe(`${ACCOUNT_NO_PREFIX}001`);
+    expect(formatAccountNo(7)).toBe('ACC-KH-33007');
   });
 });
 
-describe('parseMemberSequence', () => {
-  it('round-trips every id formatMemberId can produce', () => {
+describe('parseAccountSequence', () => {
+  it('round-trips every id formatAccountNo can produce', () => {
     for (const seq of [1, 9, 10, 99, 100, 999, 1000, 12345]) {
-      expect(parseMemberSequence(formatMemberId(seq))).toBe(seq);
+      expect(parseAccountSequence(formatAccountNo(seq))).toBe(seq);
     }
   });
 
@@ -50,7 +50,7 @@ describe('parseMemberSequence', () => {
       'ACC-KH-33001 ',    // trailing space
       'XACC-KH-33001',
     ]) {
-      expect(parseMemberSequence(bad as string | null | undefined)).toBeNull();
+      expect(parseAccountSequence(bad as string | null | undefined)).toBeNull();
     }
   });
 
@@ -58,32 +58,32 @@ describe('parseMemberSequence', () => {
     // Number.parseInt with an explicit radix. Without it, "008" would be a
     // classic source of an off-by-something that only shows up for members 8
     // and 9 of every hundred.
-    expect(parseMemberSequence('ACC-KH-33008')).toBe(8);
-    expect(parseMemberSequence('ACC-KH-33009')).toBe(9);
+    expect(parseAccountSequence('ACC-KH-33008')).toBe(8);
+    expect(parseAccountSequence('ACC-KH-33009')).toBe(9);
   });
 });
 
-describe('isStandardMemberId', () => {
-  it('agrees with parseMemberSequence on every input', () => {
+describe('isStandardAccountNo', () => {
+  it('agrees with parseAccountSequence on every input', () => {
     const inputs = [
       'ACC-KH-33001', 'ACC-KH-331000', 'ACC-KH-33', 'acc-kh-33001',
       '', null, undefined, 'LEGACY-7', 'ACC-KH-33abc',
     ];
     for (const input of inputs) {
-      expect(isStandardMemberId(input as string | null | undefined))
-        .toBe(parseMemberSequence(input as string | null | undefined) !== null);
+      expect(isStandardAccountNo(input as string | null | undefined))
+        .toBe(parseAccountSequence(input as string | null | undefined) !== null);
     }
   });
 });
 
-describe('NEXT_MEMBER_ID_SQL', () => {
+describe('NEXT_ACCOUNT_NO_SQL', () => {
   it('matches the same shape the TypeScript regex accepts', () => {
     // These two must stay in agreement: the SQL picks the next sequence and the
     // regex validates what comes back. If one is widened without the other, ids
     // are allocated that the application then refuses to parse.
-    expect(NEXT_MEMBER_ID_SQL).toContain('ACC-KH-33');
-    expect(NEXT_MEMBER_ID_SQL).toContain('+ 1 AS next_seq');
+    expect(NEXT_ACCOUNT_NO_SQL).toContain('ACC-KH-33');
+    expect(NEXT_ACCOUNT_NO_SQL).toContain('+ 1 AS next_seq');
     // COALESCE(..., 0) + 1 means an empty table yields 1, not null.
-    expect(NEXT_MEMBER_ID_SQL).toContain('COALESCE');
+    expect(NEXT_ACCOUNT_NO_SQL).toContain('COALESCE');
   });
 });

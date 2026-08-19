@@ -13,7 +13,7 @@ type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
 interface Member {
   id: string;
-  memberId: string;
+  accountNo: string;
   uid?: string;
   name: string;
   nameBn?: string;
@@ -50,7 +50,7 @@ export default function AdminMembersPage() {
             const normalized = member.status.toUpperCase();
             return {
               ...member,
-              memberId: member.memberId || member.uid || '',
+              accountNo: member.accountNo || member.uid || '',
               status: normalized === 'ACTIVE'
                 ? 'ACTIVE'
                 : normalized === 'PENDING'
@@ -96,7 +96,7 @@ export default function AdminMembersPage() {
       member.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       member.phone.includes(searchQuery) ||
       member.nidNumber.includes(searchQuery) ||
-      member.memberId.toLowerCase().includes(searchQuery.toLowerCase());
+      member.accountNo.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || member.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -177,7 +177,7 @@ export default function AdminMembersPage() {
                   <td className="px-4 py-3">
                     <Link href={`/${locale}/dashboard/${roleSegment}/members/${member.id}`} className="block hover:text-blue-600">
                       <div className="font-medium text-gray-900">{member.name}</div>
-                      <div className="text-xs text-gray-500 font-mono">{member.memberId || '-'}</div>
+                      <div className="text-xs text-gray-500 font-mono">{member.accountNo || '-'}</div>
                     </Link>
                   </td>
                   <td className="px-4 py-3 hidden sm:table-cell">

@@ -17,7 +17,7 @@ import { getStatusStyle, getStatusLabel } from '@/lib/status-styles';
 
 interface ProfileData {
   id: string;
-  memberId: string;
+  accountNo: string;
   nameEn: string;
   nameBn: string;
   email: string;
@@ -52,7 +52,7 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
     if (!profile) return null;
     return {
       id: profile.id,
-      memberId: profile.memberId || '',
+      accountNo: profile.accountNo || '',
       nameEn: profile.nameEn || '',
       nameBn: profile.nameBn || '',
       email: profile.email || '',
@@ -239,8 +239,8 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
                   <td className="py-2">{profileData.phone || '-'}</td>
                 </tr>
                 <tr className="border-b border-gray-100">
-                  <td className="py-2 text-gray-500">{locale === 'bn' ? 'সদস্য ID' : 'Member ID'}</td>
-                  <td className="py-2 font-mono text-xs">{profileData.memberId || '-'}</td>
+                  <td className="py-2 text-gray-500">{locale === 'bn' ? 'অ্যাকাউন্ট নং' : 'Account No'}</td>
+                  <td className="py-2 font-mono text-xs">{profileData.accountNo || '-'}</td>
                 </tr>
                 <tr className="border-b border-gray-100">
                   <td className="py-2 text-gray-500">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</td>

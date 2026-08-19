@@ -46,7 +46,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const loan = await prisma.loan.findUnique({
       where: { id },
       include: {
-        borrower: { select: { nameEn: true, memberId: true } },
+        borrower: { select: { nameEn: true, accountNo: true } },
       },
     });
     if (!loan) return NextResponse.json({ ok: false, error: 'Loan not found' }, { status: 404 });

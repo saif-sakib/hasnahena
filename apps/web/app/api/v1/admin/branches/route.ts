@@ -16,7 +16,7 @@ import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-e
  *
  * A note on the branch *code*: it is the human-readable prefix (`KH`), but
  * member IDs are **not** generated from it. They come from the hardcoded
- * `utils.MemberIDPrefix` ("ACC-KH-33") in the Go API, because that identifier is
+ * `utils.AccountNoPrefix` ("ACC-KH-33") in the Go API, because that identifier is
  * read aloud and written into paper passbooks and its format is fixed
  * (ADR-008). Adding a branch here does not change how member IDs are issued.
  */

@@ -95,20 +95,20 @@ func (r *UserRepository) nextDocumentNumber(ctx context.Context, tx pgx.Tx, seri
 	return utils.FormatDocumentNumber(series, year, counter), nil
 }
 
-func (r *UserRepository) generateNextMemberID(ctx context.Context, tx pgx.Tx) (string, error) {
-	if _, err := tx.Exec(ctx, utils.MemberIDAdvisoryLockQuery); err != nil {
+func (r *UserRepository) generateNextAccountNo(ctx context.Context, tx pgx.Tx) (string, error) {
+	if _, err := tx.Exec(ctx, utils.AccountNoAdvisoryLockQuery); err != nil {
 		return "", fmt.Errorf("failed to acquire member id lock: %w", err)
 	}
 
 	var nextSequence int64
-	if err := tx.QueryRow(ctx, utils.NextMemberIDQuery).Scan(&nextSequence); err != nil {
+	if err := tx.QueryRow(ctx, utils.NextAccountNoQuery).Scan(&nextSequence); err != nil {
 		return "", fmt.Errorf("failed to compute next member id: %w", err)
 	}
 	if nextSequence < 1 {
 		nextSequence = 1
 	}
 
-	return utils.FormatMemberID(nextSequence), nil
+	return utils.FormatAccountNo(nextSequence), nil
 }
 
 // A note on the Tx variants below, which matters more than it looks.
@@ -169,6 +169,26 @@ func (r *UserRepository) getSystemConfigBoolTx(ctx context.Context, tx pgx.Tx, k
 // caller's transaction. See getWithdrawalNoticePeriodMonths for what it means.
 func (r *UserRepository) getWithdrawalNoticePeriodMonthsTx(ctx context.Context, tx pgx.Tx) int {
 	return int(r.getSystemConfigNonNegativeInt64Tx(ctx, tx, "loan.noticePeriodMonths", 3))
+}
+
+// getWithdrawalNoticePeriodMonths is the same setting, read from the pool.
+//
+// Safe here and only here. ADR-017's deadlock is a *pool* read taken while the
+// caller is already holding a connection for an open transaction — the second
+// checkout waits for a connection the first will not release until it commits.
+// A read-only query that is not inside a transaction has no such partner, so it
+// may use the pool. Anything running inside `tx` must use the Tx reader above.
+func (r *UserRepository) getWithdrawalNoticePeriodMonths(ctx context.Context) int {
+	const fallback = 3
+	var raw string
+	if err := r.db.QueryRow(ctx, systemConfigQuery, "loan.noticePeriodMonths").Scan(&raw); err != nil {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return int(parsed)
 }
 
 // getMissedPaymentsForDefaultTx is the default threshold, read inside the

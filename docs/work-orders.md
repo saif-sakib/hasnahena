@@ -22,11 +22,13 @@ do later, the same principle as [go-live.md](go-live.md).
 | ~~**S**~~ | ~~Database — correctness, constraints, redundancy~~ | WO-68 → 72 | **Done 2026-08-19** |
 | ~~**T**~~ | ~~Performance~~ | WO-73 → 75 | **Done 2026-08-19** |
 | ~~**U**~~ | ~~Security~~ | WO-76 → 78 | **Done 2026-08-19** |
-| **V** | SEO | WO-79 → 81 | Cheap, independent, and blocked by nothing |
-| **W** | Future-proof | WO-82 → 84 | What makes the rest stay true without you watching |
+| ~~**V**~~ | ~~SEO~~ | WO-79 → 81 | **Done 2026-08-19** |
+| ~~**W**~~ | ~~Future-proof~~ | WO-82 → 84 | **Done 2026-08-19** |
 
-**Each order is independently executable and independently verifiable.** The
-remaining blocks can be done in any order.
+**Every block in this plan is closed.** What remains is in
+[production-readiness.md](production-readiness.md) and
+[go-live.md](go-live.md) — and one item in this file's last section that needs a
+credential rather than a session.
 
 ### Standing rules for every order
 
@@ -106,173 +108,52 @@ rather than specified by it:
 
 ---
 
-# Block V — SEO
+# Blocks V and W — closed 2026-08-19
 
-The foundation is in good shape: `sitemap.ts` and `robots.ts` exist, every one of
-the ten public pages has `generateMetadata`, and `lib/seo.ts` already emits
-canonical URLs and `en`/`bn` alternates. These three orders close what is missing.
+WO-79 → WO-84 are done. What they contained is one row in
+[changelog.md](changelog.md); what they *taught* is in [traps.md](traps.md).
+Five things are worth repeating here, because all five were found by the work
+rather than specified by it:
 
-## WO-79 · There is no structured data anywhere
+- **WO-73 broke the Docker image build, and no test noticed for a day.**
+  Prerendering moved the marketing pages' database reads from request time to
+  *build* time, and `apps/web/Dockerfile` builds with `DATABASE_URL` pointing at
+  a placeholder database that does not exist — deliberately, because
+  `prisma generate` parses the URL and never connects. Six of the eight pages had
+  no `try` of their own. The contract is now on the accessor
+  ([ADR-028](decisions.md)), and the `catch` sits *outside* `unstable_cache`,
+  because a cache stores resolved values and never rejections — catching inside
+  would pin every public page to its fallback copy for the whole revalidate hour
+  after one Neon blip.
 
-`grep -r "application/ld+json"` returns nothing. For a registered foundation with
-a physical address in Jessore, that is the largest single SEO gap: it is the
-difference between a text result and a rich result with the organisation's name,
-logo, address and contact point.
+- **A test can pass without ever reaching the thing it tests.** The first version
+  of `public-content-fallback.test.ts` went green with `findMany` called **zero**
+  times: called outside a Next server, `unstable_cache` throws
+  `Invariant: incrementalCache missing`, and the very `catch` under test
+  swallowed it. Assert that the mock was *used*, not only that the result was
+  right.
 
-**Do:** JSON-LD emitted from `lib/seo.ts`, built from the **`org.*` settings**
-rather than hardcoded — the admin already edits those, and hardcoding them
-creates exactly the two-sources-of-truth problem WO-67 exists to fix.
+- **`x-default` is not `defaultLocale`.** This project's default locale is `bn`,
+  because its members are Bengali. `x-default` answers the opposite question —
+  what to serve someone the site was *not* built for — and the answer there is
+  `/en`. Writing `defaultLocale` reads as the tidier version of the same line and
+  sends every unmatched reader in the world to a page they cannot read.
 
-| Schema | Page | Fields |
-|---|---|---|
-| `NGO` (extends `Organization`) | site-wide, in `[locale]/layout.tsx` | name, `alternateName` for the Bengali name, url, logo, `address` (PostalAddress), `contactPoint`, `sameAs` |
-| `FAQPage` | `/faq` | every question and answer already on the page |
-| `WebSite` | root | with `inLanguage` for both locales |
-| `BreadcrumbList` | every public page | via a helper, not hand-written per page |
+- **The reconciliation job found two live defects before it ever ran in
+  production.** `waterfallRecoveryTx` inserted its three recovery rows with **no
+  status**, so they took the column default of `PENDING` while the savings had
+  already been deducted in the same transaction — every status-filtered aggregate
+  under-counted a recovery that had happened. And it never reduced
+  `accounts."loanBalance"`, so a member whose savings were taken to settle a
+  default still saw the whole debt on their dashboard, permanently, because
+  nothing else recomputes that column. Neither failed any existing test. This is
+  the argument for OPS-07 in one paragraph.
 
-**Two things specific to this project.** Do **not** emit `FinancialService` or
-`BankOrCreditUnion` — the platform is an interest-free cooperative, and those
-types carry `feesAndCommissionsSpecification` and interest-rate properties that
-misrepresent it. `NGO` is the honest type. And keep the JSON-LD English-only for
-name and address unless the Bengali is genuinely the registered form; mixed-script
-structured data is more likely to be ignored than to help.
-
-**Prove it:** a unit test that renders the JSON-LD for each page type and
-validates it parses, has `@context` and `@type`, and — importantly — that every
-value it claims comes from settings actually resolves rather than emitting
-`undefined`.
-
-## WO-80 · Three correctness bugs in what is already there
-
-Small, and each is a real defect rather than an enhancement.
-
-**1. The default site origin is the wrong domain.**
-
-```ts
-process.env.NEXT_PUBLIC_SITE_URL?.trim()
-  || process.env.NEXT_PUBLIC_APP_URL?.trim()
-  || 'https://hasnahena.org'
-```
-
-The site is `hasnahenafoundation.com`. If both variables are ever unset — a
-preview deploy, a misconfigured environment — every canonical URL, every
-`hreflang`, the sitemap and `robots.txt` all point at a domain this project does
-not own. Fix the fallback, and make the build **fail loudly** in production when
-neither variable is set rather than falling back at all.
-
-**2. No `x-default` hreflang.** `getLanguageAlternates` emits `en` and `bn` and
-nothing else. Google uses `x-default` for users whose language matches neither.
-Point it at `/en`.
-
-**3. `sitemap.ts` sets `lastModified: new Date()`** — every URL claims to have
-changed today, on every crawl, forever. That is not merely useless, it actively
-devalues the signal. Use the `updatedAt` of the settings and gallery rows the
-page depends on, or drop `lastModified` entirely. Dropping it is better than
-lying.
-
-**Prove it:** unit tests on `lib/seo.ts` for the alternates map (must contain
-`x-default`) and on the sitemap (two consecutive calls must not produce two
-different `lastModified` values for unchanged content). Both seen red first.
-
-## WO-81 · Open Graph and the social card
-
-`logo-og.png` exists (1200×630 on white, per [ADR-011](decisions.md)) and is
-wired as the default. What is missing is per-page differentiation and the checks
-that keep it working.
-
-**Do:**
-
-1. Confirm `openGraph.images` and `twitter.card` resolve to absolute URLs on
-   every public page — a relative OG image is silently dropped by every social
-   client.
-2. `openGraph.locale` / `alternateLocale` from the locale, so a shared Bengali
-   page previews as Bengali.
-3. Consider `opengraph-image.tsx` for `/donate` and `/about` only. Not for all
-   ten — a generated image per page is a build cost for pages nobody shares.
-
-**Prove it:** extend the metadata test to assert every public page's OG image URL
-is absolute and its `alternates.canonical` matches the locale it was rendered for.
-
----
-
-# Block W — future-proof
-
-The three things that make everything above **stay** true without you watching.
-
-## WO-82 · The reconciliation job (OPS-07)
-
-**The strongest guard a ledger can have**, and the one control that would have
-caught LEDGER-01 the night it landed rather than in an audit months later: sum
-the transactions, compare to the account balances, alert on drift.
-
-A wrong balance looks exactly like a correct balance until someone adds it up.
-That is why this outranks every other item in this block, and why
-[go-live.md](go-live.md) promotes it into Stage 1.
-
-**Do:** a Go job on the existing scheduler — the same loop `wiring_test.go`
-already guards — that for every account asserts:
-
-- `savingsBalance` equals the sum of `CONFIRMED` deposits minus `CONFIRMED`
-  withdrawals. **Filter on status**: a `PENDING` withdrawal is a notice, not
-  money that moved ([ADR-016](decisions.md)).
-- `loanBalance` equals the sum of active loans' `remainingAmount`.
-- Each loan's `remainingAmount` equals principal minus `CONFIRMED` repayments.
-- Every `savingsAfter` snapshot equals the running total at that row — this is
-  the one that catches a lost update *retrospectively*, because the snapshots are
-  what a reprinted passbook is built from.
-- WO-72's pairs agree: no transaction whose `userId` differs from its account's
-  owner.
-
-On drift: an `audit_logs` row, a `slog` error, and a `/metrics` gauge the
-existing Monitor workflow can alert on. **It must never correct anything
-automatically** — an automated correction to a ledger is a second defect on top
-of the first.
-
-**Prove it:** an integration test that plants a deliberate drift with raw SQL and
-asserts the job reports it, plus one asserting a clean database reports nothing.
-
-## WO-83 · Make the wins from blocks S–V unable to regress
-
-Every block above is a one-time improvement that quietly decays. This order turns
-each into a build failure.
-
-**Four of these six were built by the orders themselves** — a guard written
-alongside the change it protects is the one that gets written. What is left is
-the last row and the audit that the rest still fail when reverted.
-
-| Gain | Guard | State |
-|---|---|---|
-| WO-68's indexes | the FK-coverage test from that order | `apps/web/test/unit/foreign-key-indexes.test.ts` |
-| WO-73's static pages | parse the build output; fail if a marketing route is dynamic | `apps/web/scripts/assert-static-routes.mjs`, run in CI after `pnpm build`. Reads `.next/prerender-manifest.json` rather than the printed table — the manifest is the machine-readable form of the same answer. Also fails if a **dashboard or auth** route becomes static |
-| WO-74's request rate | the Playwright request-count assertion | `apps/web/e2e/dashboard-traffic.spec.ts` |
-| WO-76's CSP | header assertion + zero console violations | `apps/web/test/unit/csp.test.ts` and `apps/web/e2e/csp.spec.ts` |
-| WO-79/80's SEO | metadata and JSON-LD tests | **still to write** — block V |
-| bundle size | record `First Load JS` per route; fail on a >10% regression | **still to write** |
-
-**Follow the repo's existing shape: enumerate, do not list.** A guard that checks
-a hardcoded set of routes goes stale the moment a route is added — derive the set
-from the filesystem the way `routes.contract.test.ts` does.
-
-**Prove it:** each guard seen red by reverting the improvement it protects.
-
-## WO-84 · The bus factor (OPS-01, OPS-06)
-
-Not code, and the reason this whole plan is worth less than it looks if it is
-skipped. **One person can currently deploy this**, and that person is also the one
-who would be unavailable in the scenario where it matters.
-
-**Do:** one runbook file covering, in the order someone panicking needs them:
-
-1. API down · database unreachable · bad deploy → rollback
-2. A disputed transaction: how to correct it, given the audit log is append-only
-3. A suspected credential leak: what to rotate, in which host, in what order
-   (`JWT_SECRET` in Vercel and Render **together**, or every session breaks)
-4. Restore from backup — pointing at `scripts/restore-check.sh`, which is a
-   procedure that executes rather than a document that rots
-5. Where every credential lives, and who can reach it
-
-Then **rehearse item 4 against a Neon branch** and record the date. A restore you
-have not performed is a rumour.
+- **A dispute is not a reversal.** Disputing a `CONFIRMED` posting flips it to
+  `DISPUTED` and moves no money, so a reconciliation that counted `CONFIRMED`
+  alone would raise drift on every open dispute — an alarm that is always firing.
+  [ADR-026](decisions.md) writes the refinement down beside ADR-016 rather than
+  quietly widening it.
 
 ---
 
@@ -287,3 +168,9 @@ code change anyone can make today:
   trigger.
 - **CI-09** — branch protection on `main`. Needs a paid plan on a private repo;
   `.githooks/pre-push` is the free stand-in and is active.
+- **WO-84's rehearsal.** [runbook.md](runbook.md) is written and every command in
+  it has been run, except one: the restore has never been performed against a
+  Neon branch with a real archive. That needs the Neon account and the
+  `BACKUP_PASSPHRASE` secret. A restore you have not performed is a rumour, so
+  the runbook says "Last rehearsed: **Never**" until somebody does it and dates
+  the line.

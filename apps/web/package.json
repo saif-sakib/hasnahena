@@ -13,7 +13,9 @@
     "postinstall": "prisma generate",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:routes": "vitest run --config vitest.routes.config.ts"
+    "test:routes": "vitest run --config vitest.routes.config.ts",
+    "test:bundle": "node scripts/assert-bundle-budget.mjs",
+    "test:bundle:update": "node scripts/assert-bundle-budget.mjs --update"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

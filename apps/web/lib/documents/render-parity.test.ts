@@ -104,7 +104,7 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
         amount: 125000,
         date: '2026-08-17T10:30:00.000Z',
         memberName: 'Rahima Khatun',
-        memberId: 'ACC-KH-33001',
+        accountNo: 'ACC-KH-33001',
         memberPhone: '01712345678',
         balanceAfter: 375000,
         processedBy: 'Abdul Karim',
@@ -116,7 +116,7 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
     () =>
       buildStatement({
         memberName: 'Rahima Khatun',
-        memberId: 'ACC-KH-33001',
+        accountNo: 'ACC-KH-33001',
         memberPhone: '01712345678',
         periodStart: '2026-07-01T00:00:00.000Z',
         periodEnd: '2026-07-31T00:00:00.000Z',
@@ -136,7 +136,7 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
       buildLoanAgreement({
         loanNumber: 'LOAN-2026-000007',
         memberName: 'Rahima Khatun',
-        memberId: 'ACC-KH-33001',
+        accountNo: 'ACC-KH-33001',
         memberPhone: '01712345678',
         memberAddress: 'Bhekutia, Sadar, Jashore',
         principalAmount: 50000,
@@ -153,7 +153,7 @@ const DOCUMENTS: Array<[string, () => DocumentModel]> = [
     () =>
       buildMembershipCertificate({
         memberName: 'Rahima Khatun',
-        memberId: 'ACC-KH-33001',
+        accountNo: 'ACC-KH-33001',
         memberSince: '2024-03-15T00:00:00.000Z',
         phone: '01712345678',
         address: 'Bhekutia, Sadar, Jashore',
@@ -217,7 +217,7 @@ describe('HTML escaping', () => {
       amount: 100,
       date: '2026-08-17T10:30:00.000Z',
       memberName: '<script>alert(1)</script>',
-      memberId: 'ACC & CO',
+      accountNo: 'ACC & CO',
       memberPhone: '01712345678',
       balanceAfter: 100,
       notes: '"quoted" & <bold>',

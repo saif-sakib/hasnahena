@@ -13,8 +13,9 @@ import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { StructuredData } from '@/components/seo/structured-data';
 
-import { getPublicGalleryItems, type PublicGalleryItem } from '@/lib/public-content';
+import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
 
 /**
@@ -64,18 +65,14 @@ export default async function HomePage({ params }: PageProps) {
   const tContact = await getTranslations({locale, namespace: 'contact'});
   const tDonation = await getTranslations({locale, namespace: 'donation'});
   
-  // Fetch gallery items from DB
-  let dbGalleryItems: PublicGalleryItem[] = [];
-  let settings: Record<string, string> = {};
-
-  try {
-      [dbGalleryItems, settings] = await Promise.all([
-        getPublicGalleryItems(6),
-        getPublicSettings(),
-      ]);
-  } catch (e) {
-      console.error("Failed to fetch data", e);
-  }
+  // Neither accessor rejects — each falls back to empty when the database is
+  // unreachable, which is what lets this page prerender in an image build that
+  // has no database. The `try` that used to be here said the same thing, in
+  // only two of the eight pages that needed it.
+  const [dbGalleryItems, settings] = await Promise.all([
+    getPublicGalleryItems(6),
+    getPublicSettings(),
+  ]);
 
   const galleryItems: GalleryItem[] = dbGalleryItems.map(item => ({
     id: item.id,
@@ -150,6 +147,7 @@ export default async function HomePage({ params }: PageProps) {
 
   return (
     <>
+      <StructuredData locale={normalizeLocale(locale)} path="/" settings={settings} />
       <Header settings={settings} />
       <main className="flex-1">
         {/* Hero Section */}

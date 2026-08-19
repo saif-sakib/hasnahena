@@ -21,7 +21,7 @@ const STAFF_SELECT = {
   phone: true,
   role: true,
   status: true,
-  memberId: true,
+  accountNo: true,
   createdAt: true,
   assignedBranch: { select: { id: true, name: true, code: true } },
 } as const;
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
 
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
-    const memberId = `STF-${Date.now().toString(36).toUpperCase()}`;
+    const accountNo = `STF-${Date.now().toString(36).toUpperCase()}`;
 
     const created = await prisma.user.create({
       data: {
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
         passwordHash,
         role: role === 'ADMIN' ? UserRole.ADMIN : UserRole.WORKER,
         status: UserStatus.ACTIVE,
-        memberId,
+        accountNo,
         nameEn: name.trim(),
         fatherName: name.trim(),
         motherName: name.trim(),

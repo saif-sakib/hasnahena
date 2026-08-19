@@ -87,7 +87,7 @@ const RECEIPT = {
   amount: 125000,
   date: '2026-08-17T10:30:00.000Z',
   memberName: 'Rahima Khatun',
-  memberId: 'ACC-KH-33001',
+  accountNo: 'ACC-KH-33001',
   memberPhone: '01712345678',
   balanceAfter: 375000,
   processedBy: 'Abdul Karim',
@@ -116,7 +116,7 @@ describe('buildReceipt', () => {
   it('carries the member, the operator and the reference', () => {
     const model = buildReceipt(RECEIPT);
     expect(fieldValue(model, 'Name')).toBe('Rahima Khatun');
-    expect(fieldValue(model, 'Member ID')).toBe('ACC-KH-33001');
+    expect(fieldValue(model, 'Account No')).toBe('ACC-KH-33001');
     expect(fieldValue(model, 'Processed by')).toBe('Abdul Karim');
     expect(model.refValue).toBe('DEP-2026-000123');
   });
@@ -148,7 +148,7 @@ describe('buildReceipt', () => {
 
 const STATEMENT = {
   memberName: 'Rahima Khatun',
-  memberId: 'ACC-KH-33001',
+  accountNo: 'ACC-KH-33001',
   memberPhone: '01712345678',
   periodStart: '2026-07-01T00:00:00.000Z',
   periodEnd: '2026-07-31T00:00:00.000Z',
@@ -243,7 +243,7 @@ describe('buildStatement', () => {
 const LOAN = {
   loanNumber: 'LOAN-2026-000007',
   memberName: 'Rahima Khatun',
-  memberId: 'ACC-KH-33001',
+  accountNo: 'ACC-KH-33001',
   memberPhone: '01712345678',
   memberAddress: 'Bhekutia, Sadar, Jashore',
   principalAmount: 50000,
@@ -317,7 +317,7 @@ describe('buildLoanAgreement', () => {
 
 const CERT = {
   memberName: 'Rahima Khatun',
-  memberId: 'ACC-KH-33001',
+  accountNo: 'ACC-KH-33001',
   memberSince: '2024-03-15T00:00:00.000Z',
   phone: '01712345678',
   address: 'Bhekutia, Sadar, Jashore',
@@ -327,7 +327,7 @@ describe('buildMembershipCertificate', () => {
   it('certifies the named member of the named organisation', () => {
     const certify = findBlock(buildMembershipCertificate(CERT), 'certify')!;
     expect(certify.name).toBe('Rahima Khatun');
-    expect(certify.subtitle).toBe('Member ID: ACC-KH-33001');
+    expect(certify.subtitle).toBe('Account No: ACC-KH-33001');
     expect(certify.body).toContain('Hasnahena Foundation');
     expect(certify.body).toContain('Qard al-Hasan');
   });
@@ -389,7 +389,7 @@ describe.each(ALL)('every document (%s)', (_name, build) => {
 /**
  * The statement used to print the member id twice: once as "Member ID" and
  * again as "Account No", because `accounts.accountNumber` held a copy of
- * `users.memberId`. The membership certificate did the same. The column is
+ * `users.accountNo`. The membership certificate did the same. The column is
  * gone, but the shape of the mistake is easy to reintroduce — anything that
  * derives a second "number" from the member id and gives it its own label.
  *
@@ -397,18 +397,18 @@ describe.each(ALL)('every document (%s)', (_name, build) => {
  * document calls the member, the member's id appears on it exactly once.
  */
 describe('a document identifies the member exactly once', () => {
-  const MEMBER_ID = 'ACC-KH-33001';
+  const ACCOUNT_NO = 'ACC-KH-33001';
 
   /** Every field value, plus the reference block, as a reader would see them. */
-  function occurrencesOfMemberId(model: DocumentModel): string[] {
+  function occurrencesOfAccountNo(model: DocumentModel): string[] {
     const labels: string[] = [];
-    if (model.refValue === MEMBER_ID) labels.push(model.refLabel);
+    if (model.refValue === ACCOUNT_NO) labels.push(model.refLabel);
     for (const block of model.blocks) {
       if (block.kind === 'fields') {
-        for (const f of block.fields) if (f.value === MEMBER_ID) labels.push(f.label);
+        for (const f of block.fields) if (f.value === ACCOUNT_NO) labels.push(f.label);
       }
       if (block.kind === 'tiles') {
-        for (const t of block.tiles) if (t.value === MEMBER_ID) labels.push(t.label);
+        for (const t of block.tiles) if (t.value === ACCOUNT_NO) labels.push(t.label);
       }
     }
     return labels;
@@ -421,14 +421,44 @@ describe('a document identifies the member exactly once', () => {
   // rows has no way to know they are the same number and reasonably concludes
   // one of them is something else they were never told about.
   it('the statement gives it a single name', () => {
-    const labels = occurrencesOfMemberId(buildStatement({ ...STATEMENT, memberId: MEMBER_ID }));
+    const labels = occurrencesOfAccountNo(buildStatement({ ...STATEMENT, accountNo: ACCOUNT_NO }));
     expect(labels.length).toBeGreaterThan(0);
-    expect([...new Set(labels)]).toEqual(['Member ID']);
+    expect([...new Set(labels)]).toEqual(['Account No']);
   });
 
   it('the membership certificate gives it a single name', () => {
-    const labels = occurrencesOfMemberId(buildMembershipCertificate({ ...CERT, memberId: MEMBER_ID }));
+    const labels = occurrencesOfAccountNo(buildMembershipCertificate({ ...CERT, accountNo: ACCOUNT_NO }));
     expect(labels.length).toBeGreaterThan(0);
-    expect([...new Set(labels)]).toEqual(['Member ID']);
+    expect([...new Set(labels)]).toEqual(['Account No']);
+  });
+
+  // ADR-029. The other two documents always used one name — but they used the
+  // *other* one, and that is exactly how the statement's pair came to exist. All
+  // four are pinned now, so "Member ID" cannot come back on the two that were
+  // never part of the original defect.
+  it('the receipt gives it a single name', () => {
+    const labels = occurrencesOfAccountNo(buildReceipt({ ...RECEIPT, accountNo: ACCOUNT_NO }));
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(labels)]).toEqual(['Account No']);
+  });
+
+  it('the loan agreement gives it a single name', () => {
+    const labels = occurrencesOfAccountNo(buildLoanAgreement({ ...LOAN, accountNo: ACCOUNT_NO }));
+    expect(labels.length).toBeGreaterThan(0);
+    expect([...new Set(labels)]).toEqual(['Account No']);
+  });
+
+  // The name itself, in one place, so a rename shows up here as a decision
+  // rather than as four quiet edits.
+  it('never calls it a member id', () => {
+    const documents = [
+      buildStatement({ ...STATEMENT, accountNo: ACCOUNT_NO }),
+      buildMembershipCertificate({ ...CERT, accountNo: ACCOUNT_NO }),
+      buildReceipt({ ...RECEIPT, accountNo: ACCOUNT_NO }),
+      buildLoanAgreement({ ...LOAN, accountNo: ACCOUNT_NO }),
+    ];
+    for (const model of documents) {
+      expect(JSON.stringify(model)).not.toMatch(/member\s*id/i);
+    }
   });
 });

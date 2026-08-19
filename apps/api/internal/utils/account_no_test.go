@@ -18,8 +18,8 @@ func TestFormatMemberID(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if got := FormatMemberID(tc.sequence); got != tc.want {
-			t.Errorf("FormatMemberID(%d) = %q, want %q", tc.sequence, got, tc.want)
+		if got := FormatAccountNo(tc.sequence); got != tc.want {
+			t.Errorf("FormatAccountNo(%d) = %q, want %q", tc.sequence, got, tc.want)
 		}
 	}
 }
@@ -28,10 +28,10 @@ func TestFormatMemberID(t *testing.T) {
 // up again.
 func TestMemberIDRoundTrip(t *testing.T) {
 	for _, sequence := range []int64{1, 2, 9, 10, 99, 100, 101, 999, 1000, 33001, 999999} {
-		memberID := FormatMemberID(sequence)
-		got, ok := ParseMemberSequence(memberID)
+		memberID := FormatAccountNo(sequence)
+		got, ok := ParseAccountSequence(memberID)
 		if !ok {
-			t.Errorf("ParseMemberSequence(%q) failed for sequence %d", memberID, sequence)
+			t.Errorf("ParseAccountSequence(%q) failed for sequence %d", memberID, sequence)
 			continue
 		}
 		if got != sequence {
@@ -56,17 +56,17 @@ func TestParseMemberSequenceRejectsMalformed(t *testing.T) {
 	}
 
 	for _, id := range bad {
-		if _, ok := ParseMemberSequence(id); ok {
-			t.Errorf("ParseMemberSequence(%q) accepted a malformed member ID", id)
+		if _, ok := ParseAccountSequence(id); ok {
+			t.Errorf("ParseAccountSequence(%q) accepted a malformed member ID", id)
 		}
 	}
 }
 
 func TestFormatMemberSequenceNumberPads(t *testing.T) {
-	if got := FormatMemberSequenceNumber(7); got != "007" {
-		t.Errorf("FormatMemberSequenceNumber(7) = %q, want %q", got, "007")
+	if got := FormatAccountSequenceNumber(7); got != "007" {
+		t.Errorf("FormatAccountSequenceNumber(7) = %q, want %q", got, "007")
 	}
-	if got := FormatMemberSequenceNumber(1234); got != "1234" {
-		t.Errorf("FormatMemberSequenceNumber(1234) = %q, want %q", got, "1234")
+	if got := FormatAccountSequenceNumber(1234); got != "1234" {
+		t.Errorf("FormatAccountSequenceNumber(1234) = %q, want %q", got, "1234")
 	}
 }

@@ -28,7 +28,7 @@ interface Deposit {
   processedDate: string;
   confirmedDate?: string | null;
   balanceAfter?: number | null;
-  member: { id: string; memberId?: string | null; name: string };
+  member: { id: string; accountNo?: string | null; name: string };
 }
 
 type DepositsResponse = { deposits: Deposit[] };
@@ -66,7 +66,7 @@ export default function AdminDepositsPage() {
         amount: d.amount,
         date: d.processedDate,
         memberName: d.member.name,
-        memberId: d.member.memberId || '',
+        accountNo: d.member.accountNo || '',
         memberPhone: '',
         balanceAfter: d.balanceAfter || 0,
         notes: d.notes || undefined,
@@ -96,7 +96,7 @@ export default function AdminDepositsPage() {
     const q = searchQuery.toLowerCase();
     const matchesSearch =
       d.member.name.toLowerCase().includes(q) ||
-      (d.member.memberId ?? '').toLowerCase().includes(q) ||
+      (d.member.accountNo ?? '').toLowerCase().includes(q) ||
       (d.processedBy ?? '').toLowerCase().includes(q) ||
       (d.receiptNumber ?? '').toLowerCase().includes(q) ||
       d.id.toLowerCase().includes(q);
@@ -182,7 +182,7 @@ export default function AdminDepositsPage() {
               <tr key={d.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-3">
                   <div className="font-medium text-gray-900">{d.member.name}</div>
-                  {d.member.memberId && <div className="text-xs text-gray-500">{d.member.memberId}</div>}
+                  {d.member.accountNo && <div className="text-xs text-gray-500">{d.member.accountNo}</div>}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 text-xs rounded ${d.type === 'DEPOSIT' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>

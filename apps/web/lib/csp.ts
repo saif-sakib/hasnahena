@@ -45,13 +45,24 @@
  *
  * The residual risk of the second tier, stated plainly: an inline XSS on a
  * marketing page would execute, and the session token lives in `localStorage` on
- * this origin. What holds that risk down is that these pages have no XSS sink —
- * there is no `dangerouslySetInnerHTML`, no `innerHTML` and no `eval` anywhere
- * in `app/`, `components/` or `lib/`, so every admin-controlled string they
- * render goes through React's escaping. `connect-src` and `img-src` then deny
- * the usual exfiltration paths even if one appeared. This is a real tradeoff
- * rather than a free win, and it is the reason it is written down here instead
- * of in a commit message.
+ * this origin. What holds that risk down is that these pages have almost no XSS
+ * sink — there is no `innerHTML` and no `eval` anywhere in `app/`, `components/`
+ * or `lib/`, so every admin-controlled string they render goes through React's
+ * escaping. `connect-src` and `img-src` then deny the usual exfiltration paths
+ * even if one appeared. This is a real tradeoff rather than a free win, and it
+ * is the reason it is written down here instead of in a commit message.
+ *
+ * **"Almost" is WO-79.** Structured data has to be written with
+ * `dangerouslySetInnerHTML`: React HTML-escapes a text child, entities are not
+ * decoded inside a `<script>` element, and the JSON arrives at the crawler
+ * unparseable — Next's own JSON-LD guide specifies the attribute for exactly
+ * this reason. So there is now one sink, in
+ * `components/seo/structured-data.tsx`. It takes an object rather than a string,
+ * builds the graph itself, and serialises through a function that escapes `<`,
+ * so an admin who types `</script>` into the organisation name produces inert
+ * text. `csp.test.ts` counts the occurrences across all three directories and
+ * fails on a second one — the claim in this comment is a test rather than a
+ * comment.
  */
 
 /** Routes whose CSP carries a nonce. They must be dynamically rendered. */

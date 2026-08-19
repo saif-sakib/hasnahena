@@ -161,17 +161,17 @@ var routeContract = map[string]access{
 
 	// Field-worker surface. Admins are included: an admin covering a round
 	// needs the same screens.
-	"GET /v1/dashboard/worker":                                  staff,
-	"GET /v1/dashboard/worker/members":                          staff,
-	"GET /v1/dashboard/worker/members/{memberId}":               staff,
-	"POST /v1/dashboard/worker/members/{memberId}/deposit":      staff,
-	"POST /v1/dashboard/worker/members/{memberId}/withdrawal":   staff,
-	"POST /v1/dashboard/worker/members/{memberId}/loan":         staff,
-	"POST /v1/dashboard/worker/members/{memberId}/loan-payment": staff,
-	"GET /v1/dashboard/worker/requests":                         staff,
-	"GET /v1/dashboard/worker/loans":                            staff,
-	"GET /v1/dashboard/worker/transactions":                     staff,
-	"GET /v1/dashboard/worker/profile":                          staff,
+	"GET /v1/dashboard/worker":                                      staff,
+	"GET /v1/dashboard/worker/members":                              staff,
+	"GET /v1/dashboard/worker/members/{memberUserId}":               staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/deposit":      staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/withdrawal":   staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/loan":         staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/loan-payment": staff,
+	"GET /v1/dashboard/worker/requests":                             staff,
+	"GET /v1/dashboard/worker/loans":                                staff,
+	"GET /v1/dashboard/worker/transactions":                         staff,
+	"GET /v1/dashboard/worker/profile":                              staff,
 	// UpdateProfile only ever edits the caller's own row, so it asks for a
 	// session rather than a role — which left this PUT open to a MEMBER while
 	// the GET beside it was staff-only. Not an escalation, but a route whose
@@ -288,8 +288,8 @@ func seedRoleUser(t *testing.T, role string) string {
 	id := fmt.Sprintf("goroute-%s", strings.ToLower(role))
 	// Every unique column is namespaced to this suite. The Next contract suite
 	// seeds its own role users in the same database and both originally used
-	// `RT-<role>` as the memberId, so whichever ran second failed on
-	// users_memberId_key — a collision that only appears when the suites run in
+	// `RT-<role>` as the account number, so whichever ran second failed on
+	// users_accountNo_key — a collision that only appears when the suites run in
 	// the same session, which is exactly when CI runs them.
 	//
 	// DO UPDATE, not DO NOTHING: the repositories suite truncates `users`
@@ -297,7 +297,7 @@ func seedRoleUser(t *testing.T, role string) string {
 	// row that survived may have been left INACTIVE.
 	_, err := testPool.Exec(context.Background(), `
 		INSERT INTO users (id, phone, email, "passwordHash", role, status,
-		                   "memberId", "nameEn", "fatherName", "motherName",
+		                   "accountNo", "nameEn", "fatherName", "motherName",
 		                   "createdAt", "updatedAt")
 		VALUES ($1, $2, $3, 'x', $4::"UserRole", 'ACTIVE',
 		        $5, 'Route Test', 'F', 'M', NOW(), NOW())
@@ -359,7 +359,7 @@ func tokenFor(t *testing.T, role string) string {
 // concreteURL fills in path parameters. Which value hardly matters for an
 // authorization test — what matters is that the router matches the route.
 func concreteURL(pattern string) string {
-	url := strings.ReplaceAll(pattern, "{memberId}", "GORT-MEMBER")
+	url := strings.ReplaceAll(pattern, "{memberUserId}", "GORT-MEMBER")
 	// The SSE stream blocks until the client disconnects. Omitting threadId
 	// makes it answer 400 immediately, which is still "not 401 and not 403" —
 	// the only thing this test asks of it.

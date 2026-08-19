@@ -21,7 +21,7 @@
 
 | Model → table | Holds | Key relations |
 |---|---|---|
-| `User` → `users` | identity, bilingual name, NID, role, status, `memberId` (`ACC-KH-33001`…), avatar, approval trail | self-relation `approvedBy`; 1-1 nominee, permanent/present address |
+| `User` → `users` | identity, bilingual name, NID, role, status, `accountNo` (`ACC-KH-33001`…), avatar, approval trail | self-relation `approvedBy`; 1-1 nominee, permanent/present address |
 | `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User`. **Both foreign keys live here**, on `userPermanentId` and `userPresentId`, and both cascade — the present one used to point the other way, from `users`, which meant deleting a user orphaned it ([WO-72](work-orders.md)) |
 | `Nominee` → `nominees` | name, relationship, NID, phone, photo | 1-1 `User`, cascade delete |
 | `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | many-1 `User`, cascade |

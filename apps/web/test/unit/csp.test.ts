@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 
 import { buildCsp, isSessionRoute } from '@/lib/csp';
 
@@ -217,5 +219,73 @@ describe('which routes get which policy', () => {
     ['/en/about/dashboard', false],
   ])('%s → session policy: %s', (pathname, expected) => {
     expect(isSessionRoute(pathname)).toBe(expected);
+  });
+});
+
+
+describe('the XSS-sink census ADR-024 depends on', () => {
+  /**
+   * The content tier of the CSP keeps `'unsafe-inline'` in `script-src`, because
+   * a prerendered page has no nonce. `lib/csp.ts` states the residual risk and
+   * then states what holds it down: these pages render every admin-controlled
+   * string through React's escaping, so there is nowhere for injected markup to
+   * land.
+   *
+   * WO-79 added the first exception. JSON-LD cannot be written as a text child —
+   * React HTML-escapes it and entities are not decoded inside a `<script>`, so
+   * the payload arrives unparseable — and Next's own guide specifies
+   * `dangerouslySetInnerHTML` with `<` escaped. One sink now exists.
+   *
+   * A sentence in a comment claiming "there is only one" decays the first time
+   * somebody adds a second. This counts them.
+   */
+  const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
+
+  /** The one file allowed to hold it, and the escape that makes it safe. */
+  const SANCTIONED = 'components/seo/structured-data.tsx';
+
+  function sourceFiles(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry === '.next') continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
+      }
+    };
+    for (const root of ['app', 'components', 'lib']) walk(join(WEB_ROOT, root));
+    return out;
+  }
+
+  const filesContaining = (needle: string) =>
+    sourceFiles()
+      .filter((file) => readFileSync(file, 'utf8').includes(needle))
+      .map((file) => relative(WEB_ROOT, file))
+      .sort();
+
+  it('has exactly one dangerouslySetInnerHTML, and it is the JSON-LD one', () => {
+    // The JSX attribute, not the word — lib/csp.ts names it in prose, and a
+    // census that counted mentions would be a census of its own documentation.
+    expect(
+      filesContaining('dangerouslySetInnerHTML={'),
+      'ADR-024 lets the marketing pages keep `unsafe-inline` in script-src on ' +
+        'the grounds that they contain no XSS sink. Every entry beyond the ' +
+        'sanctioned one weakens that argument. Either remove it, or re-argue ' +
+        'ADR-024 and update this list deliberately.',
+    ).toEqual([SANCTIONED]);
+  });
+
+  it('has no innerHTML and no eval anywhere', () => {
+    expect(filesContaining('.innerHTML')).toEqual([]);
+    expect(filesContaining('eval(')).toEqual([]);
+  });
+
+  it('escapes `<` in the one place that serialises to HTML', () => {
+    // Without this, an admin who types `</script>` into the organisation name
+    // closes the element and everything after it is markup the browser runs.
+    const serializer = readFileSync(join(WEB_ROOT, 'lib/structured-data.ts'), 'utf8');
+    expect(serializer).toContain("replace(");
+    expect(serializer).toContain('u003c');
   });
 });

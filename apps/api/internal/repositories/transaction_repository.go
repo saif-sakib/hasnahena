@@ -25,7 +25,7 @@ import (
 //
 // The pool is found by its owner rather than by an account number, because
 // there is no longer an account number: `accounts.accountNumber` was always a
-// copy of the owner's memberId and was removed (ADR-023). This id is set
+// copy of the owner's accountNo and was removed (ADR-023). This id is set
 // explicitly by `pnpm db:seed`, and `accounts.userId` is unique, so the lookup
 // below names exactly one row — which matters, because it takes FOR UPDATE on a
 // money path.
@@ -50,6 +50,30 @@ var (
 	// member request behind it is not a withdrawal — it is a transfer nobody
 	// asked for.
 	ErrNoWithdrawalNotice = errors.New("no matured withdrawal notice for this member")
+)
+
+// Why the reasons a withdrawal is refused are sentinels rather than strings.
+//
+// Every one of these is an ordinary, expected answer — the member has not given
+// notice, the notice is not due yet, they guarantee somebody else's loan. The
+// handler has to tell them apart to answer with the right status and the right
+// sentence, and it used to do that with `strings.Contains(err.Error(), …)`.
+//
+// That failed twice at once. `"is guarantor for active loan"` also contains
+// `"active loan"`, and the active-loan branch was tested first, so a guarantor
+// was told they had a loan of their own. And the two FR-08 errors above matched
+// no branch at all, so the single most common refusal — no notice on file — fell
+// through to `500 Failed to process withdrawal`, which is how "admin member
+// withdrawal is not working" was reported.
+//
+// The message text is deliberately unchanged from the strings it replaces, so
+// any caller still matching on a substring keeps working while it is migrated.
+var (
+	ErrMemberNotFound             = errors.New("member not found")
+	ErrMemberNotActive            = errors.New("member not active")
+	ErrInsufficientBalance        = errors.New("insufficient balance")
+	ErrActiveLoanBlocksWithdrawal = errors.New("member has an active loan")
+	ErrGuarantorBlocksWithdrawal  = errors.New("member is guarantor for an active loan")
 )
 
 // noticeMaturityDate is when a notice given at createdAt becomes payable.
@@ -365,22 +389,22 @@ func (r *UserRepository) CreateMemberWithdrawalNotice(ctx context.Context, membe
 		WHERE u.id = $1 AND u.role = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&memberStatus, &accountID, &memberName, &currentBalance, &activeLoan, &isGuarantor, &pendingNotices); err != nil {
-		return nil, errors.New("member not found")
+		return nil, ErrMemberNotFound
 	}
 	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
-		return nil, errors.New("member not active")
+		return nil, ErrMemberNotActive
 	}
 	// Outstanding notices count against the balance. Without this a member
 	// could give three separate notices for their whole balance and, once all
 	// three matured, present them one after another.
 	if amount+pendingNotices > currentBalance {
-		return nil, errors.New("insufficient balance")
+		return nil, ErrInsufficientBalance
 	}
 	if activeLoan > 0 && !r.getSystemConfigBoolTx(ctx, tx, "loan.allowActiveLoanWithdrawal", false) {
-		return nil, errors.New("has active loan")
+		return nil, ErrActiveLoanBlocksWithdrawal
 	}
 	if isGuarantor {
-		return nil, errors.New("is guarantor for active loan")
+		return nil, ErrGuarantorBlocksWithdrawal
 	}
 
 	description := strings.TrimSpace(notes)
@@ -584,7 +608,7 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			COALESCE(u.id, ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(processor."nameEn", '') as processor_name
 		FROM transactions t
 		JOIN users u ON  u.id = t."userId"
@@ -608,7 +632,7 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			AND (
 				u."nameEn" ILIKE $%d
 				OR COALESCE(u."nameBn", '') ILIKE $%d
-				OR u."memberId" ILIKE $%d
+				OR u."accountNo" ILIKE $%d
 				OR COALESCE(processor."nameEn", '') ILIKE $%d
 				OR COALESCE(t."receiptNumber", '') ILIKE $%d
 				OR t.id::text ILIKE $%d
@@ -645,11 +669,11 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 
 	deposits := []map[string]interface{}{}
 	for rows.Next() {
-		var id, txType, txStatus, receipt, description, memberUserID, memberName, memberNameBn, memberId, processorName string
+		var id, txType, txStatus, receipt, description, memberUserID, memberName, memberNameBn, accountNo, processorName string
 		var amount, balanceAfter int64
 		var createdAt, processedAt time.Time
 		var confirmedAt *time.Time
-		if err := rows.Scan(&id, &txType, &amount, &txStatus, &receipt, &description, &createdAt, &processedAt, &confirmedAt, &balanceAfter, &memberUserID, &memberName, &memberNameBn, &memberId, &processorName); err != nil {
+		if err := rows.Scan(&id, &txType, &amount, &txStatus, &receipt, &description, &createdAt, &processedAt, &confirmedAt, &balanceAfter, &memberUserID, &memberName, &memberNameBn, &accountNo, &processorName); err != nil {
 			continue
 		}
 		item := map[string]interface{}{
@@ -663,8 +687,8 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			"processedDate": processedAt.Format(time.RFC3339),
 			"balanceAfter":  balanceAfter,
 			"member": map[string]interface{}{
-				"id":       memberUserID,
-				"memberId": memberId,
+				"id":        memberUserID,
+				"accountNo": accountNo,
 				"name": func() string {
 					if memberNameBn != "" {
 						return memberNameBn
@@ -736,7 +760,7 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 			t."createdAt",
 			COALESCE(u."nameEn", '') as donor_name,
 			COALESCE(u."nameBn", '') as donor_name_bn,
-			COALESCE(u."memberId", '') as donor_id
+			COALESCE(u."accountNo", '') as donor_id
 		FROM transactions t
 		LEFT JOIN users u ON u.id = t."userId"
 		WHERE t.type = 'DONATION'
@@ -1077,19 +1101,19 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		WHERE u.id = $1 AND u.role = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan, &isGuarantor); err != nil {
-		return "", errors.New("member not found")
+		return "", ErrMemberNotFound
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
-		return "", errors.New("member not active")
+		return "", ErrMemberNotActive
 	}
 	if amount > currentBalance {
-		return "", errors.New("insufficient balance")
+		return "", fmt.Errorf("%w: balance is %d BDT", ErrInsufficientBalance, currentBalance)
 	}
 	if activeLoan > 0 && !r.getSystemConfigBoolTx(ctx, tx, "loan.allowActiveLoanWithdrawal", false) {
-		return "", errors.New("has active loan")
+		return "", ErrActiveLoanBlocksWithdrawal
 	}
 	if isGuarantor {
-		return "", errors.New("is guarantor for active loan")
+		return "", ErrGuarantorBlocksWithdrawal
 	}
 
 	// FR-08 — the payout gate.
@@ -1126,7 +1150,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		RETURNING "savingsBalance"::bigint
 	`, amount, accountID).Scan(&newBalance)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", errors.New("insufficient balance")
+		return "", ErrInsufficientBalance
 	}
 	if err != nil {
 		return "", err

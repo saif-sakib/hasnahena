@@ -133,7 +133,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
 
   it('creates the member, stores four documents, and tells the admins', async () => {
     const res = await registrations.POST(submission());
-    const body = (await res.json()) as { ok: boolean; user?: { id: string; memberId: string } };
+    const body = (await res.json()) as { ok: boolean; user?: { id: string; accountNo: string } };
 
     expect(res.status, JSON.stringify(body)).toBe(201);
     expect(body.ok).toBe(true);
@@ -143,7 +143,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
       include: { documents: true, nominee: true, account: true },
     });
     expect(user?.status).toBe('PENDING');
-    expect(user?.memberId).toBeTruthy();
+    expect(user?.accountNo).toBeTruthy();
     expect(user?.documents.map((d) => d.type).sort()).toEqual([
       'member_photo',
       'member_signature',

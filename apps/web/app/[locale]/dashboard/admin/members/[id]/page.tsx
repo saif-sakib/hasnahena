@@ -75,7 +75,7 @@ import {
 
 interface MemberDetails {
   id: string;
-  memberId: string;
+  accountNo: string;
   uid?: string;
   name: string;
   phone: string;
@@ -89,12 +89,30 @@ interface MemberDetails {
   totalDeposited: number;
   totalWithdrawn: number;
   isGuarantorForActiveLoan: boolean;
+  /**
+   * FR-08. The notices this member has given and not yet been paid against,
+   * with the date each becomes payable. A withdrawal *settles* one of these; it
+   * never originates one (rule 4), so without them this screen was asking the
+   * admin to guess.
+   */
+  withdrawalNotices?: WithdrawalNotice[];
+  noticePeriodMonths?: number;
   loanEligibility: {
     eligible: boolean;
     maxLoanAmount: number;
     reason?: string;
   };
   documents?: MemberDocument[];
+}
+
+interface WithdrawalNotice {
+  id: string;
+  amount: number;
+  status: string;
+  givenAt: string;
+  /** Computed by the API, because `noticeMaturityDate` lives there. */
+  eligibleFrom: string;
+  matured: boolean;
 }
 
 interface MemberDocument {
@@ -135,9 +153,9 @@ export default function MemberDetailPage() {
   const locale = useLocale();
   const router = useRouter();
   const params = useParams();
-  const memberId = params.id as string;
+  const memberUserId = params.id as string;
 
-  // WO-27 — SWR, not an effect. `memberId` is read from the route, so the key
+  // WO-27 — SWR, not an effect. `memberUserId` is read from the route, so the key
   // is null until it exists: that is how "not yet" is expressed to a hook that
   // cannot be called conditionally.
   const {
@@ -149,7 +167,7 @@ export default function MemberDetailPage() {
     member: MemberDetails;
     transactions: Transaction[];
     loans: Loan[];
-  }>(memberId ? `/v1/dashboard/worker/members/${memberId}` : null);
+  }>(memberUserId ? `/v1/dashboard/worker/members/${memberUserId}` : null);
 
   // Carries the token: `loan.allowActiveLoanWithdrawal` and
   // `loan.maxInstallmentMonths` are not in the anonymous tier (WO-77).
@@ -171,6 +189,22 @@ export default function MemberDetailPage() {
     const parsed = Number(settings?.['loan.maxInstallmentMonths']);
     return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 24;
   }, [settings]);
+
+  // FR-08. `matured` is decided by the API, which owns `noticeMaturityDate` —
+  // three months from 31 January is 1 May, and a second implementation of that
+  // rule in the browser would eventually disagree with the one that pays out.
+  const withdrawalNotices = useMemo<WithdrawalNotice[]>(
+    () => member?.withdrawalNotices ?? [],
+    [member],
+  );
+  const maturedNotices = useMemo(
+    () => withdrawalNotices.filter((notice) => notice.matured),
+    [withdrawalNotices],
+  );
+  const largestMaturedNotice = useMemo(
+    () => maturedNotices.reduce((max, notice) => Math.max(max, notice.amount), 0),
+    [maturedNotices],
+  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -195,26 +229,38 @@ export default function MemberDetailPage() {
   const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
   const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
 
+  /**
+   * Whole taka, or nothing (rule 1).
+   *
+   * This used to `Math.round`, so an admin typing 1500.75 posted 1501 and was
+   * told it succeeded. Silently changing an amount somebody typed is the one
+   * thing a money form must not do — and the inputs invited it, being
+   * `step="0.01"`. They are `step="1"` now, and this refuses the rest.
+   */
   const parseAmount = (value: string): number | null => {
-    const parsed = Number.parseFloat(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return null;
-    }
-    return Math.round(parsed);
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
   };
+
+  const invalidAmountMessage =
+    locale === 'bn'
+      ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
+      : 'Enter a whole-taka amount, with no paisa';
 
 
   const handleDeposit = async () => {
     const amountVal = parseAmount(depositAmount);
     if (!amountVal) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      setActionError(invalidAmountMessage);
       return;
     }
 
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost(`/v1/dashboard/worker/members/${memberId}/deposit`, {
+      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/deposit`, {
         amount: amountVal,
         notes: depositNotes,
       });
@@ -233,7 +279,7 @@ export default function MemberDetailPage() {
   const handleWithdrawal = async () => {
     const amountVal = parseAmount(withdrawalAmount);
     if (!amountVal) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      setActionError(invalidAmountMessage);
       return;
     }
 
@@ -242,10 +288,23 @@ export default function MemberDetailPage() {
       return;
     }
 
+    // FR-08 again, client-side. The API refuses this with a 409 and says why,
+    // and that is the answer that counts — but making the admin submit a form to
+    // be told a fact the page already knows is how a working screen reads as a
+    // broken one.
+    if (!maturedNotices.some((notice) => notice.amount >= amountVal)) {
+      setActionError(
+        locale === 'bn'
+          ? 'এই পরিমাণের জন্য কোনো পরিপক্ব উত্তোলন নোটিশ নেই। সদস্য নিজে নোটিশ দেবেন, তারপর তা পরিশোধ করা যাবে।'
+          : 'No matured withdrawal notice covers that amount. The member gives notice from their own dashboard; this screen settles it.',
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost(`/v1/dashboard/worker/members/${memberId}/withdrawal`, {
+      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/withdrawal`, {
         amount: amountVal,
         notes: withdrawalNotes,
       });
@@ -265,7 +324,7 @@ export default function MemberDetailPage() {
     const amountVal = parseAmount(loanAmount);
     const requestedInstallments = Number.parseInt(loanInstallments, 10);
     if (!amountVal) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      setActionError(invalidAmountMessage);
       return;
     }
 
@@ -291,7 +350,7 @@ export default function MemberDetailPage() {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost(`/v1/dashboard/worker/members/${memberId}/loan`, {
+      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/loan`, {
         amount: amountVal,
         purpose: loanPurpose,
         installments: requestedInstallments,
@@ -315,7 +374,7 @@ export default function MemberDetailPage() {
 
     const amountVal = parseAmount(loanPaymentAmount);
     if (!amountVal) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
+      setActionError(invalidAmountMessage);
       return;
     }
 
@@ -331,7 +390,7 @@ export default function MemberDetailPage() {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      await apiPost(`/v1/dashboard/worker/members/${memberId}/loan-payment`, {
+      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/loan-payment`, {
         loanId: selectedLoanForPayment.id,
         amount: amountVal,
         notes: loanPaymentNotes,
@@ -369,7 +428,7 @@ export default function MemberDetailPage() {
       amount: tx.amount,
       date: tx.createdAt,
       memberName: member.name,
-      memberId: member.memberId || member.uid || 'N/A',
+      accountNo: member.accountNo || member.uid || 'N/A',
       memberPhone: member.phone,
       balanceAfter: tx.balanceAfter,
       notes: tx.notes,
@@ -386,7 +445,7 @@ export default function MemberDetailPage() {
     const loanData: LoanDocumentData = {
       loanNumber: loan.loanNumber,
       memberName: member.name,
-      memberId: member.memberId || member.uid || 'N/A',
+      accountNo: member.accountNo || member.uid || 'N/A',
       memberPhone: member.phone,
       memberAddress: member.address,
       principalAmount: loan.principalAmount,
@@ -405,7 +464,7 @@ export default function MemberDetailPage() {
     
     const statementData: StatementData = {
       memberName: member.name,
-      memberId: member.memberId || member.uid || 'N/A',
+      accountNo: member.accountNo || member.uid || 'N/A',
       memberPhone: member.phone,
       periodStart: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString(),
       periodEnd: new Date().toISOString(),
@@ -593,7 +652,7 @@ export default function MemberDetailPage() {
             <div className="flex items-center gap-4 text-muted-foreground mt-1">
               <span className="flex items-center gap-1">
                 <Hash className="h-4 w-4" />
-                <span className="font-mono">{member.memberId || member.uid || '-'}</span>
+                <span className="font-mono">{member.accountNo || member.uid || '-'}</span>
               </span>
               <span className="flex items-center gap-1">
                 <Phone className="h-4 w-4" />
@@ -1075,8 +1134,9 @@ export default function MemberDetailPage() {
               <Input
                 type="number"
                 min="1"
-                step="0.01"
-                placeholder="0.00"
+                step="1"
+                inputMode="numeric"
+                placeholder="0"
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
               />
@@ -1107,9 +1167,17 @@ export default function MemberDetailPage() {
           <DialogHeader>
             <DialogTitle>{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</DialogTitle>
             <DialogDescription>
-              {locale === 'bn' 
-                ? `${member.name} এর জন্য উত্তোলন করুন। সর্বোচ্চ: ${formatCurrency(member.currentDeposit, locale)}`
-                : `Process withdrawal for ${member.name}. Max: ${formatCurrency(member.currentDeposit, locale)}`}
+              {/*
+                FR-08. This used to read only "Max: <balance>", which described
+                the wrong constraint: the balance is a ceiling, but what makes a
+                withdrawal payable at all is a matured notice. An admin who read
+                the old line had every reason to think the amount was the only
+                question, and the refusal that followed named no notice, no date
+                and no next step.
+              */}
+              {locale === 'bn'
+                ? `${member.name} এর পরিপক্ব নোটিশ পরিশোধ করুন। স্থিতি: ${formatCurrency(member.currentDeposit, locale)}`
+                : `Settle a matured notice for ${member.name}. Balance: ${formatCurrency(member.currentDeposit, locale)}`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1118,14 +1186,64 @@ export default function MemberDetailPage() {
                 {actionError}
               </div>
             )}
+
+            {/* What the member has actually asked for, and when each becomes payable. */}
+            {withdrawalNotices.length === 0 ? (
+              <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                {locale === 'bn'
+                  ? `এই সদস্যের কোনো উত্তোলন নোটিশ নেই। সদস্য নিজের ড্যাশবোর্ড থেকে নোটিশ দেবেন, এবং ${member.noticePeriodMonths ?? 3} মাস পর তা পরিশোধযোগ্য হবে। কর্মী নিজে উত্তোলন শুরু করতে পারেন না।`
+                  : `This member has no withdrawal notice. A member gives notice from their own dashboard, and it becomes payable ${member.noticePeriodMonths ?? 3} months later. Staff never start a withdrawal.`}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>{locale === 'bn' ? 'উত্তোলন নোটিশ' : 'Withdrawal notices'}</Label>
+                <ul className="space-y-1">
+                  {withdrawalNotices.map((notice) => (
+                    <li
+                      key={notice.id}
+                      className={`flex items-center justify-between gap-3 rounded-sm border p-2 text-sm ${
+                        notice.matured
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-slate-200 bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      <span className="font-medium">{formatCurrency(notice.amount, locale)}</span>
+                      <span className="text-xs">
+                        {notice.matured
+                          ? locale === 'bn'
+                            ? 'পরিশোধযোগ্য'
+                            : 'Payable now'
+                          : locale === 'bn'
+                            ? `${formatDate(notice.eligibleFrom)} থেকে`
+                            : `From ${formatDate(notice.eligibleFrom)}`}
+                      </span>
+                      {notice.matured && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setWithdrawalAmount(String(notice.amount))}
+                        >
+                          {locale === 'bn' ? 'ব্যবহার করুন' : 'Use'}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
               <Input
                 type="number"
                 min="1"
-                max={member.currentDeposit}
-                step="0.01"
-                placeholder="0.00"
+                // Whole taka (rule 1). `step="0.01"` invited paisa that
+                // parseAmount then silently rounded away.
+                step="1"
+                inputMode="numeric"
+                max={Math.min(member.currentDeposit, largestMaturedNotice || member.currentDeposit)}
+                placeholder="0"
                 value={withdrawalAmount}
                 onChange={(e) => setWithdrawalAmount(e.target.value)}
               />
@@ -1143,7 +1261,12 @@ export default function MemberDetailPage() {
             <Button variant="outline" onClick={() => setShowWithdrawalModal(false)}>
               {locale === 'bn' ? 'বাতিল' : 'Cancel'}
             </Button>
-            <Button onClick={handleWithdrawal} disabled={isSubmitting}>
+            {/*
+              Disabled with nothing matured to settle. The API is still the
+              authority and answers 409 with the reason, but a button that can
+              only fail is the thing that makes a screen look broken.
+            */}
+            <Button onClick={handleWithdrawal} disabled={isSubmitting || maturedNotices.length === 0}>
               {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'উত্তোলন করুন' : 'Process Withdrawal')}
             </Button>
           </DialogFooter>
@@ -1173,8 +1296,9 @@ export default function MemberDetailPage() {
                 type="number"
                 min="1"
                 max={member.loanEligibility.maxLoanAmount}
-                step="0.01"
-                placeholder="0.00"
+                step="1"
+                inputMode="numeric"
+                placeholder="0"
                 value={loanAmount}
                 onChange={(e) => setLoanAmount(e.target.value)}
               />
@@ -1260,8 +1384,9 @@ export default function MemberDetailPage() {
                 type="number"
                 min="1"
                 max={selectedLoanForPayment ? selectedLoanForPayment.remainingAmount : undefined}
-                step="0.01"
-                placeholder="0.00"
+                step="1"
+                inputMode="numeric"
+                placeholder="0"
                 value={loanPaymentAmount}
                 onChange={(e) => setLoanPaymentAmount(e.target.value)}
               />

@@ -315,7 +315,25 @@ export const SYSTEM_CONFIG_TAG = 'system-config';
  *     there would serve one member's page to the next.
  */
 export async function getPublicSettings(): Promise<Record<string, string>> {
-  return getCachedPublicSettings();
+  try {
+    return await getCachedPublicSettings();
+  } catch (error) {
+    // A marketing page must be renderable without a database.
+    //
+    // `next build` prerenders these ten routes, and the Docker image is built
+    // with `DATABASE_URL` pointing at a placeholder that does not exist — so
+    // WO-73 turned a working image build into `Export encountered an error on
+    // /[locale]/donate/page`. Six of the eight pages had no `try` of their own;
+    // the handling lived in the two that did, which is the same fact stored in
+    // two places and disagreeing.
+    //
+    // The `catch` is *outside* the cache deliberately. `unstable_cache` stores
+    // a resolved value and never a rejection, so a transient outage is retried
+    // on the next request. Catching inside would memoise the empty map and pin
+    // every public page to its fallback copy for the whole revalidate hour.
+    console.error('Public settings unavailable; rendering fallback copy:', error);
+    return {};
+  }
 }
 
 const getCachedPublicSettings = unstable_cache(

@@ -21,10 +21,10 @@ export const E2E_PASSWORD = 'E2e-Test-Password-1234';
 
 export type SeededRole = 'MEMBER' | 'WORKER' | 'ADMIN';
 
-export const ACCOUNTS: Record<SeededRole, { id: string; phone: string; email: string; memberId: string }> = {
-  MEMBER: { id: 'e2e-member', phone: '01966600001', email: 'e2e-member@journeys.test', memberId: 'E2E-M-0001' },
-  WORKER: { id: 'e2e-worker', phone: '01966600002', email: 'e2e-worker@journeys.test', memberId: 'E2E-W-0001' },
-  ADMIN: { id: 'e2e-admin', phone: '01966600003', email: 'e2e-admin@journeys.test', memberId: 'E2E-A-0001' },
+export const ACCOUNTS: Record<SeededRole, { id: string; phone: string; email: string; accountNo: string }> = {
+  MEMBER: { id: 'e2e-member', phone: '01966600001', email: 'e2e-member@journeys.test', accountNo: 'E2E-M-0001' },
+  WORKER: { id: 'e2e-worker', phone: '01966600002', email: 'e2e-worker@journeys.test', accountNo: 'E2E-W-0001' },
+  ADMIN: { id: 'e2e-admin', phone: '01966600003', email: 'e2e-admin@journeys.test', accountNo: 'E2E-A-0001' },
 };
 
 let prisma: PrismaClient | null = null;
@@ -98,7 +98,7 @@ export async function seedAccounts(openingBalance = 50_000): Promise<void> {
         passwordHash,
         role: UserRole[role],
         status: UserStatus.ACTIVE,
-        memberId: account.memberId,
+        accountNo: account.accountNo,
         nameEn: `E2E ${role}`,
         nameBn: `ই২ই ${role}`,
         fatherName: 'Test Father',

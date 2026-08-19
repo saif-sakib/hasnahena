@@ -8,6 +8,7 @@ import { Mail, Phone, MapPin, Send } from 'lucide-react';
 import { getPublicSettings } from '@/lib/system-config';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { StructuredData } from '@/components/seo/structured-data';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -60,6 +61,7 @@ export default async function ContactPage({ params }: PageProps) {
 
   return (
     <>
+      <StructuredData locale={normalizeLocale(locale)} path="/contact" settings={settings} />
       <Header settings={settings} />
       <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-32 pb-24 z-10 w-full flex flex-col items-center">
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">

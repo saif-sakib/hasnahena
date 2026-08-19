@@ -87,13 +87,13 @@ func (r *UserRepository) GetUserInfo(ctx context.Context, userID string) (map[st
 			u.role::text,
 			u.status::text,
 			COALESCE(u."avatarUrl", ''),
-			COALESCE(u."memberId", '')
+			COALESCE(u."accountNo", '')
 		FROM users u
 		WHERE u.id = $1
 	`
-	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, accountNo string
 	if err := r.db.QueryRow(ctx, query, userID).Scan(
-		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId,
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &accountNo,
 	); err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (r *UserRepository) GetUserInfo(ctx context.Context, userID string) (map[st
 		"role":      strings.ToUpper(role),
 		"status":    strings.ToUpper(status),
 		"avatarUrl": avatarUrl,
-		"memberId":  memberId,
+		"accountNo": accountNo,
 	}, nil
 }
 

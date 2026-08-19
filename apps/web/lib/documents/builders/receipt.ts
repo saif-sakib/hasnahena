@@ -26,7 +26,7 @@ export function buildReceipt(
       title: 'Member & transaction',
       fields: [
         { label: 'Name', value: orDash(data.memberName) },
-        { label: 'Member ID', value: orDash(data.memberId) },
+        { label: 'Account No', value: orDash(data.accountNo) },
         { label: 'Mobile', value: orDash(data.memberPhone) },
         { label: 'Transaction type', value: kind },
         { label: 'Date & time', value: formatDateTime(data.date) },
@@ -68,7 +68,7 @@ export function buildReceipt(
     refLabel: 'Receipt No',
     refValue: orDash(data.receiptNumber),
     documentId: documentIdFromReference('RCPT', data.receiptNumber),
-    filename: documentFilename('Receipt', data.receiptNumber || data.memberId),
+    filename: documentFilename('Receipt', data.receiptNumber || data.accountNo),
     org,
     blocks,
   };

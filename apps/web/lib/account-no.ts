@@ -1,34 +1,34 @@
-export const MEMBER_ID_PREFIX = 'ACC-KH-33';
+export const ACCOUNT_NO_PREFIX = 'ACC-KH-33';
 
-const MEMBER_ID_REGEX = /^ACC-KH-33(\d+)$/;
+const ACCOUNT_NO_REGEX = /^ACC-KH-33(\d+)$/;
 
-export function formatMemberSequenceNumber(sequence: number): string {
+export function formatAccountSequenceNumber(sequence: number): string {
   return sequence.toString().padStart(3, '0');
 }
 
-export function formatMemberId(sequence: number): string {
-  return `${MEMBER_ID_PREFIX}${formatMemberSequenceNumber(sequence)}`;
+export function formatAccountNo(sequence: number): string {
+  return `${ACCOUNT_NO_PREFIX}${formatAccountSequenceNumber(sequence)}`;
 }
 
-export function parseMemberSequence(memberId: string | null | undefined): number | null {
-  if (!memberId) return null;
-  const match = memberId.match(MEMBER_ID_REGEX);
+export function parseAccountSequence(accountNo: string | null | undefined): number | null {
+  if (!accountNo) return null;
+  const match = accountNo.match(ACCOUNT_NO_REGEX);
   if (!match) return null;
   const parsed = Number.parseInt(match[1], 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function isStandardMemberId(memberId: string | null | undefined): boolean {
-  return Boolean(memberId && MEMBER_ID_REGEX.test(memberId));
+export function isStandardAccountNo(accountNo: string | null | undefined): boolean {
+  return Boolean(accountNo && ACCOUNT_NO_REGEX.test(accountNo));
 }
 
-export const NEXT_MEMBER_ID_SQL = `
+export const NEXT_ACCOUNT_NO_SQL = `
   SELECT COALESCE(
-    MAX(CAST(SUBSTRING("memberId" FROM 'ACC-KH-33(\\d+)$') AS INTEGER)),
+    MAX(CAST(SUBSTRING("accountNo" FROM 'ACC-KH-33(\\d+)$') AS INTEGER)),
     0
   ) + 1 AS next_seq
   FROM users
-  WHERE "memberId" ~ '^ACC-KH-33[0-9]+$'
+  WHERE "accountNo" ~ '^ACC-KH-33[0-9]+$'
 `;
 
 export const MEMBER_ID_ADVISORY_LOCK_SQL = `SELECT pg_advisory_xact_lock(873921)`;

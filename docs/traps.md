@@ -41,6 +41,23 @@ another doc, add it here and link instead.
   notification with `BDT %.2f` from a `float64`. A test reading either alone
   would have passed the code. The int64 ceiling rendered as `…808.00`.
 
+**A ledger row is not proof that money moved, and money moving is not proof of a
+ledger row.** `waterfallRecoveryTx` inserted its three default-recovery rows with
+no `status` column, so they took Prisma's default of `PENDING` — while the
+savings had already been deducted in the same transaction. Every aggregate that
+correctly filters on `CONFIRMED` (ADR-016) therefore under-counted a recovery
+that had happened. The same function reduced `loans."remainingAmount"` and never
+touched `accounts."loanBalance"`, so a member whose savings were taken to settle
+a default kept seeing the whole debt — permanently, because nothing recomputes
+that column. Neither failed any of the four existing waterfall tests: they
+asserted savings and ordering, which were right. **Summing the ledger is the only
+check that asks the question those tests do not** (WO-82).
+
+**A disputed posting is money that moved.** Disputing a `CONFIRMED` transaction
+flips its status and changes no balance. Any reconciliation, aggregate or report
+that treats status as a proxy for "did this happen" has to decide about
+`DISPUTED` explicitly — [ADR-026](decisions.md).
+
 ## Connection pools and transactions
 
 - **Reading config from the pool inside a transaction deadlocks it.** With N
@@ -100,6 +117,19 @@ another doc, add it here and link instead.
   immutability trigger, so a later `--from-empty` baseline would drop it
   silently. That is also why it is not reported as drift by `db:migrate:check`.
 
+**`prisma migrate diff` cannot see a rename.** Renaming `users.memberId` to
+`users.accountNo` generates `DROP COLUMN "memberId"` followed by
+`ADD COLUMN "accountNo"`, which is a migration that discards every member's
+account number and reports success. `ALTER TABLE … RENAME COLUMN` carries the
+data, the unique index and the constraint across untouched, and has to be written
+by hand. Third time in this project: the addresses relation and the `LoanStatus`
+enum needed the same treatment, for the same reason.
+
+Postgres also does **not** rename the dependent index, so
+`users_memberId_key` keeps its old name over a column that no longer exists
+under it. `ALTER INDEX … RENAME` separately, or the next drift check compares an
+index name against a schema that disagrees.
+
 ## PostgreSQL clients
 
 - **`/usr/bin/pg_dump` is not a binary.** On Debian and Ubuntu it is
@@ -158,6 +188,15 @@ another doc, add it here and link instead.
   run `db:seed` against real member data.
 - **A Dockerfile that has never been built is a hypothesis.** Static review
   caught none of the three defects above.
+
+**Making a page static moves its database reads into the build.** WO-73
+prerendered the marketing pages; `apps/web/Dockerfile` builds with
+`DATABASE_URL` pointing at a placeholder database that does not exist, on purpose
+— `prisma generate` parses the URL and never connects. The next image build died
+with `Export encountered an error on /[locale]/donate/page` and exit code 1. Two
+of the eight pages had their own `try` and survived, which made it look like a
+bug in the other six. **A page that can be prerendered must render without a
+database** — [ADR-028](decisions.md).
 
 ## Next, React and the build
 
@@ -298,6 +337,39 @@ another doc, add it here and link instead.
   check read ids through a UUID regex that rejects every `cuid()`, so a fully dead
   endpoint passed. When a test discriminates, check *what* it is discriminating on.
 
+**A green test that never reached the code proves nothing.** The first
+`public-content-fallback.test.ts` asserted that `getPublicSettings()` returns
+`{}` when the database is unreachable, and passed — with `findMany` called
+**zero** times. Outside a Next server `unstable_cache` throws
+`Invariant: incrementalCache missing`, and the `catch` under test swallowed it.
+The fix is two lines: mock `next/cache` to a pass-through so the real query runs,
+and assert the mock **was called**. Any test whose subject is an error path
+should assert it reached the thing that was supposed to fail.
+
+**A budget recorded from a build is a fact; a budget maintained by hand is a
+wish.** `assert-bundle-budget.mjs` reads
+`.next/diagnostics/route-bundle-stats.json`, which the bundler emits — "how much
+JavaScript does this route ship" is a conclusion drawn after following every
+import, and no test over the source can reach it. Same reasoning as
+`assert-static-routes.mjs` reading `prerender-manifest.json`.
+
+**An ordinary refusal reported as a 500 reads as a broken feature.**
+`WorkerAddWithdrawal` classified the repository's errors with
+`strings.Contains(err.Error(), …)`. The two FR-08 refusals — no withdrawal
+notice on file, notice not yet matured — matched no branch, so both arrived as
+`500 WITHDRAWAL_FAILED "Failed to process withdrawal"`: the single most common
+outcome of that screen, indistinguishable from a crash, which is how it was
+reported ("admin member withdrawal is not working"). The same substring matching
+also ordered `"active loan"` before `"guarantor"`, and
+`"is guarantor for active loan"` contains `"active loan"`, so a guarantor was
+told they had a loan of their own.
+
+Two rules fall out. Classify errors with `errors.Is` over sentinels, never over
+message text — substrings have no ordering guarantee and no compiler. And test
+the **translation** from error to HTTP answer: the repository behaviour here was
+thoroughly covered and every one of those tests passed while the endpoint
+answered 500.
+
 ## Browser suites
 
 - **A spec that passes alone and fails in the suite is shared state or a limit,
@@ -382,6 +454,30 @@ another doc, add it here and link instead.
   every printed statement. Nobody spotted it in a PDF viewer; a test computing
   rendered text width against column width found it immediately — and found a
   second overflowing column on its first run.
+
+**`x-default` is not the default locale.** This project's `defaultLocale` is
+`bn`, because its members are Bengali. `x-default` answers the opposite question
+— what to serve a reader the site was *not* built for — and there the answer is
+`/en`. Writing `getLocalizedUrl(defaultLocale, path)` reads as the tidier version
+of the same line and sends every unmatched reader in the world to a page they
+cannot read. It compiled, and a test caught it.
+
+**JSON-LD cannot be a text child.** React HTML-escapes text children, and HTML
+entities are **not** decoded inside a `<script>` element, so every `"` in the
+payload reaches the crawler as `&quot;` and the JSON is unparseable. Next's own
+guide specifies `dangerouslySetInnerHTML` with `<` escaped to `\u003c`. That is
+the one sanctioned sink in this codebase and `csp.test.ts` counts them, because
+[ADR-024](decisions.md) rests on there being no others.
+
+**One name for two things is a bug waiting for a rename to expose it.**
+`memberId` meant the account number (`ACC-KH-33001`) in every response payload
+*and* the member's cuid row id in every `/worker/members/{memberId}` route,
+handler local and `PathValue` call. A blanket rename to `accountNo` compiled and
+would have sent `PathValue("accountNo")` to a route still declaring
+`{memberId}` — every member-detail request 400ing on an empty id, at runtime,
+with the types perfectly happy. Classify each occurrence against the SQL it was
+scanned from before renaming anything. The route parameter is `{memberUserId}`
+now, which is what it always was.
 
 ## Go
 

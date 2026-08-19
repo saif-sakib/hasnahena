@@ -97,7 +97,7 @@ func seedMember(t *testing.T, id, memberID string, savings int64) string {
 	ctx := context.Background()
 
 	_, err := testPool.Exec(ctx, `
-		INSERT INTO users (id, email, phone, "passwordHash", role, status, "memberId",
+		INSERT INTO users (id, email, phone, "passwordHash", role, status, "accountNo",
 			"nameEn", "fatherName", "motherName", gender, "maritalStatus", "childrenCount",
 			"createdAt", "updatedAt")
 		VALUES ($1, $1 || '@test.local', $2, 'x', 'MEMBER', 'ACTIVE', $3,

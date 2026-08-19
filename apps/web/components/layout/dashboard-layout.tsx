@@ -63,7 +63,7 @@ interface UserInfo {
   role: string;
   status: string;
   avatarUrl: string;
-  memberId: string;
+  accountNo: string;
 }
 
 interface SupportThreadItem {
@@ -352,7 +352,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           role: profile.role || role,
           status: profile.status || '',
           avatarUrl: profile.avatarUrl || '',
-          memberId: profile.memberId || '',
+          accountNo: profile.accountNo || '',
         };
         setCachedUserInfo(newUserInfo);
         return newUserInfo;

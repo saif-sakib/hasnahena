@@ -239,6 +239,16 @@ jobs:
         working-directory: apps/web
         run: node scripts/assert-static-routes.mjs
 
+      # WO-83. First-load JavaScript per route, against a checked-in baseline.
+      # Reads .next/diagnostics/route-bundle-stats.json, which the build emits —
+      # "how much JS does this route ship" is a conclusion the bundler draws
+      # after following every import, and no test over the source can reach it.
+      # A route that grew more than 10%, or one with no recorded budget, fails
+      # here rather than arriving on a member's phone unnoticed.
+      - name: Client bundles are within budget
+        working-directory: apps/web
+        run: node scripts/assert-bundle-budget.mjs
+
   e2e:
     name: Browser — Playwright on a phone viewport
     runs-on: ubuntu-latest

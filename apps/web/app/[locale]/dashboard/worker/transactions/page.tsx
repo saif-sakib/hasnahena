@@ -48,7 +48,7 @@ type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'DISPUTED' | 'PROCESSED' | 'R
 
 interface Transaction {
   id: string;
-  memberId: string;
+  accountNo: string;
   memberName: string;
   memberPhone: string;
   type: TransactionType;
@@ -78,7 +78,7 @@ export default function WorkerTransactionsPage() {
         const data = await apiGet<any[]>('/v1/dashboard/worker/transactions');
         const items = (data ?? []).map((item) => ({
           id: String(item.id ?? ''),
-          memberId: String(item.memberId ?? ''),
+          accountNo: String(item.accountNo ?? ''),
           memberName: String(item.memberName ?? ''),
           memberPhone: String(item.memberPhone ?? ''),
           type: String(item.type ?? '').toUpperCase() as TransactionType,
@@ -109,7 +109,7 @@ export default function WorkerTransactionsPage() {
         amount: tx.amount,
         date: tx.date,
         memberName: tx.memberName,
-        memberId: tx.memberId,
+        accountNo: tx.accountNo,
         memberPhone: tx.memberPhone,
         balanceAfter: tx.balanceAfter,
         notes: tx.notes,

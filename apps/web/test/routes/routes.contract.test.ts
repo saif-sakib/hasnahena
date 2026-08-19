@@ -221,7 +221,7 @@ const ROUTES: Array<{
     method: 'GET',
     handler: asHandler(membersLookup.GET),
     path: '/api/v1/members/lookup',
-    contract: { roles: ['MEMBER'], query: '?memberId=RT-MEMBER' },
+    contract: { roles: ['MEMBER'], query: '?accountNo=RT-MEMBER' },
   },
   {
     name: 'POST /api/v1/member/transactions/[id]/dispute',

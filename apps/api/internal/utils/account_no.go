@@ -6,20 +6,20 @@ import (
 	"strconv"
 )
 
-const MemberIDPrefix = "ACC-KH-33"
+const AccountNoPrefix = "ACC-KH-33"
 
-var memberIDPattern = regexp.MustCompile(`^ACC-KH-33(\d+)$`)
+var accountNoPattern = regexp.MustCompile(`^ACC-KH-33(\d+)$`)
 
-func FormatMemberSequenceNumber(sequence int64) string {
+func FormatAccountSequenceNumber(sequence int64) string {
 	return fmt.Sprintf("%03d", sequence)
 }
 
-func FormatMemberID(sequence int64) string {
-	return MemberIDPrefix + FormatMemberSequenceNumber(sequence)
+func FormatAccountNo(sequence int64) string {
+	return AccountNoPrefix + FormatAccountSequenceNumber(sequence)
 }
 
-func ParseMemberSequence(memberID string) (int64, bool) {
-	matches := memberIDPattern.FindStringSubmatch(memberID)
+func ParseAccountSequence(memberID string) (int64, bool) {
+	matches := accountNoPattern.FindStringSubmatch(memberID)
 	if len(matches) != 2 {
 		return 0, false
 	}
@@ -30,13 +30,13 @@ func ParseMemberSequence(memberID string) (int64, bool) {
 	return value, true
 }
 
-const NextMemberIDQuery = `
+const NextAccountNoQuery = `
         SELECT COALESCE(
-                MAX(CAST(SUBSTRING("memberId" FROM 'ACC-KH-33(\d+)$') AS INTEGER)),
+                MAX(CAST(SUBSTRING("accountNo" FROM 'ACC-KH-33(\d+)$') AS INTEGER)),
                 0
         ) + 1
         FROM users
-        WHERE "memberId" ~ '^ACC-KH-33[0-9]+$'
+        WHERE "accountNo" ~ '^ACC-KH-33[0-9]+$'
 `
 
-const MemberIDAdvisoryLockQuery = `SELECT pg_advisory_xact_lock(873921)`
+const AccountNoAdvisoryLockQuery = `SELECT pg_advisory_xact_lock(873921)`

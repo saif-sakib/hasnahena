@@ -32,6 +32,7 @@
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules .next",
     "test:unit": "pnpm --filter @hasnahena/web test:unit",
     "test:routes": "pnpm --filter @hasnahena/web test:routes",
+    "test:bundle": "pnpm --filter @hasnahena/web test:bundle",
     "test:stack": "scripts/test-stack.sh",
     "test:stack:down": "scripts/test-stack.sh down"
   },

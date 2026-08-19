@@ -62,6 +62,38 @@ var (
 		Help: "Requests currently being served.",
 	})
 
+	// Ledger reconciliation — WO-82. Set by the reconciliation loop, not by a
+	// scrape: the pass is a handful of full-table aggregates and running it on
+	// every Prometheus scrape would be a self-inflicted load test.
+	//
+	// `check` is the invariant that disagreed — a fixed vocabulary from
+	// repositories.AllChecks, so an alert can name the one that fired.
+	ledgerDriftRows = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "hasnahena_ledger_drift_rows",
+			Help: "Accounts, loans or transactions whose stored value disagrees with the ledger.",
+		},
+		[]string{"check"},
+	)
+	ledgerDriftTaka = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "hasnahena_ledger_drift_taka",
+			Help: "Net signed difference, in whole taka, between stored balances and what the transactions sum to.",
+		},
+		[]string{"check"},
+	)
+	// The one to alert on when it *stops* moving. A drift gauge reading zero is
+	// indistinguishable from a job that has not run since the last deploy, and
+	// the second is the more likely failure.
+	ledgerLastReconciled = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "hasnahena_ledger_reconciled_timestamp_seconds",
+		Help: "Unix time of the last reconciliation pass that completed without an error.",
+	})
+	ledgerReconcileFailures = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "hasnahena_ledger_reconcile_failures_total",
+		Help: "Reconciliation passes that could not complete.",
+	})
+
 	// Business gauges. Refreshed on a ticker rather than computed per scrape —
 	// see refreshLoop.
 	unconfirmedOver48h = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -108,6 +140,7 @@ func Register(pool *pgxpool.Pool) {
 			httpRequests, httpDuration, httpInFlight,
 			unconfirmedOver48h, openDisputes, pendingRequests, postedToday, activeLoans,
 			businessRefreshFailures, businessLastRefresh,
+			ledgerDriftRows, ledgerDriftTaka, ledgerLastReconciled, ledgerReconcileFailures,
 			collectors.NewGoCollector(),
 			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		)
@@ -286,3 +319,22 @@ func readBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) (businessSnap
 	}
 	return snap, rows.Err()
 }
+
+// SetLedgerDrift publishes the result of one reconciliation pass.
+//
+// `checks` must be every check that ran, not only the ones that found
+// something. A gauge that is only ever set when it is non-zero keeps its last
+// non-zero value forever, so the alert that fired on Tuesday is still firing on
+// Friday after the drift was corrected — and an operator learns to ignore it.
+func SetLedgerDrift(rows, taka map[string]int64, checks []string) {
+	for _, check := range checks {
+		ledgerDriftRows.WithLabelValues(check).Set(float64(rows[check]))
+		ledgerDriftTaka.WithLabelValues(check).Set(float64(taka[check]))
+	}
+	ledgerLastReconciled.SetToCurrentTime()
+}
+
+// ObserveLedgerReconcileFailure records a pass that could not complete. The
+// drift gauges are deliberately left untouched: a failed pass knows nothing, and
+// writing zeroes would report a clean ledger it never managed to read.
+func ObserveLedgerReconcileFailure() { ledgerReconcileFailures.Inc() }

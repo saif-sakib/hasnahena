@@ -7,9 +7,10 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { getPublicSettings } from '@/lib/system-config';
-import { getPublicGalleryItems, type PublicGalleryItem } from '@/lib/public-content';
+import { getPublicGalleryItems } from '@/lib/public-content';
 import { Image as ImageIcon } from 'lucide-react';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { StructuredData } from '@/components/seo/structured-data';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -45,13 +46,9 @@ export default async function GalleryPage({ params }: PageProps) {
   setRequestLocale(locale);
   const tGallery = await getTranslations({locale, namespace: 'gallery'});
 
-  // Fetch gallery items from DB
-  let dbGalleryItems: PublicGalleryItem[] = [];
-  try {
-      dbGalleryItems = await getPublicGalleryItems();
-  } catch (e) {
-      console.error("Failed to fetch gallery items", e);
-  }
+  // Both accessors fall back to empty rather than rejecting — see the note in
+  // lib/system-config.ts.
+  const dbGalleryItems = await getPublicGalleryItems();
 
   const galleryItems: GalleryItem[] = dbGalleryItems.map(item => ({
     id: item.id,
@@ -61,17 +58,12 @@ export default async function GalleryPage({ params }: PageProps) {
     likes: item.likes,
   }));
 
-  // Fetch settings for Header
-  let settings: Record<string, string> = {};
-  try {
-    settings = await getPublicSettings();
-  } catch (e) {
-    console.error("Failed to fetch settings", e);
-  }
+  const settings = await getPublicSettings();
 
 
   return (
     <>
+      <StructuredData locale={normalizeLocale(locale)} path="/gallery" settings={settings} />
       <Header settings={settings} />
       <main className="flex-1 min-h-screen bg-slate-50 dark:bg-slate-950 pt-20">
         <div className="container-wide py-12 md:py-20">

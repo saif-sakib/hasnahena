@@ -23,7 +23,7 @@ type ApprovalTab = 'registration' | 'loan' | 'deposit';
 
 interface RegistrationRequest {
   id: string;
-  memberId?: string;
+  accountNo?: string;
   name: string;
   nameBn?: string;
   email?: string;
@@ -80,7 +80,7 @@ interface TransactionRequest {
   status: string;
   member: {
     name: string;
-    memberId: string;
+    accountNo: string;
   };
   requestDate: string;
   reference?: string;
@@ -190,8 +190,8 @@ function RegistrationRow({
         <td className="px-4 py-3">
           <div className="font-medium text-gray-900">{item.name}</div>
           <div className="text-xs text-gray-500">{item.nameBn}</div>
-          {item.memberId && (
-            <div className="text-xs text-gray-500 font-mono mt-0.5">{item.memberId}</div>
+          {item.accountNo && (
+            <div className="text-xs text-gray-500 font-mono mt-0.5">{item.accountNo}</div>
           )}
         </td>
         <td className="px-4 py-3">{item.phone}</td>
@@ -652,7 +652,7 @@ export default function AdminApprovalsPage() {
                       <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <div className="font-medium text-gray-900">{item.member?.name || '-'}</div>
-                          <div className="text-xs text-gray-500">{item.member?.memberId || '-'}</div>
+                          <div className="text-xs text-gray-500">{item.member?.accountNo || '-'}</div>
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-600">{item.loanNumber || '-'}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatCurrency(item.amount, locale)}</td>
@@ -727,7 +727,7 @@ export default function AdminApprovalsPage() {
                       <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <div className="font-medium text-gray-900">{item.member?.name || '-'}</div>
-                          <div className="text-xs text-gray-500">{item.member?.memberId || '-'}</div>
+                          <div className="text-xs text-gray-500">{item.member?.accountNo || '-'}</div>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${typeMeta.tone}`}>

@@ -15,13 +15,13 @@ import (
 )
 
 type RegistrationApprovalCandidate struct {
-	ID       string
-	Email    string
-	Phone    string
-	NameEn   string
-	Role     string
-	Status   string
-	MemberID string
+	ID        string
+	Email     string
+	Phone     string
+	NameEn    string
+	Role      string
+	Status    string
+	AccountNo string
 }
 
 func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool) ([]map[string]interface{}, error) {
@@ -32,7 +32,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 	query := `
 		SELECT
 			u.id::text,
-			COALESCE(u."memberId", '') AS member_id,
+			COALESCE(u."accountNo", '') AS account_no,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u.email, ''),
 			u.phone,
@@ -66,11 +66,11 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 
 	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, memberIDValue, name, email, phone, nid, status, area, role string
+		var id, accountNo, name, email, phone, nid, status, area, role string
 		var branchID, branchName, branchCode string
 		var createdAt time.Time
 		var savingsBalance, activeLoan int64
-		if scanErr := rows.Scan(&id, &memberIDValue, &name, &email, &phone, &nid, &status, &createdAt,
+		if scanErr := rows.Scan(&id, &accountNo, &name, &email, &phone, &nid, &status, &createdAt,
 			&savingsBalance, &activeLoan, &area, &role, &branchID, &branchName, &branchCode); scanErr != nil {
 			continue
 		}
@@ -80,8 +80,8 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 		}
 		result = append(result, map[string]interface{}{
 			"id":             id,
-			"uid":            memberIDValue,
-			"memberId":       memberIDValue,
+			"uid":            accountNo,
+			"accountNo":      accountNo,
 			"name":           name,
 			"email":          email,
 			"phone":          phone,
@@ -250,7 +250,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 		const regQuery = `
 		SELECT
 			u.id,
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u.email, ''),
@@ -309,7 +309,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			defer regRows.Close()
 			registrations := []map[string]interface{}{}
 			for regRows.Next() {
-				var id, regMemberID, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
+				var id, regAccountNo, name, nameBn, email, phone, nid, fatherName, motherName, gender, maritalStatus, bloodGroup, profession, area string
 				var permanentHouseNo, permanentRoadNo, permanentVillage, permanentUnion, permanentPoliceStation string
 				var presentDistrict, presentHouseNo, presentRoadNo, presentVillage, presentUnion, presentPoliceStation string
 				var nomineeName, nomineeRelationship, nomineeNID, nomineePhone string
@@ -318,7 +318,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				var createdAt time.Time
 				var documentsJSON []byte
 				if err := regRows.Scan(
-					&id, &regMemberID, &name, &nameBn, &email, &phone, &nid,
+					&id, &regAccountNo, &name, &nameBn, &email, &phone, &nid,
 					&fatherName, &motherName, &gender, &maritalStatus, &bloodGroup, &profession, &childrenCount, &dateOfBirth,
 					&area,
 					&permanentHouseNo, &permanentRoadNo, &permanentVillage, &permanentUnion, &permanentPoliceStation,
@@ -340,7 +340,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				}
 				registrations = append(registrations, map[string]interface{}{
 					"id":            id,
-					"memberId":      regMemberID,
+					"accountNo":     regAccountNo,
 					"name":          name,
 					"nameBn":        nameBn,
 					"email":         email,
@@ -389,7 +389,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 	const loanQuery = `
 		SELECT
 			l.id,
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			l."principalAmount"::bigint,
@@ -422,17 +422,17 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 		defer loanRows.Close()
 		loans := []map[string]interface{}{}
 		for loanRows.Next() {
-			var id, memberId, memberName, memberNameBn, guarantorId, guarantorName, purpose, repaymentHistory string
+			var id, accountNo, memberName, memberNameBn, guarantorId, guarantorName, purpose, repaymentHistory string
 			var amount, currentDeposit, maxEligible int64
 			var createdAt time.Time
 			var previousLoans int
-			if err := loanRows.Scan(&id, &memberId, &memberName, &memberNameBn, &amount, &currentDeposit, &maxEligible,
+			if err := loanRows.Scan(&id, &accountNo, &memberName, &memberNameBn, &amount, &currentDeposit, &maxEligible,
 				&guarantorId, &guarantorName, &purpose, &createdAt, &previousLoans, &repaymentHistory); err != nil {
 				continue
 			}
 			loans = append(loans, map[string]interface{}{
 				"id":                id,
-				"memberId":          memberId,
+				"accountNo":         accountNo,
 				"memberName":        memberName,
 				"memberNameBn":      memberNameBn,
 				"requestedAmount":   amount,
@@ -458,7 +458,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			t.status::text,
 			t."createdAt",
 			COALESCE(u."nameEn", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(t."receiptNumber", ''),
 			COALESCE(t.description, ''),
 			COALESCE(l."loanNumber", '')
@@ -485,7 +485,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				"type":          strings.ToUpper(strings.TrimSpace(txType)),
 				"amount":        amount,
 				"status":        strings.ToUpper(strings.TrimSpace(status)),
-				"member":        map[string]interface{}{"name": memberName, "memberId": memberID},
+				"member":        map[string]interface{}{"name": memberName, "accountNo": memberID},
 				"requestDate":   createdAt.Format(time.RFC3339),
 				"processedDate": createdAt.Format(time.RFC3339),
 				"reference":     reference,
@@ -509,7 +509,7 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 			COALESCE(u."nameEn", ''),
 			u.role::text,
 			u.status::text,
-			COALESCE(u."memberId", '')
+			COALESCE(u."accountNo", '')
 		FROM users u
 		WHERE u.id = $1
 		LIMIT 1
@@ -523,7 +523,7 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 		&candidate.NameEn,
 		&candidate.Role,
 		&candidate.Status,
-		&candidate.MemberID,
+		&candidate.AccountNo,
 	)
 	if err != nil {
 		return nil, err
@@ -558,7 +558,7 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		SELECT
 			COALESCE(email, ''),
 			phone,
-			COALESCE("memberId", ''),
+			COALESCE("accountNo", ''),
 			role::text,
 			status::text
 		FROM users
@@ -595,12 +595,12 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	}
 
 	if strings.TrimSpace(memberID) == "" {
-		generatedMemberID, err := r.generateNextMemberID(ctx, tx)
+		generatedMemberID, err := r.generateNextAccountNo(ctx, tx)
 		if err != nil {
 			return err
 		}
 		memberID = generatedMemberID
-		if _, err := tx.Exec(ctx, `UPDATE users SET "memberId" = $2, "formNumber" = $3, "updatedAt" = NOW() WHERE id = $1`, userID, memberID, fmt.Sprintf("FORM-%s", memberID)); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE users SET "accountNo" = $2, "formNumber" = $3, "updatedAt" = NOW() WHERE id = $1`, userID, memberID, fmt.Sprintf("FORM-%s", memberID)); err != nil {
 			return err
 		}
 	}
@@ -724,17 +724,17 @@ func (r *UserRepository) GetAdminProfile(ctx context.Context, userID string) (ma
 			u.role::text,
 			u.status::text,
 			COALESCE(u."avatarUrl", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			u."createdAt"
 		FROM users u
 		WHERE u.id = $1
 	`
 
-	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, accountNo string
 	var createdAt time.Time
 
 	if err := r.db.QueryRow(ctx, query, userID).Scan(
-		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId, &createdAt); err != nil {
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &accountNo, &createdAt); err != nil {
 		return nil, err
 	}
 
@@ -747,7 +747,7 @@ func (r *UserRepository) GetAdminProfile(ctx context.Context, userID string) (ma
 		"role":      role,
 		"status":    status,
 		"avatarUrl": avatarUrl,
-		"memberId":  memberId,
+		"accountNo": accountNo,
 		"joinedAt":  createdAt.Format(time.RFC3339),
 	}, nil
 }

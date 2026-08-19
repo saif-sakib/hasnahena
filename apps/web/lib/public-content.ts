@@ -52,7 +52,17 @@ export type PublicGalleryItem = {
  * invalidates both.
  */
 export async function getPublicGalleryItems(limit?: number): Promise<PublicGalleryItem[]> {
-  return getCachedGalleryItems(limit ?? 0);
+  try {
+    return await getCachedGalleryItems(limit ?? 0);
+  } catch (error) {
+    // Same contract as `getPublicSettings()`, and for the same reason: `/` and
+    // `/gallery` are prerendered, and the Docker build has no database to
+    // prerender them against. An empty gallery is a page; a thrown error is a
+    // failed image build. See the longer note in lib/system-config.ts for why
+    // this `catch` sits outside the cache rather than inside it.
+    console.error('Gallery unavailable; rendering an empty gallery:', error);
+    return [];
+  }
 }
 
 const getCachedGalleryItems = unstable_cache(

@@ -36,7 +36,7 @@ import {
 } from '@/lib/documents';
 
 interface UserProfile {
-  memberId: string;
+  accountNo: string;
   nameEn: string;
   nameBn: string;
   fatherName: string;
@@ -127,7 +127,7 @@ export default function ProfilePage() {
   const profile = useMemo<UserProfile>(() => {
     const p = profileData?.profile;
     return {
-      memberId: p?.memberId ?? '',
+      accountNo: p?.accountNo ?? '',
       nameEn: p?.nameEn ?? '',
       nameBn: p?.nameBn ?? '',
       fatherName: p?.fatherName ?? '',
@@ -238,7 +238,7 @@ export default function ProfilePage() {
       const statementDoc = buildStatement(
         {
           memberName: profile.nameEn || profile.nameBn,
-          memberId: profile.memberId || 'N/A',
+          accountNo: profile.accountNo || 'N/A',
           memberPhone: profile.phone || 'N/A',
           periodStart: statementTransactions[0]?.date || now,
           periodEnd: statementTransactions[statementTransactions.length - 1]?.date || now,
@@ -273,7 +273,7 @@ export default function ProfilePage() {
       const certificateDoc = buildMembershipCertificate(
         {
           memberName: profile.nameEn || profile.nameBn,
-          memberId: profile.memberId || 'N/A',
+          accountNo: profile.accountNo || 'N/A',
           memberSince: profile.memberSince || new Date().toISOString(),
           phone: profile.phone || undefined,
           address: formatAddress(profile.permanentAddress),
@@ -321,7 +321,7 @@ export default function ProfilePage() {
             </div>
             <div className="text-center sm:text-left text-white flex-1">
               <h2 className="text-2xl font-bold">{locale === 'bn' ? profile.nameBn : profile.nameEn}</h2>
-              <p className="opacity-90">{profile.memberId}</p>
+              <p className="opacity-90">{profile.accountNo}</p>
               {/* The account-number chip that used to sit here printed the
                   member id a second time, one line below the line above it
                   (ADR-023). */}

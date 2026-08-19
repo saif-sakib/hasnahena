@@ -8,6 +8,8 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { faqEntries } from '@/lib/faq';
+import { StructuredData } from '@/components/seo/structured-data';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -43,46 +45,14 @@ export default async function FaqPage({ params }: PageProps) {
   const settings = await getPublicSettings();
 
   const isBn = locale === 'bn';
-  const faqItems = isBn
-    ? [
-        {
-          q: 'কিভাবে সদস্য হবো?',
-          a: 'নিবন্ধন ফর্ম পূরণ করে প্রয়োজনীয় নথি আপলোড করুন। অনুমোদনের পর আপনি সদস্যপদ পাবেন।',
-        },
-        {
-          q: 'ঋণের উপর কি সুদ দিতে হবে?',
-          a: 'না। আমাদের সকল ঋণ কর্জে হাসানা নীতিতে সম্পূর্ণ সুদমুক্ত।',
-        },
-        {
-          q: 'জমা টাকা উত্তোলন করা যাবে?',
-          a: 'হ্যাঁ। তবে উত্তোলনের জন্য অন্তত ৩ মাস আগে কর্তৃপক্ষকে জানাতে হবে।',
-        },
-        {
-          q: 'ঋণের জন্য যোগ্যতা কীভাবে নির্ধারিত হয়?',
-          a: 'আপনার নিয়মিত জমা, সদস্যপদের অবস্থা এবং প্রশাসনিক যাচাই অনুযায়ী ঋণ যোগ্যতা নির্ধারিত হয়।',
-        },
-      ]
-    : [
-        {
-          q: 'How can I become a member?',
-          a: 'Complete the registration form and upload the required documents. Your membership is activated after approval.',
-        },
-        {
-          q: 'Do I have to pay interest on loans?',
-          a: 'No. All loans are fully interest-free under Qard al-Hasan principles.',
-        },
-        {
-          q: 'Can I withdraw my deposited funds?',
-          a: 'Yes. A minimum 3-month prior notice is required before withdrawal.',
-        },
-        {
-          q: 'How is loan eligibility determined?',
-          a: 'Eligibility is determined by your deposit behavior, membership status, and administrative review.',
-        },
-      ];
+  // One source for the questions: this list and the FAQPage structured data
+  // must say the same thing, and a rich result whose answer differs from the
+  // page is a policy violation rather than a typo. See lib/faq.ts.
+  const faqItems = faqEntries(normalizeLocale(locale));
 
   return (
     <>
+      <StructuredData locale={normalizeLocale(locale)} path="/faq" settings={settings} />
       <Header settings={settings} />
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-24 pb-16">
         <div className="container-wide max-w-4xl">

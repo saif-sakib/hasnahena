@@ -152,7 +152,7 @@ Three consequences worth knowing before they cost you an afternoon:
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL` | — | ✅ | ✅ | **build-time** |
 | `NEXT_PUBLIC_SENTRY_DSN` | — | ✅ | ✅ | **build-time** |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | — | ✅ | — | build-time (source-map upload; a build never fails without them) |
-| `CORS_ORIGINS`, `PORT`, `LOG_LEVEL`, `SERVER_*`, `DB_*`, `CLEANUP_INTERVAL` | ✅ | — | ✅ | runtime |
+| `CORS_ORIGINS`, `PORT`, `LOG_LEVEL`, `SERVER_*`, `DB_*`, `CLEANUP_INTERVAL`, `RECONCILE_INTERVAL` | ✅ | — | ✅ | runtime |
 | `ENABLE_HSTS`, `TRUSTED_PROXIES`, `RATE_LIMIT_*` | ✅ | — | — | runtime |
 | `METRICS_TOKEN` | ✅ | — | — | runtime — unset ⇒ `/metrics` 404s |
 | `BREVO_*`, `EMAIL_FROM` | ✅ | — | ✅ | runtime |
@@ -196,7 +196,7 @@ removed.
 |---|---|---|
 | `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Render | email disabled — approval and reset mails silently skipped (`/v1/health` reports `emailConfigured:false`) |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Vercel | document/avatar upload fails; every other flow works |
-| `NEXT_PUBLIC_SITE_URL` | Vercel | falls back to `NEXT_PUBLIC_APP_URL` for SEO metadata |
+| `NEXT_PUBLIC_SITE_URL` | Vercel | the base of every canonical URL, `hreflang`, Open Graph URL, the sitemap and `robots.txt`. Falls back to `NEXT_PUBLIC_APP_URL`, then to Vercel's own `VERCEL_PROJECT_PRODUCTION_URL`/`VERCEL_URL` — a preview deploy claims its own hostname rather than production's. A production build with none of them **fails**, deliberately: WO-80 found the previous fallback was `hasnahena.org`, a domain this project does not own |
 | `CSP_ENFORCE` | Vercel | the Content-Security-Policy is sent **report-only**: violations reach the browser console and nothing is blocked. Set to `1` to enforce it, after a full `pnpm test:e2e` reports zero violations ([ADR-024](decisions.md)) |
 | `JWT_EXPIRY_SECONDS` | Render | 86400 |
 | `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | Render | pgx pool defaults (25/2/5m/30m/1m) |
@@ -204,6 +204,7 @@ removed.
 | `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | Render | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
 | `SERVER_SHUTDOWN_TIMEOUT` | Render | 30s. Must be **shorter** than Render's stop grace period (also 30s by default) or Render `SIGKILL`s mid-drain |
 | `CLEANUP_INTERVAL` | Render | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables |
+| `RECONCILE_INTERVAL` | Render | 1h. How often the ledger is summed and compared to the stored balances (WO-82/OPS-07). On drift it writes an `audit_logs` row, logs an error and sets `hasnahena_ledger_drift_*`; **it never corrects anything** ([ADR-027](decisions.md)). `0` disables — a temporary measure only, while a known drift is being corrected by hand |
 | `ENABLE_HSTS` | Render | **off** locally, **on** in production (SEC-09). A browser remembers HSTS for the full `max-age` — sending it from a plain-HTTP localhost API pins `localhost` to HTTPS for two years, in every project on that machine |
 | `TRUSTED_PROXIES` | Render | `0` locally, **`1` on Render**. How many reverse proxies sit in front. This picks which `X-Forwarded-For` entry the rate limiter trusts; set it to `0` in production and the limiter keys on a value the caller chooses, which makes it decorative |
 | `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Render | 60 per 1m per client, on mutating methods only (RUN-07). `GET`/`HEAD`/`OPTIONS`, `/v1/health`, `/v1/ready` and `/metrics` are exempt |

@@ -30,7 +30,7 @@ interface Loan {
   disbursedDate?: string | null;
   dueDate?: string | null;
   approvedBy?: string | null;
-  member: { id: string; memberId?: string | null; name: string };
+  member: { id: string; accountNo?: string | null; name: string };
   guarantor?: { id: string; name: string } | null;
   memberDeposit: number;
   missedPayments: number;
@@ -59,7 +59,7 @@ export default function AdminLoansPage() {
       const loanDoc = buildLoanAgreement({
         loanNumber: l.loanNumber,
         memberName: l.member.name,
-        memberId: l.member.memberId || '',
+        accountNo: l.member.accountNo || '',
         memberPhone: '',
         memberAddress: '',
         principalAmount: l.amount,
@@ -96,7 +96,7 @@ export default function AdminLoansPage() {
 
   const filteredLoans = useMemo(() => loans.filter((l) => {
     const q = searchQuery.toLowerCase();
-    const matchesSearch = l.member.name.toLowerCase().includes(q) || (l.member.memberId ?? '').toLowerCase().includes(q) || (l.guarantor?.name ?? '').toLowerCase().includes(q);
+    const matchesSearch = l.member.name.toLowerCase().includes(q) || (l.member.accountNo ?? '').toLowerCase().includes(q) || (l.guarantor?.name ?? '').toLowerCase().includes(q);
     const matchesStatus = statusFilter === 'all' || l.status === statusFilter;
     return matchesSearch && matchesStatus;
   }), [loans, searchQuery, statusFilter]);
@@ -177,7 +177,7 @@ export default function AdminLoansPage() {
               <tr key={l.id} className={`border-b border-gray-100 hover:bg-gray-50 ${l.status === 'DEFAULTED' ? 'bg-red-50' : ''}`}>
                 <td className="px-4 py-3">
                   <div className="font-medium text-gray-900">{l.member.name}</div>
-                  {l.member.memberId && <div className="text-xs text-gray-500">{l.member.memberId}</div>}
+                  {l.member.accountNo && <div className="text-xs text-gray-500">{l.member.accountNo}</div>}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-blue-600">{formatCurrency(l.amount, locale)}</td>
                 <td className="px-4 py-3 text-right hidden sm:table-cell">

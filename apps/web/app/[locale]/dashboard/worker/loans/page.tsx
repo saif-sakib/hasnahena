@@ -53,7 +53,7 @@ interface ActiveLoan {
   id: string;
   loanNumber: string;
   memberUserId: string;
-  memberId: string;
+  accountNo: string;
   memberName: string;
   memberPhone: string;
   loanAmount: number;
@@ -116,7 +116,7 @@ export default function WorkerLoansPage() {
         id: String(loan.id ?? ''),
         loanNumber: String(loan.loanNumber ?? ''),
         memberUserId: String(loan.memberUserId ?? ''),
-        memberId: String(loan.memberId ?? ''),
+        accountNo: String(loan.accountNo ?? ''),
         memberName: String(loan.memberName ?? ''),
         memberPhone: String(loan.memberPhone ?? ''),
         loanAmount: principalAmount,
@@ -139,7 +139,7 @@ export default function WorkerLoansPage() {
       const loanDoc = buildLoanAgreement({
         loanNumber: loan.loanNumber,
         memberName: loan.memberName,
-        memberId: loan.memberId,
+        accountNo: loan.accountNo,
         memberPhone: loan.memberPhone,
         memberAddress: '',
         principalAmount: loan.loanAmount,

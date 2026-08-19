@@ -17,6 +17,7 @@ pnpm test:go    # Go unit tests, no DB needed  pnpm test:stack # bring the whole
 pnpm test:integration   # Go + real Postgres: repositories, the 64-route contract, hostile input
 pnpm test:routes        # the Next route methods + real Postgres; no browser, no server
 pnpm db:migrate:check   # the migrated database still matches schema.prisma (CI runs this)
+pnpm test:bundle        # first-load JS per route vs bundle-budget.json; needs a prior `pnpm build`
 cd apps/api && go build ./...                  # Go check
 ```
 
@@ -45,8 +46,8 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Twenty-one suites and two CI checks enumerate rather than list, and will fail the
-build when the code grows something they do not know about.** That is
+**Twenty-three suites and three CI checks enumerate rather than list, and will fail
+the build when the code grows something they do not know about.** That is
 deliberate — a list a human maintains goes stale the day it is written. See
 [docs/testing.md](docs/testing.md).
 
@@ -70,16 +71,28 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | a `/support/*` route in `main.go` | `apps/web/test/unit/support-proxy-allowlist.test.ts` — the Next proxy forwards an allow-list; a route missing from it 404s in production with nothing in either log saying why |
 | a generator that maps random bytes onto an alphabet | `internal/utils/random_test.go` — use `utils.RandomString`; `%` over a byte is not uniform, and both suites keep the biased version to prove the statistic can tell |
 | the donation pool's owner id, in either language | `apps/web/test/unit/donation-pool-owner.test.ts` — `seed.mjs`, `db-clear-preserve-core.mjs` and `transaction_repository.go` must name the same id, or donations fail with "run `pnpm db:seed`" on a seeded database |
-| a labelled identifier to a generated document | `apps/web/test/unit/*` — `users.memberId` is the **only** member identifier ([ADR-023](docs/decisions.md)); no document may give it two names, which is what "Member ID" and "Account No" on the statement were |
+| a labelled identifier to a generated document | `apps/web/lib/documents/builders.test.ts` — `users.accountNo` is the **only** member identifier ([ADR-023](docs/decisions.md), [ADR-029](docs/decisions.md)); no document may give it two names, which is what "Member ID" and "Account No" on the statement were. The surviving label is **Account No** |
 | a `system_config` key a **public** page reads | `apps/web/test/unit/settings-keys-read.test.ts` — the public pages render from `getPublicSettings()`, which selects `PUBLIC_CONFIG_KEYS` and nothing else. A key outside it reads `undefined` and the page shows its hardcoded fallback forever |
 | a page under `app/[locale]/` that is neither dashboard nor auth | `apps/web/scripts/assert-static-routes.mjs` after `pnpm build` — marketing routes must be prerendered, dashboard and auth routes must not. It reads the build's own manifest, because no test over the source can know which a route is |
 | a repository read on a hot path | `TestHotReadsDoNotSelectStar` — name the columns. `SELECT *` on `users` ships the address, both parents' names, the NID number and the photo URL to render a name and a balance |
 | a `setInterval` in the dashboard shell | `apps/web/e2e/dashboard-traffic.spec.ts` — it counts what one open tab asks for in seventy seconds, and a hidden tab must ask for nothing |
+| a **public page**, or a path in `publicPagePaths` | `apps/web/test/unit/structured-data.test.ts` — it must render `<StructuredData>` and have a breadcrumb label in both languages, or it ships a page search engines read as anonymous |
+| a `dangerouslySetInnerHTML` | `apps/web/test/unit/csp.test.ts` — exactly **one** is sanctioned, in `components/seo/structured-data.tsx`. [ADR-024](docs/decisions.md) lets the marketing pages keep `'unsafe-inline'` on the grounds that they have no XSS sink; a second one makes that argument false |
+| an invariant to `repositories.AllChecks` | `apps/api/internal/repositories/reconcile_integration_test.go` — plant a drift for it. A check nobody has seen fail may not work |
+| a write reachable from the reconciliation job | `apps/api/cmd/server/wiring_test.go` — it reads the source and fails on any `UPDATE accounts` there. The job reports drift; it must never correct it ([ADR-027](docs/decisions.md)) |
+| an import to a shared component | `apps/web/scripts/assert-bundle-budget.mjs` after `pnpm build` — first-load JS per route against `bundle-budget.json`, >10% growth fails. Accept a real cost with `pnpm test:bundle:update` |
 
 ## Rules
 
 1. Money is **BigInt whole taka**. No paisa, no float, no ×100.
 2. **Balance changes go in the Go API** — `internal/repositories/transaction_repository.go` (deposits, withdrawals, donations) or `loan_repository.go` (lending), one DB transaction, plus an `audit_logs` row. Never from a Next route handler.
+2b. **An expected refusal is not a 500.** A withdrawal with no matured notice, a
+   guarantor whose savings are locked, a deposit against a suspended member —
+   these are answers, not faults. Return a sentinel from the repository, match it
+   with `errors.Is` in the handler, and answer 4xx with the reason. Classifying
+   by `strings.Contains(err.Error(), …)` is how "is guarantor for active loan"
+   got reported as "has an active loan", and how FR-08's two refusals became
+   `500 Failed to process withdrawal` on both admin screens at once.
 2a. **Write a balance relatively** (`SET "savingsBalance" = "savingsBalance" + $1 ... RETURNING`), or read it `FOR UPDATE` inside the same transaction. Reading it from the pool and writing back an absolute total is a lost update: it silently destroys money and makes the ledger disagree with the balance. That was LEDGER-01, fixed 2026-08-17 and pinned by concurrency tests — see [ADR-015](docs/decisions.md).
 3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
 4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
@@ -94,7 +107,14 @@ deliberate — a list a human maintains goes stale the day it is written. See
    withdrawal is a member's *notice* (FR-08) and a `PENDING` deposit is a
    request; only `CONFIRMED` moved money. Any aggregate over `transactions` must
    filter on status — four were not, and counted intentions as income
-   ([ADR-016](docs/decisions.md)).
+   ([ADR-016](docs/decisions.md)). **And the converse**: a `CONFIRMED` posting a
+   member disputes becomes `DISPUTED` while the balance stays moved, so
+   reconciliation counts both ([ADR-026](docs/decisions.md)).
+6c. **The ledger is summed hourly and never repaired automatically.** A wrong
+   balance looks exactly like a correct one until somebody adds it up; that job
+   is `reconcile_repository.go`, and on drift it writes an audit row, a `slog`
+   error and a `/metrics` gauge. Correcting it is a human decision, appended as a
+   new posting ([ADR-027](docs/decisions.md), [runbook.md](docs/runbook.md) §2).
 6b. **Inside a repository transaction, read config with the `…Tx` reader.** The
    pool-based variant takes a second connection and deadlocks the pool under
    concurrency ([ADR-017](docs/decisions.md)).
@@ -123,6 +143,8 @@ apps/api/internal/repositories/   all SQL, split by domain (WO-38):
     auth_repository.go            identity, passwords, reset tokens
     support_repository.go         support chat + SSE tickets
     report_repository.go          aggregate reporting
+    reconcile_repository.go       sums the whole ledger and compares it to the stored balances (WO-82).
+                                  Read-only by construction: it reports drift and never repairs (ADR-027)
 apps/api/internal/money/          pure loan/installment/waterfall/schedule arithmetic — tested, no DB.
                                   Put new money maths HERE, not inline in SQL
 apps/api/internal/notify/         every member- and staff-facing notification string. Pure builders,
@@ -136,6 +158,10 @@ apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,wo
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)
+apps/web/lib/seo.ts               canonical URLs, hreflang (incl. x-default), OG/Twitter metadata, and
+                                  resolveSiteOrigin — which THROWS on a production build with no site URL
+apps/web/lib/structured-data.ts   the JSON-LD builders. Type is NGO, never FinancialService — those carry
+                                  interestRate and fee properties that misrepresent a Qard al-Hasan fund
 apps/web/lib/system-config.ts     every system_config key, split into public / member / admin tiers,
                                   plus the cached getPublicSettings() every marketing page renders from
 apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
@@ -143,6 +169,9 @@ apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/sett
 apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
+apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member is given (ADR-023/029).
+                                  `users.accountNo`; called memberId before 2026-08-19. The Go half is
+                                  apps/api/internal/utils/account_no.go and the two must agree
 apps/web/prisma/schema.prisma     the data model
 apps/web/public/images/logo/      logo.png lockup · -mark square · -og social · -print PDF
 ```
@@ -161,10 +190,11 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
 | [docs/go-live.md](docs/go-live.md) | **the order to do remaining work in before real member data exists** — read before any pre-production planning |
+| [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives |
 | [docs/tasks.md](docs/tasks.md) | the status board: open product work only — **update when you finish work** |
 | [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **The one live defect is at the top**: monitoring that is built and switched off |
 | [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch. The only doc that keeps history |
-| [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs. **None open** |
+| [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs. **All six blocks closed** |
 
 Conventions (Go errors, TS strictness, quoted camelCase SQL, commit format): [CONTRIBUTING.md](CONTRIBUTING.md).
 

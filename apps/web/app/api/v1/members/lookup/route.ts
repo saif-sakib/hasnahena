@@ -4,7 +4,7 @@ import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 import { UserRole } from '@prisma/client';
-import { isStandardMemberId } from '@/lib/member-id';
+import { isStandardAccountNo } from '@/lib/account-no';
 
 /**
  * Resolve a human-readable member ID to the minimum a loan applicant needs to
@@ -45,8 +45,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
     }
 
-    const memberId = new URL(req.url).searchParams.get('memberId')?.trim().toUpperCase() ?? '';
-    if (!isStandardMemberId(memberId)) {
+    const accountNo = new URL(req.url).searchParams.get('accountNo')?.trim().toUpperCase() ?? '';
+    if (!isStandardAccountNo(accountNo)) {
       return NextResponse.json({ ok: false, error: 'INVALID_MEMBER_ID' }, { status: 400 });
     }
 
@@ -67,8 +67,8 @@ export async function GET(req: Request) {
     }
 
     const member = await prisma.user.findFirst({
-      where: { memberId, role: UserRole.MEMBER, status: 'ACTIVE' },
-      select: { id: true, memberId: true, nameEn: true, nameBn: true },
+      where: { accountNo, role: UserRole.MEMBER, status: 'ACTIVE' },
+      select: { id: true, accountNo: true, nameEn: true, nameBn: true },
     });
 
     // Deliberately the same answer for "no such member", "not a member" and
@@ -82,7 +82,7 @@ export async function GET(req: Request) {
       ok: true,
       data: {
         id: member.id,
-        memberId: member.memberId,
+        accountNo: member.accountNo,
         nameEn: member.nameEn,
         nameBn: member.nameBn,
       },

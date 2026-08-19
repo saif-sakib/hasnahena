@@ -37,7 +37,7 @@ func Metrics(next http.Handler) http.Handler {
 
 			// Read the pattern AFTER the handler: chi fills it in as it walks
 			// the tree, so before ServeHTTP it is empty. The pattern is the
-			// template ("/v1/dashboard/worker/members/{memberId}/deposit"), not
+			// template ("/v1/dashboard/worker/members/{memberUserId}/deposit"), not
 			// the resolved path — one time series per endpoint instead of one
 			// per member.
 			route := ""

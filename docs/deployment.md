@@ -291,7 +291,7 @@ It is gated because the exposition is business data: how many members are waitin
 curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.hasnahenafoundation.com/metrics
 ```
 
-Route labels are chi **route templates** (`/v1/dashboard/worker/members/{memberId}/deposit`), never resolved paths — one series per endpoint rather than one per member, which is both a cardinality and a privacy decision.
+Route labels are chi **route templates** (`/v1/dashboard/worker/members/{memberUserId}/deposit`), never resolved paths — one series per endpoint rather than one per member, which is both a cardinality and a privacy decision.
 
 Business gauges refresh on a ticker (`METRICS_REFRESH_INTERVAL`, default 1m) rather than per scrape, so database load does not depend on how often somebody else's scraper runs. `hasnahena_business_metrics_last_refresh_timestamp_seconds` tells you the numbers are live — a frozen gauge otherwise looks exactly like a calm system.
 

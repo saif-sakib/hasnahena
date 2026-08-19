@@ -89,7 +89,7 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 			u.role::text,
 			u.status::text,
 			COALESCE(u."avatarUrl", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			-- WO-72: the assigned branch is a row now, not a free string on the
 			-- user. Joined rather than selected so a renamed office is renamed
 			-- everywhere at once, which is the whole point of the change.
@@ -102,13 +102,13 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 		WHERE u.id = $1
 	`
 
-	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, memberId string
+	var id, nameEn, nameBn, email, phone, role, status, avatarUrl, accountNo string
 	var branchName, branchCode string
 	var createdAt time.Time
 	var transactionsProcessed int
 
 	if err := r.db.QueryRow(ctx, query, userID).Scan(
-		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &memberId,
+		&id, &nameEn, &nameBn, &email, &phone, &role, &status, &avatarUrl, &accountNo,
 		&branchName, &branchCode, &createdAt, &transactionsProcessed); err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 		"role":                  role,
 		"status":                status,
 		"avatarUrl":             avatarUrl,
-		"memberId":              memberId,
+		"accountNo":             accountNo,
 		"assignedBranch":        branchName,
 		"assignedBranchCode":    branchCode,
 		"joinedAt":              createdAt.Format(time.RFC3339),
@@ -150,7 +150,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 			u.id::text,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(u.phone, ''),
 			COALESCE(g."nameEn", g."nameBn", ''),
 			COALESCE(l."installmentStartDate", l."disbursementDate"),
@@ -210,7 +210,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 			"memberUserId":      memberUserID,
 			"memberName":        memberName,
 			"memberNameBn":      memberNameBn,
-			"memberId":          memberID,
+			"accountNo":         memberID,
 			"memberPhone":       memberPhone,
 			"guarantorName":     guarantorName,
 			"createdAt":         createdAt.Format(time.RFC3339),
@@ -237,7 +237,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			t."createdAt",
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(u.phone, '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
@@ -289,7 +289,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			"memberName":    memberName,
 			"memberNameBn":  memberNameBn,
 			"memberUserId":  memberUserID,
-			"memberId":      memberID,
+			"accountNo":     memberID,
 			"memberPhone":   memberPhone,
 		})
 	}
@@ -303,7 +303,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 	const memberQuery = `
 		SELECT
 			u.id::text,
-			COALESCE(u."memberId", '') AS member_id,
+			COALESCE(u."accountNo", '') AS account_no,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u.email, ''),
 			u.phone,
@@ -321,13 +321,13 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 	`
-	var id, memberPublicID, name, email, phone, nid, status, address string
+	var id, accountNo, name, email, phone, nid, status, address string
 	var createdAt time.Time
 	var savingsBalance, activeLoan, totalDeposited, totalWithdrawn int64
 	var isGuarantor bool
 
 	err := r.db.QueryRow(ctx, memberQuery, memberID).Scan(
-		&id, &memberPublicID, &name, &email, &phone, &nid, &status, &createdAt,
+		&id, &accountNo, &name, &email, &phone, &nid, &status, &createdAt,
 		&savingsBalance, &activeLoan, &totalDeposited, &totalWithdrawn, &address, &isGuarantor,
 	)
 	if err != nil {
@@ -344,8 +344,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	member := map[string]interface{}{
 		"id":                       id,
-		"uid":                      memberPublicID,
-		"memberId":                 memberPublicID,
+		"uid":                      accountNo,
+		"accountNo":                accountNo,
 		"name":                     name,
 		"email":                    email,
 		"phone":                    phone,
@@ -364,6 +364,60 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			"reason":        eligibilityReason,
 		},
 	}
+
+	// FR-08 — what this member may actually be paid, and when.
+	//
+	// A payout settles a notice the member gave; it never originates one
+	// (rule 4). The screen used to show only "Max: <balance>", so an admin had
+	// every reason to believe a withdrawal was a matter of typing an amount, and
+	// the refusal that followed named no notice, no date and no next step.
+	//
+	// The maturity date is computed here rather than in the browser because the
+	// rule that produces it lives here — `noticeMaturityDate` normalises 31
+	// January plus three months to 1 May, and a second implementation in
+	// TypeScript would be a second answer.
+	noticePeriodMonths := r.getWithdrawalNoticePeriodMonths(ctx)
+	const noticeQuery = `
+		SELECT
+			t.id::text,
+			t.amount::bigint,
+			t."createdAt",
+			t.status::text
+		FROM transactions t
+		WHERE t."userId" = $1
+		  AND t.type = 'WITHDRAWAL'
+		  AND t.status IN ('PENDING', 'PROCESSED')
+		ORDER BY t."createdAt" ASC
+	`
+	noticeRows, err := r.db.Query(ctx, noticeQuery, memberID)
+	if err != nil {
+		return nil, err
+	}
+	defer noticeRows.Close()
+
+	withdrawalNotices := make([]map[string]interface{}, 0)
+	for noticeRows.Next() {
+		var noticeID, noticeStatus string
+		var noticeAmount int64
+		var noticeCreatedAt time.Time
+		if err := noticeRows.Scan(&noticeID, &noticeAmount, &noticeCreatedAt, &noticeStatus); err != nil {
+			continue
+		}
+		eligibleFrom := noticeMaturityDate(noticeCreatedAt, noticePeriodMonths)
+		withdrawalNotices = append(withdrawalNotices, map[string]interface{}{
+			"id":           noticeID,
+			"amount":       noticeAmount,
+			"status":       strings.ToUpper(noticeStatus),
+			"givenAt":      noticeCreatedAt.Format(time.RFC3339),
+			"eligibleFrom": eligibleFrom.Format(time.RFC3339),
+			"matured":      !time.Now().Before(eligibleFrom),
+		})
+	}
+	if err := noticeRows.Err(); err != nil {
+		return nil, err
+	}
+	member["withdrawalNotices"] = withdrawalNotices
+	member["noticePeriodMonths"] = noticePeriodMonths
 
 	// Get recent transactions
 	const txnQuery = `

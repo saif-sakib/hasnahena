@@ -28,7 +28,7 @@ Completed items are one line each; the record of what they contained is in
 | Area | State | Verdict |
 |---|---|---|
 | **Monitoring** | `[!]` | Built, correct, and **switched off in every environment** — below |
-| Ledger integrity | `[x]` | LEDGER-01→07 fixed. Balance writes relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations sequential and audited. A regression test for every one, each seen to fail against the pre-fix code |
+| Ledger integrity | `[x]` | LEDGER-01→07 fixed. Balance writes relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations sequential and audited. A regression test for every one, each seen to fail against the pre-fix code. **And now reconciled hourly** (OPS-07): the totals are summed and compared to the stored balances, which is the only check that catches a wrong balance nobody has added up |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is race-proof under concurrent postings |
 | Product features | `[~]` | 12 of 22 FRs complete, 8 partial, 2 not started, **none broken** — [tasks.md](tasks.md) |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
@@ -41,7 +41,7 @@ Completed items are one line each; the record of what they contained is in
 | Backups | `[x]` | Nightly encrypted `pg_dump` in Actions, 30-day retention and 90-day monthlies, restore drill on every push to main. **Database only** — see DATA-06 |
 | Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups, rate limiting, panic reporting, a bounded email path (RUN-01→11) |
 | Git history | `[x]` | 39 files and three binaries remain in history; **assessed and accepted** — not live member data ([ADR-018](decisions.md)) |
-| Secrets management | `[~]` | Env vars per host, no rotation record, no central store (OPS-02, INF-09) |
+| Secrets management | `[~]` | Env vars per host, no rotation record, no central store (OPS-02, INF-09). The *order* to rotate them in is written down — [runbook.md §3](runbook.md#3-a-suspected-credential-leak) |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops (INF-02) |
 
 ---
@@ -168,13 +168,13 @@ What makes it *stay* production-ready after you stop looking at it daily.
 
 | ID | Task | Cadence |
 |---|---|---|
-| OPS-01 | Incident runbooks | Write once: API down, database unreachable, disputed transaction, suspected credential leak, bad deploy |
+| OPS-01 | Incident runbooks | `[x]` [runbook.md](runbook.md) — API down, database unreachable, bad deploy → rollback, a disputed transaction against an append-only log, credential rotation in the right order, restore from backup, and where every credential lives |
 | OPS-02 | Secret rotation | Every 6 months, and immediately after any exposure. `JWT_SECRET` must change in Vercel and Render **together** or every session breaks |
 | OPS-03 | Dependency updates | Monthly, on a branch, with CI green |
 | OPS-04 | Restore drill | Quarterly |
 | OPS-05 | Access review | Quarterly: who holds admin, Neon, Vercel, Render, Cloudinary and DNS credentials |
-| OPS-06 | Bus-factor documentation | One person can currently deploy this. Write down what a successor needs — accounts, secrets locations, the runbooks |
-| OPS-07 | **Financial reconciliation job** | Sum of transactions must equal account balances; alert on drift. **The strongest guard a ledger can have** — had it existed, LEDGER-01 would have been a nightly alert rather than an audit finding. [go-live.md](go-live.md) promotes this to Stage 1 |
+| OPS-06 | Bus-factor documentation | `[~]` [runbook.md §5](runbook.md#5-where-every-credential-lives) maps every credential store and who can reach it. It is a map of single points of failure, not a fix for them — **one person can still reach all of them** |
+| OPS-07 | **Financial reconciliation job** | `[x]` WO-82. Five invariants summed hourly against the stored balances — savings, loan balance, loan remaining, every `savingsAfter` snapshot against the running total, and WO-72's owner pairs. On drift: an `audit_logs` row, a `slog` error and `hasnahena_ledger_drift_*`. **It never corrects anything** ([ADR-027](decisions.md)). It found two live defects in the default-recovery waterfall on its first run |
 | OPS-08 | 48-hour unconfirmed-transaction sweep | Product gap in [tasks.md](tasks.md); needs the scheduler this phase provides |
 | OPS-09 | Uptime/incident log | A dated file. Turns "it feels slow lately" into evidence |
 
@@ -190,7 +190,7 @@ sequencing is *what gets more expensive once real member data exists*.
 |---|---|---|
 | 1 | **Switch the monitoring on** | OBS-03, OBS-04. Dashboard work, not engineering, and everything below is being done blind until it is done |
 | 2 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07. A migration today; a migration *plus a backfill* after launch. Guarded by `pnpm db:migrate:check` in CI |
-| 3 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09. OPS-07 first |
+| 3 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-02 → OPS-05, OPS-08, OPS-09. **OPS-01, OPS-06 and OPS-07 are done** — what is left of them is OPS-04, the restore rehearsal, which needs the Neon account |
 | 4 | **Move hosts** | INF-01 → INF-12 |
 
 Everything that used to head this list — the ledger, backups, tests, CI, the

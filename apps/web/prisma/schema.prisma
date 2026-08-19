@@ -102,7 +102,12 @@ model User {
   status       UserStatus @default(PENDING)
 
   // Profile
-  memberId   String? @unique // গ্রাহক আই.ডি
+  //
+  // The member's account number — `ACC-KH-33001`. It was called `memberId`
+  // until 2026-08-19; the value, its format and its allocator are unchanged.
+  // ADR-023 remains the rule it always was: this is the *only* identifier a
+  // member is given, and nothing may print it under a second name.
+  accountNo  String? @unique // গ্রাহক আই.ডি
   formNumber String? // ফরম নং
 
   // Personal Info
@@ -233,12 +238,16 @@ model Document {
 /// every query already assumed — member lookups all read `WHERE "userId" = $1`
 /// and expect a single row.
 ///
-/// There is no `accountNumber`. It used to exist and was always set to the
-/// owner's `memberId`, in both creation paths, so a member's statement printed
-/// the same string twice under two labels. `users.memberId` is the one
-/// identifier (ADR-008, ADR-023): it exists before any account does, it has a
-/// format members read aloud, and it is what the receipt and the loan agreement
-/// had always used on their own.
+/// There is no `accountNumber` on this model. It used to exist and was always
+/// set to the owner's identifier, in both creation paths, so a member's
+/// statement printed the same string twice under two labels.
+/// `users.accountNo` is the one identifier (ADR-008, ADR-023): it exists before
+/// any account does, it has a format members read aloud, and it is what the
+/// receipt and the loan agreement had always used on their own.
+///
+/// It was called `users.memberId` until 2026-08-19. Same column, same values,
+/// same allocator — the name now matches the `ACC-` the values have always
+/// started with, and matches what a member is told to quote.
 model Account {
   id String @id @default(cuid())
 
@@ -377,10 +386,10 @@ model Loan {
 /// connected to each other. That is the ADR-023 shape: one fact, two homes, kept
 /// equal by hand or not at all (WO-72).
 ///
-/// `code` is the human-readable prefix (`KH` for Bhekutia). Note that member IDs
-/// are generated from the hardcoded constant `utils.MemberIDPrefix`
+/// `code` is the human-readable prefix (`KH` for Bhekutia). Note that account
+/// numbers are generated from the hardcoded constant `utils.AccountNoPrefix`
 /// ("ACC-KH-33"), NOT from this column — a second branch therefore needs a code
-/// change in `member_id.go` as well as a row here. That is recorded rather than
+/// change in `account_no.go` as well as a row here. That is recorded rather than
 /// fixed: making the prefix dynamic would change the format of an identifier
 /// members read aloud and write into paper passbooks (ADR-008).
 model Branch {

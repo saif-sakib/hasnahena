@@ -11,10 +11,10 @@ import {
 import { uploadImage, deleteImage } from '@/lib/cloudinary';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 import {
-  formatMemberId,
+  formatAccountNo,
   MEMBER_ID_ADVISORY_LOCK_SQL,
-  NEXT_MEMBER_ID_SQL,
-} from '@/lib/member-id';
+  NEXT_ACCOUNT_NO_SQL,
+} from '@/lib/account-no';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 
 function normalizeOptionalString(v: string | undefined): string | null {
@@ -319,8 +319,8 @@ export async function POST(req: Request) {
 
     const created = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(MEMBER_ID_ADVISORY_LOCK_SQL);
-      const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_MEMBER_ID_SQL);
-      const memberId = formatMemberId(Number(nextSeq));
+      const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_ACCOUNT_NO_SQL);
+      const accountNo = formatAccountNo(Number(nextSeq));
 
       return tx.user.create({
         data: {
@@ -330,8 +330,8 @@ export async function POST(req: Request) {
           role: UserRole.MEMBER,
           status: UserStatus.PENDING,
 
-          memberId,
-          formNumber: `FORM-${memberId}`,
+          accountNo,
+          formNumber: `FORM-${accountNo}`,
 
           nameEn: payload.nameEn,
           nameBn: normalizeOptionalString(payload.nameBn),
@@ -389,7 +389,7 @@ export async function POST(req: Request) {
         },
         select: {
           id: true,
-          memberId: true,
+          accountNo: true,
           email: true,
           phone: true,
           role: true,
@@ -409,7 +409,7 @@ export async function POST(req: Request) {
         validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
           const uploadResult = await uploadImage(
             buffer,
-            `registrations/members/${created.memberId}/${requirement.folderSlug}`,
+            `registrations/members/${created.accountNo}/${requirement.folderSlug}`,
             {
               preserveOriginal: true,
               useFilename: true,
@@ -466,7 +466,7 @@ export async function POST(req: Request) {
         targetRole: UserRole.ADMIN,
         data: {
           userId: created.id,
-          memberId: created.memberId,
+          accountNo: created.accountNo,
           name: created.nameEn,
           phone: created.phone,
         },

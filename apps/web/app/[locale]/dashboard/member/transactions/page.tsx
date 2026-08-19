@@ -45,7 +45,7 @@ interface Transaction {
 
 interface MemberProfileResponse {
   profile?: {
-    memberId?: string;
+    accountNo?: string;
     nameEn?: string;
     phone?: string;
   };
@@ -54,8 +54,8 @@ interface MemberProfileResponse {
   };
 }
 
-function getMemberDisplayId(profile: MemberProfileResponse | null): string {
-  return profile?.profile?.memberId?.trim() || 'N/A';
+function getAccountNoForDisplay(profile: MemberProfileResponse | null): string {
+  return profile?.profile?.accountNo?.trim() || 'N/A';
 }
 
 function getMemberDisplayName(profile: MemberProfileResponse | null): string {
@@ -116,7 +116,7 @@ export default function TransactionsPage() {
     
     const statementDoc = buildStatement({
       memberName: getMemberDisplayName(memberProfile),
-      memberId: getMemberDisplayId(memberProfile),
+      accountNo: getAccountNoForDisplay(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
       periodStart: oneYearAgo.toISOString(),
       periodEnd: now.toISOString(),
@@ -148,7 +148,7 @@ export default function TransactionsPage() {
       amount: tx.amount,
       date: tx.date,
       memberName: getMemberDisplayName(memberProfile),
-      memberId: getMemberDisplayId(memberProfile),
+      accountNo: getAccountNoForDisplay(memberProfile),
       memberPhone: getMemberDisplayPhone(memberProfile),
       balanceAfter: (tx.balanceAfter || 0),
       processedBy: tx.processedBy,

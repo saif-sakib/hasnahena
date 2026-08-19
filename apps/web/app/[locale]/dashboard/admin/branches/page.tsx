@@ -184,8 +184,8 @@ export default function BranchesPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {bn
-              ? 'কর্মীদের যে অফিসে নিয়োগ দেওয়া হয়। সদস্য আইডির গঠন এখান থেকে পরিবর্তিত হয় না।'
-              : 'The offices staff are assigned to. Member ID format is not derived from these.'}
+              ? 'কর্মীদের যে অফিসে নিয়োগ দেওয়া হয়। অ্যাকাউন্ট নম্বরের গঠন এখান থেকে পরিবর্তিত হয় না।'
+              : 'The offices staff are assigned to. Account numbers are not derived from these.'}
           </p>
         </div>
         <div className="flex gap-2">

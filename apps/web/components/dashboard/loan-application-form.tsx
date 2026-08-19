@@ -33,7 +33,7 @@ interface Props {
 
 interface ConfirmedGuarantor {
   id: string;
-  memberId: string;
+  accountNo: string;
   name: string;
 }
 
@@ -78,7 +78,7 @@ export function LoanApplicationForm({
     setLookupError(null);
     try {
       const token = getAccessToken();
-      const res = await fetch(`/api/v1/members/lookup?memberId=${encodeURIComponent(candidate)}`, {
+      const res = await fetch(`/api/v1/members/lookup?accountNo=${encodeURIComponent(candidate)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         cache: 'no-store',
       });
@@ -94,7 +94,7 @@ export function LoanApplicationForm({
       }
 
       const name = locale === 'bn' ? (payload.data.nameBn || payload.data.nameEn) : payload.data.nameEn;
-      setGuarantor({ id: payload.data.id, memberId: payload.data.memberId, name });
+      setGuarantor({ id: payload.data.id, accountNo: payload.data.accountNo, name });
     } catch {
       setLookupError(t('applyGuarantorNotFound'));
     } finally {
@@ -268,7 +268,7 @@ export function LoanApplicationForm({
                 <span>
                   <span className="font-medium">{guarantor.name}</span>
                   <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                    {guarantor.memberId}
+                    {guarantor.accountNo}
                   </span>
                 </span>
               </span>

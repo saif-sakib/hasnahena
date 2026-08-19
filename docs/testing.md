@@ -13,13 +13,14 @@ is one line per phase in [changelog.md](changelog.md). This file is what you nee
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, and the source censuses — including foreign-key index coverage and the settings keys pages read |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, the SEO metadata and JSON-LD builders, and the source censuses — foreign-key index coverage, the settings keys pages read, and the count of `dangerouslySetInnerHTML` that [ADR-024](decisions.md) rests on |
 | `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes |
-| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
+| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; **the ledger reconciliation, with a drift planted for every invariant it claims to check**; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
 | `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
 | `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. CI runs it after `db:migrate` |
 | `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility, **zero CSP violations across every page and both dashboards**, and **how many background requests one open dashboard tab makes in a minute** |
 | `node apps/web/scripts/assert-static-routes.mjs` | a completed `pnpm build` | that the marketing routes are still prerendered and no dashboard or auth route is. Reads `.next/prerender-manifest.json`; CI runs it right after the build |
+| `pnpm test:bundle` | a completed `pnpm build` | first-load JavaScript per route against `bundle-budget.json`, failing on >10% growth, an unrecorded route, or a recorded route the build no longer produces. Reads `.next/diagnostics/route-bundle-stats.json` — the bundler's own answer. Accept a real cost with `pnpm test:bundle:update` |
 
 **The split is load-bearing.** The first two must stay fast enough to run on
 every save, so nothing needing a database belongs in them — which is why
@@ -62,8 +63,8 @@ left behind would pass or fail on package ordering.
 ## The fixture contract
 
 1. **Namespace everything you seed to your own suite** — ids, phones, emails,
-   `memberId`. Both contract suites originally seeded `memberId = 'RT-MEMBER'`
-   and whichever ran second died on `users_memberId_key`: invisible when either
+   `accountNo`. Both contract suites originally seeded `accountNo = 'RT-MEMBER'`
+   and whichever ran second died on `users_accountNo_key`: invisible when either
    ran alone, therefore invisible until CI ran both.
 2. **Seed what you need; never depend on what another suite left.**
 3. **Upsert rather than truncate** in the browser fixtures — they share the
@@ -151,6 +152,7 @@ number nobody trusts. Taken on the author's machine.
 | List read | 1–2 queries, flat in row count |
 | Member dashboard read | 5 queries, flat in history length |
 | Go integration suite | ~8 s; ~40 s under `-race` |
-| Web unit suite | ~4 s for 429 tests across 23 files |
+| Web unit suite | ~6 s for 544 tests across 30 files |
 | Next route contracts | ~3 s |
-| Browser suite | 145 passed + 1 skipped, 7.4 min, one worker, on an idle machine |
+| Browser suite | 153 passed + 1 skipped, 10.8 min, one worker, on an idle machine |
+| Largest client bundle | `/[locale]/dashboard/worker/loans`, 1.43 MB uncompressed first-load JS. Recorded, not endorsed — see `bundle-budget.json` |

@@ -24,7 +24,7 @@ export function buildMembershipCertificate(
       kind: 'certify',
       intro: 'This is to certify that',
       name: orDash(data.memberName),
-      subtitle: `Member ID: ${orDash(data.memberId)}`,
+      subtitle: `Account No: ${orDash(data.accountNo)}`,
       body:
         `is a registered and active member of ${orgName}, and is entitled to participate ` +
         'in its savings, interest-free lending (Qard al-Hasan), and member welfare activities.',
@@ -41,10 +41,10 @@ export function buildMembershipCertificate(
 
   return {
     title: 'Membership Certificate',
-    refLabel: 'Member ID',
-    refValue: orDash(data.memberId),
-    documentId: buildDocumentId('CERT', data.memberId),
-    filename: documentFilename('Membership-Certificate', data.memberId),
+    refLabel: 'Account No',
+    refValue: orDash(data.accountNo),
+    documentId: buildDocumentId('CERT', data.accountNo),
+    filename: documentFilename('Membership-Certificate', data.accountNo),
     org,
     blocks,
   };

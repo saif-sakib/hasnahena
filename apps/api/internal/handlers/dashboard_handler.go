@@ -321,25 +321,29 @@ func (h *DashboardHandler) MemberCreateWithdrawalNotice(w http.ResponseWriter, r
 
 	notice, err := h.userRepo.CreateMemberWithdrawalNotice(r.Context(), auth.UserID, req.Amount, req.Notes)
 	if err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
+		// Sentinels, like the payout path. This switch happened to be ordered
+		// safely — "is guarantor for active loan" does not contain "has active
+		// loan" — but only because the string it tested first was long enough.
+		// That is not a property worth relying on twice.
 		switch {
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrMemberNotFound):
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-		case strings.Contains(errMsg, "not active"):
+		case errors.Is(err, repositories.ErrMemberNotActive):
 			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
-		case strings.Contains(errMsg, "insufficient balance"):
+		case errors.Is(err, repositories.ErrInsufficientBalance):
 			// Names the reason, because outstanding notices count against the
 			// balance and a member looking at their own screen will otherwise
 			// see enough money and no explanation.
 			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE",
 				"Your savings, less any withdrawal notice already outstanding, do not cover this amount")
-		case strings.Contains(errMsg, "has active loan"):
-			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN",
-				"Withdrawals are not permitted while a loan is active")
-		case strings.Contains(errMsg, "is guarantor"):
+		case errors.Is(err, repositories.ErrGuarantorBlocksWithdrawal):
 			utils.Error(w, http.StatusBadRequest, "GUARANTOR_LOCK",
 				"You are guaranteeing an active loan and cannot withdraw until it is settled")
+		case errors.Is(err, repositories.ErrActiveLoanBlocksWithdrawal):
+			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN",
+				"Withdrawals are not permitted while a loan is active")
 		default:
+			slog.Error("create withdrawal notice failed", "userId", auth.UserID, "error", err)
 			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit withdrawal notice")
 		}
 		return
@@ -674,6 +678,11 @@ func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	var req struct {
+		// The member's row id, not their account number: UpdateUserStatus
+		// matches on `users.id`. It has been called `memberUserId` on the wire
+		// since before the account-number rename, and stays that way — no
+		// screen in this repository calls this endpoint, so a wire rename
+		// would only break whatever does.
 		MemberID string `json:"memberId"`
 		Status   string `json:"status"`
 		Reason   string `json:"reason"`
@@ -916,6 +925,13 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 	if err := h.userRepo.ApproveWithdrawal(r.Context(), requestID, userID); err != nil {
 		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
+		// FR-08. The most common reason an approval is refused is that the
+		// notice period has not run, and it fell through to the 500 below — so
+		// the approvals screen answered "Failed to approve withdrawal" for the
+		// one outcome the policy exists to produce. The error carries both
+		// dates; the admin needs them.
+		case errors.Is(err, repositories.ErrNoticePeriodNotElapsed):
+			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_NOT_MATURED", err.Error())
 		case strings.Contains(errMsg, "not found"):
 			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
 		case strings.Contains(errMsg, "only pending"),
@@ -925,6 +941,7 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 			strings.Contains(errMsg, "unsupported transaction type"):
 			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
 		default:
+			slog.Error("approve withdrawal failed", "requestId", requestID, "error", err)
 			utils.Error(w, http.StatusInternalServerError, "APPROVE_WITHDRAWAL_FAILED", "Failed to approve withdrawal")
 		}
 		return
@@ -1899,7 +1916,7 @@ func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request)
 // it never did is the failure mode a reconciliation job exists to catch.
 //
 // Neither had a client. The worker UI posts to
-// /v1/dashboard/worker/members/{memberId}/{deposit,withdrawal}, which is
+// /v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal}, which is
 // WorkerAddDeposit / WorkerAddWithdrawal below.
 
 // WorkerMemberDetail returns detailed information about a specific member
@@ -1908,15 +1925,15 @@ func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	memberId := r.PathValue("memberId")
-	if memberId == "" {
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
 		return
 	}
 
-	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberId)
+	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberUserId)
 	if err != nil {
-		slog.Error("member detail lookup failed", "memberId", memberId, "error", err)
+		slog.Error("member detail lookup failed", "memberUserId", memberUserId, "error", err)
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
@@ -1935,8 +1952,8 @@ func (h *DashboardHandler) WorkerAddDeposit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	memberId := r.PathValue("memberId")
-	if memberId == "" {
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
 		return
 	}
@@ -1959,7 +1976,7 @@ func (h *DashboardHandler) WorkerAddDeposit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	receipt, err := h.userRepo.AddMemberDeposit(r.Context(), memberId, auth.UserID, req.Amount, req.Notes)
+	receipt, err := h.userRepo.AddMemberDeposit(r.Context(), memberUserId, auth.UserID, req.Amount, req.Notes)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
@@ -1986,8 +2003,8 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	memberId := r.PathValue("memberId")
-	if memberId == "" {
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
 		return
 	}
@@ -2010,29 +2027,47 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	receipt, err := h.userRepo.AddMemberWithdrawal(r.Context(), memberId, auth.UserID, req.Amount, req.Notes)
+	receipt, err := h.userRepo.AddMemberWithdrawal(r.Context(), memberUserId, auth.UserID, req.Amount, req.Notes)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		// Matched on sentinels, in a switch, so the order cannot silently
+		// decide the answer. The substring version that used to be here tested
+		// "active loan" before "guarantor", and "is guarantor for active loan"
+		// contains "active loan" — so a guarantor was told they had a loan of
+		// their own.
+		switch {
+		case errors.Is(err, repositories.ErrMemberNotFound):
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-			return
-		}
-		if strings.Contains(err.Error(), "not active") {
+		case errors.Is(err, repositories.ErrMemberNotActive):
 			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
-			return
+		case errors.Is(err, repositories.ErrInsufficientBalance):
+			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE", err.Error())
+		case errors.Is(err, repositories.ErrGuarantorBlocksWithdrawal):
+			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED",
+				"This member guarantees another member's active loan, so their savings are locked")
+		case errors.Is(err, repositories.ErrActiveLoanBlocksWithdrawal):
+			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED",
+				"This member has an active loan. Enable loan.allowActiveLoanWithdrawal in settings to permit it")
+		// FR-08. Neither of these is a fault: they are the two ordinary reasons
+		// a payout is refused, and both used to reach the 500 below with the
+		// message "Failed to process withdrawal" — which says nothing about
+		// what to do, and reads as a broken screen rather than as a policy.
+		//
+		// 409 rather than 400: the request is well-formed and the caller is
+		// allowed to make it. What is wrong is the state of the member's
+		// account, and that changes on its own as the notice matures.
+		case errors.Is(err, repositories.ErrNoWithdrawalNotice):
+			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_REQUIRED",
+				"This member has no withdrawal notice covering that amount. A member gives notice "+
+					"from their own dashboard, and the payout settles it — a worker never starts one")
+		case errors.Is(err, repositories.ErrNoticePeriodNotElapsed):
+			// err.Error() carries the date the notice was given and the date it
+			// becomes payable. Throwing that away was the difference between an
+			// answer and a shrug.
+			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_NOT_MATURED", err.Error())
+		default:
+			slog.Error("add member withdrawal failed", "memberUserId", memberUserId, "error", err)
+			utils.Error(w, http.StatusInternalServerError, "WITHDRAWAL_FAILED", "Failed to process withdrawal")
 		}
-		if strings.Contains(err.Error(), "insufficient") {
-			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE", "Insufficient balance")
-			return
-		}
-		if strings.Contains(err.Error(), "active loan") {
-			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED", "Cannot withdraw while having an active loan")
-			return
-		}
-		if strings.Contains(err.Error(), "guarantor") {
-			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED", "Cannot withdraw while being a guarantor for an active loan")
-			return
-		}
-		utils.Error(w, http.StatusInternalServerError, "WITHDRAWAL_FAILED", "Failed to process withdrawal")
 		return
 	}
 
@@ -2049,8 +2084,8 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	memberId := r.PathValue("memberId")
-	if memberId == "" {
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
 		return
 	}
@@ -2088,7 +2123,7 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	loanNumber, err := h.userRepo.CreateMemberLoan(r.Context(), memberId, auth.UserID, req.Amount, req.Purpose, req.Installments)
+	loanNumber, err := h.userRepo.CreateMemberLoan(r.Context(), memberUserId, auth.UserID, req.Amount, req.Purpose, req.Installments)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
@@ -2127,8 +2162,8 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	memberId := r.PathValue("memberId")
-	if memberId == "" {
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
 		return
 	}
@@ -2157,9 +2192,9 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	receiptNumber, err := h.userRepo.AddMemberLoanPayment(r.Context(), memberId, auth.UserID, req.LoanId, req.Amount, req.Notes)
+	receiptNumber, err := h.userRepo.AddMemberLoanPayment(r.Context(), memberUserId, auth.UserID, req.LoanId, req.Amount, req.Notes)
 	if err != nil {
-		slog.Error("add member loan payment failed", "memberId", memberId, "error", err)
+		slog.Error("add member loan payment failed", "memberUserId", memberUserId, "error", err)
 		if strings.Contains(err.Error(), "not found") {
 			utils.Error(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return

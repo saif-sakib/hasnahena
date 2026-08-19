@@ -227,6 +227,7 @@ func main() {
 	defer stopSignals()
 
 	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
+	startReconciliationLoop(runCtx, userRepo, config.ReconcileInterval)
 	// runCtx, not startupCtx: this must keep running for the life of the
 	// process, and is cancelled by the same SIGTERM that drains the server.
 	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
@@ -409,11 +410,11 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			// Worker routes
 			dashboard.Get("/worker", dashboardHandler.WorkerDashboard)
 			dashboard.Get("/worker/members", dashboardHandler.WorkerMembers)
-			dashboard.Get("/worker/members/{memberId}", dashboardHandler.WorkerMemberDetail)
-			dashboard.Post("/worker/members/{memberId}/deposit", dashboardHandler.WorkerAddDeposit)
-			dashboard.Post("/worker/members/{memberId}/withdrawal", dashboardHandler.WorkerAddWithdrawal)
-			dashboard.Post("/worker/members/{memberId}/loan", dashboardHandler.WorkerAddLoan)
-			dashboard.Post("/worker/members/{memberId}/loan-payment", dashboardHandler.WorkerAddLoanPayment)
+			dashboard.Get("/worker/members/{memberUserId}", dashboardHandler.WorkerMemberDetail)
+			dashboard.Post("/worker/members/{memberUserId}/deposit", dashboardHandler.WorkerAddDeposit)
+			dashboard.Post("/worker/members/{memberUserId}/withdrawal", dashboardHandler.WorkerAddWithdrawal)
+			dashboard.Post("/worker/members/{memberUserId}/loan", dashboardHandler.WorkerAddLoan)
+			dashboard.Post("/worker/members/{memberUserId}/loan-payment", dashboardHandler.WorkerAddLoanPayment)
 			dashboard.Get("/worker/requests", dashboardHandler.WorkerRequests)
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)
@@ -429,7 +430,7 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.With(dashboardHandler.RequireRoles("WORKER", "ADMIN", "SUPER_ADMIN")).
 				Put("/worker/profile", dashboardHandler.UpdateProfile)
 			// POST /worker/{deposit,withdrawal} removed 2026-08-17 (WO-41):
-			// unused duplicates of the /worker/members/{memberId}/… routes
+			// unused duplicates of the /worker/members/{memberUserId}/… routes
 			// above, one without an audit row and one that reported success
 			// without moving money.
 
@@ -571,6 +572,97 @@ func startCleanupLoop(ctx context.Context, security *services.SecurityService, i
 			select {
 			case <-ctx.Done():
 				slog.Info("cleanup loop stopped")
+				return
+			case <-ticker.C:
+				runOnce()
+			}
+		}
+	}()
+}
+
+// startReconciliationLoop sums the ledger and compares it to the stored
+// balances, on a ticker, for the life of the process — WO-82 (OPS-07).
+//
+// A wrong balance looks exactly like a correct balance until somebody adds it
+// up, which is why this outranks every other operational item: it is the only
+// control that would have caught LEDGER-01 the night it landed rather than in
+// an audit months later.
+//
+// It reports and never repairs. An automated correction to a ledger is a second
+// defect on top of the first, and it destroys the evidence needed to understand
+// the first. On drift there is an `audit_logs` row, a `slog` error, and the
+// `hasnahena_ledger_drift_*` gauges the Monitor workflow can alert on. A human
+// decides what to do about it.
+//
+// `ctx` must be runCtx, not startupCtx, for the reason wiring_test.go spells
+// out: a loop handed a ten-second startup context runs once and stops, silently,
+// which is indistinguishable from a ledger that never drifts.
+func startReconciliationLoop(ctx context.Context, repo *repositories.UserRepository, interval time.Duration) {
+	if repo == nil || interval <= 0 {
+		slog.Warn("ledger reconciliation is disabled", "interval", interval)
+		return
+	}
+
+	runOnce := func() {
+		// Bounded independently of the tick, so a pass that is waiting on a
+		// slow aggregate cannot stack up behind the next one.
+		passCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		report, err := repo.Reconcile(passCtx)
+		if err != nil {
+			metrics.ObserveLedgerReconcileFailure()
+			slog.Error("ledger reconciliation failed", "error", err)
+			return
+		}
+
+		rows := make(map[string]int64, len(repositories.AllChecks))
+		taka := make(map[string]int64, len(repositories.AllChecks))
+		for _, drift := range report.Drifts {
+			rows[drift.Check]++
+			// Not every check has an amount — a posting attributed to the wrong
+			// member names the wrong person, it does not misstate a sum.
+			if repositories.CheckHasAmount(drift.Check) {
+				taka[drift.Check] += drift.Delta()
+			}
+		}
+		// Every check, not only the ones that found something — see
+		// metrics.SetLedgerDrift for why a gauge left unset is worse than a
+		// gauge set to zero.
+		metrics.SetLedgerDrift(rows, taka, repositories.AllChecks)
+
+		if report.Balanced() {
+			slog.Info("ledger reconciled", "duration", report.Duration, "scanned", report.Scanned)
+			return
+		}
+
+		if err := repo.RecordDrift(passCtx, report); err != nil {
+			slog.Error("could not record ledger drift in the audit log", "error", err)
+		}
+		for _, drift := range report.Drifts {
+			slog.Error("ledger drift",
+				"check", drift.Check,
+				"entity", drift.Entity,
+				"id", drift.EntityID,
+				"stored", drift.Actual,
+				"ledger", drift.Expected,
+				"delta", drift.Delta(),
+			)
+		}
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		// Once at boot. A deploy is the most likely moment for a ledger to have
+		// been changed by something other than this application.
+		runOnce()
+
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Info("reconciliation loop stopped")
 				return
 			case <-ticker.C:
 				runOnce()

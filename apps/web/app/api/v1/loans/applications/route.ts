@@ -222,10 +222,10 @@ export async function POST(req: Request) {
       },
       include: {
         borrower: {
-          select: { nameEn: true, memberId: true },
+          select: { nameEn: true, accountNo: true },
         },
         guarantor: {
-          select: { nameEn: true, memberId: true },
+          select: { nameEn: true, accountNo: true },
         },
       },
     });
@@ -256,7 +256,7 @@ export async function POST(req: Request) {
       data: {
         type: 'LOAN_REQUEST',
         title: 'New Loan Application',
-        message: `${loan.borrower.nameEn} (${loan.borrower.memberId}) has applied for a loan of ${formatMoney(amountBig)}`,
+        message: `${loan.borrower.nameEn} (${loan.borrower.accountNo}) has applied for a loan of ${formatMoney(amountBig)}`,
         targetRole: UserRole.ADMIN,
         data: {
           loanId: loan.id,

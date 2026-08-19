@@ -144,7 +144,7 @@ export function buildStatement(
       title: 'Account holder',
       fields: [
         { label: 'Name', value: orDash(data.memberName) },
-        { label: 'Member ID', value: orDash(data.memberId) },
+        { label: 'Account No', value: orDash(data.accountNo) },
         { label: 'Mobile', value: orDash(data.memberPhone) },
         {
           label: 'Statement period',
@@ -197,10 +197,10 @@ export function buildStatement(
 
   return {
     title: 'Account Statement',
-    refLabel: 'Member ID',
-    refValue: orDash(data.memberId),
-    documentId: buildDocumentId('STMT', data.memberId),
-    filename: documentFilename('Statement', data.memberId, formatDate(data.periodEnd)),
+    refLabel: 'Account No',
+    refValue: orDash(data.accountNo),
+    documentId: buildDocumentId('STMT', data.accountNo),
+    filename: documentFilename('Statement', data.accountNo, formatDate(data.periodEnd)),
     org,
     blocks,
   };

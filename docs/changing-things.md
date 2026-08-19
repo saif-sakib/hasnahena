@@ -20,6 +20,8 @@ which is most of what makes a change safe.
 | `prisma/schema.prisma` | both backends, needs a migration | Deliberate only |
 | `internal/repositories/*_repository.go` | **money** | Read [ADR-015](decisions.md) first |
 | `lib/csp.ts`, `proxy.ts` | whether every page's scripts run at all | Deliberate only — [ADR-024](decisions.md) |
+| `lib/seo.ts`, `lib/structured-data.ts` | every canonical URL, `hreflang`, social card and the JSON-LD on all ten public pages | Check `pnpm test:unit` — the guards are specific |
+| anything imported by a shared component | **first-load JavaScript on every route that renders it** | `pnpm build && pnpm test:bundle` |
 
 Rule of thumb: **presentation is cheap to change, persistence is not.** Anything
 under `app/[locale]/` that is not a `route.ts` can be rewritten freely.
@@ -87,7 +89,15 @@ and `robots.ts` generate from the route tree.
   `MUST_BE_STATIC` in `scripts/assert-static-routes.mjs`. A bare
   `prisma.something.findMany()` in a page — or in anything it renders — makes the
   route dynamic again, which means a database connection on every visit; that was
-  the state of all fifty routes before WO-73.
+  the state of all fifty routes before WO-73. It also has to render **without a
+  database at all**, because prerendering happens during the Docker image build,
+  which has none ([ADR-028](decisions.md)) — the two accessors above already
+  handle that; a new one must too.
+- A new public page also needs three things or a test will say so: an entry in
+  `publicPagePaths` (`lib/seo.ts`), a breadcrumb label in both languages
+  (`PUBLIC_PAGE_LABELS` in `lib/structured-data.ts`), and
+  `<StructuredData locale={…} path="/its-path" settings={settings} />` in its
+  JSX. Without them it is a page search engines read as belonging to nobody.
 - Dashboard pages go under `dashboard/{member,worker,admin}/`. These are
   **already role-gated** by `proxy.ts` (redirects on missing/expired token) and
   by the layout in each role folder. The gate is where the file lives.
@@ -365,6 +375,15 @@ implementation detail that must be gitignored.
 If you touched money or SQL, also run the integration suite against the test
 stack ([testing.md](testing.md)). It is the only thing that tests what the
 database actually does — and a green suite only bounds the cases it contains.
+It now includes the ledger reconciliation, which sums the whole thing and
+compares it to the stored balances; if a change of yours makes a balance and its
+transactions disagree, that suite is where you find out.
+
+If you touched anything a page imports, run `pnpm build` and then
+`node apps/web/scripts/assert-static-routes.mjs` and `pnpm test:bundle`. Both
+read what the build emitted, because whether a route is static and how much
+JavaScript it ships are conclusions the bundler draws after following every
+import — no test over the source can reach either.
 
 If you touched the schema, say so in your handover: `pnpm db:migrate` has to run
 in every environment, and nothing runs it for you.

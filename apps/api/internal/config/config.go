@@ -62,6 +62,14 @@ type Config struct {
 	// MetricsRefreshInterval controls how often the business gauges are
 	// recomputed. They are aggregate queries, so this is DB load, not free.
 	MetricsRefreshInterval time.Duration
+
+	// ReconcileInterval controls how often the ledger is summed and compared to
+	// the stored balances (WO-82). Hourly by default: the pass is a handful of
+	// full-table aggregates, and the question it answers — "do the totals still
+	// agree" — does not change minute to minute. Set RECONCILE_INTERVAL to 0 to
+	// switch it off, which should only ever be a temporary measure while a known
+	// drift is being corrected by hand.
+	ReconcileInterval time.Duration
 }
 
 func Load() Config {
@@ -136,6 +144,7 @@ func Load() Config {
 		ServerShutdownTimeout:  getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second),
 		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
 		MetricsRefreshInterval: getEnvDuration("METRICS_REFRESH_INTERVAL", 1*time.Minute),
+		ReconcileInterval:      getEnvDuration("RECONCILE_INTERVAL", 1*time.Hour),
 	}
 }
 

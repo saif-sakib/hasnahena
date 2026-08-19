@@ -41,7 +41,7 @@ export interface ReceiptData {
   amount: number;
   date: string;
   memberName: string;
-  memberId: string;
+  accountNo: string;
   memberPhone: string;
   balanceAfter: number;
   processedBy?: string;
@@ -51,7 +51,7 @@ export interface ReceiptData {
 export interface LoanDocumentData {
   loanNumber: string;
   memberName: string;
-  memberId: string;
+  accountNo: string;
   memberPhone: string;
   memberAddress?: string;
   principalAmount: number;
@@ -74,7 +74,7 @@ export interface StatementTransaction {
 
 export interface StatementData {
   memberName: string;
-  memberId: string;
+  accountNo: string;
   memberPhone: string;
   periodStart: string;
   periodEnd: string;
@@ -87,7 +87,7 @@ export interface StatementData {
 
 export interface MembershipCertificateData {
   memberName: string;
-  memberId: string;
+  accountNo: string;
   memberSince: string;
   phone?: string;
   address?: string;

@@ -581,7 +581,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (map[string]interface{}, error) {
 	const profileQuery = `
 		SELECT
-			COALESCE(u."memberId", ''),
+			COALESCE(u."accountNo", ''),
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."fatherName", ''),
@@ -695,7 +695,7 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 	_ = r.db.QueryRow(ctx, summaryQuery, userID).Scan(&currentBalance, &hasActiveLoan, &isGuarantor)
 
 	profile := map[string]interface{}{
-		"memberId":         memberID,
+		"accountNo":        memberID,
 		"nameEn":           nameEn,
 		"nameBn":           nameBn,
 		"fatherName":       fatherName,

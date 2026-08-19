@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { getPublicSettings } from '@/lib/system-config';
+import { StructuredData } from '@/components/seo/structured-data';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -105,8 +107,11 @@ export default async function PrivacyPage({ params }: PageProps) {
 
   const t = content[(locale as keyof typeof content)] || content.en;
 
+  const settings = await getPublicSettings();
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <StructuredData locale={normalizeLocale(locale)} path="/privacy" settings={settings} />
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-4">
         <div className="container mx-auto px-4 flex items-center justify-between">
           <Link href={`/${locale}`}>
