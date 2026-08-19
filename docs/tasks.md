@@ -10,10 +10,18 @@ being readable as a status board. Update this file in the same commit as the wor
 
 Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 
-> **No requirement is broken and no work order is open.** One thing is wrong in
-> production and it is operational, not product: the **monitoring is built and
-> switched off**
+> **One thing is wrong and it is public.** The `/donate` page shows a bank
+> account number no admin can change — the four `bank.*` keys it reads are not in
+> the settings allow-list, so the hardcoded `2050 0000 0000 0000` placeholder is
+> the only value it can ever display. [WO-67](work-orders.md), do it first.
+>
+> One thing is wrong operationally: the **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
+>
+> **A plan now exists for the rest.** [work-orders.md](work-orders.md) holds
+> WO-67 → WO-84 in six blocks — database, performance, security, SEO,
+> future-proofing — each independently executable with `do WO-67` or
+> `do block S`.
 >
 > **This page cannot quietly fall behind the code.** A requirement not marked
 > `[x]` must *still* be unimplemented in the source, or
@@ -65,6 +73,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
 | `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
 | `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text, against rule 5. The builders are now in one place each — `apps/api/internal/notify/messages.go` and `apps/web/lib/notify.ts` — so this is a translation job rather than a hunt |
+| `[!]` | **`/donate` shows an unchangeable placeholder bank account** | The page reads four `bank.*` keys that are absent from `SYSTEM_CONFIG_KEYS`, absent from the seed, and rejected by `PUT /api/v1/settings`. Public and money-facing — [WO-67](work-orders.md) |
 
 ### The late-fee question — flagged, not decided
 
@@ -120,6 +129,9 @@ without re-reading the codebase, it becomes one in
 |---|---|---|
 | 1 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind and the Monitor workflow fails twice a day. ~1 h, yours |
 | 2 | **Set `TRUSTED_PROXIES=1` on Render** — [why](decisions.md) (ADR-019, ADR-021) | One variable. At the default `0` a process behind a proxy attributes every member to the proxy's address: one 60/min bucket and one login lockout for the whole membership. The API logs a warning at boot when it is `0` outside development. 5 min, yours |
+
+Both are now specified: [WO-67](work-orders.md) for the donate page, and
+`do block S` for everything below.
 
 ### Then — the schema, while it is still cheap
 
