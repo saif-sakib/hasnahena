@@ -20,6 +20,7 @@ import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
 import { LoanApplicationForm } from '@/components/dashboard/loan-application-form';
 import { GuarantorRequests, type GuarantorRequestItem } from '@/components/dashboard/guarantor-requests';
+import { fetchSettings } from '@/lib/settings-client';
 
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
@@ -70,12 +71,13 @@ export default function LoansPage() {
   >(['/v1/dashboard/member/loans', '/v1/dashboard/member/transactions']);
   useRedirectOnUnauthorized(loadError);
 
-  const { data: settingsData } = useSWR<Record<string, unknown> | null>(
+  // fetchSettings, not a bare fetch: the loan policy below is only in the
+  // response when the request carries the member's token (WO-77). Without it
+  // every value here silently falls back to the defaults hardcoded in this
+  // component, and a member is shown a policy the foundation may have changed.
+  const { data: settingsData } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
-    async (url: string) => {
-      const response = await fetch(url, { cache: 'no-store' });
-      return response.ok ? response.json() : null;
-    },
+    () => fetchSettings(),
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 

@@ -1,5 +1,7 @@
 /** Organisation letterhead details, read from `system_config` via the settings API. */
 
+import { fetchSettings } from '@/lib/settings-client';
+
 import { DEFAULT_ORG } from './theme';
 import type { OrgSettings } from './types';
 
@@ -13,9 +15,13 @@ export async function fetchOrgSettings(options?: { refresh?: boolean }): Promise
   if (cached && !options?.refresh) return cached;
 
   try {
-    const response = await fetch('/api/v1/settings', { cache: 'no-store' });
-    if (response.ok) {
-      const data = (await response.json()) as Record<string, string | undefined>;
+    // Every `org.*` key here is in the anonymous tier, so this would work
+    // without a token. It goes through fetchSettings anyway so that there is
+    // exactly one place in the browser that knows how to call this endpoint —
+    // the reason the four screens that did not send a token were all wrong at
+    // once (WO-77).
+    const data = await fetchSettings();
+    if (data) {
       cached = {
         name: data['org.name'] || DEFAULT_ORG.name,
         nameEn: data['org.nameEn'] || DEFAULT_ORG.nameEn,

@@ -17,6 +17,8 @@ import { clearOrgSettingsCache } from '@/lib/documents';
 import { useDraft } from '@/lib/use-api';
 import { uploadSettingsImageAction, deleteSettingsImageAction } from '@/app/actions/upload-settings-image';
 import { uploadGalleryAction, deleteGalleryAction } from '@/app/actions/upload-gallery';
+// Aliased: `fetchSettings` is already taken in this file by the SWR mutator below.
+import { fetchSettings as readSettings } from '@/lib/settings-client';
 
 type SettingImageType =
   | 'branding.logo'
@@ -120,12 +122,16 @@ export default function AdminSettingsPage() {
     data: settingsData,
     isLoading,
     mutate: fetchSettings,
-  } = useSWR<Record<string, unknown>>(
+  } = useSWR<Record<string, string>>(
     '/api/v1/settings',
-    async (url: string) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to load settings');
-      return response.json();
+    async () => {
+      // The admin tier — every declared key, including the ones no member-facing
+      // screen may read (WO-77). Without the token this form would load the
+      // public subset and then save it back, deleting nothing but showing an
+      // admin a settings screen with fields missing.
+      const data = await readSettings();
+      if (!data) throw new Error('Failed to load settings');
+      return data;
     },
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );

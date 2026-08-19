@@ -80,23 +80,47 @@ func Load() Config {
 	}
 
 	return Config{
-		Port:                getEnv("API_PORT", getEnv("PORT", "8081")),
-		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		JWTSecret:           jwtSecret,
-		JWTExpiry:           getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
-		CORSOrigins:         parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
-		EnableHSTS:          getEnvBool("ENABLE_HSTS", false),
-		RateLimitRequests:   getEnvInt("RATE_LIMIT_REQUESTS", 60),
-		RateLimitWindow:     getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute),
-		TrustedProxies:      getEnvInt("TRUSTED_PROXIES", 0),
-		BrevoAPIKey:         getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
-		BrevoAPIURL:         getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
-		EmailFrom:           getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
-		EmailFromName:       getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
-		AppURL:              resolvePublicAppURL(),
-		LogLevel:            getEnv("LOG_LEVEL", "info"),
-		MetricsToken:        getEnv("METRICS_TOKEN", ""),
-		Environment:         getFirstNonEmpty(getEnv("ENVIRONMENT", ""), getEnv("RENDER_SERVICE_NAME", ""), "development"),
+		Port:              getEnv("API_PORT", getEnv("PORT", "8081")),
+		DatabaseURL:       getEnv("DATABASE_URL", ""),
+		JWTSecret:         jwtSecret,
+		JWTExpiry:         getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
+		CORSOrigins:       parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		EnableHSTS:        getEnvBool("ENABLE_HSTS", false),
+		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 60),
+		RateLimitWindow:   getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute),
+		TrustedProxies:    getEnvInt("TRUSTED_PROXIES", 0),
+		BrevoAPIKey:       getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
+		BrevoAPIURL:       getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
+		EmailFrom:         getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
+		EmailFromName:     getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
+		AppURL:            resolvePublicAppURL(),
+		LogLevel:          getEnv("LOG_LEVEL", "info"),
+		MetricsToken:      getEnv("METRICS_TOKEN", ""),
+		Environment:       getFirstNonEmpty(getEnv("ENVIRONMENT", ""), getEnv("RENDER_SERVICE_NAME", ""), "development"),
+		// WO-75. 25 against Neon, and the question that order asked was whether
+		// those two numbers are compatible. They are, and the reason is stronger
+		// than the arithmetic:
+		//
+		// The API connects through Neon's *pooled* endpoint — the `-pooler`
+		// host, which .env.render.example requires — so what 25 is measured
+		// against is PgBouncer's client limit, which is in the thousands, not
+		// the compute's own `max_connections`. One Render instance holds at most
+		// 25 of them.
+		//
+		// More usefully: pool size here is a throughput setting, not a
+		// correctness one, and that was verified rather than assumed. The whole
+		// integration suite — including TestConcurrentDepositsAllLand, which
+		// drives 20 simultaneous deposits at one member — passes with
+		// `pool_max_conns=2`. It can only do that because no repository call
+		// ever holds two connections at once, which is exactly the property
+		// ADR-017 exists to preserve: read config inside the transaction with
+		// the `…Tx` reader, never from the pool. A call that took a second
+		// connection would deadlock at 2 and pass at 25, so that run is the
+		// cheapest available check on ADR-017 still holding.
+		//
+		// Lowering this is therefore safe and only costs latency under load.
+		// Raising it past what Neon's plan allows is the failure worth
+		// avoiding, and it is a deploy-time decision, not a code one.
 		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
 		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
 		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),

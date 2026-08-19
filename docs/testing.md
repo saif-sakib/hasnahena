@@ -13,12 +13,13 @@ is one line per phase in [changelog.md](changelog.md). This file is what you nee
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, and the source censuses — including foreign-key index coverage and the settings keys pages read |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, and the source censuses — including foreign-key index coverage and the settings keys pages read |
 | `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
 | `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
 | `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. CI runs it after `db:migrate` |
-| `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility |
+| `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility, **zero CSP violations across every page and both dashboards**, and **how many background requests one open dashboard tab makes in a minute** |
+| `node apps/web/scripts/assert-static-routes.mjs` | a completed `pnpm build` | that the marketing routes are still prerendered and no dashboard or auth route is. Reads `.next/prerender-manifest.json`; CI runs it right after the build |
 
 **The split is load-bearing.** The first two must stay fast enough to run on
 every save, so nothing needing a database belongs in them — which is why
@@ -76,7 +77,14 @@ left behind would pass or fail on package ordering.
 
 ## Writing an assertion that stays true
 
-- **Enumerate, do not list.** Seventeen suites and one CI check derive their
+- **Some questions can only be answered by an artifact.** "Is this route
+  static?" is a conclusion `next build` draws after following every import in a
+  page, its layout and every component it renders — no test that reads the
+  source can know it, and a grep for `export const revalidate` would pass on
+  exactly the regression it was meant to catch. Same for "does this CSP break
+  the app": a header assertion cannot see a blocked bootstrap script, and only a
+  real browser can. Prefer the artifact when the source cannot answer.
+- **Enumerate, do not list.** Twenty-one suites and two CI checks derive their
   coverage from the source and fail the build when the code grows something they
   do not know about. The table of what each one demands is in
   [CLAUDE.md](../CLAUDE.md) — read it before adding a route, a balance writer, a

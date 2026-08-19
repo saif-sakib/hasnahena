@@ -6,8 +6,17 @@ import { locales, type Locale } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
-import { prisma } from '@/lib/prisma';
+import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+
+/**
+ * WO-73. This page's content changes when an admin edits a setting, which is to
+ * say almost never — so it is prerendered and served from the edge instead of
+ * opening a Neon connection on every visit. `revalidateTag('system-config')` in
+ * the settings `PUT` is what makes an edit appear immediately; this interval is
+ * only the backstop.
+ */
+export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
 
@@ -31,11 +40,7 @@ export default async function SupportPage({ params }: PageProps) {
     notFound();
   }
 
-  const settingsResult = await prisma.systemConfig.findMany();
-  const settings = settingsResult.reduce((acc, config) => {
-    acc[config.key] = config.value;
-    return acc;
-  }, {} as Record<string, string>);
+  const settings = await getPublicSettings();
 
   const isBn = locale === 'bn';
   // WO-67. The `settings['contact.*']` second choice is gone: those keys were

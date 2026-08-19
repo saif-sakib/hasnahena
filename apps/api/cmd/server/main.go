@@ -194,6 +194,18 @@ func main() {
 			TrustedProxies: config.TrustedProxies,
 		},
 		LimiterStop: limiterStop,
+		// Signature and expiry only, deliberately: no revocation check, because
+		// this runs on every request including the ones about to be rejected,
+		// and a limiter that queries the database is an amplifier rather than a
+		// defence. Handlers still call ValidateToken, which does check.
+		VerifyToken: func(token string) (string, bool) {
+			claims, err := authService.ParseAccessToken(token)
+			if err != nil {
+				return "", false
+			}
+			sub, _ := claims["sub"].(string)
+			return sub, sub != ""
+		},
 	})
 
 	metrics.Register(dbPool)
@@ -257,6 +269,14 @@ type middlewareConfig struct {
 
 	RateLimit   appmw.RateLimitConfig
 	LimiterStop <-chan struct{}
+
+	// VerifyToken reports the subject of a signed, unexpired token. The
+	// Identity middleware uses it to attribute a request to a member before the
+	// rate limiter decides which bucket to count it in (WO-78).
+	//
+	// Nil is legal and means "attribute everything by address", which is the
+	// pre-WO-78 behaviour. Tests that do not care about identity leave it unset.
+	VerifyToken appmw.TokenVerifier
 }
 
 // mountMiddleware is the global middleware stack, in order.
@@ -287,6 +307,14 @@ func mountMiddleware(r chi.Router, cfg middlewareConfig) {
 	// registered outside it would never see one (RUN-08).
 	r.Use(observability.Recoverer)
 	r.Use(appmw.CORS(cfg.CORSOrigins, cfg.EnableHSTS))
+
+	// RUN-09. Before the limiter, and that ordering is the whole difficulty of
+	// WO-78: the limiter needs to know which member a request belongs to, and a
+	// token it has not verified is worth less than the address it would replace
+	// — an attacker sending fresh garbage per request would mint a fresh bucket
+	// per request. So the signature and expiry are checked here, once, and
+	// carried in the context the way ADR-019 carries the address.
+	r.Use(appmw.Identity(cfg.VerifyToken))
 
 	// RUN-07. Mounted after CORS so a throttled request still carries the
 	// headers a browser needs to read the 429 — a rejection the browser reports

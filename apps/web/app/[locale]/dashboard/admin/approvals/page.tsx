@@ -17,6 +17,7 @@ import { apiPost } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency } from '@/lib/utils';
+import Image from 'next/image';
 
 type ApprovalTab = 'registration' | 'loan' | 'deposit';
 
@@ -287,12 +288,18 @@ function RegistrationRow({
                         <p className="text-xs font-medium text-gray-700">{label}</p>
                         <div className="mt-2 overflow-hidden rounded-sm border border-gray-200 bg-slate-50">
                           {isImageDocument(document.url, document.mimeType) ? (
-                            <img
-                              src={document.url}
-                              alt={label}
-                              className="h-28 w-full object-cover"
-                              loading="lazy"
-                            />
+                            // WO-75. `fill` rather than fixed dimensions: these are
+                            // member-uploaded scans, so nothing here knows their size.
+                            // The parent is the box that decides, hence `relative`.
+                            <div className="relative h-28 w-full">
+                              <Image
+                                src={document.url}
+                                alt={label}
+                                fill
+                                sizes="(max-width: 768px) 100vw, 320px"
+                                className="object-cover"
+                              />
+                            </div>
                           ) : (
                             <div className="flex h-28 items-center justify-center text-xs text-gray-500">
                               {locale === 'bn' ? 'প্রিভিউ নেই' : 'No preview available'}
@@ -345,11 +352,18 @@ function RegistrationRow({
                   </div>
                   <div className="max-h-[75vh] overflow-auto bg-slate-50 p-4">
                     {isImageDocument(previewDocument.url, previewDocument.mimeType) ? (
-                      <img
-                        src={previewDocument.url}
-                        alt={previewDocument.fileName || 'Document preview'}
-                        className="mx-auto max-h-[65vh] w-auto rounded-sm border border-gray-200 bg-white"
-                      />
+                      // `object-contain`, not `cover`: this is the full-size read of
+                      // an NID, and a crop that hides the corner of a document is
+                      // worse than one that leaves letterboxing.
+                      <div className="relative mx-auto h-[65vh] w-full">
+                        <Image
+                          src={previewDocument.url}
+                          alt={previewDocument.fileName || 'Document preview'}
+                          fill
+                          sizes="100vw"
+                          className="rounded-sm border border-gray-200 bg-white object-contain"
+                        />
+                      </div>
                     ) : (
                       <div className="rounded-sm border border-gray-200 bg-white p-4 text-sm text-gray-600">
                         {locale === 'bn' ? 'এই নথির জন্য ইনলাইন প্রিভিউ উপলব্ধ নয়।' : 'Inline preview is unavailable for this document.'}

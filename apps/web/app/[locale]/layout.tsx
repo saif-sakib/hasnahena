@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Hind_Siliguri, Inter } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { locales, type Locale } from '@/i18n';
 import { Toaster } from '@/components/ui/toaster';
@@ -23,6 +23,21 @@ const hindSiliguri = Hind_Siliguri({
 interface RootLayoutProps {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
+}
+
+/**
+ * WO-73. Without this, `[locale]` is a dynamic segment with no known values, so
+ * **every** route under it is server-rendered on demand — all 50 of them, which
+ * is what `next build` reported before this existed. Naming the two locales is
+ * what lets a page that opts into caching actually be prerendered.
+ *
+ * It does not make anything static by itself: a page still becomes static only
+ * if nothing in it reads a request. That is why `dashboard/` stays dynamic —
+ * those pages are client components reading a token — and why the marketing
+ * pages each carry their own `revalidate`.
+ */
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale }));
 }
 
 export async function generateMetadata({ params }: RootLayoutProps): Promise<Metadata> {
@@ -71,6 +86,11 @@ export default async function RootLayout({
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
+
+  // Required for static rendering: next-intl otherwise reads the locale from
+  // the request, which opts the whole subtree out of prerendering. It must run
+  // before getMessages().
+  setRequestLocale(locale);
 
   const messages = await getMessages();
 

@@ -5,8 +5,17 @@ import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Wallet, GraduationCap, HandHeart, Users } from 'lucide-react';
-import { prisma } from '@/lib/prisma';
+import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+
+/**
+ * WO-73. This page's content changes when an admin edits a setting, which is to
+ * say almost never — so it is prerendered and served from the edge instead of
+ * opening a Neon connection on every visit. `revalidateTag('system-config')` in
+ * the settings `PUT` is what makes an edit appear immediately; this interval is
+ * only the backstop.
+ */
+export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
 
@@ -30,11 +39,7 @@ export default async function ActivitiesPage({ params }: PageProps) {
   setRequestLocale(locale);
 
   const t = await getTranslations({ locale, namespace: 'activities' });
-  const settingsResult = await prisma.systemConfig.findMany();
-  const settings = settingsResult.reduce((acc, config) => {
-    acc[config.key] = config.value;
-    return acc;
-  }, {} as Record<string, string>);
+  const settings = await getPublicSettings();
 
   return (
     <>

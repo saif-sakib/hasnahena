@@ -3,7 +3,9 @@ import { UserRole } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { corsHeaders } from '@/lib/cors';
 import { authenticateRequest } from '@/lib/server-auth';
+import { revalidateTag } from 'next/cache';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
+import { GALLERY_TAG } from '@/lib/public-content';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -38,8 +40,19 @@ export async function OPTIONS(request: NextRequest) {
 // The gallery is public content — GET stays unauthenticated.
 export async function GET(request: NextRequest) {
   try {
+    // WO-75. Named columns, not the row: `createdAt` and `updatedAt` are on
+    // every gallery item and are read by nothing — not this route's admin
+    // caller, not the public pages, not the documents.
     const items = await prisma.galleryItem.findMany({
       orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        imageUrl: true,
+        captionEn: true,
+        captionBn: true,
+        date: true,
+        likes: true,
+      },
     });
     return NextResponse.json(items, { headers: corsHeaders(request) });
   } catch (error) {
@@ -67,6 +80,8 @@ export async function POST(request: NextRequest) {
         date: body.date ? new Date(body.date) : new Date(),
       },
     });
+    // WO-73: the public gallery and the homepage render from a cached read.
+    revalidateTag(GALLERY_TAG, { expire: 0 });
     return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -101,6 +116,8 @@ export async function PUT(request: NextRequest) {
         date: data.date ? new Date(data.date) : undefined,
       },
     });
+    // WO-73: the public gallery and the homepage render from a cached read.
+    revalidateTag(GALLERY_TAG, { expire: 0 });
     return NextResponse.json(item, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -127,6 +144,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     await prisma.galleryItem.delete({ where: { id } });
+    revalidateTag(GALLERY_TAG, { expire: 0 });
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

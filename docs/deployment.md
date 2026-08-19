@@ -46,6 +46,13 @@ NEXT_PUBLIC_SENTRY_DSN=…
 
 No Brevo keys here — email is backend-only. Cloudinary keys are Vercel-only too: the Go API contains no Cloudinary code.
 
+**`CSP_ENFORCE` is deliberately not in that list.** The Content-Security-Policy
+ships **report-only** until it is set to `1`, so a policy that turns out to be
+too tight logs to the console instead of breaking the dashboard. Turn it on as a
+separate change, after `pnpm test:e2e` — which includes `e2e/csp.spec.ts` — has
+reported zero violations against the deployed build. See
+[ADR-024](decisions.md).
+
 ## Render
 
 Root Directory `apps/api`, runtime Go, build `go build -o app ./cmd/server`, start `./app`.

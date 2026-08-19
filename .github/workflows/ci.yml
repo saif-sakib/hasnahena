@@ -218,6 +218,27 @@ jobs:
           JWT_SECRET: test-secret-at-least-thirty-two-characters
           NEXT_PUBLIC_API_URL: http://localhost:8099
 
+      # WO-73. "Is this route static?" is a conclusion `next build` draws after
+      # following every import in a page, its layout and every component it
+      # renders — no test that reads the source can know it, and a grep for
+      # `export const revalidate` would pass on exactly the regression this
+      # catches. So the build runs and the script reads what it emitted.
+      #
+      # Here rather than in the `web` job because prerendering the marketing
+      # pages reads `system_config`, and this is the job with a migrated
+      # database. Before WO-73, 50 of 52 routes were server-rendered on demand
+      # and every visit to `/en/privacy` opened a Neon connection.
+      - name: Build the web app
+        run: pnpm build
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          JWT_SECRET: test-secret-at-least-thirty-two-characters
+          NEXT_PUBLIC_API_URL: http://localhost:8099
+
+      - name: Marketing pages are prerendered, dashboards are not
+        working-directory: apps/web
+        run: node scripts/assert-static-routes.mjs
+
   e2e:
     name: Browser — Playwright on a phone viewport
     runs-on: ubuntu-latest

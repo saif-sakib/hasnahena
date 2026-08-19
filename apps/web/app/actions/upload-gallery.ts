@@ -3,7 +3,8 @@
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadGalleryImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, updateTag } from 'next/cache';
+import { GALLERY_TAG } from '@/lib/public-content';
 import { authorizeServerActionRoles } from '@/lib/server-auth';
 import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
@@ -26,6 +27,12 @@ interface DeleteGalleryResult {
 
 /** Revalidate all gallery-related paths */
 function revalidateGalleryPaths() {
+  // WO-73: the homepage and /gallery both read through `getPublicGalleryItems`,
+  // which is cached under this tag. Without the bust an admin uploads a photo,
+  // sees nothing on the homepage, and uploads it again.
+  // updateTag, not revalidateTag: this runs in a Server Action, where the
+  // admin who just uploaded the image is the very next reader of the page.
+  updateTag(GALLERY_TAG);
   revalidatePath('/gallery');
   revalidatePath('/[locale]/gallery');
   revalidatePath('/[locale]/dashboard/admin/gallery');

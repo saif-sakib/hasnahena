@@ -14,13 +14,18 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
 >
-> **Blocks R and S are done** (WO-67 → 72, 2026-08-19): the `/donate` and
+> **Blocks R, S, T and U are done** (WO-67 → 78, 2026-08-19): the `/donate` and
 > `/contact` pages no longer show unchangeable placeholder details, every foreign
 > key is indexed, the database has CHECK constraints of its own, migrations are
-> the only definition of the schema, the legacy `LoanStatus` values are gone and
-> branches are a real relation. [work-orders.md](work-orders.md) holds
-> WO-73 → 84 — performance, security, SEO, future-proofing — each executable with
-> `do WO-73` or `do block T`.
+> the only definition of the schema, the legacy `LoanStatus` values are gone,
+> branches are a real relation, **20 marketing routes are prerendered instead of
+> hitting Neon on every visit**, an idle dashboard tab makes two requests a
+> minute instead of twenty-six and a hidden one makes none, the web app has a
+> **Content-Security-Policy** (report-only until `CSP_ENFORCE=1`), the settings
+> endpoint serves three tiers instead of one, and the Go rate limiter keys on the
+> member rather than on Vercel's address. [work-orders.md](work-orders.md) holds
+> WO-79 → 84 — SEO and future-proofing — each executable with `do WO-79` or
+> `do block V`.
 >
 > **This page cannot quietly fall behind the code.** A requirement not marked
 > `[x]` must *still* be unimplemented in the source, or

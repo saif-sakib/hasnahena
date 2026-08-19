@@ -199,7 +199,6 @@ These cost the same whenever they are done, so they should not delay launch.
 |---|---|
 | Log aggregation, dashboard, audit viewer (OBS-05/07/08) | You have metrics and Sentry — *once switched on*. These make them nicer to read |
 | **Cloudinary asset backup (DATA-06)** | **The exception — do it as soon as real NID images exist.** Stage 1 work that simply cannot be done before there is anything to back up ([ADR-020](decisions.md)) |
-| A limiter keyed on the member (RUN-09) | Support is chat, not money; the money routes already key correctly |
 | Host move (INF-01 → INF-12) | Only once everything above is quiet |
 
 ---

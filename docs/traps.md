@@ -197,6 +197,33 @@ another doc, add it here and link instead.
   cannot change what `pnpm build` emits for Vercel.
 - **The React Compiler config is top-level `reactCompiler` in Next 16.** The old
   `experimental.reactCompiler` key is silently ignored.
+- **`unstable_cache` serialises what it stores, so a `Date` comes back a
+  string.** Typed as `Date` it compiles, and it works — on the cache *miss*.
+  The *hit* returns the JSON round-trip, and the build died on
+  `item.date.toISOString is not a function` at the second render of the
+  homepage. Normalise at the accessor boundary so there is one type, and be
+  aware that every wrong-on-the-second-render bug has this shape: local checks
+  pass, the first deploy looks fine.
+- **`generateStaticParams` on a locale segment applies to the entire subtree.**
+  Adding it so the marketing pages could be prerendered swept in every dashboard
+  route as well — the build emitted `● /en/dashboard/member`. Nothing leaked,
+  because those pages fetch with the reader's own token, but that is a property
+  of how they are written rather than a rule. `export const dynamic =
+  'force-dynamic'` on the dashboard layout states it, and
+  `scripts/assert-static-routes.mjs` fails the build on a route that becomes
+  static in either direction.
+- **An unwrapped `useSearchParams` fails the *build* the moment its route can be
+  prerendered.** It is legal while everything is dynamic and becomes a hard
+  error the day something upstream makes the route static — which is how
+  `/reset-password` broke a build it had nothing to do with. A `<Suspense>`
+  boundary is the fix and the better page anyway.
+- **`revalidateTag(tag)` with one argument is deprecated in Next 16**, and the
+  replacement is not one call but two: `updateTag(tag)` in a Server Action,
+  which expires immediately and is what read-your-own-writes needs, and
+  `revalidateTag(tag, profile)` everywhere else — where `'max'` is
+  stale-while-revalidate and will show an admin the value they just replaced.
+  `{ expire: 0 }` is the immediate form for a route handler. `updateTag` throws
+  outright if called from one.
 
 ## Composition — a correct function defeated by what surrounds it
 
@@ -293,6 +320,23 @@ another doc, add it here and link instead.
 - **Radix `Select` renders a hidden native `<select aria-hidden tabindex="-1">`**
   for plain-form submission. An accessibility sweep must respect `aria-hidden`, or
   it reports a false positive on every page with a filter.
+- **`bringToFront()` does not background the other tab.** In headless Chromium
+  the first page's `document.visibilityState` stays `'visible'`, so a spec
+  written to prove that a hidden tab stops polling was measuring a *foreground*
+  tab and reporting its ordinary polls as the failure. Redefine `document.hidden`
+  and `visibilityState` and dispatch `visibilitychange` — that drives exactly
+  what the browser drives and what a visibility hook subscribes to. Say in the
+  test that it is a simulation.
+- **`networkidle` never arrives on a page that polls.** It is the obvious wait
+  and it times out at 30 s, which reads as a broken page rather than a busy one.
+  `e2e/fixtures/session.ts` already carries a `waitForContent` that budgets it
+  and moves on; use that.
+- **Chromium reports `'upgrade-insecure-requests' is ignored when delivered in a
+  report-only policy` to the console on every page load.** A spec that collects
+  CSP violations by reading the console counts it as one, on every page. The fix
+  is to omit the directive when the policy is report-only rather than to filter
+  the message — a matcher with a special case is a matcher that will hide a real
+  violation later.
 - **Generous per-page waits multiply.** A helper that waits up to 25 s per page is
   fine once and fatal in a loop: a spec walking ten admin pages blew the 30 s test
   timeout and reported as a broken page rather than a slow one. Keep the helper's

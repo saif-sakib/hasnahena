@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { setClientAuthToken } from '@/lib/client-auth';
+import { fetchSettings } from '@/lib/settings-client';
 
 const loginSchema = z.object({
   identifier: z.string().min(3, 'Email or phone is required'),
@@ -57,8 +58,11 @@ export default function LoginPage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
-    fetch('/api/v1/settings')
-      .then(res => res.json())
+    // Anonymous by definition — nobody is signed in on this screen — and
+    // `auth.welcomeBack` is in the public tier, so this is the one caller WO-77
+    // changes nothing for. It goes through the same helper as the rest so there
+    // is one place that knows this endpoint's shape.
+    fetchSettings()
       .then(data => {
         if (data && data['auth.welcomeBack']) {
           setWelcomeMessage(data['auth.welcomeBack']);

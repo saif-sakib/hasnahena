@@ -43,11 +43,12 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 ## Auth
 
 - Login posts to Go `/v1/auth/login`; on success the JWT is stored in the `hn_access_token` cookie and read client-side by `lib/client-auth.ts`.
-- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job.
+- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
 - **Revocation is platform-wide.** Both surfaces consult `token_blacklist` on every authenticated request — Go directly, Next through `lib/auth-revocation.ts`, which **fails closed**: if the lookup errors, the request is refused. Both truncate `iat` to whole seconds, without which a first-login token is born revoked.
-- `security_service.go` handles rate limiting and lockout via the `rate_limits` table, keyed on `middleware.ClientIP` — the one function that decides a caller's address ([ADR-019](decisions.md)). Never read `X-Forwarded-For` in a handler.
+- `security_service.go` handles login lockout via the `rate_limits` table, keyed on `middleware.ClientIP` — the one function that decides a caller's address ([ADR-019](decisions.md)). Never read `X-Forwarded-For` in a handler.
+- The **global** limiter (`middleware.RateLimit`, in memory) keys on the **member** when their token verifies and on the address otherwise. `middleware.Identity` does that verification — signature and expiry, no database — before the limiter runs, and `RequestUserID(r)` reads the answer back ([ADR-025](decisions.md)). It attributes a request; it never authorises one.
 
 ## Frontend structure
 
@@ -86,7 +87,7 @@ Tailwind + CSS variables in `app/globals.css`, light and `.dark`. Brand primary 
 cmd/server/main.go        config, pool, DI, mountRoutes + mountMiddleware — the routing table
 internal/config           env loading (walks up for .env), fails fast if JWT_SECRET < 32 chars
 internal/middleware       the global stack, mounted by mountMiddleware: CORS (allow-list from
-                          CORS_ORIGINS), rate limiting, NUL-byte rejection, request logging, and
+                          CORS_ORIGINS), caller identity, rate limiting, NUL-byte rejection, request logging, and
                           ClientIP — the ONLY place that decides a caller's address
 internal/handlers         auth_handler.go, dashboard_handler.go (HTTP shape only)
 internal/services         auth (JWT, bcrypt), security (rate limit, blacklist), email (Brevo)

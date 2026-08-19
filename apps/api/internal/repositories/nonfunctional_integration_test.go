@@ -12,6 +12,8 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -181,6 +183,15 @@ func (c *countingTracer) reset() {
 	c.queries = nil
 }
 
+// sql returns a copy of every statement seen since the last reset.
+func (c *countingTracer) sql() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]string, len(c.queries))
+	copy(out, c.queries)
+	return out
+}
+
 // tracedRepo builds a second pool with a tracer attached, so query counting does
 // not disturb the shared pool every other test uses.
 func tracedRepo(t *testing.T) (*UserRepository, *countingTracer) {
@@ -302,5 +313,143 @@ func TestMemberDashboardQueryCountIsFlat(t *testing.T) {
 	if many != few {
 		t.Fatalf("GetMemberDashboardData issues %d queries for 3 transactions and %d for 25 — it scales with history",
 			few, many)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WO-75 — the hot reads name their columns
+// ---------------------------------------------------------------------------
+
+// TestHotReadsDoNotSelectStar is the payload half of the two guards above.
+//
+// The query-count tests answer "how many round trips"; this answers "how much
+// comes back on each". They are different failures with the same cause — a read
+// written quickly and never looked at again — and only one of them is visible
+// in a timing.
+//
+// `SELECT *` on this schema is not a small waste. `users` carries the address,
+// both parents' names, the NID number and the photo URL; the member dashboard
+// needs a name and a balance. Every one of those columns crosses an ocean from
+// Neon on every page view, and the day someone adds a column to `users` the
+// payload of every read that never named its columns grows with it, silently.
+//
+// Deliberately a *pattern* check rather than a column budget. A budget would
+// need updating whenever a screen legitimately needs one more field, so it
+// would be raised rather than examined. "Name your columns" needs no
+// maintenance and fails only on the thing that is actually wrong.
+func TestHotReadsDoNotSelectStar(t *testing.T) {
+	ctx := context.Background()
+
+	reads := []struct {
+		name string
+		call func(ctx context.Context, repo *UserRepository, memberID string) error
+	}{
+		{"GetMemberDashboardData", func(ctx context.Context, repo *UserRepository, memberID string) error {
+			_, err := repo.GetMemberDashboardData(ctx, memberID)
+			return err
+		}},
+		{"GetMembersList", func(ctx context.Context, repo *UserRepository, _ string) error {
+			_, err := repo.GetMembersList(ctx, false)
+			return err
+		}},
+		{"GetWorkerDashboard", func(ctx context.Context, repo *UserRepository, _ string) error {
+			_, err := repo.GetWorkerDashboard(ctx)
+			return err
+		}},
+		{"GetDonations", func(ctx context.Context, repo *UserRepository, _ string) error {
+			_, err := repo.GetDonations(ctx)
+			return err
+		}},
+		{"GetMemberTransactions", func(ctx context.Context, repo *UserRepository, memberID string) error {
+			_, err := repo.GetMemberTransactions(ctx, memberID)
+			return err
+		}},
+	}
+
+	for _, read := range reads {
+		t.Run(read.name, func(t *testing.T) {
+			newTestRepo(t)
+			repo, tracer := tracedRepo(t)
+			member := seedMember(t, "star1", "ACC-KH-95001", 100_000)
+			tracer.reset()
+
+			if err := read.call(ctx, repo, member); err != nil {
+				t.Fatalf("%s: %v", read.name, err)
+			}
+
+			statements := tracer.sql()
+			if len(statements) == 0 {
+				// A read that issues no query is a read that did not run, and
+				// every assertion below would pass vacuously.
+				t.Fatalf("%s issued no queries — the tracer is not seeing this call", read.name)
+			}
+
+			for _, statement := range statements {
+				if selectsEveryColumn(statement) {
+					t.Errorf("%s issues a SELECT * :\n\n%s\n\n"+
+						"Name the columns the caller actually reads. On `users` that is the "+
+						"difference between a name and a balance, and the member's address, "+
+						"both parents' names, NID number and photo URL — on every page view, "+
+						"and growing on its own whenever a column is added.",
+						read.name, strings.TrimSpace(statement))
+				}
+			}
+		})
+	}
+}
+
+// selectsEveryColumn reports whether a statement contains a `SELECT *` or a
+// `SELECT t.*` projection.
+//
+// Deliberately narrow. `COUNT(*)` is not a wide payload and is the right way to
+// count rows; `EXISTS(SELECT 1 ...)` is fine; and a `*` inside a string literal
+// or a comment is not a projection. Matching those would make this test
+// something people work around rather than fix.
+func selectsEveryColumn(statement string) bool {
+	lowered := strings.ToLower(statement)
+	for _, marker := range []string{"select *", "select\n\t*", "select all *"} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	// `SELECT u.*`, `SELECT t.*, x.y` — an alias-qualified star.
+	return aliasedStar.MatchString(lowered)
+}
+
+// `select` … `<alias>.*`, allowing for a leading DISTINCT and arbitrary
+// whitespace. Anchored on the projection so a `*` in a WHERE clause or a
+// multiplication does not match.
+var aliasedStar = regexp.MustCompile(`select\s+(distinct\s+)?([a-z_][a-z0-9_]*\s*,\s*)*[a-z_][a-z0-9_]*\.\*`)
+
+// TestSelectStarDetectorItself guards the guard.
+//
+// The check above is a regex over SQL, and a regex over SQL is exactly the kind
+// of thing that quietly stops matching. Worse, it fails *open*: a pattern that
+// matches nothing makes every subtest above pass while checking nothing at all.
+// The false-positive cases matter as much as the true ones — a check that
+// flagged `COUNT(*)` would be worked around rather than obeyed.
+func TestSelectStarDetectorItself(t *testing.T) {
+	cases := []struct {
+		sql  string
+		want bool
+	}{
+		{`SELECT * FROM users WHERE id = $1`, true},
+		{`select * from users`, true},
+		{`SELECT u.* FROM users u`, true},
+		{`SELECT DISTINCT u.* FROM users u`, true},
+		{`SELECT id, u.* FROM users u`, true},
+		{`SELECT "id", "nameEn" FROM users`, false},
+		// Counting rows is not a wide payload, and this is the right way to do it.
+		{`SELECT COUNT(*) FROM transactions`, false},
+		{`SELECT EXISTS(SELECT 1 FROM loans WHERE id = $1)`, false},
+		// Multiplication, not a projection.
+		{`SELECT amount * 2 FROM transactions`, false},
+		// A star inside a string literal is not a projection either.
+		{`SELECT id FROM t WHERE note = 'a * b'`, false},
+	}
+	for _, tc := range cases {
+		if got := selectsEveryColumn(tc.sql); got != tc.want {
+			t.Errorf("selectsEveryColumn(%q) = %v, want %v", tc.sql, got, tc.want)
+		}
 	}
 }

@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import { SYSTEM_CONFIG_KEYS, UNIMPLEMENTED_CONFIG_KEYS } from '@/lib/system-config';
+import {
+  MEMBER_CONFIG_KEYS,
+  PUBLIC_CONFIG_KEYS,
+  SYSTEM_CONFIG_KEYS,
+  UNIMPLEMENTED_CONFIG_KEYS,
+} from '@/lib/system-config';
 
 /**
  * WO-67. Every `system_config` key a page *reads* must be one the settings
@@ -55,7 +60,7 @@ function sourceFiles(): string[] {
  * and one would be worth rejecting in review anyway, because it cannot be
  * checked from here or anywhere else.
  */
-const READ_PATTERN = /\bsettings\[\s*['"]([a-zA-Z0-9._-]+)['"]\s*\]/g;
+const READ_PATTERN = /\bsettings\??\.?\[\s*['"]([a-zA-Z0-9._-]+)['"]\s*\]/g;
 
 type Read = { key: string; file: string };
 
@@ -122,6 +127,79 @@ describe('the organisation is described in one place', () => {
       [...new Set(duplicated.map((r) => `${r.key} (${r.file})`))],
       'read org.email / org.phone / org.address instead — they are the declared, ' +
         'seeded keys, and they are what the letterhead on every generated document uses',
+    ).toEqual([]);
+  });
+});
+
+describe('the tiers `GET /api/v1/settings` serves are exhaustive', () => {
+  /**
+   * WO-77 (SEC-12) split the allow-list into what an anonymous caller may read,
+   * what a signed-in member may read, and the admin-only remainder. Three
+   * lists, each a copy of part of a fourth — which is the shape that goes stale.
+   *
+   * Nothing here judges *which* tier a key belongs in; that is a decision, and
+   * it is argued in the comments in lib/system-config.ts. What this refuses is
+   * a key that exists in a tier and not in the master list, which would be a
+   * key `PUT` rejects and `GET` returns — and a member tier that has quietly
+   * stopped containing the public one, which would make a signed-in member see
+   * *less* than a stranger.
+   */
+  it('every tiered key is a declared key', () => {
+    const declared: ReadonlySet<string> = new Set(SYSTEM_CONFIG_KEYS);
+    const strays = [...new Set([...PUBLIC_CONFIG_KEYS, ...MEMBER_CONFIG_KEYS])].filter(
+      (key) => !declared.has(key),
+    );
+    expect(
+      strays,
+      'a key in a response tier that SYSTEM_CONFIG_KEYS does not declare: PUT would ' +
+        'reject it while GET returns it',
+    ).toEqual([]);
+  });
+
+  it('a signed-in member sees everything a stranger sees', () => {
+    const member: ReadonlySet<string> = new Set(MEMBER_CONFIG_KEYS);
+    const lost = PUBLIC_CONFIG_KEYS.filter((key) => !member.has(key));
+    expect(lost, 'these keys vanish from the response once the caller signs in').toEqual([]);
+  });
+
+  it('the tiers are a partition, not overlapping copies', () => {
+    const publicKeys = [...PUBLIC_CONFIG_KEYS];
+    expect(new Set(publicKeys).size, 'PUBLIC_CONFIG_KEYS repeats a key').toBe(publicKeys.length);
+    const memberKeys = [...MEMBER_CONFIG_KEYS];
+    expect(new Set(memberKeys).size, 'MEMBER_CONFIG_KEYS repeats a key').toBe(memberKeys.length);
+  });
+});
+
+describe('the public pages can only read public keys', () => {
+  /**
+   * WO-73 made every page outside `dashboard/` render from one cached
+   * `getPublicSettings()` map, and that map contains PUBLIC_CONFIG_KEYS and
+   * nothing else. So a public page reading a key that is declared but not
+   * *public* gets `undefined` and renders its `|| 'fallback'` literal —
+   * silently, forever, exactly the WO-67 failure with a new cause.
+   *
+   * It is worth stating what the previous version of this file missed: it
+   * matched `settings['key']` but not `settings?.['key']`, which is how the
+   * header and footer read every one of their keys. Both forms are matched now.
+   */
+  const PUBLIC: ReadonlySet<string> = new Set(PUBLIC_CONFIG_KEYS);
+  const isPublicPage = (file: string) =>
+    !file.includes(`app/[locale]/dashboard/`) && !file.startsWith('app/api/');
+
+  it('finds the reads on the public pages at all', () => {
+    const reads = READS.filter((r) => isPublicPage(r.file));
+    expect(reads.length).toBeGreaterThan(10);
+  });
+
+  it('reads no key that getPublicSettings() does not return', () => {
+    const offenders = READS.filter((r) => isPublicPage(r.file) && !PUBLIC.has(r.key));
+    const detail = [...new Set(offenders.map((r) => `${r.key}  (${r.file})`))].sort();
+    expect(
+      detail,
+      'These keys are read by a page that renders from the cached public settings ' +
+        'map, which only carries PUBLIC_CONFIG_KEYS. The read returns undefined and ' +
+        "the page shows its hardcoded fallback. Add the key to PUBLIC_CONFIG_KEYS " +
+        'if a stranger may see it, or stop reading it here.\n  ' + detail.join('\n  '),
     ).toEqual([]);
   });
 });

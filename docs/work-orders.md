@@ -20,19 +20,22 @@ do later, the same principle as [go-live.md](go-live.md).
 |---|---|---|---|
 | ~~**R**~~ | ~~Live defects~~ | WO-67 | **Done 2026-08-19** |
 | ~~**S**~~ | ~~Database — correctness, constraints, redundancy~~ | WO-68 → 72 | **Done 2026-08-19** |
-| **T** | Performance | WO-73 → 75 | The dominant cost driver is architectural, not a tuning knob |
-| **U** | Security | WO-76 → 78 | One real gap, two known-and-accepted narrowings |
+| ~~**T**~~ | ~~Performance~~ | WO-73 → 75 | **Done 2026-08-19** |
+| ~~**U**~~ | ~~Security~~ | WO-76 → 78 | **Done 2026-08-19** |
 | **V** | SEO | WO-79 → 81 | Cheap, independent, and blocked by nothing |
 | **W** | Future-proof | WO-82 → 84 | What makes the rest stay true without you watching |
 
-**Each order is independently executable and independently verifiable.** Blocks
-S and T are ordered internally (WO-73 assumes WO-68's indexes exist); the rest
-can be done in any order.
+**Each order is independently executable and independently verifiable.** The
+remaining blocks can be done in any order.
 
 ### Standing rules for every order
 
 - `pnpm typecheck` exits clean, zero errors.
-- `pnpm lint` exits 0 with **6 warnings**. **Do not let the count grow.**
+- `pnpm lint` exits 0 with **2 warnings**. **Do not let the count grow.**
+  (Was 6 until WO-75 converted the last four raw `<img>` tags. The two left are
+  the React compiler skipping the registration form — `watch` from
+  react-hook-form is not analysable — and one `window.location.href` in
+  `header.tsx`.)
 - A regression test must be seen to **fail against the pre-fix code** before it
   is allowed to pass. When a test *cannot* be made to fail, say so in the test.
 - Money changes stay in the Go API, one transaction, with an `audit_logs` row.
@@ -66,212 +69,40 @@ specified by it:
 
 ---
 
-# Block T — performance
+# Blocks T and U — closed 2026-08-19
 
-## WO-73 · Every public page hits the database on every visit
+WO-73 → WO-78 are done. What they contained is one row in
+[changelog.md](changelog.md); what they *taught* is in [traps.md](traps.md).
+Four things are worth repeating here, because all four were found by the work
+rather than specified by it:
 
-`next build` reports **50 of 52 routes as `ƒ` (server-rendered on demand)**.
-Only `/_not-found`, `/robots.txt` and `/sitemap.xml` are static. That includes
-`/about`, `/faq`, `/privacy`, `/terms`, `/activities`, `/contact` — pages whose
-content changes when an admin edits a setting, which is to say almost never.
+- **A nonce-based CSP and static rendering cannot both be had.** WO-76 asked for
+  a nonce policy; WO-73 had just made ten routes static. Next injects a nonce
+  while *rendering a request*, so a prerendered page has none and a nonce policy
+  blocks its own hydration. `experimental.sri`, which the Next docs offer as the
+  escape hatch, was tried and measured: it adds `integrity` to 8 of 14 external
+  scripts and leaves all **6 inline RSC payload scripts** untouched — and those
+  are exactly what a strict `script-src` blocks. The resolution is two policies
+  chosen per route, argued in full in `apps/web/lib/csp.ts`.
 
-The cause is one line, repeated in every page:
+- **Every census in these orders was low.** WO-73 said "the cause is one line" —
+  it was eight files plus two `galleryItem` reads. WO-75 said "the one remaining
+  raw `<img>`, in `dashboard/admin/gallery`" — there were **four**, in
+  `dashboard/admin/approvals` and `dashboard/admin/members/[id]`, and none in
+  gallery. Lint went 6 → 2, not 6 → 5. Count before quoting a number.
 
-```ts
-const settingsResult = await prisma.systemConfig.findMany();
-```
+- **`unstable_cache` serialises, so a `Date` comes back a string.** Typed as
+  `Date`, it compiled and then failed the build with
+  `item.date.toISOString is not a function` — on a cache *hit*, never a miss, so
+  the first render of anything always looked fine. Normalise at the boundary.
 
-No `select`, no `where`, no cache. So every visit to `/en/privacy` opens a Neon
-connection and reads every column of every config row — on a free tier, behind a
-Render instance that sleeps.
-
-**This is the single largest performance item in the repository**, and it is also
-an SEO item: TTFB feeds Core Web Vitals, and a cold Neon read is the whole of
-this page's TTFB.
-
-The invalidation machinery already exists — `PUT /api/v1/settings` already calls
-`revalidatePath('/')` and three more. Only the read side is missing.
-
-**Do:**
-
-1. One cached accessor in `lib/system-config.ts`:
-   `getPublicSettings()`, wrapped in `unstable_cache` with the tag
-   `system-config`, selecting **only the keys the public pages read** rather
-   than `findMany()`.
-2. Replace every `prisma.systemConfig.findMany()` in `app/[locale]/**` with it.
-3. `revalidateTag('system-config')` in the settings `PUT`, beside the existing
-   `revalidatePath` calls.
-4. Add `export const revalidate` where a page can be static, and confirm the
-   build output flips those routes from `ƒ` to `○`/ISR.
-
-**Prove it:** assert on the build output. A test — or a CI step — that parses
-`next build`'s route table and fails if a named list of marketing routes is
-dynamic. Seen red against today's build, where every one of them is.
-
-**Watch for:** the gallery and homepage read `galleryItem` too, so they need the
-same treatment or they stay dynamic and this looks half-done. And **do not cache
-anything under `dashboard/`** — those reads are per-member.
-
-## WO-74 · The dashboard makes 26 requests a minute, per tab, forever
-
-`components/layout/dashboard-layout.tsx` runs three `setInterval` polls in the
-shell that wraps **every** dashboard page:
-
-| Interval | What | Rate |
-|---|---|---|
-| 20 s | notifications | 3/min |
-| 10 s | support signals | 6/min |
-| 7 s | support threads **+ messages for the open thread** | 8.5–17/min |
-
-That is **~26 requests per minute for every open dashboard tab**, whether or not
-anything has changed, for as long as the tab is open. One full browser suite run
-measured 288 requests to `/v1/dashboard/notifications` and 144 to
-`/v1/dashboard/support/threads` — that measurement is this code.
-
-At twenty concurrent members it is ~500 requests/minute against a free Render
-instance and a free Neon compute, for data that changes a few times an hour.
-
-**The replacement already exists and is unused.** `GET
-/v1/dashboard/support/stream` is a live, authenticated SSE endpoint with a
-60-second ticket endpoint beside it for `EventSource`, which cannot set an
-`Authorization` header. `EventSource` appears nowhere in `apps/web`.
-
-**Do:**
-
-1. A `useServerEvents` hook: fetch a ticket, open `EventSource`, reconnect with
-   a **fresh** ticket every time (they are single-use and 60 s), and fall back to
-   the current polling if the stream fails to open twice.
-2. Move support threads and messages onto it. Keep a slow poll — 60 s, not 7 s —
-   as the backstop.
-3. Notifications: if the stream does not carry them, widen the interval to 60 s.
-   Nothing about a notification needs 20-second latency.
-4. `document.hidden` → suspend. A backgrounded tab should poll at zero.
-
-**Prove it:** a Playwright spec that opens a dashboard, waits 60 s, and asserts
-the request count to `/notifications` and `/support/threads` is under a
-threshold. Seen red against today's code, which will be at roughly 26.
-
-**The `document.hidden` half is worth doing even if the SSE work stalls** — it is
-a dozen lines and removes most of the traffic on its own, because most open tabs
-are not the focused tab.
-
-## WO-75 · Payload and query hygiene
-
-Smaller wins, grouped. Each is independently verifiable; do them together
-because they share a verification step.
-
-- **`findMany()` with no `select`** — after WO-73 the config reads are cached,
-  but the same pattern appears in the dashboard routes where caching is not an
-  option. Select the columns each caller uses.
-- **`<img>` in `dashboard/admin/gallery`** — the one remaining raw tag. It is an
-  admin screen so the LCP impact is small; convert it for consistency and to
-  take the lint warning count from 6 to 5. **Then lower the expected count in
-  `work-orders.md` and CI** in the same commit, or the next order is confused by
-  a stale number.
-- **The Go pool** — `DB_MAX_CONNS` defaults to 25 against Neon's free-tier
-  connection ceiling. Confirm the two are compatible under the concurrency the
-  integration suite drives, and write the reasoning next to the default.
-
-**Prove it:** the existing query-count tests already assert list reads are flat.
-Extend them to assert the *column* count on the hottest reads, so a `SELECT *`
-creeping back in fails.
-
----
-
-# Block U — security
-
-## WO-76 · The web app has no Content-Security-Policy
-
-`next.config.js` sets seven security headers — HSTS, `X-Frame-Options: DENY`,
-`nosniff`, `Referrer-Policy`, `Permissions-Policy`, and two more. **There is no
-`Content-Security-Policy`.**
-
-The Go API has one (`default-src 'self'; frame-ancestors 'none'`). The Next app —
-which renders member balances, accepts NID uploads, and is the only surface a
-member's browser actually loads — does not.
-
-CSP is the control that turns a successful XSS from *account takeover* into
-*nothing happens*. Every other header on that list is narrower.
-
-**Do:** add a CSP, nonce-based rather than `'unsafe-inline'`. Next supports this
-through the proxy: generate a nonce per request, set it on the header and read it
-back in the layout.
-
-The allowances this app genuinely needs, and no more:
-
-| Directive | Needs | Why |
-|---|---|---|
-| `img-src` | `'self' data: blob: res.cloudinary.com` | member photos and NID scans |
-| `connect-src` | `'self'` + `NEXT_PUBLIC_API_URL` + Sentry ingest | the Go API is cross-origin; Sentry only once its DSN is set |
-| `script-src` | `'self' 'nonce-…' 'strict-dynamic'` | no CDN scripts are used |
-| `style-src` | `'self' 'unsafe-inline'` | Tailwind injects style attributes; this is the one unavoidable relaxation |
-| `frame-ancestors` | `'none'` | matches `X-Frame-Options` |
-| `form-action` | `'self'` | |
-
-**Ship it behind `Content-Security-Policy-Report-Only` first.** A CSP that breaks
-the dashboard is worse than no CSP, because it will be removed in a hurry rather
-than fixed. Run the full browser suite in report-only, collect violations,
-tighten, then switch to enforcing in a second commit.
-
-**Prove it:** a route test asserting the header is present and contains
-`frame-ancestors 'none'` and no `'unsafe-inline'` in `script-src`. Plus a
-Playwright spec asserting zero console CSP violations across the dashboards —
-which is the part that catches a policy too tight to use.
-
-## WO-77 · Split the settings allow-list (SEC-12)
-
-`GET /api/v1/settings` is unauthenticated, deliberately — the marketing pages and
-the login screen read branding from it before anyone signs in. It no longer
-returns `SELECT *`, only the declared keys. But the declared set still includes
-the whole loan policy: `minDepositForLoan`, `maxLoanMultiplier`,
-`maxInstallmentMonths`, `guarantorThresholdAmount`.
-
-**Low, and genuinely low** — that policy is published to members anyway. It is
-here so the *narrowing* already done is not mistaken for the *split*.
-
-**Do:** partition `SYSTEM_CONFIG_KEYS` into `PUBLIC_CONFIG_KEYS` and the
-admin-only remainder. `GET` returns the public subset to an anonymous caller and
-everything to an authenticated admin. `PUT` keeps validating against the union.
-
-**Prove it:** a route test asserting an anonymous `GET` contains `org.name` and
-does **not** contain `loan.maxLoanMultiplier`, and that an admin `GET` contains
-both. Seen red first.
-
-**Do this after WO-67**, which adds four keys to the same list — otherwise you
-partition it twice.
-
-## WO-78 · Key the rate limiter on the member (RUN-09)
-
-Every request through the support proxy reaches the Go limiter from **Vercel's**
-address, so all of it shares one bucket. WO-64 capped each member at 60
-mutations a minute on the Next side, which means it now takes several abusive
-members rather than one to exhaust that shared bucket — an improvement, not a
-fix.
-
-[ADR-021](decisions.md) records why forwarding a header cannot solve this: the
-arithmetic of `TRUSTED_PROXIES` does not admit a value correct for both the
-direct and the proxied path. **Do not retry that.**
-
-**Do:** verify the JWT inside the middleware stack and key the limiter on the
-user id, falling back to the address for unauthenticated routes.
-
-The obstacle is ordering, and it is the whole difficulty: the limiter is global
-middleware and runs before auth, and keying on an **unverified** token lets an
-attacker mint a fresh bucket per request by sending garbage. So the token must be
-*verified* — signature and expiry — in the limiter, before the handler's own
-auth runs. That means the verification happens twice per request, or the result
-is carried in the context the way `RequestClientIP` carries the address.
-
-Prefer the context, and follow [ADR-019](decisions.md)'s shape exactly: one place
-decides, everything else reads it back.
-
-**Prove it:** drive the real middleware stack — the same harness that caught
-SEC-14 — with two tokens for two members from one address, and assert they get
-separate buckets. Then with garbage tokens from one address, and assert they
-share one.
-
-**Low priority, and say so.** Support is chat, not money; the money routes are
-reached directly, where the limiter already keys correctly.
+- **The pool size is not a correctness constraint, and now that is known rather
+  than assumed.** WO-75 asked whether `DB_MAX_CONNS=25` is compatible with Neon.
+  The whole integration suite — including the 20-way concurrent-deposit test —
+  passes with `pool_max_conns=2`. It can only do that because no repository call
+  holds two connections at once, which is the property [ADR-017](decisions.md)
+  exists to preserve, so that run is the cheapest available check that it still
+  holds.
 
 ---
 
@@ -405,14 +236,18 @@ asserts the job reports it, plus one asserting a clean database reports nothing.
 Every block above is a one-time improvement that quietly decays. This order turns
 each into a build failure.
 
-| Gain | Guard |
-|---|---|
-| WO-68's indexes | the FK-coverage test from that order |
-| WO-73's static pages | parse `next build`'s route table; fail if a marketing route is `ƒ` |
-| WO-74's request rate | the Playwright request-count assertion |
-| WO-76's CSP | header assertion + zero console violations |
-| WO-79/80's SEO | metadata and JSON-LD tests |
-| bundle size | record `First Load JS` per route; fail on a >10% regression |
+**Four of these six were built by the orders themselves** — a guard written
+alongside the change it protects is the one that gets written. What is left is
+the last row and the audit that the rest still fail when reverted.
+
+| Gain | Guard | State |
+|---|---|---|
+| WO-68's indexes | the FK-coverage test from that order | `apps/web/test/unit/foreign-key-indexes.test.ts` |
+| WO-73's static pages | parse the build output; fail if a marketing route is dynamic | `apps/web/scripts/assert-static-routes.mjs`, run in CI after `pnpm build`. Reads `.next/prerender-manifest.json` rather than the printed table — the manifest is the machine-readable form of the same answer. Also fails if a **dashboard or auth** route becomes static |
+| WO-74's request rate | the Playwright request-count assertion | `apps/web/e2e/dashboard-traffic.spec.ts` |
+| WO-76's CSP | header assertion + zero console violations | `apps/web/test/unit/csp.test.ts` and `apps/web/e2e/csp.spec.ts` |
+| WO-79/80's SEO | metadata and JSON-LD tests | **still to write** — block V |
+| bundle size | record `First Load JS` per route; fail on a >10% regression | **still to write** |
 
 **Follow the repo's existing shape: enumerate, do not list.** A guard that checks
 a hardcoded set of routes goes stale the moment a route is added — derive the set

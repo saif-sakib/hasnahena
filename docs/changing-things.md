@@ -12,13 +12,14 @@ which is most of what makes a change safe.
 
 | Layer | Change here and it affects | Safe to change freely? |
 |---|---|---|
-| `app/[locale]/**/page.tsx` | that one page | **Yes** |
+| `app/[locale]/**/page.tsx` | that one page — **plus whether it can still be prerendered** | Mostly. `pnpm build && node scripts/assert-static-routes.mjs` |
 | `components/ui/*` | every page using that primitive | Check callers first |
 | `app/globals.css` tokens | the whole site, both themes | Deliberate only |
 | `messages/{en,bn}.json` | copy everywhere | Yes, **but both files** |
 | `lib/documents/*` | printed paperwork members keep | Deliberate only |
 | `prisma/schema.prisma` | both backends, needs a migration | Deliberate only |
 | `internal/repositories/*_repository.go` | **money** | Read [ADR-015](decisions.md) first |
+| `lib/csp.ts`, `proxy.ts` | whether every page's scripts run at all | Deliberate only — [ADR-024](decisions.md) |
 
 Rule of thumb: **presentation is cheap to change, persistence is not.** Anything
 under `app/[locale]/` that is not a `route.ts` can be rewritten freely.
@@ -80,7 +81,13 @@ extend that, never inline a badge colour.
 Add a folder under `app/[locale]/`. It is picked up automatically; `sitemap.ts`
 and `robots.ts` generate from the route tree.
 
-- Public pages go beside `about/`, `faq/`, `contact/`.
+- Public pages go beside `about/`, `faq/`, `contact/`. **Read settings through
+  `getPublicSettings()` and gallery items through `getPublicGalleryItems()`**
+  (both in `lib/`), give the page an `export const revalidate`, and add it to
+  `MUST_BE_STATIC` in `scripts/assert-static-routes.mjs`. A bare
+  `prisma.something.findMany()` in a page — or in anything it renders — makes the
+  route dynamic again, which means a database connection on every visit; that was
+  the state of all fifty routes before WO-73.
 - Dashboard pages go under `dashboard/{member,worker,admin}/`. These are
   **already role-gated** by `proxy.ts` (redirects on missing/expired token) and
   by the layout in each role folder. The gate is where the file lives.
@@ -184,7 +191,9 @@ Three steps, **in this order**:
 
 1. **Make something read it.** A key nothing reads is a note, not a setting.
 2. Seed a default in [`scripts/seed.mjs`](../apps/web/scripts/seed.mjs).
-3. Declare it in [`lib/system-config.ts`](../apps/web/lib/system-config.ts), then
+3. Declare it in [`lib/system-config.ts`](../apps/web/lib/system-config.ts) —
+   in `SYSTEM_CONFIG_KEYS`, **and in `PUBLIC_CONFIG_KEYS` if a public page reads
+   it, or `MEMBER_CONFIG_KEYS` if a signed-in member's own screen does**. Then
    give it a control.
 
 The allow-list entry is last for a reason, and the ordering is not pedantry:
@@ -198,6 +207,15 @@ Zero is usually a real value, not a missing one. `loan.minDepositForLoan = 0`
 means "no minimum" and `loan.guarantorThresholdAmount = 0` means "always require
 a guarantor" — parse those with a non-negative check, and make sure **both
 backends agree**, since the Go API reads the same rows through its own helpers.
+
+**Which tier it goes in decides who can see it.** `GET /api/v1/settings` serves
+the public subset to a stranger, that plus loan policy to any signed-in caller,
+and everything to an admin ([ADR-024's neighbours](decisions.md), WO-77). Two
+consequences worth knowing before you debug either: a public page reading a key
+that is declared but not *public* renders its `|| 'fallback'` literal forever,
+and a browser call that does not go through `lib/settings-client.ts` sends no
+token and silently gets the public subset. Both are enforced by
+`test/unit/settings-keys-read.test.ts`.
 
 **Every declared key is read by something.** That was not always true —
 `loan.noticePeriodMonths` and `loan.missedPaymentsForDefault` were editable and

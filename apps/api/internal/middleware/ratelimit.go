@@ -172,7 +172,32 @@ func rateLimitExempt(r *http.Request) bool {
 	return false
 }
 
-// RateLimit throttles mutating requests per client address.
+// limiterKey is who this request is counted against.
+//
+// RUN-09 / WO-78. The member when their token verifies, the address otherwise.
+// Everything arriving through the Next support proxy carries Vercel's address —
+// all of it, from every member, into one bucket — and ADR-021 explains why
+// forwarding a header cannot fix that. Keying on the member does.
+//
+// The prefixes are not decoration: without them a member whose id happened to
+// look like an address would share a bucket with that address. They also make
+// the key readable in a debugger, which matters for the only thing that ever
+// goes wrong here.
+//
+// The identity is verified — signature and expiry — by the Identity middleware
+// before this runs. Keying on an *unverified* token would let one client mint a
+// fresh bucket per request by sending garbage, which is the WO-60 defect
+// wearing a different header, so the fallback to the address for a caller whose
+// token does not check out is the load-bearing half of this function.
+func limiterKey(r *http.Request, trustedProxies int) string {
+	if userID := RequestUserID(r); userID != "" {
+		return "user:" + userID
+	}
+	return "ip:" + ClientIP(r, trustedProxies)
+}
+
+// RateLimit throttles mutating requests per caller — the member when their
+// token verifies, otherwise the address.
 func RateLimit(cfg RateLimitConfig, stop <-chan struct{}) func(http.Handler) http.Handler {
 	l := &rateLimiter{buckets: make(map[string]*rateLimitBucket), cfg: cfg}
 
@@ -198,7 +223,7 @@ func RateLimit(cfg RateLimitConfig, stop <-chan struct{}) func(http.Handler) htt
 				return
 			}
 
-			ok, retryAfter := l.allow(ClientIP(r, cfg.TrustedProxies), time.Now())
+			ok, retryAfter := l.allow(limiterKey(r, cfg.TrustedProxies), time.Now())
 			if !ok {
 				secs := int(retryAfter.Seconds()) + 1
 				w.Header().Set("Retry-After", strconv.Itoa(secs))

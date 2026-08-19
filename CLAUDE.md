@@ -20,6 +20,8 @@ pnpm db:migrate:check   # the migrated database still matches schema.prisma (CI 
 cd apps/api && go build ./...                  # Go check
 ```
 
+`pnpm lint` exits 0 with **2 warnings** — do not let the count grow.
+
 `pnpm typecheck` must exit **clean, zero errors**. Any error is yours. If it reports a missing `app/api/**/route.js`, delete `apps/web/.next` first — those are stale generated route types, not your bug.
 
 `apps/web/next-env.d.ts` is generated and **untracked** (Next documents it as an implementation detail). Never commit it, never edit it; `next dev` and `next build` write different contents, which is why it used to dirty the tree on every run.
@@ -43,7 +45,7 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Seventeen suites and one CI check enumerate rather than list, and will fail the
+**Twenty-one suites and two CI checks enumerate rather than list, and will fail the
 build when the code grows something they do not know about.** That is
 deliberate — a list a human maintains goes stale the day it is written. See
 [docs/testing.md](docs/testing.md).
@@ -69,6 +71,10 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | a generator that maps random bytes onto an alphabet | `internal/utils/random_test.go` — use `utils.RandomString`; `%` over a byte is not uniform, and both suites keep the biased version to prove the statistic can tell |
 | the donation pool's owner id, in either language | `apps/web/test/unit/donation-pool-owner.test.ts` — `seed.mjs`, `db-clear-preserve-core.mjs` and `transaction_repository.go` must name the same id, or donations fail with "run `pnpm db:seed`" on a seeded database |
 | a labelled identifier to a generated document | `apps/web/test/unit/*` — `users.memberId` is the **only** member identifier ([ADR-023](docs/decisions.md)); no document may give it two names, which is what "Member ID" and "Account No" on the statement were |
+| a `system_config` key a **public** page reads | `apps/web/test/unit/settings-keys-read.test.ts` — the public pages render from `getPublicSettings()`, which selects `PUBLIC_CONFIG_KEYS` and nothing else. A key outside it reads `undefined` and the page shows its hardcoded fallback forever |
+| a page under `app/[locale]/` that is neither dashboard nor auth | `apps/web/scripts/assert-static-routes.mjs` after `pnpm build` — marketing routes must be prerendered, dashboard and auth routes must not. It reads the build's own manifest, because no test over the source can know which a route is |
+| a repository read on a hot path | `TestHotReadsDoNotSelectStar` — name the columns. `SELECT *` on `users` ships the address, both parents' names, the NID number and the photo URL to render a name and a balance |
+| a `setInterval` in the dashboard shell | `apps/web/e2e/dashboard-traffic.spec.ts` — it counts what one open tab asks for in seventy seconds, and a hidden tab must ask for nothing |
 
 ## Rules
 
@@ -123,10 +129,18 @@ apps/api/internal/notify/         every member- and staff-facing notification st
                                   whole taka, table-tested with a census. Nothing else may build one
 apps/api/internal/middleware/     the global stack, mounted by mountMiddleware in main.go. ClientIP is the
                                   ONLY place that decides a caller's address — never read X-Forwarded-For
-                                  in a handler; use RequestClientIP(r) (ADR-019)
+                                  in a handler; use RequestClientIP(r) (ADR-019). Identity does the same
+                                  for *who* a caller is: RequestUserID(r), verified signature and expiry
+                                  only — for attributing a request, never for authorising one (ADR-025)
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
+apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)
+apps/web/lib/system-config.ts     every system_config key, split into public / member / admin tiers,
+                                  plus the cached getPublicSettings() every marketing page renders from
+apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
+                                  token, and without one the caller silently gets the public subset
+apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
 apps/web/prisma/schema.prisma     the data model

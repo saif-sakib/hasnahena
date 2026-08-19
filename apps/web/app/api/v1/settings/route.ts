@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UserRole } from '@prisma/client';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { corsHeaders } from '@/lib/cors';
 import { authenticateRequest } from '@/lib/server-auth';
-import { partitionConfigKeys, SYSTEM_CONFIG_KEYS } from '@/lib/system-config';
+import {
+  MEMBER_CONFIG_KEYS,
+  PUBLIC_CONFIG_KEYS,
+  partitionConfigKeys,
+  SYSTEM_CONFIG_TAG,
+  SYSTEM_CONFIG_KEYS,
+} from '@/lib/system-config';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -22,20 +28,31 @@ export async function OPTIONS(request: NextRequest) {
   return NextResponse.json({}, { headers: corsHeaders(request) });
 }
 
-// Deliberately unauthenticated: the marketing pages and the login screen read
-// the organisation's name, address and contact details from here before anyone
-// has signed in.
+// Deliberately reachable without a token: the marketing pages, the login screen
+// and every generated document's letterhead read the organisation's name,
+// address and contact details from here before anyone has signed in.
 //
-// It returns only the declared keys, not `SELECT *`. Before that it handed the
-// entire `system_config` table to anonymous callers, so the day someone adds a
-// key holding an internal threshold, an integration id or a partner's contact
-// details, it becomes public with no code change and nothing to notice
-// (TEST-17). The allowlist is the same one PUT validates against, so a key
-// cannot be writable-but-not-readable or the reverse.
+// What a caller gets depends on who they are (WO-77 / SEC-12):
+//
+//   anonymous       PUBLIC_CONFIG_KEYS  — branding, org details, landing copy
+//   signed in       + the loan policy governing their own money
+//   admin           SYSTEM_CONFIG_KEYS  — everything, because they edit it
+//
+// It has not returned `SELECT *` since WO-64: before that it handed the entire
+// `system_config` table to anonymous callers, so the day someone added a key
+// holding an internal threshold, an integration id or a partner's contact
+// details it became public with no code change and nothing to notice (TEST-17).
+// Narrowing it to the declared keys fixed the wholesale leak; this fixes the
+// retail one, where a declared key is nonetheless nobody's business but staff's.
+//
+// A bad token is treated as no token rather than as a 401. This endpoint's whole
+// job is to answer a caller who has not signed in, and an expired session must
+// still render a login page with the right logo on it.
 export async function GET(request: NextRequest) {
   try {
+    const keys = await readableKeysFor(request);
     const configs = await prisma.systemConfig.findMany({
-      where: { key: { in: [...SYSTEM_CONFIG_KEYS] } },
+      where: { key: { in: keys } },
       select: { key: true, value: true },
     });
     const configMap = configs.reduce((acc: Record<string, string>, config) => {
@@ -47,6 +64,16 @@ export async function GET(request: NextRequest) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return errorResponse(request, 'Failed to fetch settings', msg, 500);
   }
+}
+
+/** Which tier this caller may read. See the comment on GET. */
+async function readableKeysFor(request: NextRequest): Promise<string[]> {
+  const auth = await authenticateRequest(request);
+  if (!auth.ok) return [...PUBLIC_CONFIG_KEYS];
+  if (auth.user.role === UserRole.ADMIN || auth.user.role === UserRole.SUPER_ADMIN) {
+    return [...SYSTEM_CONFIG_KEYS];
+  }
+  return [...MEMBER_CONFIG_KEYS];
 }
 
 export async function PUT(request: NextRequest) {
@@ -95,6 +122,16 @@ export async function PUT(request: NextRequest) {
 
     await prisma.$transaction(updates);
 
+    // The tag is what the public pages actually read through (WO-73): every one
+    // of them shares a single `getPublicSettings()` cache entry, so one bust
+    // reaches all ten rather than the four paths named below. The
+    // `revalidatePath` calls stay because they also drop each route's rendered
+    // HTML, which the tag alone would not for a page that read no settings.
+    // `{ expire: 0 }`, not `'max'`: an admin who saves and reloads must see what
+    // they saved. The `'max'` profile is stale-while-revalidate, which shows
+    // them the old value once and looks exactly like a save that did not work.
+    // The one-argument form does the same thing but is deprecated in Next 16.
+    revalidateTag(SYSTEM_CONFIG_TAG, { expire: 0 });
     revalidatePath('/');
     revalidatePath('/[locale]');
     revalidatePath('/[locale]/gallery');

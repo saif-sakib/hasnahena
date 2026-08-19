@@ -197,6 +197,7 @@ removed.
 | `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Render | email disabled — approval and reset mails silently skipped (`/v1/health` reports `emailConfigured:false`) |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Vercel | document/avatar upload fails; every other flow works |
 | `NEXT_PUBLIC_SITE_URL` | Vercel | falls back to `NEXT_PUBLIC_APP_URL` for SEO metadata |
+| `CSP_ENFORCE` | Vercel | the Content-Security-Policy is sent **report-only**: violations reach the browser console and nothing is blocked. Set to `1` to enforce it, after a full `pnpm test:e2e` reports zero violations ([ADR-024](decisions.md)) |
 | `JWT_EXPIRY_SECONDS` | Render | 86400 |
 | `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | Render | pgx pool defaults (25/2/5m/30m/1m) |
 | `LOG_LEVEL` | Render | `info`. Accepts `debug`, `info`, `warn`, `error`. The API logs JSON to stdout |

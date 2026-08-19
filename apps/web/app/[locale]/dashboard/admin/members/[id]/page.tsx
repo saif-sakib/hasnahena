@@ -60,6 +60,8 @@ import { useApi } from '@/lib/use-api';
 import useSWR from 'swr';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
+import { fetchSettings } from '@/lib/settings-client';
+import Image from 'next/image';
 import {
   buildReceipt,
   buildLoanAgreement,
@@ -149,12 +151,11 @@ export default function MemberDetailPage() {
     loans: Loan[];
   }>(memberId ? `/v1/dashboard/worker/members/${memberId}` : null);
 
-  const { data: settings } = useSWR<Record<string, unknown> | null>(
+  // Carries the token: `loan.allowActiveLoanWithdrawal` and
+  // `loan.maxInstallmentMonths` are not in the anonymous tier (WO-77).
+  const { data: settings } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
-    async (url: string) => {
-      const response = await fetch(url, { cache: 'no-store' });
-      return response.ok ? response.json() : null;
-    },
+    () => fetchSettings(),
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
@@ -812,13 +813,16 @@ export default function MemberDetailPage() {
                       <div key={doc.id} className="rounded-sm border bg-slate-50 p-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-start gap-3">
-                            <div className="h-14 w-14 overflow-hidden rounded-sm border bg-white">
+                            <div className="relative h-14 w-14 overflow-hidden rounded-sm border bg-white">
                               {isImageDocument(doc.url, doc.mimeType) ? (
-                                <img
+                                // 56px on screen; `sizes` keeps the optimiser from
+                                // fetching a full-resolution scan for a thumbnail.
+                                <Image
                                   src={doc.url}
                                   alt={formatDocumentType(doc.type)}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
+                                  fill
+                                  sizes="56px"
+                                  className="object-cover"
                                 />
                               ) : (
                                 <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
@@ -1014,11 +1018,15 @@ export default function MemberDetailPage() {
           </DialogHeader>
           <div className="max-h-[70vh] overflow-auto rounded-sm border bg-slate-50 p-3">
             {previewDocument && isImageDocument(previewDocument.url, previewDocument.mimeType) ? (
-              <img
-                src={previewDocument.url}
-                alt={previewDocument.fileName || 'Document preview'}
-                className="mx-auto max-h-[62vh] w-auto rounded-sm border bg-white"
-              />
+              <div className="relative mx-auto h-[62vh] w-full">
+                <Image
+                  src={previewDocument.url}
+                  alt={previewDocument.fileName || 'Document preview'}
+                  fill
+                  sizes="100vw"
+                  className="rounded-sm border bg-white object-contain"
+                />
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">
                 {locale === 'bn' ? 'এই নথির ইনলাইন প্রিভিউ উপলব্ধ নয়।' : 'Inline preview is unavailable for this document.'}

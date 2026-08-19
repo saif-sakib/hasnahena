@@ -3,7 +3,8 @@
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadSettingsImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, updateTag } from 'next/cache';
+import { SYSTEM_CONFIG_TAG } from '@/lib/system-config';
 import { authorizeServerActionRoles } from '@/lib/server-auth';
 import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
@@ -24,6 +25,11 @@ type SettingImageType =
 
 /** Revalidate all settings-related paths */
 function revalidateSettingsPaths() {
+  // WO-73: every public page reads branding through the cached
+  // `getPublicSettings()`, so a new logo is invisible until this tag is busted.
+  // updateTag, not revalidateTag: this runs in a Server Action, where the
+  // admin who just uploaded the image is the very next reader of the page.
+  updateTag(SYSTEM_CONFIG_TAG);
   revalidatePath('/');
   revalidatePath('/[locale]');
   revalidatePath('/[locale]/dashboard/admin/settings');

@@ -14,8 +14,17 @@ import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 
-import { prisma } from '@/lib/prisma';
-import { GalleryItem as DbGalleryItem } from '@prisma/client';
+import { getPublicGalleryItems, type PublicGalleryItem } from '@/lib/public-content';
+import { getPublicSettings } from '@/lib/system-config';
+
+/**
+ * WO-73. This page's content changes when an admin edits a setting, which is to
+ * say almost never — so it is prerendered and served from the edge instead of
+ * opening a Neon connection on every visit. `revalidateTag('system-config')` in
+ * the settings `PUT` is what makes an edit appear immediately; this interval is
+ * only the backstop.
+ */
+export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
 
@@ -56,24 +65,14 @@ export default async function HomePage({ params }: PageProps) {
   const tDonation = await getTranslations({locale, namespace: 'donation'});
   
   // Fetch gallery items from DB
-  let dbGalleryItems: DbGalleryItem[] = [];
+  let dbGalleryItems: PublicGalleryItem[] = [];
   let settings: Record<string, string> = {};
 
   try {
-      const [galleryResult, settingsResult] = await Promise.all([
-        prisma.galleryItem.findMany({
-          take: 6,
-          orderBy: { date: 'desc' },
-        }),
-        prisma.systemConfig.findMany()
+      [dbGalleryItems, settings] = await Promise.all([
+        getPublicGalleryItems(6),
+        getPublicSettings(),
       ]);
-      
-      dbGalleryItems = galleryResult;
-      
-      settings = settingsResult.reduce((acc, config) => {
-        acc[config.key] = config.value;
-        return acc;
-      }, {} as Record<string, string>);
   } catch (e) {
       console.error("Failed to fetch data", e);
   }
@@ -82,7 +81,7 @@ export default async function HomePage({ params }: PageProps) {
     id: item.id,
     image: item.imageUrl,
     caption: locale === 'bn' ? (item.captionBn || item.captionEn || '') : (item.captionEn || item.captionBn || ''),
-    date: item.date.toISOString(),
+    date: item.date,
     likes: item.likes,
   }));
 

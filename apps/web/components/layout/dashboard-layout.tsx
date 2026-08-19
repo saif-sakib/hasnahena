@@ -36,6 +36,8 @@ import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
+import { usePageVisible } from '@/hooks/use-page-visible';
+import { useServerEvents } from '@/hooks/use-server-events';
 import { getInitials, getAvatarColor } from '@/lib/image-utils';
 import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 import Image from 'next/image';
@@ -184,6 +186,22 @@ function clearAuthState() {
 // hydration render and the client snapshot afterwards.
 const subscribeToNothing = () => () => {};
 
+/**
+ * How often the shell asks the server for something, in milliseconds.
+ *
+ * WO-74 raised all three from 20 s / 10 s / 7 s. Named rather than inlined
+ * because the numbers are the point of that order: together they were about 26
+ * requests a minute per open tab, against a free Render instance and a free Neon
+ * compute, for data that changes a few times an hour.
+ *
+ * `e2e/dashboard-traffic.spec.ts` counts the requests a real tab makes over a
+ * minute and fails if these grow back.
+ */
+const NOTIFICATION_POLL_MS = 60_000;
+const SUPPORT_SIGNAL_POLL_MS = 60_000;
+/** The backstop for what the SSE stream does not carry. Was 7 s. */
+const SUPPORT_THREAD_POLL_MS = 60_000;
+
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const locale = useLocale();
   const pathname = usePathname();
@@ -213,7 +231,50 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const supportRef = useRef<HTMLDivElement | null>(null);
   const supportMessagesRef = useRef<HTMLDivElement | null>(null);
   const supportListInitializedRef = useRef(false);
+  // Set below, once `loadSupportMessages` exists. The SSE subscription is
+  // declared before it and must not depend on its identity.
+  const loadSupportMessagesRef = useRef<((threadId: string) => Promise<void>) | null>(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+  // WO-74. This shell wraps every dashboard page, and it used to run three
+  // intervals — notifications at 20 s, support signals at 10 s, and threads
+  // plus the open thread's messages at 7 s — which is about 26 requests a
+  // minute per open tab, forever, whether or not anything had changed. One
+  // browser-suite run measured 288 requests to /notifications and 144 to
+  // /support/threads; that measurement was this code.
+  //
+  // Three things changed, in order of how much traffic each removes:
+  //
+  //   1. A backgrounded tab polls at zero. Most open tabs are not the focused
+  //      tab, so this alone is most of the saving, and it is a dozen lines.
+  //   2. The open thread's messages come off the SSE stream that already
+  //      existed and had never been used, so the 7 s loop is gone entirely.
+  //   3. What is left polls at 60 s, which is the right latency for data that
+  //      changes a few times an hour.
+  const isPageVisible = usePageVisible();
+
+  // One SSE connection, for the thread that is actually open, and only while the
+  // popup is open and the tab is in front. Everything else — closed popup,
+  // background tab, no thread selected — holds no connection at all, which is
+  // what makes this cheaper than the loop it replaces rather than an extra cost
+  // on top of it.
+  //
+  // Nothing is shown when the stream cannot be opened: the backstop poll below
+  // already covers the thread, so there is nothing a member could do about it.
+  const supportStream = useServerEvents(
+    showSupportPopup ? activeSupportThreadId : null,
+    isPageVisible,
+    (threadId) => {
+      // The event says only "the count changed", so the refetch is what
+      // actually applies this caller's authorisation — the stream never carries
+      // a message body.
+      //
+      // Through a ref because `loadSupportMessages` is declared further down and
+      // this call site is above it. Passing the callback itself would also
+      // reopen the stream every time that useCallback's identity changed.
+      void loadSupportMessagesRef.current?.(threadId);
+    },
+  );
 
   const navItems = role === 'worker' ? workerNav : memberNav;
   const basePath = `/${locale}/dashboard/${role}`;
@@ -344,12 +405,21 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       }
     };
 
+    // The guard comes BEFORE the first load, not after it. Both orderings look
+    // right and only one is: with the load first, *becoming hidden* re-runs
+    // this effect and fires a request on the way out — which is how a
+    // suspended tab still managed two requests a minute, measured by
+    // e2e/dashboard-traffic.spec.ts. Guarding first means a hidden tab does
+    // nothing at all, and a tab coming back to the front loads once
+    // immediately rather than waiting out a full interval.
+    if (!isPageVisible) return;
     void loadNotifications();
+    // Nothing about a notification needs 20-second latency.
     const timer = setInterval(() => {
       void loadNotifications();
-    }, 20000);
+    }, NOTIFICATION_POLL_MS);
     return () => clearInterval(timer);
-  }, [handleUnauthorizedError]);
+  }, [handleUnauthorizedError, isPageVisible]);
 
   useEffect(() => {
     const loadSupportSignals = async () => {
@@ -382,12 +452,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       }
     };
 
+    if (!isPageVisible) return;
     void loadSupportSignals();
     const timer = setInterval(() => {
       void loadSupportSignals();
-    }, 10000);
+    }, SUPPORT_SIGNAL_POLL_MS);
     return () => clearInterval(timer);
-  }, [role, handleUnauthorizedError, seenSupportThreadIds, showSupportPopup]);
+  }, [role, handleUnauthorizedError, seenSupportThreadIds, showSupportPopup, isPageVisible]);
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
@@ -476,6 +547,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     }
   }, [handleUnauthorizedError, scrollSupportToBottom]);
 
+  // The SSE subscription is declared above this and calls through the ref, so
+  // that a change in this callback's identity does not reopen the stream. The
+  // write is in an effect because the React compiler refuses a ref write during
+  // render.
+  useEffect(() => {
+    loadSupportMessagesRef.current = loadSupportMessages;
+  }, [loadSupportMessages]);
+
   useEffect(() => {
     if (!showSupportPopup) return;
     const refreshThreads = async () => {
@@ -494,15 +573,31 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         setSupportThreadsSettled(true);
       }
     };
+    if (!isPageVisible) return;
     void refreshThreads();
+    // 60 s, not 7 s, and it no longer refetches messages: the open thread's
+    // messages arrive on the SSE stream below. This is the backstop for what
+    // the stream does not carry — the thread *list*, which is per-caller and
+    // has no stream of its own — and for the case where the stream never
+    // opened at all.
     const timer = setInterval(() => {
       void refreshThreads();
-      if (activeSupportThreadId) {
+      // Only when the stream is not carrying this thread. With it open this
+      // would be the 7-second loop again under another name.
+      if (activeSupportThreadId && !supportStream.connected) {
         void loadSupportMessages(activeSupportThreadId);
       }
-    }, 7000);
+    }, SUPPORT_THREAD_POLL_MS);
     return () => clearInterval(timer);
-  }, [showSupportPopup, activeSupportThreadId, handleUnauthorizedError, role, loadSupportMessages]);
+  }, [
+    showSupportPopup,
+    activeSupportThreadId,
+    handleUnauthorizedError,
+    role,
+    loadSupportMessages,
+    isPageVisible,
+    supportStream.connected,
+  ]);
 
   const markSupportSeen = useCallback((threadId: string, latestAt: string) => {
     setSeenSupportThreadIds((prev) => ({

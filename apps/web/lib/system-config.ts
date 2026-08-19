@@ -1,3 +1,7 @@
+import { unstable_cache } from 'next/cache';
+
+import { prisma } from '@/lib/prisma';
+
 /**
  * The complete set of `system_config` keys the platform understands.
  *
@@ -164,6 +168,99 @@ export const UNIMPLEMENTED_CONFIG_KEYS = [
   'appearance.currencyFormat',
 ] as const;
 
+/**
+ * The subset an **anonymous** caller may read.
+ *
+ * WO-77 (SEC-12). `GET /api/v1/settings` is deliberately unauthenticated: the
+ * marketing pages, the login screen and every generated document's letterhead
+ * read branding and organisation details from it before anyone has signed in.
+ * The narrowing WO-64 already did — returning declared keys rather than
+ * `SELECT *` — stopped the table leaking wholesale. This is the second half:
+ * *which* declared keys a stranger gets.
+ *
+ * The test is what a visitor may see with no account. Branding, the
+ * organisation's own contact details, the landing-page copy, the donation
+ * channels — all of it is printed on the public site already.
+ *
+ * This list is also exactly what `getPublicSettings()` selects, so it is the
+ * whole vocabulary a page outside `dashboard/` can render. A key missing from
+ * here is a page rendering its hardcoded fallback forever, which is WO-67's
+ * failure with a new cause — `test/unit/settings-keys-read.test.ts` refuses it.
+ */
+export const PUBLIC_CONFIG_KEYS = [
+  'org.name',
+  'org.nameEn',
+  'org.address',
+  'org.phone',
+  'org.email',
+  'org.website',
+  'org.regNumber',
+  'org.description',
+
+  'hero.tagline',
+  'hero.backgroundImage',
+  'hero.partnerLogo1',
+  'hero.partnerLogo2',
+  'hero.partnerLogo3',
+
+  'features.title',
+  'contact.title',
+  'donation.title',
+  'donation.subtitle',
+  'donation.bkash',
+  'donation.nagad',
+  'donation.rocket',
+  'donation.referenceNote',
+
+  'navigation.features',
+  'navigation.donate',
+
+  'auth.welcomeBack',
+
+  'branding.logo',
+  'branding.favicon',
+  'branding.dashboardLogo',
+
+  'bank.name',
+  'bank.accountName',
+  'bank.accountNo',
+  'bank.branch',
+] as const;
+
+/**
+ * Public, **plus** what a signed-in member is entitled to see about the policy
+ * governing their own money.
+ *
+ * Why this tier exists rather than the two WO-77 named. The order says "public
+ * subset to an anonymous caller, everything to an authenticated admin", and
+ * that split alone would have broken two screens the same afternoon:
+ * `dashboard/member/loans` sizes its eligibility calculator from
+ * `loan.minDepositForLoan`, `loan.maxLoanMultiplier`, `loan.maxInstallmentMonths`
+ * and `loan.guarantorThresholdAmount`, and the member reading it is not an
+ * admin. Falling back to the hardcoded defaults in that component would show
+ * every member a policy the foundation may have changed — the exact failure
+ * WO-67 spent an order removing from the public pages.
+ *
+ * So loan policy moves out of the anonymous response, which is what SEC-12
+ * asked for, and stops there rather than becoming admin-only. It is published
+ * to members in product.md and on their own dashboard; it is simply not a
+ * stranger's business.
+ *
+ * What is left admin-only, and why each one: `loan.missedPaymentsForDefault` is
+ * the threshold at which staff may start a settlement waterfall against a
+ * member's savings, and `support.chatRetentionDays` is a retention policy.
+ * Neither is read by any member-facing screen.
+ */
+export const MEMBER_CONFIG_KEYS = [
+  ...PUBLIC_CONFIG_KEYS,
+  'loan.minDepositForLoan',
+  'loan.maxLoanMultiplier',
+  'loan.maxInstallmentMonths',
+  'loan.allowActiveLoanWithdrawal',
+  'loan.guarantorThresholdAmount',
+  'loan.noticePeriodMonths',
+] as const;
+
 export type SystemConfigKey = (typeof SYSTEM_CONFIG_KEYS)[number];
 
 const KEY_SET: ReadonlySet<string> = new Set(SYSTEM_CONFIG_KEYS);
@@ -189,3 +286,53 @@ export function partitionConfigKeys(keys: string[]): {
   }
   return { known, unknown };
 }
+
+/** Cache tag every public settings read shares. Invalidated by the settings PUT. */
+export const SYSTEM_CONFIG_TAG = 'system-config';
+
+/**
+ * The public pages' settings map, read once per revalidation window rather than
+ * once per visit.
+ *
+ * WO-73. Every marketing page opened with `prisma.systemConfig.findMany()` — no
+ * `select`, no `where`, no cache — so a visit to `/en/privacy` read every column
+ * of every config row out of Neon before it could render a page whose content
+ * changes when an admin edits a setting, which is to say almost never. On a free
+ * tier that cold read was the whole of the page's TTFB, and TTFB feeds Core Web
+ * Vitals, so this was an SEO item as much as a performance one.
+ *
+ * The invalidation half already existed: `PUT /api/v1/settings` calls
+ * `revalidatePath` for four routes. It now calls `revalidateTag` on the tag
+ * below too, which is what lets *every* page share one cache entry instead of
+ * each route holding its own.
+ *
+ * Two things to keep true:
+ *
+ *   - **Only public keys.** The map is handed to `<Header>` and `<Footer>` and
+ *     rendered into HTML that is cached and served to everyone, so a key that is
+ *     not a stranger's business must not be in it (WO-77).
+ *   - **Never for `dashboard/`.** Those reads are per-member. A cached accessor
+ *     there would serve one member's page to the next.
+ */
+export async function getPublicSettings(): Promise<Record<string, string>> {
+  return getCachedPublicSettings();
+}
+
+const getCachedPublicSettings = unstable_cache(
+  async () => {
+    const rows = await prisma.systemConfig.findMany({
+      where: { key: { in: [...PUBLIC_CONFIG_KEYS] } },
+      select: { key: true, value: true },
+    });
+    return rows.reduce<Record<string, string>>((acc, row) => {
+      acc[row.key] = row.value;
+      return acc;
+    }, {});
+  },
+  ['public-settings'],
+  // The tag is the real invalidation path — an admin saving settings must see
+  // the change immediately, not in an hour. The interval is the backstop for
+  // the write nothing tags: a row edited directly in Prisma Studio or by a
+  // migration would otherwise be invisible on the public site forever.
+  { tags: [SYSTEM_CONFIG_TAG], revalidate: 3600 },
+);

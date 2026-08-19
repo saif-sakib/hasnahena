@@ -6,9 +6,19 @@ import { locales } from '@/i18n';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
-import { prisma } from '@/lib/prisma';
+import { getPublicSettings } from '@/lib/system-config';
+import { getPublicGalleryItems, type PublicGalleryItem } from '@/lib/public-content';
 import { Image as ImageIcon } from 'lucide-react';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+
+/**
+ * WO-73. This page's content changes when an admin edits a setting, which is to
+ * say almost never — so it is prerendered and served from the edge instead of
+ * opening a Neon connection on every visit. `revalidateTag('system-config')` in
+ * the settings `PUT` is what makes an edit appear immediately; this interval is
+ * only the backstop.
+ */
+export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
 
@@ -36,11 +46,9 @@ export default async function GalleryPage({ params }: PageProps) {
   const tGallery = await getTranslations({locale, namespace: 'gallery'});
 
   // Fetch gallery items from DB
-  let dbGalleryItems: any[] = [];
+  let dbGalleryItems: PublicGalleryItem[] = [];
   try {
-      dbGalleryItems = await prisma.galleryItem.findMany({
-        orderBy: { date: 'desc' },
-      });
+      dbGalleryItems = await getPublicGalleryItems();
   } catch (e) {
       console.error("Failed to fetch gallery items", e);
   }
@@ -49,18 +57,14 @@ export default async function GalleryPage({ params }: PageProps) {
     id: item.id,
     image: item.imageUrl,
     caption: locale === 'bn' ? (item.captionBn || item.captionEn || '') : (item.captionEn || item.captionBn || ''),
-    date: item.date.toISOString(),
+    date: item.date,
     likes: item.likes,
   }));
 
   // Fetch settings for Header
   let settings: Record<string, string> = {};
   try {
-    const settingsResult = await prisma.systemConfig.findMany();
-    settings = settingsResult.reduce((acc: any, config) => {
-      acc[config.key] = config.value;
-      return acc;
-    }, {} as Record<string, string>);
+    settings = await getPublicSettings();
   } catch (e) {
     console.error("Failed to fetch settings", e);
   }
