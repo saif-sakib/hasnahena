@@ -13,9 +13,16 @@ Envelope:
 { "success": false, "error": { "message": "…" } }
 ```
 
-Status codes: 200 ok · 400 validation · 401 missing/invalid/blacklisted token · 403 wrong role · 404 · 429 rate-limited · 500.
+Status codes: 200 ok · 400 validation · 401 missing/invalid/blacklisted token ·
+403 wrong role · 404 · 409 conflict · 429 rate-limited · 500.
 
-The authoritative list is `apps/api/cmd/server/main.go` — one file, read it when in doubt.
+Authorization is checked **before** body validation everywhere, so a caller with
+the wrong role gets a 403 rather than a 400 listing the fields it wanted.
+
+The authoritative list is `apps/api/cmd/server/main.go` — one file, read it when
+in doubt. It is also enumerated: `routes_integration_test.go` walks the router
+with `chi.Walk` and fails the build on any route with no contract row, or any row
+with no route.
 
 ### Health & auth
 
@@ -93,13 +100,12 @@ an admin changed it.
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-Eleven handlers. Only `admin/audit-logs` has no caller, and it is OBS-08'''s
-backend waiting on its viewer UI.
-The "called by" column is the audited answer, not an intention — verified
-2026-08-17 by grepping every `/api/v1/...` literal in `app/`, `components/`,
-`lib/`, `hooks/` and `e2e/`. An uncalled route is not automatically dead (some
-are a built feature's missing half), but it is never exercised, so treat it as
-untested.
+Eleven handlers, 21 exported methods. The "called by" column is the audited
+answer, not an intention — grep every `/api/v1/...` literal in `app/`,
+`components/`, `lib/`, `hooks/` and `e2e/` if you change it. Only
+`admin/audit-logs` has no caller, and it is OBS-08's backend waiting on its
+viewer UI. An uncalled route is not automatically dead, but it is never
+exercised, so treat it as untested.
 
 | Methods | Path | Purpose | Called by |
 |---|---|---|---|
@@ -110,20 +116,15 @@ untested.
 | POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD | admin workers |
 | POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount | member transactions |
 | GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints — an **allow-list** of `config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, method by method; anything else is 404 here and never reaches Go. Mutations are limited to 60/min per member address, because the Go limiter sees Vercel's ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
-| POST | `/api/v1/loans/applications` | member loan application | **nothing** — FR-10's missing UI ([WO-45](work-orders.md)) |
-| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | **nothing** — FR-11's missing UI ([WO-45](work-orders.md)) |
+| POST | `/api/v1/loans/applications` | member loan application | `components/dashboard/loan-application-form.tsx` |
+| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | `components/dashboard/guarantor-requests.tsx` |
 | GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
 
-**Removed 2026-08-17 ([WO-44](work-orders.md))** — five handlers, none with a
-caller anywhere in the app:
-
-| Route | Why |
-|---|---|
-| `POST /api/v1/worker/transactions/{id}/process` | Mutated balances from Next ([ADR-001](decisions.md) forbids it) **and 500'd on every call** — it wrote a display name into `processedBy`, a foreign key to `users.id` |
-| `POST /api/v1/member/transactions/{id}/confirm` | Mutated balances from Next, carrying LEDGER-01's lost update |
-| `POST /api/v1/transactions/deposit-requests` | Superseded by Go `/v1/dashboard/member/requests/deposit` |
-| `POST /api/v1/transactions/withdrawal-requests` | No caller; a withdrawal-request path belongs in Go beside the deposit twin |
-| `POST /api/v1/admin/approvals/registration` | The approvals page calls the Go route of the same name |
+**Five handlers were removed** once it was clear none had a caller: two that
+mutated balances from Next (against [ADR-001](decisions.md)), one of which also
+wrote a display name into `processedBy` — a foreign key to `users.id`, so every
+call 500'd — and three superseded by the Go routes of the same name. If you are
+about to add a balance write here, the answer is Go.
 
 ## Adding an endpoint
 

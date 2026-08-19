@@ -96,7 +96,7 @@ serve() {
   # /tmp/go-buildNNN/b001/exe/main. `down` therefore reported success while the
   # API kept port ${API_PORT} bound, and the next `up --serve` polled /v1/health,
   # got an answer from the OLD binary and moved on. That is the stale-process
-  # trap in docs/work-orders.md, and it is what made a full green browser run
+  # trap in docs/traps.md, and it is what made a full green browser run
   # prove nothing about the code just written.
   #
   # Building also turns a compile error into a compiler message here, instead of

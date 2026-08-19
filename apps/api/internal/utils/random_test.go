@@ -17,7 +17,7 @@ const (
 // Without it these would be uniformity tests that pass and prove nothing: a
 // chi-square that never sees a skewed sample is not evidence that it would
 // notice one. This is the "seen to fail against the pre-fix code" rule from
-// work-orders.md, wired into the suite instead of performed once by hand.
+// traps.md, wired into the suite instead of performed once by hand.
 func biasedString(n int, alphabet string) string {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {

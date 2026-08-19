@@ -28,12 +28,11 @@ Two backends share one database. That is deliberate but bounded — see [ADR-001
 
 Rule of thumb: **if it changes a balance, it belongs in Go.**
 
-That rule was broken twice and both handlers were removed on 2026-08-17: a
-worker-process route that mutated balances *and* wrote a display name into
+That rule was broken twice and both handlers were removed: a worker-process
+route that mutated balances *and* wrote a display name into
 `transactions.processedBy` — a foreign key to `users.id`, so every call 500'd —
-and a member-confirm route that carried the same lost-update bug as
-[LEDGER-01](production-readiness.md). Neither had a caller. If you are adding a
-balance write to Next, the answer is Go; see [WO-44](work-orders.md).
+and a member-confirm route carrying a lost update. Neither had a caller. If you
+are adding a balance write to Next, the answer is Go.
 
 ## Request path from the browser
 
@@ -47,8 +46,8 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 - `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
-- **Revocation is Go-only.** The Next handlers check signature and `exp` and never consult `token_blacklist`, so a logged-out token still works against the settings, gallery, worker-CRUD and registration routes — [SEC-11](production-readiness.md). Do not describe revocation as platform-wide until that is fixed.
-- `security_service.go` handles rate limiting and lockout via the `rate_limits` table.
+- **Revocation is platform-wide.** Both surfaces consult `token_blacklist` on every authenticated request — Go directly, Next through `lib/auth-revocation.ts`, which **fails closed**: if the lookup errors, the request is refused. Both truncate `iat` to whole seconds, without which a first-login token is born revoked.
+- `security_service.go` handles rate limiting and lockout via the `rate_limits` table, keyed on `middleware.ClientIP` — the one function that decides a caller's address ([ADR-019](decisions.md)). Never read `X-Forwarded-For` in a handler.
 
 ## Frontend structure
 
@@ -84,15 +83,19 @@ Tailwind + CSS variables in `app/globals.css`, light and `.dark`. Brand primary 
 ## Go API structure
 
 ```
-cmd/server/main.go        config, pool, DI, and every route — the routing table
+cmd/server/main.go        config, pool, DI, mountRoutes + mountMiddleware — the routing table
 internal/config           env loading (walks up for .env), fails fast if JWT_SECRET < 32 chars
-internal/middleware       CORS (allow-list from CORS_ORIGINS), request logging
+internal/middleware       the global stack, mounted by mountMiddleware: CORS (allow-list from
+                          CORS_ORIGINS), rate limiting, NUL-byte rejection, request logging, and
+                          ClientIP — the ONLY place that decides a caller's address
 internal/handlers         auth_handler.go, dashboard_handler.go (HTTP shape only)
 internal/services         auth (JWT, bcrypt), security (rate limit, blacklist), email (Brevo)
-internal/repositories     all SQL and business calculation, split by domain (WO-38):
+internal/repositories     all SQL and business calculation, split by domain:
                           repository.go (shared helpers), transaction_ (deposits/withdrawals/
                           donations), loan_, member_, worker_, admin_, auth_, support_, report_
-internal/utils            response envelope, validation, member-ID + receipt generators
+internal/money            pure loan/installment/waterfall arithmetic — no DB. New money maths goes HERE
+internal/notify           every member- and staff-facing notification string. Nothing else builds one
+internal/utils            response envelope, validation, id + document-number generators
 ```
 
 `pgx` runs in `QueryExecModeSimpleProtocol` because Neon's pgBouncer pooler conflicts with server-side prepared statements. Keep it.
@@ -105,7 +108,7 @@ internal/utils            response envelope, validation, member-ID + receipt gen
 |---|---|---|
 | Web | `:3000` | Vercel → hasnahenafoundation.com |
 | API | `:8081` | Render → api.hasnahenafoundation.com |
-| DB | Docker postgres `:5432` | Neon (pooled URL at runtime, direct URL for `db push`) |
+| DB | Docker postgres `:5432` | Neon (pooled URL at runtime, direct URL for migrations and `pg_dump`) |
 
 ## Balance writes — the one rule the SQL must follow
 
@@ -118,9 +121,9 @@ SET "savingsBalance" = "savingsBalance" + $1   -- Postgres does the arithmetic
 
 or read the row **inside the same transaction with `FOR UPDATE`** before
 computing a new total in Go. Reading from the pool and writing back an absolute
-figure is a lost update, and it is a live defect today
-([LEDGER-01](production-readiness.md)) — `loan_repository.go` is the file to copy
-from, not `transaction_repository.go`.
+figure is a lost update — it has been written twice here and destroyed money both
+times ([ADR-015](decisions.md)), and a source census now fails the build when a
+new balance writer appears without a concurrency test.
 
 The reason to care is specific to this domain: `Transaction` rows carry
 `savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted. When the
@@ -130,10 +133,7 @@ becomes evidence against the account.
 ## Known structural debt
 
 Tracked in [tasks.md](tasks.md): legacy `PENDING`/`APPROVED` loan statuses kept
-beside the spec-aligned ones (and `PENDING` is still the schema default), four
-Next route handlers with no caller ([WO-44](work-orders.md)), and FR-10/FR-11
-endpoints that no UI reaches ([WO-45](work-orders.md)).
-
-Fixed since this section was written: the empty stub folders under `app/api` are
-gone, and the UUID-regex-vs-cuid check in the guarantor-approval route was
-corrected by WO-29.
+beside the spec-aligned ones (and `PENDING` is still the schema default), and
+`GET /api/v1/admin/audit-logs`, which has no caller because its viewer UI does
+not exist (OBS-08). Everything else that was listed here has been built or
+removed.

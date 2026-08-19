@@ -12,9 +12,7 @@ Hasnahena Foundation is a community-run, interest-free (সুদমুক্ত
 
 **Members** register online with NID and nominee details, track deposits and withdrawals, request deposits and repayments, donate, and confirm or dispute every posting on their account. **Workers** process pending member requests and record disbursements and installments — they never move money on their own initiative. **Admins** approve registrations and loans, resolve disputes, configure policy, and run default settlement. Everything is bilingual English/Bengali.
 
-> **Status: pre-production.** Not holding real member money yet, and it should not until [Batch L](docs/work-orders.md#batch-l--ledger-integrity) is closed — the 2026-08-17 audit found that concurrent postings to one account destroy money. Start at [docs/tasks.md](docs/tasks.md).
->
-> Member-facing loan application and guarantor approval are **endpoints without a UI** — see [WO-45](docs/work-orders.md). Today loans are created by a worker.
+> **Status: pre-production.** Deployed and working, holding fake data. The order to do the remaining work in is [docs/go-live.md](docs/go-live.md); current status is [docs/tasks.md](docs/tasks.md).
 
 ## Stack
 
@@ -40,8 +38,8 @@ Full instructions, environment variables, and troubleshooting: [docs/setup.md](d
 ```
 apps/web     Next.js frontend + Prisma schema + content APIs
 apps/api     Go API — auth, dashboards, all financial writes
-docs/        product, architecture, data model, API, setup, deployment, decisions, tasks
-scripts/     one-off SQL utilities
+docs/        product, architecture, data model, API, setup, deployment, decisions, tasks, traps
+scripts/     test stack, backup, restore drill, PostgreSQL client resolution
 ```
 
 ## Documentation
@@ -50,9 +48,9 @@ scripts/     one-off SQL utilities
 
 ## Security
 
-Role-based access control on every protected endpoint, bcrypt password hashing, JWT with server-side revocation **on the Go API** (the Next handlers do not yet check the blacklist — [SEC-11](docs/production-readiness.md)), rate limiting and lockout, audit logs made append-only by a database trigger, and single-transaction atomicity for all financial writes.
+Role-based access control on every protected endpoint, bcrypt password hashing, JWT with server-side revocation checked by **both** backends, rate limiting and lockout keyed on one address resolver, audit logs made append-only by a database trigger, and single-transaction atomicity for all financial writes.
 
-Security review is continuous: CI runs `gitleaks` over full history, `golangci-lint`, and a backup/restore drill on every push. Open defects are listed at the top of [docs/production-readiness.md](docs/production-readiness.md) rather than hidden.
+Security review is continuous: CI runs `gitleaks` over full history, `golangci-lint`, the integration suite under `-race`, and a backup/restore drill on every push. Open defects are listed at the top of [docs/production-readiness.md](docs/production-readiness.md) rather than hidden.
 
 ## Contributing
 

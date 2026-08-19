@@ -173,9 +173,9 @@ own output and does not need it, and two Vercel deploys have already been broken
 this month by build-config changes. The Docker build opts in; every other build
 is byte-for-byte what it was before.
 
-Not done yet: building and pushing these to a registry in CI (PKG-06). Until
-that exists, an image is something you build locally, not a deployable artifact
-per commit.
+CI builds and pushes both images to GHCR tagged by commit SHA, so an image
+*is* a deployable artifact per commit — nothing consumes them yet, which is the
+only reason this is not the deployment path.
 
 ## Schema changes
 

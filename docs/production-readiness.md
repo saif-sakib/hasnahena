@@ -1,293 +1,109 @@
-# Production Readiness Map
+# Production Readiness
 
 Everything between today's free-tier deployment and a platform that can be run on
-a VPS by someone who is not the author. Re-verified against the source on
-**2026-08-18**.
+a VPS by someone who is not the author.
 
 This file is the **operational** backlog and the *why*. [tasks.md](tasks.md)
 tracks *product* work (FR-01…22); [work-orders.md](work-orders.md) is the *what
-to change*; [testing.md](testing.md) is how any of it is proved.
+to change*; [testing.md](testing.md) is how any of it is proved. Task IDs are
+stable — cite them in commits (`RUN-07: throttle mutations`).
 
-Task IDs are stable — cite them in commits (`RUN-07: throttle mutations`).
-**Completed phases are compressed to one line each**; the record of what they
-contained is in [changelog.md](changelog.md).
+Completed items are one line each; the record of what they contained is in
+[changelog.md](changelog.md), and the lessons that outlived them are in
+[traps.md](traps.md).
 
 `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **defect in production now**
 
-> **Two things are wrong right now, and they are different in kind.**
->
-> **A member's dispute reports failure while succeeding** — FR-17, found and
-> proven by the 2026-08-18 code audit. Product defect, so it lives in
-> [tasks.md](tasks.md); named here because it is the most urgent thing in the
-> repository and this page is read first by anyone asking "what is broken".
->
-> **The monitoring is built and switched off.** Sentry, `/metrics` and
-> UptimeRobot all exist in code and none of them is receiving anything, because
-> no environment has the credentials set. See
-> [The monitoring is built and switched off](#the-monitoring-is-built-and-switched-off).
-> Nothing is broken — but every claim on this page about *observing* production
-> is currently a claim about code that would work if enabled.
+> **One thing is wrong right now: the monitoring is built and switched off.**
+> Sentry, `/metrics` and UptimeRobot all exist in code and none of them is
+> receiving anything, because no environment has the credentials set. Nothing is
+> broken — but every claim on this page about *observing* production is currently
+> a claim about code that would work if enabled.
+> [How to switch it on](#the-monitoring-is-built-and-switched-off).
 
 ---
 
-## 1. Where the platform actually stands
+## Where the platform stands
 
-| Area | State | One-line verdict |
+| Area | State | Verdict |
 |---|---|---|
-| **Ledger integrity** | `[x]` | LEDGER-01→06 all fixed. Balance writes are relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations are sequential and audited. Regression tests for every one, each verified to fail against the pre-fix code |
-| **Git history** | `[x]` | 39 files and three binaries remain in history; **assessed and accepted** — not live member data ([ADR-018](decisions.md), [SEC-10](#sec-10--files-in-git-history-assessed-and-accepted-x--closed)) |
-| **Monitoring** | `[!]` | Built, correct, and **switched off in every environment** — see below |
-| Product features | `[!]` | 13 of 22 FRs complete, 8 partial, **1 broken** (FR-17) — see [tasks.md](tasks.md) |
+| **Monitoring** | `[!]` | Built, correct, and **switched off in every environment** — below |
+| Ledger integrity | `[x]` | LEDGER-01→07 fixed. Balance writes relative and locked ([ADR-015](decisions.md)), the waterfall handles a null guarantor inside one transaction, donations sequential and audited. A regression test for every one, each seen to fail against the pre-fix code |
 | Domain correctness | `[x]` | BigInt taka, zero-interest, append-only audit, request→process→confirm. Balance arithmetic is race-proof under concurrent postings |
+| Product features | `[~]` | 12 of 22 FRs complete, 8 partial, 2 not started, **none broken** — [tasks.md](tasks.md) |
 | Authentication | `[x]` | HS256 JWT, bcrypt, first-login token, PG-backed login rate limit |
 | Authorization | `[x]` | Per-handler `requireRoles` plus a router-level gate on the whole `/admin` group (SEC-02) |
-| Session revocation | `[x]` | Both backends check `token_blacklist` on every authenticated request (SEC-01, SEC-11) |
-| Documents / PDFs | `[x]` | Vector text, paginated, English-only ([ADR-012](decisions.md), [ADR-013](decisions.md)). Column widths are measured against their content rather than eyeballed |
-| Automated tests | `[~]` | Nine phases done — then a code audit found **ten defects the suites did not reach**. They prove *who may call a route* and very little about what it returns to a caller who is allowed: WO-57's route had a test that only ever drove its 404. Nine of the ten are closed, and each closure added the *census* rather than the single case. See [testing.md](testing.md) and [tasks.md](tasks.md#coverage-gaps-under-watch) |
-| CI/CD | `[x]` | Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration + route tests, browser suite, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
-| Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases, images built and pushed to GHCR by CI. **Nothing in production consumes them yet** — they exist so the history is there for INF-06 |
-| Observability | `[~]` | The code is complete and none of it is enabled. See below |
-| Backups | `[x]` | Nightly encrypted `pg_dump` in Actions, 30-day retention and 90-day monthlies, with a restore drill that runs on every push to main. **Database only** — see DATA-06 |
-| Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups, rate limiting, panic reporting (RUN-01→09) |
+| Session revocation | `[x]` | **Both** backends check `token_blacklist` on every authenticated request (SEC-01, SEC-11) |
+| Documents / PDFs | `[x]` | Vector text, paginated, English-only ([ADR-012](decisions.md), [ADR-013](decisions.md)). Column widths measured against content, not eyeballed |
+| Automated tests | `[~]` | Nine phases, then a code audit found ten defects the suites did not reach — they prove *who may call a route* and little about what it returns. All ten closed, each with a *census* rather than a single case. [testing.md](testing.md) |
+| CI/CD | `[x]` | Actions on PR and push: typecheck, lint, gofmt, vet, build, unit + integration (`-race`) + route tests, schema-drift check, browser suite, backup/restore drill, gitleaks. Branch protection is still a manual GitHub setting (CI-09) |
+| Containerisation | `[x]` | Dockerfiles for both apps, full-stack compose, digest-pinned bases, images built and pushed to GHCR by CI. **Nothing in production consumes them yet** — they exist so a host move is configuration, not a project |
+| Backups | `[x]` | Nightly encrypted `pg_dump` in Actions, 30-day retention and 90-day monthlies, restore drill on every push to main. **Database only** — see DATA-06 |
+| Runtime hardening | `[x]` | Bounded bodies, server timeouts, drained shutdown, real readiness probe, scheduled cleanups, rate limiting, panic reporting, a bounded email path (RUN-01→11) |
+| Git history | `[x]` | 39 files and three binaries remain in history; **assessed and accepted** — not live member data ([ADR-018](decisions.md)) |
 | Secrets management | `[~]` | Env vars per host, no rotation record, no central store (OPS-02, INF-09) |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops (INF-02) |
-
-### Repo shape
-
-| | |
-|---|---|
-| Go API | 38 files, 12.1k lines (incl. tests). Largest is `dashboard_handler.go` at 2.1k, then `loan_repository.go` at 1.1k |
-| Next web | 141 TS/TSX files, 26.7k lines |
-| Go routes | 64 under `/v1`, all under an enumerated contract |
-| Next route handlers | 11 files, 21 exported methods. Only `admin/audit-logs` is uncalled, awaiting OBS-08's viewer |
-| Prisma models | 21, 30 indexes |
-| `.git` | 53 MB — **~112 MB of raw blobs** in history: 39 member-record files, three stray binaries and a 24 MB `react` blob (SEC-06, SEC-10) |
 
 ---
 
 ## The monitoring is built and switched off
 
-This is the newest entry on the page and it came from outside: Sentry emailed the
-owner to say a Next.js project had been created and **no errors had ever
-arrived**. That is accurate, and it is not a Sentry setup problem.
+This came from outside: Sentry emailed to say a Next.js project had been created
+and **no errors had ever arrived**. That is accurate, and it is not a Sentry
+setup problem.
 
-The integration is complete and correct on both surfaces:
+The integration is complete and correct on both surfaces, and every piece is
+deliberately inert without a credential — *a missing DSN must never fail a build,
+and a financial API must never refuse to boot because error reporting is
+misconfigured.* The cost of that design is exactly what happened here: **the
+system is silent in the same way whether it is healthy or unwatched.**
 
-| Piece | Where | Behaviour with no credential |
+| Piece | Where | With no credential |
 |---|---|---|
-| Sentry, Next server + edge | `sentry.server.config.ts`, `sentry.edge.config.ts`, `instrumentation.ts` | `Sentry.init({ dsn: undefined })` — inert, no error |
-| Sentry, browser | `instrumentation-client.ts` | inert |
-| Sentry, Go API | `internal/observability/sentry.go` | logs `error tracking disabled: set SENTRY_DSN to enable Sentry` and returns a no-op flush |
-| `/metrics` | `internal/metrics/handler.go` | logs `metrics endpoint disabled: set METRICS_TOKEN` and 404s |
-| Business alerting | `.github/workflows/monitor.yml` | **exits 1** — the job fails twice a day rather than passing silently |
+| Sentry, Next server + edge + browser | `sentry.*.config.ts`, `instrumentation*.ts` | inert, no error |
+| Sentry, Go API | `internal/observability/sentry.go` | logs `error tracking disabled…`, no-op flush |
+| `/metrics` | `internal/metrics/handler.go` | logs `metrics endpoint disabled…` and 404s |
+| Business alerting | `.github/workflows/monitor.yml` | **exits 1** — fails twice a day rather than passing silently |
 
-Every one of those is deliberate: *a missing DSN must never fail a build, and a
-financial API must never refuse to boot because error reporting is
-misconfigured.* The cost of that design is exactly what happened here — the
-system is silent in the same way whether it is healthy or unwatched.
-
-**OBS-03 and OBS-04 are therefore re-marked `[~]`.** The code is done. The
-switch is not thrown.
+**OBS-03 and OBS-04 are therefore `[~]`.** The code is done; the switch is not
+thrown.
 
 | | To enable | Where |
 |---|---|---|
 | `[ ]` | `SENTRY_DSN` | **Render** (Go API) |
-| `[ ]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** (web) — `NEXT_PUBLIC_*` is baked at build time, so this needs a **redeploy**, not a restart |
+| `[ ]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — `NEXT_PUBLIC_*` is baked at build time, so this needs a **redeploy**, not a restart |
 | `[ ]` | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | **Vercel** — optional; without them the build succeeds with minified stack traces |
 | `[ ]` | `METRICS_TOKEN`, same value in both places | **Render** *and* as a **GitHub secret** — the Monitor workflow scrapes `/metrics` with it |
-| `[ ]` | An UptimeRobot monitor on `/v1/ready` | UptimeRobot free tier — deliberately not GitHub Actions, on cost grounds (see the header comment in `monitor.yml`) |
+| `[ ]` | An UptimeRobot monitor on `/v1/ready` | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`) |
 
-**What is deliberately staying off:** tracing (`tracesSampleRate: 0`) and session
-replay (`replaysSessionSampleRate: 0`). Tracing burns the free-tier quota that
-should be holding actual exceptions, and replay would record a member's dashboard
-— their balance, their loan, their name — and ship it to a third party. PII
-scrubbing is on in both apps (`sendDefaultPii: false` plus a `beforeSend` that
-drops cookies, headers and query strings).
+**Deliberately staying off:** tracing (`tracesSampleRate: 0`) and session replay.
+Tracing burns the free-tier quota that should hold actual exceptions, and replay
+would record a member's dashboard — balance, loan, name — and ship it to a third
+party. PII scrubbing is on in both apps.
 
-**Verification, once enabled** — do not assume a DSN that is set is a DSN that
-works:
-
-```bash
-# Go API: any 500 path, then check the Sentry issue stream
-curl -s -o /dev/null -w '%{http_code}\n' https://api.hasnahenafoundation.com/v1/ready
-curl -s -H "Authorization: Bearer $METRICS_TOKEN" \
-     https://api.hasnahenafoundation.com/metrics | head -5   # must not 404
-```
-
-Then trigger one deliberate error from each app and confirm both appear, tagged
-with the right environment and release. This is on the Stage 3 checklist in
-[go-live.md](go-live.md).
+**Then prove each one**, rather than assuming a DSN that is set is a DSN that
+works — the checklist is Stage 3 in [go-live.md](go-live.md).
 
 ---
 
-## Phase 0 — Security defects
+## Open items
 
-### SEC-10 · Files in git history, assessed and accepted `[x]` — **closed**
+| ID | Task | Notes |
+|---|---|---|
+| **OBS-03/04** `[~]` | Switch the monitoring on | Above. Not engineering: four environment variables and an UptimeRobot monitor |
+| **SEC-12** `[~]` | `GET /api/v1/settings` serves loan policy to anonymous callers | **Low.** The route now returns only the declared keys — the same allowlist `PUT` validates against — instead of `SELECT *`. What remains is that the declared set still includes the loan policy. It has to stay partly public: the marketing pages and login screen read branding from it. Split the allowlist into a public subset and an admin-only remainder rather than gating the whole route. Genuinely low — the policy is published to members anyway; it is here so the *narrowing* is not mistaken for the *split* |
+| **RUN-09** `[~]` | The Go rate limiter keys on an address, not on a member | **Low.** All support-proxy traffic reaches the Go limiter from Vercel's address, so it shares one bucket. WO-64 capped each member at 60 mutations a minute on the Next side, which means it takes several abusive members rather than one to exhaust it — an improvement, not a fix. The complete fix keys on the authenticated user, and the obstacle is ordering: the limiter is global middleware running before auth, and keying on an *unverified* token lets an attacker mint a fresh bucket per request. Not urgent — support is chat, not money, and the money routes are reached directly, where the limiter already keys correctly |
+| **CI-09** `[ ]` | Branch protection on `main` | **Needs a paid plan on a private repo.** `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |
+| **OBS-05** `[ ]` | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
+| **OBS-07** `[ ]` | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
+| **OBS-08** `[ ]` | Audit log viewer UI | FR-22 gap. The data is complete and `GET /api/v1/admin/audit-logs` already exists and is uncalled; nobody can read it without SQL |
+| **DATA-06** `[ ]` | Back up the Cloudinary assets | **The largest remaining data gap.** NID and member photos are regulatory documents in one third-party account with no export; the nightly dump covers the database and nothing else. **Accepted until the first real member document exists** ([ADR-020](decisions.md)) — there is nothing to lose yet and an export job written against an empty account cannot be tested. The trigger is that document, not a date. When built: list `hasnahena/registrations/**` via the Admin API, download to the same encrypted destination as the `pg_dump`, and reconcile against the `documents` table so a missing asset is *detected* rather than found by an approver opening a blank image |
+| **DATA-07** `[ ]` | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path. The audit log is append-only by design, so decide **now** what a member's erasure request means — it is a schema question, and deciding late means discovering you needed a column |
 
-Found on 2026-08-16 by enumerating every blob in every ref. **39 files** were
-added under `Official Infos/` in commit `f152f0c` ("docs: initial project
-documentation") and deleted in `9306120`. Deleting a file in a later commit
-removes it from the working tree and from nothing else.
+### Closed, kept as a record
 
-The filenames describe the foundation's actual records:
-
-```
-Official Infos/Hasnahena Member Details.docx
-Official Infos/Hasnahena/Hasnahena Member Details 01.pdf     4-page scan
-Official Infos/Hasnahena/Loan Member Detail.docx
-Official Infos/Hasnahena/Hasnahena ledger sanchoy book 2.docx   savings ledger
-Official Infos/Hasnahena/Hasnahena ledger korjo book3.docx      loan ledger
-Official Infos/Hasnahena/Hasnahena ledger ay bay book1.docx     income/expense
-Official Infos/Hasnahena/Check Book.docx · Check Book2.docx
-Official Infos/Hasnahena/Hasnahena Sodossho Form.docx · Aajibon Form.docx
-```
-
-Anyone with read access to the repository can recover all of them in one command.
-This is the difference between every other item on this page and this one: the
-rest are risks, this is a disclosure that has already occurred and is ongoing for
-as long as the objects exist.
-
-**The PDF is an image-only scan**, so no script can determine whether it contains
-live member records — that requires a person to open it. Treat it as PII until
-someone has.
-
-Three questions decided how serious this is, and only the repository owner could
-answer them: **is the repository private?** (it is, and always has been); **who
-has had read access** — no other collaborators; and **do the files hold real
-members or a template?**
-
-**Resolved 2026-08-18 as [ADR-018](decisions.md), not fixed.** The owner reviewed
-the contents and determined that none of it is live member data — the platform
-has never held real member records. On that finding the purge is not warranted,
-since rewriting every commit hash in the repository is irreversible and its whole
-justification was the sensitivity of these files. `Official Infos/` is in
-`.gitignore` so a re-add is not one `git add -A` away.
-
-**The exemption is for these files only**, and rests on a human reading a scan
-that no script can classify. If that assessment turns out to be wrong, the
-`git filter-repo` runbook is in the history of `docs/work-orders.md`, and it gets
-more expensive with every clone taken.
-
-**Note this is not what gitleaks scans for.** The `secrets` CI job passes on this
-repository and always has: it looks for credential *patterns*, not for documents
-that should never have been committed. **A green secret scan is not evidence that
-history is clean**, and this is the example.
-
-### SEC-12 · `GET /api/v1/settings` still serves loan policy to anonymous callers `[~]` — **low**
-
-**Partly closed 2026-08-17.** The route used to return the entire `system_config`
-table with `SELECT *`, so the day someone added a key holding an internal
-threshold or a partner's contact details it became public with no code change and
-nothing to notice. It now returns **only the declared keys** in
-`lib/system-config.ts`, and that is the same allowlist `PUT` validates against, so
-a key cannot be writable-but-not-readable or the reverse (TEST-17).
-
-**What remains** is the original point: the route has to be partly public — the
-marketing pages and login screen read branding from it before anyone signs in —
-but the declared set still includes `loan.minDepositForLoan`,
-`loan.maxLoanMultiplier`, `loan.maxInstallmentMonths`,
-`loan.guarantorThresholdAmount` and the rest of the loan policy. Split the
-allowlist into a public subset and an admin-only remainder rather than gating the
-whole route, which would break the public site.
-
-Low, and it is genuinely low: the policy is published to members anyway. It is on
-this page so that the *narrowing* is not mistaken for the *split*.
-
-### SEC-14 · The access log records an address the caller chose `[x]` — **closed 2026-08-18**
-
-chi's `middleware.RealIP` overwrote `r.RemoteAddr` with the **leftmost**
-`X-Forwarded-For` entry, which the caller supplies. The access log recorded that
-value as `"ip"` — **an access log that cannot be trusted to say where a request
-came from is not evidence**, and in a financial system the log exists to answer
-"who did this".
-
-Fixing it found two more victims of the same value, both worse than the log:
-
-- the **login lockout** counted failed attempts against it (`getClientIP` in
-  `auth_handler.go`), so varying one header per attempt stepped around the
-  lockout entirely;
-- three `audit_logs` rows recording who changed a password stored it as
-  evidence.
-
-And at the default `TRUSTED_PROXIES=0` the rate limiter keyed on it too, so one
-client minted a fresh quota per request. `clientIP()` was correct the whole time
-and made no difference, because `RealIP` had rewritten its input three
-middlewares earlier.
-
-**Closed by [WO-60](work-orders.md)** — `RealIP` removed, one exported
-`ClientIP` used by the limiter, resolved once by `Logging` and read back by every
-handler through `RequestClientIP`. See [ADR-019](decisions.md). Proven by driving
-the real middleware stack: a caller varying `X-Forwarded-For` is throttled on its
-15th request and was never throttled before. `TRUSTED_PROXIES` is the single
-knob — **the number of proxies in front of the process, 0 only when nothing
-is.**
-
-### SEC-15 · The support proxy forwards any path it is given `[x]` — **closed 2026-08-18**
-
-`app/api/v1/dashboard/support/[...path]/route.ts` joined the catch-all segments
-into the upstream URL without validation. Next decodes them, so `%2e%2e%2f`
-arrived as `../` and `fetch` normalised it — a caller could reach any path on the
-API base through this proxy.
-
-**It was not a privilege escalation, and saying so matters**: the Go API
-authorises every route itself and the `/admin` group is gated at the router, so
-the token is refused wherever it arrives. An unnecessary door, not an open safe.
-
-**Closed by [WO-64](work-orders.md)**: an allow-list of the six support paths
-`main.go` mounts, method by method, checked against the Go router by a test that
-reads both files — so adding a support route upstream fails the build here rather
-than 404ing silently in production. `fetch` now carries `signal: req.signal`, so
-a member closing their browser ends the upstream stream.
-
-**The rate-limit half was not fixable as specified**, and the reasoning is in
-[ADR-021](decisions.md): forwarding the member's address as an `X-Forwarded-For`
-entry puts it at an index `TRUSTED_PROXIES` does not read, and no single value of
-that setting is correct for both the direct and the proxied path. The per-member
-limit now runs on the Next side instead, where Vercel supplies the address —
-see RUN-09 for what that still leaves.
-
-### RUN-09 · The Go rate limiter keys on an address, not on a member `[~]` — **low**
-
-Every request through the support proxy reaches the Go limiter from **Vercel's**
-address, so all of it shares one bucket. [WO-64](work-orders.md) capped each
-member at 60 mutations a minute on the Next side, which means it now takes
-several abusive members rather than one to exhaust that shared bucket — an
-improvement, not a fix.
-
-The complete fix is to key the limiter on the authenticated user. The obstacle is
-ordering: the limiter is global middleware and runs before auth, and keying on an
-*unverified* token would let an attacker mint a fresh bucket per request by
-sending garbage. It needs the JWT verified in the middleware stack, which is a
-larger change than the one that surfaced it.
-
-**Not urgent.** Support is chat, not money; the money routes are reached
-directly, where the limiter already keys on the member correctly.
-
-### SEC-16 · Modulo bias in generated passwords and codes `[x]` — **closed 2026-08-18**
-
-Three generators mapped random bytes onto an alphabet with `%`, which does not
-divide 256 evenly. All three are `crypto/rand`-seeded, so this was a bias and
-**not** a predictability problem — do not describe it as the latter.
-
-**Closed by [WO-65](work-orders.md)**: rejection sampling in
-`utils.RandomString`, and `crypto.randomInt` in the TypeScript equivalent.
-
-**The order overstated one number and the record should not repeat it.** It said
-`digits[buf[i] % 10]` makes digits 0–5 "25% more likely" than 6–9. Measured, the
-counts are 26 byte values against 25 — **4%** more likely, or +1.6% and −2.3%
-against uniform. That is small enough that a per-symbol tolerance test would not
-have caught it reliably, which is why both suites use a chi-square instead. The
-62-character alphabet was the larger skew at **21%**.
-
-Both suites keep the old implementation alongside the new one and assert the
-statistic separates them, so a uniformity test that could never fail is not
-mistaken for evidence.
-
-### Closed security items
-
-Kept as a record. The reasoning that outlived each one is in
-[decisions.md](decisions.md), [changing-things.md](changing-things.md) or
-[Traps](work-orders.md#traps-that-cost-a-session).
+Reasoning that outlived each one is in [decisions.md](decisions.md) or
+[traps.md](traps.md); what the fix contained is in [changelog.md](changelog.md).
 
 | ID | Was | Closed by |
 |---|---|---|
@@ -296,94 +112,57 @@ Kept as a record. The reasoning that outlived each one is in
 | SEC-03 | Gallery writes unauthenticated and world-CORS | WO-03 |
 | SEC-04 | Wildcard CORS on `/api/v1/settings` | WO-04 — one origin-checked helper |
 | SEC-05 | Bearer token accepted in the query string, so it landed in access logs | WO-05 — 60 s single-purpose SSE tickets |
-| SEC-06 | A 17 MB compiled binary committed | Removed from the tree; **still in history** — see SEC-10 |
+| SEC-06 · SEC-10 | A compiled binary and 39 `Official Infos/` files committed, then deleted from the tree only | Removed from the tree; history **assessed and accepted** ([ADR-018](decisions.md)). Note gitleaks passes on this and always did — it looks for credential *patterns*, not documents that should never have been committed. **A green secret scan is not evidence that history is clean** |
 | SEC-07 | No request body size limit | WO-05 — bounded at 1 MB |
 | SEC-08 | Unauthenticated registration enumeration | WO-30 — 20 checks per 10 min per address |
 | SEC-09 | HSTS commented out | WO-31 — behind `ENABLE_HSTS`, **off by default** so a plain-HTTP localhost API cannot pin `localhost` to HTTPS for two years in every project on that machine |
-| SEC-11 | The Next handlers ignored `token_blacklist`, so a token kept working after logout, after a password change and after an admin revoked the user — on every Next endpoint including the one that sets loan policy | WO — `lib/auth-revocation.ts`, fails **closed**. The `fetchUserFromApi` fallback that *would* have been checked only ran when `JWT_SECRET` was unset, i.e. never in a correct deployment: **a safety net positioned where it can never be reached** |
-| SEC-13 | `GetMemberLoans` returned the name **and savings balance** of the 50 wealthiest members to any signed-in member — a ranked list of who in the village has the most money | Removed. Guarantor nomination goes through `GET /api/v1/members/lookup`: exact member-ID match, name only, rate limited |
-
----
-
-## Phases 1–5 — done, compressed
-
-Each of these was a full phase with its own task table. They are complete; the
-tables are gone and the record is in [changelog.md](changelog.md). Only the open
-rows survive below.
-
-| Phase | What it delivered | Open rows |
-|---|---|---|
-| **1 · Safety net** (CI-01…09) | One test command, Go money unit tests, integration tests on real Postgres, web unit tests, the Actions pipeline, `go vet` + `golangci-lint`, Dependabot, gitleaks | **CI-09** below |
-| **2 · Runtime hardening** (RUN-01…10) | Configured `http.Server` with all four timeouts, drained `SIGTERM` shutdown, `/v1/ready` against the pool, JSON `slog` with member emails replaced by user IDs, hourly cleanup sweeps, global rate limiting, panic reporting, `user_repository.go` split into nine domain files | none |
-| **3 · Observability** (OBS-01…08) | Token-gated `/metrics` with business gauges, Sentry on both apps, threshold alerting split across UptimeRobot/Sentry/Actions on cost grounds | **OBS-03/04** (switched off, above) · **OBS-05/07/08** below |
-| **4 · Data safety** (DATA-01…08) | Nightly encrypted `pg_dump` off-provider, a restore *script* drilled on every push, RPO 24 h / RTO 1 h in writing, Prisma migrations ([ADR-014](decisions.md)), an idempotent seed, and an `audit_logs` immutability trigger verified across 7 cases **including that it survives a dump/restore round trip** | **DATA-06/07** below |
-| **5 · Portability** (PKG-01…08) | Dockerfiles for both apps verified by *running* them, full-stack compose, digest-pinned bases, images pushed to GHCR by CI, in-image health checks, and the full env-var contract written down | none |
-
-Two things from those phases are worth keeping in front of you rather than in the
-changelog, because they are the shape of the next defect:
-
-- **`.dockerignore` is a secret-containment control, not a build optimisation.**
-  Next's tracer was observed copying `.env.local` into `.next/standalone/`, which
-  would have baked production credentials into an image layer.
-- **`NEXT_PUBLIC_*` is baked at `next build`** — including for server-side route
-  handlers. Changing one needs a **redeploy**, not a restart, and in Docker it is
-  a `--build-arg` that `-e` cannot override. This is the part with no error
-  message, and it is why the Sentry web DSN above needs a redeploy.
-
-### The open rows from those phases
-
-| ID | Task | Notes |
-|---|---|---|
-| RUN-11 `[x]` | Bound the email path and give it a context | **Closed 2026-08-18.** Was 3 attempts × a 12 s timeout with 1.5 s backoff — **39 s worst case, synchronous, inside the approval handler**, against a 30 s `SERVER_SHUTDOWN_TIMEOUT`. Now a 10 s budget for the sequence, 4 s per attempt, and an interruptible backoff; `NewRequestWithContext` throughout. Approval still **waits** for delivery, deliberately — [ADR-022](decisions.md) explains why the `emailDelivered` field is the argument for waiting rather than against it, and why the caller's *cancellation* is dropped while its deadline is not. [WO-62](work-orders.md) |
-| CI-09 `[ ]` | Branch protection on `main` | No direct pushes, CI green to merge. **Needs a paid plan on a private repo** — `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |
-| CI-10 `[x]` | Run the integration suite under `-race` | **Closed 2026-08-18.** Zero data races across the full suite, in ~40 s wall clock — so this locks in a property that already holds rather than fixing anything, and it is the cheapest available guard for a system whose defining defect class is the lost update (LEDGER-01, LEDGER-05). The fast `go test ./...` job stays without it so `pnpm test:go` remains quick, and `-race` needs cgo so it must never reach the `CGO_ENABLED=0` Dockerfile. [WO-66](work-orders.md) |
-| OBS-05 `[ ]` | Log aggregation | Grafana Cloud or Better Stack free tier. Required once there is more than one process |
-| OBS-07 `[ ]` | Dashboard | One screen: uptime, error rate, p95 latency, money posted today, queue depths |
-| OBS-08 `[ ]` | Audit log viewer UI | FR-22 gap. The data is complete and `admin/audit-logs` already exists and is uncalled; nobody can read it without SQL |
-| DATA-06 `[ ]` | Backup the Cloudinary assets | NID and member photos are regulatory documents living in one third-party account with no export. **The largest remaining data gap** — the nightly dump covers the database and nothing else. **Decision recorded 2026-08-18** ([ADR-020](decisions.md)): accepted until the first real member document exists, because there is nothing to lose yet and an export job written against an empty account cannot be tested. The trigger is that first document, not a date. The *upload* paths are now covered and the undeletable-asset defect is fixed ([WO-55](work-orders.md), [WO-63](work-orders.md)), so what is left here is purely the second copy |
-| DATA-07 `[ ]` | Data retention + erasure policy | NID images and PII need a stated retention period and a deletion path. The audit log is append-only by design, so decide **now** what a member's erasure request means — it is a schema question |
+| SEC-11 | The Next handlers ignored `token_blacklist`, so a token kept working after logout, after a password change and after an admin revoked the user | `lib/auth-revocation.ts`, fails **closed** |
+| SEC-13 | `availableGuarantors` returned the name **and savings balance** of the 50 wealthiest members to any signed-in member — a ranked list of who in the village has the most money | Removed. Nomination goes through `GET /api/v1/members/lookup`: exact member-ID match, name only, rate limited |
+| SEC-14 | chi's `RealIP` overwrote `r.RemoteAddr` with the caller-supplied `X-Forwarded-For` entry, so the access log, the login lockout, three audit rows and the rate limiter all keyed on a value the caller chose | WO-60 — one `ClientIP`, counted from the trusted end ([ADR-019](decisions.md)) |
+| SEC-15 | The support proxy forwarded any path it was given | WO-64 — an allow-list held against the Go router by a test that reads both files ([ADR-021](decisions.md)) |
+| SEC-16 | Modulo bias in generated passwords and codes | WO-65 — rejection sampling. All three were `crypto/rand`-seeded, so this was a bias and **not** a predictability problem; do not describe it as the latter |
+| RUN-01…10 | Server timeouts, drained shutdown, readiness probe, structured logs, cleanup sweeps, rate limiting, panic reporting, repository split | WO-06→09, WO-32, WO-38 |
+| RUN-11 | The email path was 39 s worst case, synchronous, inside the approval handler, against a 30 s shutdown drain | WO-62 — a 10 s budget, 4 s per attempt ([ADR-022](decisions.md)) |
+| CI-01…08, CI-10 | No test command, no integration tests, no pipeline, no secret scan, no `-race` | WO-10→13, WO-36, WO-40, WO-66 |
+| DATA-01…05, DATA-08 | No backup, no restore drill, `db push` in production, no seed, a mutable audit log | WO-14→16, WO-33 ([ADR-014](decisions.md)) |
+| PKG-01…08 | No Dockerfiles, no compose, no published images, no env contract | WO-20→22, WO-34→35 |
 
 ---
 
 ## Phase 6 — VPS or AWS
 
-Only start once everything above is done. Moving an unmonitored, untested,
-unbackupable system onto infrastructure you now also have to patch makes things
-worse, not better.
+Only start once everything above is quiet. Moving an unmonitored system onto
+infrastructure you now also have to patch makes things worse.
 
-### Recommended target
-
-For a foundation of this size, **a single VPS** (Hetzner/DigitalOcean, 4 GB) is
-the right answer, not AWS. One machine, Docker Compose, Caddy for TLS, managed
-Postgres or a well-backed-up local one. Roughly $10–25/month, one thing to
-understand, no surprise bills. Full AWS (ECS/RDS/ALB) is 5–10× the cost and
-complexity for a workload this size — take it only if a funder or regulator
-requires it.
+**Recommended target: a single VPS** (Hetzner/DigitalOcean, 4 GB), not AWS. One
+machine, Docker Compose, Caddy for TLS, managed Postgres or a well-backed-up
+local one. Roughly $10–25/month, one thing to understand, no surprise bills. Full
+AWS (ECS/RDS/ALB) is 5–10× the cost and complexity for this workload — take it
+only if a funder or regulator requires it.
 
 | ID | Task | Notes |
 |---|---|---|
-| INF-01 | Choose the target and write it down as an ADR | Decide VPS vs AWS *with numbers* — cost, who administers it, what happens when that person is unavailable |
-| INF-02 | Provision as code | Terraform, or a documented shell script. "I clicked around and it works" is not a recoverable state |
+| INF-01 | Choose the target and write it down as an ADR | Decide *with numbers* — cost, who administers it, what happens when that person is unavailable |
+| INF-02 | Provision as code | Terraform or a documented shell script. "I clicked around and it works" is not a recoverable state |
 | INF-03 | Base-image hardening | SSH keys only, no root login, `ufw` default-deny, `fail2ban`, unattended security upgrades |
-| INF-04 | Reverse proxy + TLS | Caddy (automatic Let's Encrypt) or nginx + certbot. Terminate TLS, forward to both containers, set HSTS (SEC-09) |
-| INF-05 | Decide the database's home | Staying on Neon is a legitimate choice and keeps DATA-01 simpler. Self-hosting means you now own backups, tuning, upgrades and failover |
+| INF-04 | Reverse proxy + TLS | Caddy (automatic Let's Encrypt) or nginx + certbot. Terminate TLS, forward to both containers, set HSTS |
+| INF-05 | Decide the database's home | Staying on Neon is legitimate and keeps DATA-01 simpler. Self-hosting means you own backups, tuning, upgrades and failover |
 | INF-06 | Deployment pipeline | CI already builds and pushes to GHCR → pull and restart on the host. Rollback = redeploy the previous SHA |
-| INF-07 | Zero-downtime deploys | Two containers behind the proxy, health-gated cutover. Depends on RUN-02 and RUN-03 |
+| INF-07 | Zero-downtime deploys | Two containers behind the proxy, health-gated cutover |
 | INF-08 | Log shipping off the box | A dead disk must not take the audit trail with it |
 | INF-09 | Secrets management | Docker secrets or SOPS-encrypted files. Not a `.env` on the host with world-read permissions |
-| INF-10 | Staging environment | A second compose stack on the same box, separate database. First real use of DATA-04 and DATA-05 |
+| INF-10 | Staging environment | A second compose stack, separate database. First real use of the restore script |
 | INF-11 | Cutover runbook | Freeze window, final dump, DNS TTL lowered in advance, restore, verify, switch, **rollback plan**. Rehearse against staging |
 | INF-12 | Cost + capacity review | Set a monthly budget alarm before, not after, the first bill |
 
-### Cutover order
+**Cutover order.** DNS TTL to 300 s a day ahead → announce a maintenance window →
+stand up the new stack and restore a dump → run the release checklist in
+[deployment.md](deployment.md) against a temporary hostname → freeze writes →
+final dump and restore → switch DNS → watch for an hour → keep the old stack warm
+for 48 h.
 
-DNS TTL down to 300 s a day ahead → announce a maintenance window → stand up the
-new stack and restore a dump → run the release checklist in
-[deployment.md](deployment.md) against the new stack on a temporary hostname →
-freeze writes → final dump and restore → switch DNS → watch for an hour → keep
-the old stack warm for 48 h.
-
----
+The environment contract the app needs from any host is in
+[changing-things.md](changing-things.md#i-want-to-move-off-vercel-and-render-onto-a-vps).
 
 ## Phase 7 — Steady-state operations
 
@@ -394,107 +173,50 @@ What makes it *stay* production-ready after you stop looking at it daily.
 | OPS-01 | Incident runbooks | Write once: API down, database unreachable, disputed transaction, suspected credential leak, bad deploy |
 | OPS-02 | Secret rotation | Every 6 months, and immediately after any exposure. `JWT_SECRET` must change in Vercel and Render **together** or every session breaks |
 | OPS-03 | Dependency updates | Monthly, on a branch, with CI green |
-| OPS-04 | Restore drill | Quarterly (DATA-02) |
+| OPS-04 | Restore drill | Quarterly |
 | OPS-05 | Access review | Quarterly: who holds admin, Neon, Vercel, Render, Cloudinary and DNS credentials |
 | OPS-06 | Bus-factor documentation | One person can currently deploy this. Write down what a successor needs — accounts, secrets locations, the runbooks |
-| OPS-07 | **Financial reconciliation job** | Automated: sum of transactions must equal account balances. Alert on drift. **The strongest guard a ledger can have** — had it existed, LEDGER-01 would have been a nightly alert rather than an audit finding. [go-live.md](go-live.md) promotes this to Stage 1 |
-| OPS-08 | 48-hour unconfirmed-transaction sweep | Product gap in tasks.md; it needs the scheduler this phase provides |
+| OPS-07 | **Financial reconciliation job** | Sum of transactions must equal account balances; alert on drift. **The strongest guard a ledger can have** — had it existed, LEDGER-01 would have been a nightly alert rather than an audit finding. [go-live.md](go-live.md) promotes this to Stage 1 |
+| OPS-08 | 48-hour unconfirmed-transaction sweep | Product gap in [tasks.md](tasks.md); needs the scheduler this phase provides |
 | OPS-09 | Uptime/incident log | A dated file. Turns "it feels slow lately" into evidence |
 
 ---
 
 ## Ordered backlog
 
-Do them in this order. Each block is genuinely blocked by the one above it.
+Each block is genuinely blocked by the one above it. **[go-live.md](go-live.md)
+is the order; this is the backlog** — the platform holds fake data, so the useful
+sequencing is *what gets more expensive once real member data exists*.
 
-**[go-live.md](go-live.md) is the order; this is the backlog.** The platform is
-deployed holding fake data, so the useful sequencing is *what gets more expensive
-once real member data exists*, not *what is most urgent*.
+| # | Block | Tasks |
+|---|---|---|
+| 1 | **Switch the monitoring on** | OBS-03, OBS-04. Dashboard work, not engineering, and everything below is being done blind until it is done |
+| 2 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07. A migration today; a migration *plus a backfill* after launch. Guarded by `pnpm db:migrate:check` in CI |
+| 3 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09. OPS-07 first |
+| 4 | **Move hosts** | INF-01 → INF-12 |
 
-Completed blocks are removed rather than struck through — [changelog.md](changelog.md)
-is the record.
-
-| # | Block | Tasks | Order |
-|---|---|---|---|
-| 0 | ~~Fix what is hurting a member~~ | FR-17, the dropped notifications, LEDGER-07 | **Closed 2026-08-18** — [WO-57](work-orders.md), [WO-59](work-orders.md). Nothing on the board now tells a member something untrue |
-| 1 | ~~Purge git history~~ | SEC-10, SEC-06 | **Closed as a decision** — [ADR-018](decisions.md). Not live member data |
-| 2 | **Switch the monitoring on** | OBS-03, OBS-04 | Above. Dashboard work, not engineering, and everything below is being done blind until it is done |
-| 3 | **Settle the data model** | Legacy `LoanStatus`, FR-15/16, DATA-07 (FR-08 done — [ADR-016](decisions.md) needed no migration) | [go-live.md](go-live.md) 1.2 — a migration today, a migration *plus a backfill* after launch. Now guarded by `pnpm db:migrate:check` in CI |
-| 4 | ~~Close the coverage gaps~~ | WO-53 → WO-55 | **Closed 2026-08-18.** The cleanup sweep, schema drift and the Cloudinary paths all have suites; DATA-06's backup is the only remainder and sits in block 6 |
-| 5 | ~~**Finish the hardening**~~ | SEC-15, SEC-16, RUN-11, CI-10 | **Done 2026-08-18** — WO-62, WO-64, WO-65, WO-66. What is left of it is RUN-09 (a limiter keyed on the member, not the address) and DATA-06, neither of which blocks launch |
-| 6 | **Remaining data + ops** | DATA-06, OBS-05/07/08, OPS-01 → OPS-09 | OPS-07 first |
-| 7 | **Move hosts** | INF-01 → INF-12 | [changing-things.md](changing-things.md) has the env contract |
-
-**Blocks 0, 1 and 4 closed on 2026-08-18**, which changes what this list is: it
-no longer starts with something that is wrong now. Block 2 is the one to do
-next, and it is not engineering.
-
-The blocks that used to head this list — backups, tests, CI, observability code,
-containers — are done, and they are what turned "it works" into "it works, and if
-it breaks the members' money is still there."
-
----
-
-## The durable lessons from all of it
-
-Kept here rather than in the changelog because each one predicts the *next*
-defect rather than describing a past one.
-
-- **A green suite bounds the cases it contains and says nothing about the ones it
-  does not.** 17 integration tests were green while LEDGER-01 and LEDGER-02
-  destroyed money, because the suite never ran two postings at once and never
-  seeded a loan without a guarantor. Coverage measures what was *executed*, never
-  what was *checked*.
-- **A fix applied from memory covers the methods someone thought of.** ADR-015
-  was written, reviewed and applied to four balance writers. The fifth
-  (LEDGER-05) was found by a census derived from the source, which now fails the
-  build if a sixth appears. **Enumerate from the code, not from recall.**
-- **Watch for a safety net positioned where it can never be reached.** SEC-11's
-  `fetchUserFromApi` fallback *would* have been blacklist-checked — it only ran
-  when `JWT_SECRET` was unset.
-- **Two backends over one schema drift.** A fix applied to the Go document-number
-  allocator was never carried to the TypeScript one, and loan applications were
-  impossible for months. Grep both.
-- **C, L and M were all found by running the code, not reading it.** Every audit
-  that reviewed those files by eye passed them.
-- **Silence is ambiguous.** The monitoring section above is the newest instance:
-  a system with no DSN configured looks exactly like a system with no errors.
-- **A route contract proves who may call a route, not what it returns.** The
-  2026-08-18 audit's worst finding (FR-17, [WO-57](work-orders.md)) sat behind a
-  test that drove the route with a non-existent id and asserted the 404. Every
-  authorization case passed; the success path had never run. When a suite is
-  built from "who is allowed", ask what it does once someone is.
-- **A correct function can be defeated by what surrounds it.** SEC-14's
-  `clientIP` was right, was unit-tested, and carried a comment explaining the
-  exact attack — while the limiter it served keyed on the spoofable value,
-  because a middleware three layers up had already overwritten its input. Unit
-  tests cannot see this. The one that caught it drives the whole stack.
-
----
+Everything that used to head this list — the ledger, backups, tests, CI, the
+observability code, containers, the security phases — is done, and it is what
+turned "it works" into "it works, and if it breaks the members' money is still
+there."
 
 ## Dead code that must not be deleted
 
-A linter or a cleanup pass will flag these as unused. They are unused **because a
-wiring step was never finished**, and each one is the remedy for a defect on this
-page. Deleting them deletes the fix.
-
-**This list is now empty.** Every symbol that was on it has been wired up:
-`AuthService.ValidateToken` and `utils.MaxRequestBodySize` by SEC-01 and SEC-07,
-`SecurityService.CleanupExpiredTokens` and `CleanupExpiredRateLimits` by RUN-06.
-The section stays as a place to record the next one.
-
----
+**This list is empty.** It existed because several symbols were unused *only
+because a wiring step was never finished*, and deleting one would have deleted
+the fix. All have since been wired up. The section stays as the place to record
+the next one.
 
 ## Deliberately not doing
 
-Recording these so they are not re-proposed as gaps.
+Recorded so they are not re-proposed as gaps.
 
 | Not doing | Why |
 |---|---|
 | Kubernetes | A cooperative in Jessore does not need an orchestrator. One VPS with Compose is operable by one person |
 | Microservices | Two services is already the right number |
-| Redis | Postgres handles the rate limits and blacklist at this scale (and that choice is what makes the single-VPS target realistic) |
-| Multi-region | No latency or availability requirement that justifies it |
+| Redis | Postgres handles the rate limits and blacklist at this scale — and that choice is what makes the single-VPS target realistic |
+| Multi-region | No latency or availability requirement justifies it |
 | Blue/green with separate infrastructure | INF-07's health-gated container swap is sufficient |
-| Sentry tracing and session replay | Tracing burns the free-tier quota that should hold exceptions; replay would ship a member's balance and name to a third party |
-| `@axe-core/playwright` | A generic audit produces a long advisory list nobody actions. The four hand-written accessibility checks are specific to members filling in financial forms on a cheap Android in sunlight |
+| Sentry tracing and session replay | Tracing burns the quota that should hold exceptions; replay would ship a member's balance and name to a third party |
+| `@axe-core/playwright` | A generic audit produces a long advisory list nobody actions. The four hand-written checks are specific to members filling in financial forms on a cheap Android in sunlight |

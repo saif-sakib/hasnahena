@@ -6,11 +6,11 @@
 
 1. **All money is `BigInt`, whole taka.** `savingsBalance`, `loanBalance`, `amount`, `principalAmount`, `remainingAmount`, `installmentAmount`, `maxLoanAmount`. No paisa, no decimals, no floats ([ADR-002](decisions.md)).
 2. **Balance changes and their `Transaction` row are written in one DB transaction**, and every transaction stores `savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted exactly.
-2a. **A balance is written relatively, or read `FOR UPDATE` inside the same transaction.** `SET "savingsBalance" = "savingsBalance" + $1` is always safe. Reading the balance first — especially from the pool, outside the transaction — and writing back a total computed in Go is a lost update: concurrent postings overwrite each other, the balance stops matching the sum of `transactions`, and the `savingsAfter` snapshots become wrong on paper. Fixed everywhere ([ADR-015](decisions.md)), and it has been violated twice: [LEDGER-01](production-readiness.md) in `transaction_repository.go`, then LEDGER-05 in `AddMemberLoanPayment` — which the ADR-015 pass simply did not think of. A *check* against a balance belongs in the same statement as the write (`WHERE "remainingAmount" >= $1 RETURNING …`), not a line above it. `TestBalanceWritersAreEnumerated` now fails the build when a new method writes a balance without a concurrency test.
+2a. **A balance is written relatively, or read `FOR UPDATE` inside the same transaction.** `SET "savingsBalance" = "savingsBalance" + $1` is always safe. Reading the balance first — especially from the pool, outside the transaction — and writing back a total computed in Go is a lost update: concurrent postings overwrite each other, the balance stops matching the sum of `transactions`, and the `savingsAfter` snapshots become wrong on paper. Fixed everywhere ([ADR-015](decisions.md)), and it has been violated twice: LEDGER-01 in `transaction_repository.go`, then LEDGER-05 in `AddMemberLoanPayment` — which the ADR-015 pass simply did not think of. A *check* against a balance belongs in the same statement as the write (`WHERE "remainingAmount" >= $1 RETURNING …`), not a line above it. `TestBalanceWritersAreEnumerated` now fails the build when a new method writes a balance without a concurrency test.
 3. **`audit_logs` is append-only.** Corrections append; nothing updates or deletes.
 4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
-6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`, `DON-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)). `RecordDonation` was the last exception and was fixed by [LEDGER-04](production-readiness.md).
+6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`, `DON-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)). `RecordDonation` was the last exception and was fixed by LEDGER-04.
 7. **The donation pool is a row, not a computed total.** `RecordDonation` locks the `accounts` row whose `userId` is `system_donation_fund` and credits it, so that row must exist or every donation fails. It used to be found by `accountNumber = 'HN-ACC-DONATION'`; that column is gone ([ADR-023](decisions.md)), and `accounts.userId` is unique, so the lookup still names exactly one row under `FOR UPDATE`. Nothing created it until 2026-08-17 — `pnpm db:seed` does now, `pnpm db:clear` preserves it at a zero balance, and a missing row answers 503 naming the fix. The default *waterfall* is different: it sums `transactions` (donated minus already drawn) rather than reading this balance, which is why loan recovery kept working while recording a donation could not.
 8. **`transactions."processedBy"` is a foreign key to `users.id`, not a name.** It looks like a display field and is not; writing a person's name into it raises `transactions_processedBy_fkey`. A deleted Next handler did exactly that and 500'd on every call. Render the name by joining `users`, the way `member_repository.go` does.
 
@@ -47,14 +47,14 @@
 ## `system_config` keys
 
 The complete allow-list lives in
-[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 20 keys —
-and is the single source of truth. `PUT /api/v1/settings` **rejects** any key not
-declared there ([WO-39](work-orders.md)); it used to upsert anything, so a typo
+[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 35 keys —
+and is the single source of truth. `PUT /api/v1/settings` **rejects the whole
+request** on any key not declared there; it used to upsert anything, so a typo
 became a permanent row that looked like a real setting while the code read the
 correctly-spelled one.
 
-The six the Go API reads. The first four come through `getLoanPolicy()` in
-`internal/repositories/repository.go`:
+The six the Go API reads (plus `support.chatRetentionDays`). The first four come
+through `getLoanPolicy()` in `internal/repositories/repository.go`:
 
 | Key | Default | Effect |
 |---|---|---|
@@ -65,9 +65,11 @@ The six the Go API reads. The first four come through `getLoanPolicy()` in
 | `loan.noticePeriodMonths` | `3` | how long a withdrawal notice must sit before it can be paid (FR-08, [ADR-016](decisions.md)). `0` means no notice period |
 | `loan.missedPaymentsForDefault` | `3` | scheduled instalments a borrower must have missed before a loan may be marked defaulted |
 
-The remaining fourteen are read by the web app only: `org.*` (letterhead on
-generated documents and the public site), `hero.*` (landing page) and
-`support.chatRetentionDays`.
+The rest are read by the web app only: `org.*` (letterhead on generated
+documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
+page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
+`auth.welcomeBack`, and `loan.guarantorThresholdAmount` — which is enforced in
+the Next loan-application route, not in Go.
 
 **Read config inside the transaction.** The Go readers come in pairs —
 `getSystemConfigInt64` for callers outside a transaction and
@@ -144,4 +146,17 @@ you *its* timezone, not the one the app wrote with.
 
 ## Seeding and reset
 
-`pnpm db:clear` (`apps/web/scripts/db-clear-preserve-core.mjs`) deletes everything except the admin user, gallery items, and system config. There is no seed script; the first admin is created manually or preserved across resets.
+| Command | Does |
+|---|---|
+| `pnpm db:seed` | writes the `system_config` defaults, creates the donation pool, and creates the first admin **only if none exists**. Idempotent; refuses to invent a password and will not reset an existing admin's |
+| `pnpm db:clear` | deletes everything except the admin, gallery items, `system_config` and the donation pool |
+
+Both scripts and `transaction_repository.go` must name the same donation-pool
+owner id (`system_donation_fund`); a unit test holds the three against each
+other, because a mismatch surfaces only when someone records a donation, as
+"run `pnpm db:seed`" on an already-seeded database.
+
+`seedAdmin`'s guard asks whether anyone **can log in** as an admin, not whether a
+row has the role — the pool's owner is `role: ADMIN`, INACTIVE, with a password
+hash bcrypt can never match, and for a while that was enough to make the guard
+skip on exactly the databases it existed to catch.

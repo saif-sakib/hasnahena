@@ -46,7 +46,8 @@ page.tsx
 
 1. **Copy lives in `messages/{en,bn}.json`, never in the component.** A hardcoded
    English string is invisible until a Bengali member reads it. Add the key to
-   *both* files — the audit checks parity and they are currently 283/283 exact.
+   *both* files — `test/unit/messages.test.ts` fails on an unequal key set, on a
+   long untranslated copy-paste, and on a dropped `{placeholder}`.
 2. **`hero.*` and `org.*` come from the admin settings page,** not from code. If
    your new design drops `hero.backgroundImage`, remove the key from
    [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too, or you leave a
@@ -163,9 +164,12 @@ connection, which is what most of its non-obvious code is for.
    (rule 5 in [CLAUDE.md](../CLAUDE.md)) is not followed; if you migrate it, do
    the whole `(auth)` folder in one commit rather than half of it.
 
-**Prove it:** the nine specs in
+**Prove it:** the specs in
 [`e2e/registration.spec.ts`](../apps/web/e2e/registration.spec.ts) run on a
-Pixel 7 viewport and assert what is *visible*, not what is in the DOM.
+Pixel 7 viewport and assert what is *visible*, not what is in the DOM. Three of
+them exist because of one reported bug — read the React node-reuse and
+`shouldFocusError` entries in [traps.md](traps.md) before touching the step
+navigation or the error summary.
 
 ```bash
 pnpm dev
@@ -195,9 +199,12 @@ means "no minimum" and `loan.guarantorThresholdAmount = 0` means "always require
 a guarantor" — parse those with a non-negative check, and make sure **both
 backends agree**, since the Go API reads the same rows through its own helpers.
 
-Keys that are settable and enforced by nothing (`loan.noticePeriodMonths`,
-`loan.missedPaymentsForDefault`) say so under their input. Keep it that way, or
-delete them.
+**Every declared key is read by something.** That was not always true —
+`loan.noticePeriodMonths` and `loan.missedPaymentsForDefault` were editable and
+enforced by nothing, so the screen reported policy the system did not apply. Both
+are enforced now ([ADR-016](decisions.md)). If you add a key, search the
+*enforcement* surface to check it stays that way; matching the settings page
+proves only that the key exists.
 
 ---
 
@@ -213,9 +220,13 @@ One question decides the backend: **does it change a balance?**
 - **No → a Next route handler is fine.** Registration intake, CMS, settings,
   status transitions.
 
-Then document it in [`api.md`](api.md) in the same commit. The 2026-08-17 audit
-found seven Next handlers with no caller because that step was skipped in both
+Then document it in [`api.md`](api.md) in the same commit — an audit once found
+seven Next handlers with no caller because that step was skipped in both
 directions; five were deleted and the rest got their UI.
+
+Both route surfaces are **enumerated**, so a new route fails the build until you
+declare who may call it: `chi.Walk` for Go, a filesystem walk for Next. A
+`/support/*` route additionally needs adding to the Next proxy's allow-list.
 
 ---
 
@@ -333,10 +344,9 @@ imports pointing at `.next/dev/types` and `next build` writes `.next/types`, so
 a tracked copy is dirtied by whichever one you ran last. Next documents it as an
 implementation detail that must be gitignored.
 
-If you touched money or SQL, also run the integration suite against a real
-Postgres — the command is in [CLAUDE.md](../CLAUDE.md). It is the only thing that
-tests what the database actually does, and the 2026-08-17 audit is a standing
-reminder that a green suite only bounds the cases it contains.
+If you touched money or SQL, also run the integration suite against the test
+stack ([testing.md](testing.md)). It is the only thing that tests what the
+database actually does — and a green suite only bounds the cases it contains.
 
 If you touched the schema, say so in your handover: `pnpm db:migrate` has to run
 in every environment, and nothing runs it for you.

@@ -68,7 +68,7 @@ jobs:
             echo '```'
             echo
             echo "Known and accepted: the Next.js and next-intl advisories need"
-            echo "a framework migration — Batch G in docs/work-orders.md."
+            echo "a framework migration — Batch G in docs/changelog.md."
           } >> "$GITHUB_STEP_SUMMARY"
 
   go:

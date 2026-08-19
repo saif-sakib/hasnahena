@@ -1,6 +1,38 @@
 # Decisions
 
-Why the code looks the way it does. Each entry resolves a conflict that used to exist between documents, or between documents and reality. Append new entries; do not rewrite old ones.
+Why the code looks the way it does. Each entry resolves a conflict that used to
+exist between documents, or between documents and reality. **Append new entries;
+do not rewrite old ones** — a superseded ADR keeps its reasoning and gains a
+pointer, because the argument is what stops the idea coming back.
+
+Read the one row you need. Superseded entries are compressed to the part that is
+still true.
+
+| | Decision | Status |
+|---|---|---|
+| [ADR-001](#adr-001--go-api-owns-money-nextjs-owns-content) | Go API owns money; Next.js owns content | accepted |
+| [ADR-002](#adr-002--money-is-stored-as-whole-taka-in-bigint) | Money is stored as whole taka in `BigInt` | accepted |
+| [ADR-003](#adr-003--email-only-no-sms) | Email only, no SMS | accepted |
+| [ADR-004](#adr-004--prisma-db-push-no-migration-files) | `prisma db push`, no migration files | superseded |
+| [ADR-005](#adr-005--two-response-shapes-and-which-one-is-canonical) | Two response shapes, and which one is canonical | accepted |
+| [ADR-006](#adr-006--auth-is-self-hosted-jwt) | Auth is self-hosted JWT | accepted |
+| [ADR-007](#adr-007--no-redis-no-separate-cache-tier) | No Redis, no separate cache tier | accepted |
+| [ADR-008](#adr-008--member-ids-are-acc-kh-) | Member IDs are `ACC-KH-#####` | accepted |
+| [ADR-009](#adr-009--formal-specification-pdfs-retired) | Formal specification PDFs retired | accepted |
+| [ADR-010](#adr-010--documents-are-rendered-in-the-browser-then-rasterised) | Documents are rendered in the browser, then rasterised | superseded |
+| [ADR-011](#adr-011--one-trimmed-transparent-logo-asset-set) | One trimmed, transparent logo asset set | accepted |
+| [ADR-012](#adr-012--official-documents-are-english-only-and-drawn-as-pdf-text) | Official documents are English only, and drawn as PDF text | accepted |
+| [ADR-013](#adr-013--document-numbers-are-sequential-and-named) | Document numbers are sequential and named | accepted |
+| [ADR-014](#adr-014--prisma-migrate-supersedes-db-push) | Prisma migrate supersedes `db push` | accepted |
+| [ADR-015](#adr-015--a-balance-is-written-relatively-never-read-modify-written) | A balance is written relatively, never read-modify-written | accepted |
+| [ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout) | A withdrawal notice is the member's request, not a field on the payout | accepted |
+| [ADR-017](#adr-017--read-config-inside-the-transaction-never-from-the-pool) | Read config inside the transaction, never from the pool | accepted |
+| [ADR-018](#adr-018--the-official-infos-history-is-not-purged) | The `Official Infos/` history is not purged | accepted |
+| [ADR-019](#adr-019--one-function-decides-where-a-request-came-from) | One function decides where a request came from | accepted |
+| [ADR-020](#adr-020--the-cloudinary-assets-have-no-backup-and-that-is-accepted-until-launch) | The Cloudinary assets have no backup, and that is accepted until launch | provisional |
+| [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-stays-at-one) | The support proxy limits per member; `TRUSTED_PROXIES` stays at one | accepted |
+| [ADR-022](#adr-022--member-approval-waits-for-the-email-inside-a-ten-second-budget) | Member approval waits for the email, inside a ten-second budget | accepted |
+| [ADR-023](#adr-023--one-member-identifier-usersmemberid) | One member identifier: `users.memberId` | accepted |
 
 ---
 
@@ -38,9 +70,10 @@ SMS remains a Phase 2 option. Until then no code should reference an SMS provide
 
 **Status:** superseded by [ADR-014](#adr-014--prisma-migrate-supersedes-db-push) · 2026-08-16.
 
-`apps/web/prisma/migrations/` is deliberately empty. With one developer and a Neon branch per environment, `db push` is faster and avoids drift-repair ceremony. The trade-off is no schema history and no safe rollback.
-
-Adopt `prisma migrate` when a second developer joins or when production data cannot be rebuilt. *(The second condition arrived first.)*
+With one developer and a Neon branch per environment, `db push` was faster and
+avoided drift-repair ceremony, at the cost of no schema history and no safe
+rollback. To be revisited "when a second developer joins or production data
+cannot be rebuilt" — the second condition arrived first.
 
 ---
 
@@ -76,23 +109,40 @@ Revisit only when a real background-job need appears (installment reminders, tim
 
 ### ADR-008 — Member IDs are `ACC-KH-#####`
 
-**Status:** accepted · commit `5db86b7`, backfill in `scripts/migrate-member-ids.sql`.
+**Status:** accepted · commit `5db86b7`.
 
 Account and member identifiers are human-readable and branch-prefixed (`ACC-KH-33001`) because they are read aloud and written into paper passbooks. Generation lives in `apps/api/internal/utils/member_id.go`. Primary keys remain `cuid()` — the member ID is a display identifier, never a foreign key.
+
+`users.memberId` is the platform's **only** member identifier — see [ADR-023](#adr-023--one-member-identifier-usersmemberid).
+
+The one-off backfill (`scripts/migrate-member-ids.sql`) was deleted 2026-08-19 once it had run everywhere: it renumbers every member in one transaction, which is destructive against a live database and useful to nobody now. Recover it from `5db86b7` if it is ever needed again.
+
+---
+
+### ADR-009 — Formal specification PDFs retired
+
+**Status:** accepted · 2026-08-14.
+
+Nine LaTeX/PDF specification documents (BRD, SRS, FRD, API contract, DB schema,
+architecture, use cases, test plan, roadmap) described a system that was never
+built and contradicted the code on stack, currency, auth and notifications.
+Their durable content is compressed into [product.md](product.md),
+[architecture.md](architecture.md), [data-model.md](data-model.md) and
+[tasks.md](tasks.md). The originals remain in git history at `a8f7517`.
 
 ---
 
 ### ADR-010 — Documents are rendered in the browser, then rasterised
 
-**Status:** superseded by [ADR-012](#adr-012--official-documents-are-english-only-and-drawn-as-pdf-text) · `apps/web/lib/documents/`.
+**Status:** superseded by [ADR-012](#adr-012--official-documents-are-english-only-and-drawn-as-pdf-text) · 2026-08-15.
 
-jsPDF cannot shape complex scripts: Bengali conjuncts and matras come out reordered, so drawing statements with PDF text primitives is not an option, and `jspdf-autotable` is unusable for the same reason. Documents are therefore built as standalone HTML, rendered by the browser, and captured with html2canvas.
-
-Two output paths, deliberately:
-- **Print** (`openPrintWindow`) — native pagination and real selectable text. The better output; prefer it when the user just wants a file.
-- **Download** (`downloadAsPDF`) — the canvas is sliced into A4 pages at blank pixel rows so a page break never cuts through a line, then each slice is placed with uniform margins and a page counter. Non-selectable text is the accepted cost of correct Bengali.
-
-Do not "improve" this by switching to jsPDF text output without solving Bengali shaping first.
+Documents were built as standalone HTML, rendered by the browser and captured
+with html2canvas, because **jsPDF cannot shape complex scripts** — Bengali
+conjuncts and matras come out reordered, and `jspdf-autotable` is unusable for
+the same reason. ADR-012 removed the constraint by making documents English
+only. The shaping problem is real and unchanged: if Bengali documents are ever
+required again, the fix is an embedded Unicode font with shaping, **not** a
+return to screenshotting the page.
 
 ---
 
@@ -174,19 +224,33 @@ document layer treats a value that already looks like a reference as-is.
 
 ---
 
-### ADR-009 — Formal specification PDFs retired
+### ADR-014 — Prisma migrate supersedes `db push`
 
-**Status:** accepted · 2026-08-14.
+**Status:** accepted · 2026-08-16 · supersedes [ADR-004](#adr-004--prisma-db-push-no-migration-files).
 
-Nine LaTeX/PDF specification documents (BRD, SRS, FRD, API contract, DB schema, architecture, use cases, test plan, roadmap) described a system that was never built and contradicted the code on stack, currency, auth, and notifications. Their durable content — business rules, roles, FR-01…FR-22, use cases, test priorities, quality bars — is compressed into [product.md](product.md), [architecture.md](architecture.md), [data-model.md](data-model.md), and [tasks.md](tasks.md).
+ADR-004 deferred migrations until "a second developer joins or production data cannot be rebuilt". The second condition arrived: the database holds real member savings and loan balances, and no amount of re-running `db push` reconstructs a taka.
 
-The originals remain in git history at commit `a8f7517` if a formal deliverable is ever needed again.
+Two concrete failures pushed this over the line:
+
+- `db push` is a diff against the live database, so **the schema has no history**. When a `document_sequences` column turned out to have no usable default in production, there was no record of when it changed or what it replaced — the only way to answer was to inspect the running database.
+- `db push` will silently drop a column to make the database match the schema. On `transactions` or `accounts` that is unrecoverable member data, and nothing in the workflow asks twice.
+
+The current schema is baselined as `0_init`, generated with `prisma migrate diff --from-empty`, so it is byte-identical to what `db push` had produced. Nothing changed shape at the cutover.
+
+**What did not change:** an `@updatedAt` column still gets **no database default** under migrations either — Prisma applies those in the client. SQL written by hand in the Go API must set both `"createdAt"` and `"updatedAt"` itself. Migrations make that visible in a reviewable file rather than discoverable in production; they do not fix it. See [data-model.md](data-model.md).
+
+**Consequences**
+
+- Every environment runs `pnpm db:migrate`. Databases predating this ADR need `pnpm db:migrate:baseline` once.
+- `pnpm db:push` survives for throwaway local databases. Pointed at production it reintroduces exactly the drift this ADR removes.
+- Migrations need a **direct** (non-pooled) connection; `pnpm db:migrate` derives one from the pooled URL and logs that it did. See [deployment.md](deployment.md#neon).
+- CI applies migrations rather than pushing, so the integration suite tests the schema that actually deploys.
 
 ---
 
 ### ADR-015 — A balance is written relatively, never read-modify-written
 
-**Status:** accepted · 2026-08-17 · implemented the same day ([WO-41](work-orders.md)).
+**Status:** accepted · 2026-08-17 · implemented the same day (WO-41).
 
 Two of the three ways this codebase changes a savings balance were
 read-modify-write: fetch the balance, add in Go, write the total back. One of
@@ -227,30 +291,6 @@ The guard against it coming back a third time is a test, not this document:
 [`ledger_integrity_integration_test.go`](../apps/api/internal/repositories/ledger_integrity_integration_test.go)
 fail loudly against a read-modify-write. Both were confirmed to fail against the
 pre-fix code before they were allowed to pass.
-
----
-
-### ADR-014 — Prisma migrate supersedes `db push`
-
-**Status:** accepted · 2026-08-16 · supersedes [ADR-004](#adr-004--prisma-db-push-no-migration-files).
-
-ADR-004 deferred migrations until "a second developer joins or production data cannot be rebuilt". The second condition arrived: the database holds real member savings and loan balances, and no amount of re-running `db push` reconstructs a taka.
-
-Two concrete failures pushed this over the line:
-
-- `db push` is a diff against the live database, so **the schema has no history**. When a `document_sequences` column turned out to have no usable default in production, there was no record of when it changed or what it replaced — the only way to answer was to inspect the running database.
-- `db push` will silently drop a column to make the database match the schema. On `transactions` or `accounts` that is unrecoverable member data, and nothing in the workflow asks twice.
-
-The current schema is baselined as `0_init`, generated with `prisma migrate diff --from-empty`, so it is byte-identical to what `db push` had produced. Nothing changed shape at the cutover.
-
-**What did not change:** an `@updatedAt` column still gets **no database default** under migrations either — Prisma applies those in the client. SQL written by hand in the Go API must set both `"createdAt"` and `"updatedAt"` itself. Migrations make that visible in a reviewable file rather than discoverable in production; they do not fix it. See [data-model.md](data-model.md).
-
-**Consequences**
-
-- Every environment runs `pnpm db:migrate`. Databases predating this ADR need `pnpm db:migrate:baseline` once.
-- `pnpm db:push` survives for throwaway local databases. Pointed at production it reintroduces exactly the drift this ADR removes.
-- Migrations need a **direct** (non-pooled) connection; `pnpm db:migrate` derives one from the pooled URL and logs that it did. See [deployment.md](deployment.md#neon).
-- CI applies migrations rather than pushing, so the integration suite tests the schema that actually deploys.
 
 ---
 
@@ -462,9 +502,11 @@ and — because the `documents` table holds the URLs — reconcile the two so a
 missing asset is *detected* rather than discovered by an approver opening a
 blank image.
 
+---
+
 ### ADR-021 — The support proxy limits per member; `TRUSTED_PROXIES` stays at one
 
-**2026-08-18. WO-64.**
+**Status:** accepted · 2026-08-18 · closes WO-64.
 
 Everything the browser calls goes cross-origin to the Go API except
 `/v1/dashboard/support/*`, which `lib/api.ts` rewrites to a same-origin Next
@@ -517,9 +559,11 @@ life of the process — RUN-02 ends streams first at shutdown precisely because
 open streams eat the drain window. Note that nothing in the web client uses SSE
 today: the dashboard polls. The leak was real in the code, not in production.
 
+---
+
 ### ADR-022 — Member approval waits for the email, inside a ten-second budget
 
-**2026-08-18. WO-62.**
+**Status:** accepted · 2026-08-18 · closes WO-62.
 
 `sendWithRetry` made three attempts against a 12-second client with a 1.5-second
 sleep between them: **39 seconds**, synchronous, inside the handler that approves
@@ -559,9 +603,13 @@ against the real constants so the budget and the drain cannot drift apart.
 before the send. A member's approval is never rolled back because an email
 failed.
 
+---
+
 ### ADR-023 — One member identifier: `users.memberId`
 
-**2026-08-18.** Reported by the owner: the statement prints "Member ID" and
+**Status:** accepted · 2026-08-18.
+
+Reported by the owner: the statement prints "Member ID" and
 "Account No" as two labelled rows holding the same string.
 
 It was not a rendering mistake. `accounts.accountNumber` was **assigned the

@@ -45,7 +45,8 @@ package ordering.
 
 **Thirteen suites and one CI check enumerate rather than list, and will fail the
 build when the code grows something they do not know about.** That is
-deliberate; see [docs/testing.md](docs/testing.md).
+deliberate — a list a human maintains goes stale the day it is written. See
+[docs/testing.md](docs/testing.md).
 
 | Add this | And this fails until you act |
 |---|---|
@@ -63,6 +64,7 @@ deliberate; see [docs/testing.md](docs/testing.md).
 | a `/support/*` route in `main.go` | `apps/web/test/unit/support-proxy-allowlist.test.ts` — the Next proxy forwards an allow-list; a route missing from it 404s in production with nothing in either log saying why |
 | a generator that maps random bytes onto an alphabet | `internal/utils/random_test.go` — use `utils.RandomString`; `%` over a byte is not uniform, and both suites keep the biased version to prove the statistic can tell |
 | the donation pool's owner id, in either language | `apps/web/test/unit/donation-pool-owner.test.ts` — `seed.mjs`, `db-clear-preserve-core.mjs` and `transaction_repository.go` must name the same id, or donations fail with "run `pnpm db:seed`" on a seeded database |
+| a labelled identifier to a generated document | `apps/web/test/unit/*` — `users.memberId` is the **only** member identifier ([ADR-023](docs/decisions.md)); no document may give it two names, which is what "Member ID" and "Account No" on the statement were |
 
 ## Rules
 
@@ -126,16 +128,24 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 
 | File | For |
 |---|---|
+| [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work |
+| [docs/traps.md](docs/traps.md) | **every failure that cost a session**, grouped by what you have to be touching to hit one. Read the matching heading before debugging |
 | [docs/product.md](docs/product.md) | domain rules, roles, loan/withdrawal/default policy, FR-01…22 |
 | [docs/architecture.md](docs/architecture.md) | request flow, auth, which backend owns an endpoint, UI tokens |
 | [docs/data-model.md](docs/data-model.md) | schema, invariants, `system_config` keys |
 | [docs/api.md](docs/api.md) | endpoint reference |
+| [docs/testing.md](docs/testing.md) | where a new test goes, the fixture contract, running each suite, what is deliberately uncovered |
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting |
-| [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one |
+| [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
 | [docs/go-live.md](docs/go-live.md) | **the order to do remaining work in before real member data exists** — read before any pre-production planning |
-| [docs/tasks.md](docs/tasks.md) | the status board: open work only, plus what the suites do **not** cover — **update when you finish work** |
-| [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **Live defects at the top** — member records in git history, and monitoring that is built and switched off |
+| [docs/tasks.md](docs/tasks.md) | the status board: open product work only — **update when you finish work** |
+| [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **The one live defect is at the top**: monitoring that is built and switched off |
 | [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch. The only doc that keeps history |
-| [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs; no codebase exploration needed |
+| [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs. **None open** |
 
 Conventions (Go errors, TS strictness, quoted camelCase SQL, commit format): [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Docs are not a scratchpad.** `changelog.md` is the only file that keeps
+history; `traps.md` is the only file that keeps lessons. Everything else
+describes the present, so a finished item is deleted from it rather than struck
+through.

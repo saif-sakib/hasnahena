@@ -26,7 +26,7 @@ const config = [
       //
       // They fire 26 times across 18 dashboard files. Rewriting that many
       // useEffect bodies inside a framework-migration commit is the exact
-      // trap docs/work-orders.md warns about for Batch G: an app that builds
+      // trap docs/traps.md warns about for Batch G: an app that builds
       // and then misbehaves at runtime in ways a typecheck cannot see. It is
       // worse still here, because the dashboards are the part of this app
       // that moves members' money and the part with no test fixtures.

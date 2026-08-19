@@ -239,51 +239,40 @@ of settings that were never wired up (`SESSION_SECRET`, `SESSION_MAX_AGE`,
 ## Tests
 
 ```bash
-pnpm test:unit         # Web unit tests (vitest). No database, ~1s
+pnpm test:unit         # web unit tests (vitest). No database, ~4 s
 pnpm test:go           # Go unit tests. Pure arithmetic, no database, fast
-pnpm test:integration  # Go against a real Postgres. Needs TEST_DATABASE_URL
-pnpm test:e2e          # Playwright. Needs the stack running and a seeded local DB
+pnpm test:integration  # Go against a real Postgres
+pnpm test:routes       # the Next route handlers against a real Postgres
+pnpm test:e2e          # Playwright. Needs the stack running
 ```
 
 The split is deliberate: the first two must stay fast enough to run on every
 save, so nothing needing a database belongs in them.
 
-**Where coverage actually is, and the plan to fix it:**
-[testing.md](testing.md). The short version — the money arithmetic is at 93%,
-and the 86 HTTP endpoints in front of it are at zero.
-
-### Integration tests
-
-These are the financial-integrity tests: the money lifecycle, loan caps, the
-default waterfall, withdrawal blocking, and the append-only audit trail. They
-need their own database — they truncate every table between tests, so **never
-point `TEST_DATABASE_URL` at a database you care about**.
+**The database-backed suites need a database, and `pnpm test:stack` supplies
+it** — Postgres on a non-default port, migrated and seeded, optionally serving
+both apps:
 
 ```bash
-docker compose up -d db
-createdb hasnahena_test    # or: psql -c 'CREATE DATABASE hasnahena_test'
-
-export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_test
-DATABASE_URL=$TEST_DATABASE_URL pnpm db:migrate
-pnpm test:integration
+scripts/test-stack.sh up          # database only
+eval "$(scripts/test-stack.sh env)"
+pnpm test:integration && pnpm test:routes
+scripts/test-stack.sh down        # destroys the volume
 ```
 
-The migrate step is not optional and not incidental: these tests run against
-the schema that actually deploys, including the column defaults Prisma strips.
-That is what makes them catch the class of bug described in
+**Never point these at a development database.** They truncate every table
+between tests, which is also why they can run in any order.
+
+The migrate step inside `up` is not incidental: these tests run against the
+schema that actually deploys, including the column defaults Prisma strips — that
+is what makes them catch the class of bug in
 [data-model.md](data-model.md#writing-sql-by-hand--two-traps).
 
-With `TEST_DATABASE_URL` unset the suite exits cleanly rather than failing, so
-`go test ./...` stays green for anyone without a database.
+Install the browser once with
+`pnpm --filter @hasnahena/web exec playwright install chromium`.
 
-`pnpm test:go` covers `internal/money` (installment splitting, loan caps,
-default waterfall), document and member ID formatting, and token-revocation
-timing. It is the suite to run after touching anything in
-`apps/api/internal/money` — a failure there means money is being miscounted.
-
-`pnpm test:e2e` skips itself unless `E2E_ADMIN_IDENTIFIER` and
-`E2E_ADMIN_PASSWORD` are set, so a missing local seed is not a failure. Install
-browsers once with `pnpm --filter @hasnahena/web exec playwright install chromium`.
+Where a new test goes, the fixture contract, and what is deliberately uncovered:
+[testing.md](testing.md).
 
 ## Database work
 
@@ -345,10 +334,16 @@ Optional: `SEED_ADMIN_PHONE` (default `01700000000`), `SEED_ADMIN_NAME`.
 ## Checks before you call something done
 
 ```bash
-pnpm typecheck
-pnpm lint
+pnpm typecheck          # must be zero errors
+pnpm lint               # 6 warnings, 0 errors — do not let the count grow
+pnpm test:unit
+pnpm test:go
 cd apps/api && go build ./...
 ```
+
+If you touched money or SQL, also run `pnpm test:integration` against the test
+stack. If you touched `schema.prisma`, generate the migration
+(`pnpm db:migrate:dev`) — CI fails on drift.
 
 ## Troubleshooting
 
@@ -418,8 +413,7 @@ pnpm typecheck && pnpm build && pnpm test:go
 **Never take a major version this way.** A major is a migration: read its guide,
 do it on a branch, and check it by hand. That is how `tailwindcss` 3→4 broke the
 Vercel build — v4 moves configuration into CSS and needs a different PostCSS
-plugin, which no version bump can do for you. The outstanding majors are scoped
-as Batch G in [work-orders.md](work-orders.md).
+plugin, which no version bump can do for you.
 
 **Transitive vulnerabilities are pinned in `pnpm.overrides`** in the root
 `package.json`. When a dependency-of-a-dependency has an advisory and its parent
