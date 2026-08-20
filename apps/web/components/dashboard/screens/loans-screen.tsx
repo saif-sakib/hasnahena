@@ -6,28 +6,24 @@ import {
   AlertTriangle,
   Download,
   Eye,
-  HandCoins,
   Loader2,
   RefreshCw,
   Search,
   Wallet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useApi } from '@/lib/use-api';
-import { apiPost } from '@/lib/api';
-import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { buildLoanAgreement, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
 import { useDashboardRole } from '@/components/dashboard/role';
+import { MoneyActionDialog } from '@/components/dashboard/money-actions';
 
 /**
  * Loans — one screen for both staff dashboards.
@@ -77,7 +73,22 @@ interface Loan {
   nextDueDate?: string;
   approvedBy?: string;
   disbursedDate?: string;
-  /** Derived: ACTIVE and past its next due date. */
+  /** How many due instalments are unpaid. From the API — see `isOverdue`. */
+  missedInstallments: number;
+  /**
+   * Decided by the API, not here.
+   *
+   * It used to be `status === 'ACTIVE' && nextDueDate < now`, which sounds
+   * right and was wrong twice over, because the two endpoints behind this one
+   * component did not agree on what `nextDueDate` meant: `/worker/loans` sent
+   * the date the schedule *started*, so every active loan was overdue, and
+   * `/admin/loans` sent no date at all, so none was. The same four loans read
+   * "4 overdue" in one dashboard and "0 overdue" in the other.
+   *
+   * Both now come from `money.MissedInstallments` in the Go API, which is the
+   * same arithmetic that decides whether a loan may be defaulted. A second
+   * implementation in the browser is how those diverge again.
+   */
   isOverdue: boolean;
 }
 
@@ -136,8 +147,8 @@ function normalise(raw: any): Loan {
       : raw?.approvedDate
         ? String(raw.approvedDate)
         : undefined,
-    isOverdue:
-      status === 'ACTIVE' && !!nextDueDate && new Date(nextDueDate).getTime() < Date.now(),
+    missedInstallments: Number(raw?.missedInstallments ?? 0),
+    isOverdue: raw?.isOverdue === true,
   };
 }
 
@@ -155,12 +166,10 @@ export default function LoansScreen() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentNotes, setPaymentNotes] = useState('');
-  const [isPaying, setIsPaying] = useState(false);
-  // A refused instalment is its own failure, not a failure to load the list.
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  // Which loan the shared instalment dialog is open on. The form, the whole-taka
+  // rule, the presets and the refusal messages all live in MoneyActionDialog —
+  // this screen had its own copy, which rounded 1500.75 to 1501 and posted it.
+  const [payingLoan, setPayingLoan] = useState<Loan | null>(null);
 
   const filteredLoans = useMemo(
     () =>
@@ -222,47 +231,6 @@ export default function LoansScreen() {
       );
     } catch (error) {
       console.error('Failed to download loan:', error);
-    }
-  };
-
-  const openPaymentModal = (loan: Loan) => {
-    setSelectedLoan(loan);
-    const presets = getLoanRepaymentPresets(loan.monthlyInstallment, loan.remainingAmount);
-    setPaymentAmount(String(presets.monthly));
-    setPaymentNotes('');
-    setPaymentError(null);
-    setShowPaymentModal(true);
-  };
-
-  const handlePayment = async () => {
-    if (!selectedLoan) return;
-    const parsed = Number.parseFloat(paymentAmount);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setPaymentError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid payment amount');
-      return;
-    }
-    if (parsed > selectedLoan.remainingAmount) {
-      setPaymentError(locale === 'bn' ? 'বাকি পরিমাণের বেশি নয়' : 'Amount exceeds remaining balance');
-      return;
-    }
-
-    setIsPaying(true);
-    setPaymentError(null);
-    try {
-      await apiPost(`/v1/dashboard/worker/members/${selectedLoan.memberUserId}/loan-payment`, {
-        loanId: selectedLoan.id,
-        amount: Math.round(parsed),
-        notes: paymentNotes.trim(),
-      });
-      setShowPaymentModal(false);
-      setSelectedLoan(null);
-      setPaymentAmount('');
-      setPaymentNotes('');
-      await loadLoans();
-    } catch (error: any) {
-      setPaymentError(error?.message || (locale === 'bn' ? 'পরিশোধ ব্যর্থ হয়েছে' : 'Payment failed'));
-    } finally {
-      setIsPaying(false);
     }
   };
 
@@ -456,7 +424,7 @@ export default function LoansScreen() {
                     <div className="flex items-center gap-2 justify-end">
                       {l.status === 'ACTIVE' && l.memberUserId ? (
                         <button
-                          onClick={() => openPaymentModal(l)}
+                          onClick={() => setPayingLoan(l)}
                           className="text-emerald-600 hover:text-emerald-800"
                           title={locale === 'bn' ? 'কিস্তি গ্রহণ' : 'Record instalment'}
                           aria-label={locale === 'bn' ? 'কিস্তি গ্রহণ করুন' : 'Record instalment'}
@@ -577,64 +545,18 @@ export default function LoansScreen() {
         </DialogContent>
       </Dialog>
 
-      {/* Record an instalment */}
-      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'কিস্তি গ্রহণ' : 'Record Instalment'}</DialogTitle>
-            <DialogDescription>
-              {selectedLoan
-                ? `${selectedLoan.memberName} — ${locale === 'bn' ? 'বাকি' : 'remaining'} ${formatCurrency(selectedLoan.remainingAmount, locale)}`
-                : ''}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {paymentError && (
-              <div className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {paymentError}
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {locale === 'bn' ? 'পরিমাণ (৳)' : 'Amount (৳)'}
-              </label>
-              <Input
-                type="number"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                className="h-9"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}
-              </label>
-              <Textarea
-                value={paymentNotes}
-                onChange={(e) => setPaymentNotes(e.target.value)}
-                rows={2}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowPaymentModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button size="sm" onClick={() => void handlePayment()} disabled={isPaying}>
-              <HandCoins className="h-4 w-4 mr-1" />
-              {isPaying
-                ? locale === 'bn'
-                  ? 'প্রক্রিয়াকরণ...'
-                  : 'Processing...'
-                : locale === 'bn'
-                  ? 'নিশ্চিত করুন'
-                  : 'Confirm'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Record an instalment — the one implementation, shared with the
+          member's page and the deposits screen. */}
+      <MoneyActionDialog
+        action="LOAN_PAYMENT"
+        open={payingLoan !== null}
+        onOpenChange={(next) => {
+          if (!next) setPayingLoan(null);
+        }}
+        memberUserId={payingLoan?.memberUserId}
+        loanId={payingLoan?.id}
+        onCompleted={loadLoans}
+      />
     </div>
   );
 }

@@ -24,6 +24,26 @@ another doc, add it here and link instead.
   or read it `FOR UPDATE` inside the same transaction ([ADR-015](decisions.md)).
   A *check* against a balance belongs in the same statement as the write
   (`WHERE "remainingAmount" >= $1`), not a line above it.
+- **One question, one function — or the same page gives two answers side by
+  side.** "Is this loan overdue?" was answered by whichever date column the query
+  nearest to hand happened to have. `/worker/loans` sent `installmentStartDate`
+  as `nextDueDate`, which is behind every active loan by construction, so every
+  borrower showed as overdue; `/admin/loans` sent no due date at all, so none
+  did; the member's own history sent `expectedEndDate`, the day the *last*
+  instalment falls due. The two staff lists are literally the same React
+  component, so the disagreement was visible as "0 overdue" and "4 overdue" on
+  one screen depending on who opened it. The arithmetic now lives once, in
+  `internal/money`, and the API sends the answer rather than the ingredients —
+  the browser deriving it again is how a second implementation gets created.
+- **An aggregate with no status filter counts intentions.** Rule 6a, and it
+  recurs: the admin dashboard summed every `DEPOSIT` row as "Total Deposits"
+  (a PENDING deposit is a *request*) and every `principalAmount` as "Loans
+  Disbursed" (including REJECTED applications), while the worker's dashboard
+  next door filtered on `CONFIRMED`. Also watch the *set* of statuses, not only
+  its presence: `GetLoanStats` filtered on `('ACTIVE','COMPLETED','DEFAULTED')`
+  and omitted `SETTLED`, so a loan closed against a member's savings disappeared
+  from the disbursed total and from the recovery rate at once. Name the set in
+  one constant and interpolate it.
 - **A fix applied from memory covers the methods someone thought of.** ADR-015
   was written, reviewed and applied to four balance writers. The fifth — loan
   repayment — kept the bug for months and was found only when a census
@@ -425,6 +445,31 @@ answered 500.
   so every worker who opened it got a 403 and a blank page. Sharing a component
   across roles only works if the endpoints it calls are reachable by all of them —
   check the route table, not the import.
+- **Two roles sharing one component still need the same rows underneath it.**
+  Merging the worker and admin dashboards into single components fixed the code
+  duplication and left the *data* duplicated: the two loan queries disagreed on
+  which statuses to return, so the same table's own "N loans" differed by role.
+  When a screen is shared, either the query is shared too, or the difference is
+  labelled on the screen — the deposits list genuinely shows a worker only what
+  they processed, and now says so, because two totals under one heading read as
+  a bug rather than as two questions.
+- **The same action offered from two screens is two implementations, and they
+  will not stay equal.** Deposit, withdrawal, loan instalment and loan
+  application each existed twice — once on the member's page, once on a list
+  screen. The member's page refused paisa; the list screens ran
+  `Math.round(Number.parseFloat(…))` and silently posted 1501 for 1500.75, which
+  is the *same defect* that had already been found and fixed once, on the other
+  copy. The member's page refused a withdrawal with no matured FR-08 notice
+  because it had the notices loaded; the deposits screen had only the balance, so
+  it let the worker submit and wait for a 409. Whichever entry point you happened
+  to use decided which rules you got. Extract the action, not the form: one
+  dialog that fetches the facts its rules are about, opened from anywhere.
+- **A census that names files by hand tests the past.** The guard on that
+  rounding listed three screens and asserted each contained `Math.round(` — the
+  *old* rule — so it went on passing while two of the three rounded money. It
+  walks the source for anything posting an `amount:` now and requires the
+  whole-taka parser, which immediately turned up three more forms nobody had
+  listed.
 - **Two forms over one key/value table will fight.** Each posts the whole list it
   read, so the later save reverts the other's edits, and neither reports
   anything. When Settings split into Settings and Content & Media, the fix was to

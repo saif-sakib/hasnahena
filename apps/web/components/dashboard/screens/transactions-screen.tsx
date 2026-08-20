@@ -377,10 +377,15 @@ export default function TransactionsScreen() {
             <Receipt className="h-5 w-5" />
             {locale === 'bn' ? 'লেনদেন তালিকা' : 'Transactions List'}
           </CardTitle>
+          {/* The scope, stated — see the note on the deposits screen. */}
           <CardDescription>
             {locale === 'bn'
-              ? `${filteredTransactions.length} টি লেনদেন পাওয়া গেছে`
-              : `${filteredTransactions.length} transactions found`}
+              ? `${filteredTransactions.length} টি লেনদেন — ${
+                  role === 'admin' ? 'পুরো ফাউন্ডেশন' : 'আপনার প্রক্রিয়াকৃত'
+                }`
+              : `${filteredTransactions.length} transactions — ${
+                  role === 'admin' ? 'whole foundation' : 'processed by you'
+                }`}
           </CardDescription>
         </CardHeader>
         <CardContent>

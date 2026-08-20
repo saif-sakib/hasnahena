@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiPost } from '@/lib/api';
 import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
-import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
+import { formatCurrency, getLoanRepaymentPresets, parseWholeTaka } from '@/lib/utils';
 import { LoanApplicationForm } from '@/components/dashboard/loan-application-form';
 import { GuarantorRequests, type GuarantorRequestItem } from '@/components/dashboard/guarantor-requests';
 import { fetchSettings } from '@/lib/settings-client';
@@ -168,9 +168,16 @@ export default function LoansPage() {
       return;
     }
 
-    const amountValue = Number.parseFloat(repaymentAmount);
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setSubmitError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
+    // Whole taka, or refuse it (rule 1). This used to parseFloat and then
+    // `Math.round` on the way out, so a member who typed 1500.75 requested 1501
+    // and was shown a confirmation for a figure they had not asked for.
+    const amountValue = parseWholeTaka(repaymentAmount);
+    if (amountValue === null) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
+          : 'Enter a whole-taka amount, with no paisa',
+      );
       return;
     }
     if (amountValue > loan.remainingAmount) {
@@ -192,7 +199,7 @@ export default function LoansPage() {
       setActionSuccess(null);
       await apiPost('/v1/dashboard/member/requests/loan-repayment', {
         loanId: loan.id,
-        amount: Math.round(amountValue ),
+        amount: amountValue,
         bkashReference: repaymentReference.trim(),
         notes: repaymentNotes.trim(),
       });
@@ -218,8 +225,8 @@ export default function LoansPage() {
     setRepaymentAmount(presets[preset].toString());
   };
 
-  const repaymentAmountValue = Number.parseFloat(repaymentAmount);
-  const hasRepaymentAmount = Number.isFinite(repaymentAmountValue) && repaymentAmountValue > 0;
+  const repaymentAmountValue = parseWholeTaka(repaymentAmount) ?? 0;
+  const hasRepaymentAmount = repaymentAmountValue > 0;
   const projectedRemaining = selectedHistoryLoan && hasRepaymentAmount
     ? Math.max(selectedHistoryLoan.remainingAmount - repaymentAmountValue, 0)
     : null;
@@ -597,8 +604,9 @@ export default function LoansPage() {
                               type="number"
                               min="1"
                               max={selectedHistoryLoan.remainingAmount}
-                              step="0.01"
-                              placeholder="0.00"
+                              step="1"
+                              inputMode="numeric"
+                              placeholder="0"
                               value={repaymentAmount}
                               onChange={(e) => setRepaymentAmount(e.target.value)}
                             />

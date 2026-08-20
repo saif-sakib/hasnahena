@@ -39,7 +39,6 @@ interface Worker {
   name: string;
   email: string;
   phone: string;
-  role: 'WORKER' | 'ADMIN';
   status: 'ACTIVE' | 'INACTIVE';
   // WO-72. The branch is a row now. `assignedArea` survives as the *display*
   // string derived from it, so the search box and the table keep working
@@ -57,7 +56,6 @@ interface WorkerApiResponse {
   name: string;
   email: string;
   phone: string;
-  role: 'WORKER' | 'ADMIN';
   status: 'ACTIVE' | 'INACTIVE';
   branch: { id: string; name: string; code: string } | null;
   joinDate: string;
@@ -73,7 +71,6 @@ interface BranchOption {
 function normalizeWorker(worker: any): Worker {
   return {
     ...worker,
-    role: worker.role === 'ADMIN' ? 'ADMIN' : 'WORKER',
     status: worker.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
     processedDeposits: Number(worker.currentDeposit || worker.processedDeposits || 0),
     processedLoans: Number(worker.activeLoan || worker.processedLoans || 0),
@@ -114,15 +111,18 @@ async function requestWorkersApi<T>(path: string, method: 'POST' | 'PUT' | 'PATC
  * rule server-side — role is not a field it accepts on create or on update — so
  * this is a UI that matches the API rather than a UI that hides a capability.
  *
- * Existing admin accounts are still listed, because "who has the keys" is worth
- * being able to see. Their rows carry no actions.
+ * Admin accounts are not listed at all. `/v1/dashboard/admin/workers` returns
+ * `u.role = 'WORKER'` and nothing else. They used to appear here with every
+ * action disabled, which is a row that can only be read — and a screen whose
+ * job is create/edit/suspend/delete has no use for one. Nothing else on the
+ * screen distinguishes a worker from an admin any more, so the Role column, the
+ * role filter and the "Admins" tally are gone with them.
  */
 export default function AdminWorkersPage() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVE' | 'INACTIVE'>('ACTIVE');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'WORKER' | 'ADMIN'>('all');
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -192,10 +192,9 @@ export default function AdminWorkersPage() {
           worker.phone.includes(searchQuery) ||
           worker.assignedArea.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesStatus = statusFilter === 'all' || worker.status === statusFilter;
-        const matchesRole = roleFilter === 'all' || worker.role === roleFilter;
-        return matchesSearch && matchesStatus && matchesRole;
+        return matchesSearch && matchesStatus;
       }),
-    [workers, searchQuery, statusFilter, roleFilter]
+    [workers, searchQuery, statusFilter]
   );
 
   const stats = useMemo(
@@ -203,7 +202,6 @@ export default function AdminWorkersPage() {
       total: workers.length,
       active: workers.filter((w) => w.status === 'ACTIVE').length,
       inactive: workers.filter((w) => w.status === 'INACTIVE').length,
-      admins: workers.filter((w) => w.role === 'ADMIN').length,
     }),
     [workers]
   );
@@ -211,12 +209,6 @@ export default function AdminWorkersPage() {
   const getStatusBadge = (status: 'ACTIVE' | 'INACTIVE') => (
     <span className={`px-2 py-0.5 text-xs rounded ${status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
       {status === 'ACTIVE' ? (locale === 'bn' ? 'সক্রিয়' : 'Active') : (locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive')}
-    </span>
-  );
-
-  const getRoleBadge = (role: 'WORKER' | 'ADMIN') => (
-    <span className={`px-2 py-0.5 text-xs rounded ${role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-      {role === 'ADMIN' ? (locale === 'bn' ? 'অ্যাডমিন' : 'Admin') : (locale === 'bn' ? 'কর্মী' : 'Worker')}
     </span>
   );
 
@@ -412,7 +404,6 @@ export default function AdminWorkersPage() {
         <div><span className="text-gray-500">{locale === 'bn' ? 'মোট:' : 'Total:'}</span> <span className="font-medium">{stats.total}</span></div>
         <div><span className="text-gray-500">{locale === 'bn' ? 'সক্রিয়:' : 'Active:'}</span> <span className="font-medium text-green-600">{stats.active}</span></div>
         <div><span className="text-gray-500">{locale === 'bn' ? 'নিষ্ক্রিয়:' : 'Inactive:'}</span> <span className="font-medium text-gray-600">{stats.inactive}</span></div>
-        <div><span className="text-gray-500">{locale === 'bn' ? 'অ্যাডমিন:' : 'Admins:'}</span> <span className="font-medium text-purple-600">{stats.admins}</span></div>
       </div>
 
       {pageError && (
@@ -441,16 +432,6 @@ export default function AdminWorkersPage() {
           <option value="ACTIVE">{locale === 'bn' ? 'সক্রিয়' : 'Active'}</option>
           <option value="INACTIVE">{locale === 'bn' ? 'নিষ্ক্রিয়' : 'Inactive'}</option>
         </select>
-        <select
-          aria-label={tA11y('filterByRole')}
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as 'all' | 'WORKER' | 'ADMIN')}
-          className="h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500"
-        >
-          <option value="all">{locale === 'bn' ? 'সব ভূমিকা' : 'All Roles'}</option>
-          <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Workers'}</option>
-          <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admins'}</option>
-        </select>
       </div>
 
       <div className="border border-gray-200 bg-white overflow-x-auto">
@@ -460,7 +441,6 @@ export default function AdminWorkersPage() {
               <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'নাম' : 'Name'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600 hidden sm:table-cell">{locale === 'bn' ? 'যোগাযোগ' : 'Contact'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600 hidden md:table-cell">{locale === 'bn' ? 'এলাকা' : 'Area'}</th>
-              <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600">{locale === 'bn' ? 'স্ট্যাটাস' : 'Status'}</th>
               <th className="px-4 py-2 text-left font-medium text-gray-600"></th>
             </tr>
@@ -468,13 +448,13 @@ export default function AdminWorkersPage() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center">
+                <td colSpan={5} className="px-4 py-8 text-center">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />
                 </td>
               </tr>
             ) : filteredWorkers.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   {locale === 'bn' ? 'কোনো কর্মী পাওয়া যায়নি' : 'No workers found'}
                 </td>
               </tr>
@@ -490,44 +470,34 @@ export default function AdminWorkersPage() {
                     <div className="text-xs text-gray-500">{worker.phone}</div>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell text-gray-600">{worker.assignedArea || '-'}</td>
-                  <td className="px-4 py-3">{getRoleBadge(worker.role)}</td>
                   <td className="px-4 py-3">{getStatusBadge(worker.status)}</td>
                   <td className="px-4 py-3">
-                    {worker.role === 'ADMIN' ? (
-                      // Admin accounts are made and unmade in the database, so
-                      // there is nothing here to offer. Shown rather than hidden
-                      // so the list still answers "who has the keys".
-                      <span className="text-xs text-gray-400">
-                        {locale === 'bn' ? 'ডেটাবেসে পরিচালিত' : 'Managed in database'}
-                      </span>
-                    ) : (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isMutating}>
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">{tA11y('rowActions')}</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDetailModal(true); }}>
-                            <Eye className="h-4 w-4 mr-2" />{locale === 'bn' ? 'বিস্তারিত' : 'Details'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
-                            <Edit className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => void handleToggleStatus(worker)}>
-                            {worker.status === 'ACTIVE' ? (
-                              <><Ban className="h-4 w-4 mr-2" />{locale === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate'}</>
-                            ) : (
-                              <><CheckCircle2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}</>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDeleteModal(true); }} className="text-red-600">
-                            <Trash2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'মুছুন' : 'Delete'}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isMutating}>
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span className="sr-only">{tA11y('rowActions')}</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDetailModal(true); }}>
+                          <Eye className="h-4 w-4 mr-2" />{locale === 'bn' ? 'বিস্তারিত' : 'Details'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
+                          <Edit className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void handleToggleStatus(worker)}>
+                          {worker.status === 'ACTIVE' ? (
+                            <><Ban className="h-4 w-4 mr-2" />{locale === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate'}</>
+                          ) : (
+                            <><CheckCircle2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}</>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDeleteModal(true); }} className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'মুছুন' : 'Delete'}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))
@@ -549,7 +519,7 @@ export default function AdminWorkersPage() {
                 </div>
                 <div>
                   <div className="font-medium">{selectedWorker.name}</div>
-                  <div className="flex gap-1 mt-1">{getRoleBadge(selectedWorker.role)} {getStatusBadge(selectedWorker.status)}</div>
+                  <div className="flex gap-1 mt-1">{getStatusBadge(selectedWorker.status)}</div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

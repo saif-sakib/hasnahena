@@ -82,6 +82,8 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | a write reachable from the reconciliation job | `apps/api/cmd/server/wiring_test.go` — it reads the source and fails on any `UPDATE accounts` there. The job reports drift; it must never correct it ([ADR-027](docs/decisions.md)) |
 | an import to a shared component | `apps/web/scripts/assert-bundle-budget.mjs` after `pnpm build` — first-load JS per route against `bundle-budget.json`, >10% growth fails. Accept a real cost with `pnpm test:bundle:update` |
 | a `system_config` key | `apps/web/test/unit/settings-keys-read.test.ts` — put it in **exactly one** of `CONTENT_CONFIG_KEYS` (Content & Media) or `SETTINGS_CONFIG_KEYS` (Settings). In neither, no admin can change it; in both, whichever form saves last reverts the other |
+| a form that posts a money `amount` | `apps/web/lib/utils.test.ts` — it walks `app/`, `components/` and `lib/` for anything posting one and demands `parseWholeTaka`. And ask first whether `components/dashboard/money-actions.tsx` should own it: staff deposits, withdrawals, instalments and loan applications each existed twice and the copies disagreed about paisa and about FR-08 |
+| a loan list, or a `nextDueDate` | `apps/api/internal/repositories/loan_schedule_integration_test.go` — `/admin/loans` and `/worker/loans` are one React component and must return the **same rows** and agree on `isOverdue`, `missedInstallments` and the date. Three queries once answered the date three ways, and the two lists carried different statuses |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -148,7 +150,9 @@ apps/api/internal/repositories/   all SQL, split by domain (WO-38):
     reconcile_repository.go       sums the whole ledger and compares it to the stored balances (WO-82).
                                   Read-only by construction: it reports drift and never repairs (ADR-027)
 apps/api/internal/money/          pure loan/installment/waterfall/schedule arithmetic — tested, no DB.
-                                  Put new money maths HERE, not inline in SQL
+                                  Put new money maths HERE, not inline in SQL. NextDueDate and
+                                  MissedInstallments are the only answer to "is this loan overdue?" —
+                                  the API sends the verdict, the browser must not re-derive it
 apps/api/internal/notify/         every member- and staff-facing notification string. Pure builders,
                                   whole taka, table-tested with a census. Nothing else may build one
 apps/api/internal/middleware/     the global stack, mounted by mountMiddleware in main.go. ClientIP is the
@@ -165,6 +169,9 @@ apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE
                                   the sidebar and the overview's action cards both render from it
                                   role.tsx  which dashboard a screen is in. Presentation only:
                                   the API decides, and proxy.ts pins the URL segment to the role
+                                  money-actions.tsx  the ONE deposit / withdrawal / instalment /
+                                  loan-application form. Every screen opens it; it fetches the member
+                                  detail its rules are about. Never write a second one
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)

@@ -23,7 +23,6 @@ import {
   Receipt,
   TrendingUp,
   Users,
-  Printer,
   FileImage,
   Eye,
   Download,
@@ -31,9 +30,6 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -43,23 +39,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { apiPost } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
+import {
+  MoneyActionDialog,
+  moneyActionSuccessMessage,
+  type MoneyAction,
+} from '@/components/dashboard/money-actions';
 import useSWR from 'swr';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
-import { formatCurrency, getLoanRepaymentPresets } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { fetchSettings } from '@/lib/settings-client';
 import Image from 'next/image';
 import {
@@ -169,8 +162,9 @@ export default function MemberDetailScreen() {
     loans: Loan[];
   }>(memberUserId ? `/v1/dashboard/worker/members/${memberUserId}` : null);
 
-  // Carries the token: `loan.allowActiveLoanWithdrawal` and
-  // `loan.maxInstallmentMonths` are not in the anonymous tier (WO-77).
+  // Carries the token: `loan.allowActiveLoanWithdrawal` is not in the anonymous
+  // tier (WO-77). `loan.maxInstallmentMonths` is read by MoneyActionDialog,
+  // which needs it to bound the loan form.
   const { data: settings } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
     () => fetchSettings(),
@@ -185,11 +179,6 @@ export default function MemberDetailScreen() {
     typeof settings?.['loan.allowActiveLoanWithdrawal'] === 'string' &&
     (settings['loan.allowActiveLoanWithdrawal'] as string).trim().toLowerCase() === 'true';
 
-  const maxInstallmentMonths = useMemo(() => {
-    const parsed = Number(settings?.['loan.maxInstallmentMonths']);
-    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 24;
-  }, [settings]);
-
   // FR-08. `matured` is decided by the API, which owns `noticeMaturityDate` —
   // three months from 31 January is 1 May, and a second implementation of that
   // rule in the browser would eventually disagree with the one that pays out.
@@ -197,226 +186,23 @@ export default function MemberDetailScreen() {
     () => member?.withdrawalNotices ?? [],
     [member],
   );
-  const maturedNotices = useMemo(
-    () => withdrawalNotices.filter((notice) => notice.matured),
-    [withdrawalNotices],
-  );
-  const largestMaturedNotice = useMemo(
-    () => maturedNotices.reduce((max, notice) => Math.max(max, notice.amount), 0),
-    [maturedNotices],
-  );
-  const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  // Modal states
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
-  const [showLoanModal, setShowLoanModal] = useState(false);
-  const [showLoanPaymentModal, setShowLoanPaymentModal] = useState(false);
-  const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<Loan | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  /**
+   * Which money action is open, if any.
+   *
+   * Four forms used to live in this file — deposit, withdrawal, loan
+   * application, loan instalment — and two of them existed a second time on the
+   * Deposits and Loans screens, with different rules. They are all
+   * `MoneyActionDialog` now; see the note there for what the copies disagreed
+   * about.
+   */
+  const [moneyAction, setMoneyAction] = useState<{
+    action: MoneyAction;
+    loanId?: string;
+  } | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MemberDocument | null>(null);
   const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
-
-  // Form states
-  const [depositAmount, setDepositAmount] = useState('');
-  const [depositNotes, setDepositNotes] = useState('');
-  const [withdrawalAmount, setWithdrawalAmount] = useState('');
-  const [withdrawalNotes, setWithdrawalNotes] = useState('');
-  const [loanAmount, setLoanAmount] = useState('');
-  const [loanPurpose, setLoanPurpose] = useState('');
-  const [loanInstallments, setLoanInstallments] = useState('12');
-  const [loanPaymentAmount, setLoanPaymentAmount] = useState('');
-  const [loanPaymentNotes, setLoanPaymentNotes] = useState('');
-
-  /**
-   * Whole taka, or nothing (rule 1).
-   *
-   * This used to `Math.round`, so an admin typing 1500.75 posted 1501 and was
-   * told it succeeded. Silently changing an amount somebody typed is the one
-   * thing a money form must not do — and the inputs invited it, being
-   * `step="0.01"`. They are `step="1"` now, and this refuses the rest.
-   */
-  const parseAmount = (value: string): number | null => {
-    const trimmed = value.trim();
-    if (!/^\d+$/.test(trimmed)) return null;
-    const parsed = Number.parseInt(trimmed, 10);
-    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-  };
-
-  const invalidAmountMessage =
-    locale === 'bn'
-      ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
-      : 'Enter a whole-taka amount, with no paisa';
-
-
-  const handleDeposit = async () => {
-    const amountVal = parseAmount(depositAmount);
-    if (!amountVal) {
-      setActionError(invalidAmountMessage);
-      return;
-    }
-
-    setIsSubmitting(true);
-    setActionError(null);
-    try {
-      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/deposit`, {
-        amount: amountVal,
-        notes: depositNotes,
-      });
-      setActionSuccess(locale === 'bn' ? 'জমা সফল হয়েছে' : 'Deposit successful');
-      setShowDepositModal(false);
-      setDepositAmount('');
-      setDepositNotes('');
-      loadMemberDetails();
-    } catch (e: any) {
-      setActionError(e?.message || 'Failed to add deposit');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleWithdrawal = async () => {
-    const amountVal = parseAmount(withdrawalAmount);
-    if (!amountVal) {
-      setActionError(invalidAmountMessage);
-      return;
-    }
-
-    if (member && amountVal > member.currentDeposit) {
-      setActionError(locale === 'bn' ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient balance');
-      return;
-    }
-
-    // FR-08 again, client-side. The API refuses this with a 409 and says why,
-    // and that is the answer that counts — but making the admin submit a form to
-    // be told a fact the page already knows is how a working screen reads as a
-    // broken one.
-    if (!maturedNotices.some((notice) => notice.amount >= amountVal)) {
-      setActionError(
-        locale === 'bn'
-          ? 'এই পরিমাণের জন্য কোনো পরিপক্ব উত্তোলন নোটিশ নেই। সদস্য নিজে নোটিশ দেবেন, তারপর তা পরিশোধ করা যাবে।'
-          : 'No matured withdrawal notice covers that amount. The member gives notice from their own dashboard; this screen settles it.',
-      );
-      return;
-    }
-
-    setIsSubmitting(true);
-    setActionError(null);
-    try {
-      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/withdrawal`, {
-        amount: amountVal,
-        notes: withdrawalNotes,
-      });
-      setActionSuccess(locale === 'bn' ? 'উত্তোলন সফল হয়েছে' : 'Withdrawal successful');
-      setShowWithdrawalModal(false);
-      setWithdrawalAmount('');
-      setWithdrawalNotes('');
-      loadMemberDetails();
-    } catch (e: any) {
-      setActionError(e?.message || 'Failed to process withdrawal');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleLoanApplication = async () => {
-    const amountVal = parseAmount(loanAmount);
-    const requestedInstallments = Number.parseInt(loanInstallments, 10);
-    if (!amountVal) {
-      setActionError(invalidAmountMessage);
-      return;
-    }
-
-    if (!Number.isFinite(requestedInstallments) || requestedInstallments < 1 || requestedInstallments > maxInstallmentMonths) {
-      setActionError(
-        locale === 'bn'
-          ? `কিস্তি সংখ্যা ১ থেকে ${maxInstallmentMonths} এর মধ্যে দিন`
-          : `Enter installments between 1 and ${maxInstallmentMonths}`
-      );
-      return;
-    }
-
-    if (!loanPurpose.trim()) {
-      setActionError(locale === 'bn' ? 'ঋণের উদ্দেশ্য লিখুন' : 'Enter loan purpose');
-      return;
-    }
-
-    if (member && amountVal > member.loanEligibility.maxLoanAmount) {
-      setActionError(locale === 'bn' ? 'সর্বোচ্চ ঋণ সীমা অতিক্রম করেছে' : 'Exceeds maximum loan limit');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setActionError(null);
-    try {
-      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/loan`, {
-        amount: amountVal,
-        purpose: loanPurpose,
-        installments: requestedInstallments,
-      });
-      setActionSuccess(locale === 'bn' ? 'ঋণ আবেদন সফল হয়েছে' : 'Loan application submitted');
-      setShowLoanModal(false);
-      setLoanAmount('');
-      setLoanPurpose('');
-      setLoanInstallments('12');
-      loadMemberDetails();
-    } catch (e: any) {
-      setActionError(e?.message || 'Failed to submit loan application');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Handle loan payment
-  const handleLoanPayment = async () => {
-    if (!selectedLoanForPayment) return;
-
-    const amountVal = parseAmount(loanPaymentAmount);
-    if (!amountVal) {
-      setActionError(invalidAmountMessage);
-      return;
-    }
-
-    const maxPaymentVal = Math.round(selectedLoanForPayment.remainingAmount);
-
-    if (amountVal > maxPaymentVal) {
-      setActionError(locale === 'bn'
-        ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
-        : `Maximum payable: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`);
-      return;
-    }
-
-    setIsSubmitting(true);
-    setActionError(null);
-    try {
-      await apiPost(`/v1/dashboard/worker/members/${memberUserId}/loan-payment`, {
-        loanId: selectedLoanForPayment.id,
-        amount: amountVal,
-        notes: loanPaymentNotes,
-      });
-      setActionSuccess(locale === 'bn' ? 'ঋণ পরিশোধ সফল হয়েছে' : 'Loan payment recorded successfully');
-      setShowLoanPaymentModal(false);
-      setSelectedLoanForPayment(null);
-      setLoanPaymentAmount('');
-      setLoanPaymentNotes('');
-      loadMemberDetails();
-    } catch (e: any) {
-      setActionError(e?.message || 'Failed to process loan payment');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Open loan payment modal
-  const openLoanPaymentModal = (loan: Loan) => {
-    setSelectedLoanForPayment(loan);
-    const presets = getLoanRepaymentPresets(loan.installmentAmount, loan.remainingAmount);
-    setLoanPaymentAmount(presets.monthly.toString());
-    setLoanPaymentNotes('');
-    setActionError(null);
-    setShowLoanPaymentModal(true);
-  };
 
   const handlePrintReceipt = async (tx: Transaction) => {
     if (!member) return;
@@ -665,13 +451,13 @@ export default function MemberDetailScreen() {
         {/* Quick Actions */}
         {member.status === 'ACTIVE' && (
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setShowDepositModal(true)} className="gap-2">
+            <Button onClick={() => setMoneyAction({ action: 'DEPOSIT' })} className="gap-2">
               <Plus className="h-4 w-4" />
               {locale === 'bn' ? 'জমা করুন' : 'Add Deposit'}
             </Button>
             <Button 
               variant="outline" 
-              onClick={() => setShowWithdrawalModal(true)}
+              onClick={() => setMoneyAction({ action: 'WITHDRAWAL' })}
               disabled={!canWithdraw}
               className="gap-2"
             >
@@ -680,7 +466,7 @@ export default function MemberDetailScreen() {
             </Button>
             <Button 
               variant="outline"
-              onClick={() => setShowLoanModal(true)}
+              onClick={() => setMoneyAction({ action: 'LOAN_APPLICATION' })}
               disabled={!canGetLoan}
               className="gap-2"
             >
@@ -766,6 +552,62 @@ export default function MemberDetailScreen() {
             </div>
           )}
         </div>
+      )}
+
+      {/*
+        FR-08 withdrawal notices.
+        A panel on the page rather than a list inside the withdrawal form, which
+        is where it used to be: a worker had to open the form to find out that
+        there was nothing to pay, and a member asking "when can I take my money
+        out?" is a question you answer before you open anything.
+      */}
+      {member.status === 'ACTIVE' && (
+        <Card className="rounded-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              {locale === 'bn' ? 'উত্তোলন নোটিশ' : 'Withdrawal Notices'}
+            </CardTitle>
+            <CardDescription>
+              {locale === 'bn'
+                ? `সদস্য নিজের ড্যাশবোর্ড থেকে নোটিশ দেন; ${member.noticePeriodMonths ?? 3} মাস পর তা পরিশোধযোগ্য হয়।`
+                : `The member gives notice from their own dashboard; it becomes payable ${member.noticePeriodMonths ?? 3} months later.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {withdrawalNotices.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {locale === 'bn'
+                  ? 'কোনো নোটিশ নেই। কর্মী নিজে উত্তোলন শুরু করতে পারেন না।'
+                  : 'No notice outstanding. Staff never start a withdrawal.'}
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {withdrawalNotices.map((notice) => (
+                  <li
+                    key={notice.id}
+                    className={`flex items-center justify-between gap-3 rounded-sm border p-2 text-sm ${
+                      notice.matured
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    <span className="font-medium">{formatCurrency(notice.amount, locale)}</span>
+                    <span className="text-xs">
+                      {notice.matured
+                        ? locale === 'bn'
+                          ? 'পরিশোধযোগ্য'
+                          : 'Payable now'
+                        : locale === 'bn'
+                          ? `${formatDate(notice.eligibleFrom)} থেকে`
+                          : `From ${formatDate(notice.eligibleFrom)}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Member Info & History Tabs */}
@@ -1019,7 +861,7 @@ export default function MemberDetailScreen() {
                             <Button 
                               variant="default" 
                               size="sm" 
-                              onClick={() => openLoanPaymentModal(loan)}
+                              onClick={() => setMoneyAction({ action: 'LOAN_PAYMENT', loanId: loan.id })}
                               className="gap-1"
                             >
                               <Minus className="h-3 w-3" />
@@ -1114,342 +956,21 @@ export default function MemberDetailScreen() {
         </DialogContent>
       </Dialog>
 
-      {/* Deposit Modal */}
-      <Dialog open={showDepositModal} onOpenChange={setShowDepositModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'জমা করুন' : 'Add Deposit'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' ? `${member.name} এর জন্য জমা যোগ করুন` : `Add deposit for ${member.name}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {actionError && (
-              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
-                {actionError}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                inputMode="numeric"
-                placeholder="0"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional notes...'}
-                value={depositNotes}
-                onChange={(e) => setDepositNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDepositModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleDeposit} disabled={isSubmitting}>
-              {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'জমা করুন' : 'Add Deposit')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Withdrawal Modal */}
-      <Dialog open={showWithdrawalModal} onOpenChange={setShowWithdrawalModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'উত্তোলন' : 'Withdrawal'}</DialogTitle>
-            <DialogDescription>
-              {/*
-                FR-08. This used to read only "Max: <balance>", which described
-                the wrong constraint: the balance is a ceiling, but what makes a
-                withdrawal payable at all is a matured notice. An admin who read
-                the old line had every reason to think the amount was the only
-                question, and the refusal that followed named no notice, no date
-                and no next step.
-              */}
-              {locale === 'bn'
-                ? `${member.name} এর পরিপক্ব নোটিশ পরিশোধ করুন। স্থিতি: ${formatCurrency(member.currentDeposit, locale)}`
-                : `Settle a matured notice for ${member.name}. Balance: ${formatCurrency(member.currentDeposit, locale)}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {actionError && (
-              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
-                {actionError}
-              </div>
-            )}
-
-            {/* What the member has actually asked for, and when each becomes payable. */}
-            {withdrawalNotices.length === 0 ? (
-              <div className="rounded-sm border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                {locale === 'bn'
-                  ? `এই সদস্যের কোনো উত্তোলন নোটিশ নেই। সদস্য নিজের ড্যাশবোর্ড থেকে নোটিশ দেবেন, এবং ${member.noticePeriodMonths ?? 3} মাস পর তা পরিশোধযোগ্য হবে। কর্মী নিজে উত্তোলন শুরু করতে পারেন না।`
-                  : `This member has no withdrawal notice. A member gives notice from their own dashboard, and it becomes payable ${member.noticePeriodMonths ?? 3} months later. Staff never start a withdrawal.`}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>{locale === 'bn' ? 'উত্তোলন নোটিশ' : 'Withdrawal notices'}</Label>
-                <ul className="space-y-1">
-                  {withdrawalNotices.map((notice) => (
-                    <li
-                      key={notice.id}
-                      className={`flex items-center justify-between gap-3 rounded-sm border p-2 text-sm ${
-                        notice.matured
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                          : 'border-slate-200 bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      <span className="font-medium">{formatCurrency(notice.amount, locale)}</span>
-                      <span className="text-xs">
-                        {notice.matured
-                          ? locale === 'bn'
-                            ? 'পরিশোধযোগ্য'
-                            : 'Payable now'
-                          : locale === 'bn'
-                            ? `${formatDate(notice.eligibleFrom)} থেকে`
-                            : `From ${formatDate(notice.eligibleFrom)}`}
-                      </span>
-                      {notice.matured && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setWithdrawalAmount(String(notice.amount))}
-                        >
-                          {locale === 'bn' ? 'ব্যবহার করুন' : 'Use'}
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                min="1"
-                // Whole taka (rule 1). `step="0.01"` invited paisa that
-                // parseAmount then silently rounded away.
-                step="1"
-                inputMode="numeric"
-                max={Math.min(member.currentDeposit, largestMaturedNotice || member.currentDeposit)}
-                placeholder="0"
-                value={withdrawalAmount}
-                onChange={(e) => setWithdrawalAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional notes...'}
-                value={withdrawalNotes}
-                onChange={(e) => setWithdrawalNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowWithdrawalModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            {/*
-              Disabled with nothing matured to settle. The API is still the
-              authority and answers 409 with the reason, but a button that can
-              only fail is the thing that makes a screen look broken.
-            */}
-            <Button onClick={handleWithdrawal} disabled={isSubmitting || maturedNotices.length === 0}>
-              {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'উত্তোলন করুন' : 'Process Withdrawal')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Loan Modal */}
-      <Dialog open={showLoanModal} onOpenChange={setShowLoanModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'ঋণ প্রদান' : 'Give Loan'}</DialogTitle>
-            <DialogDescription>
-              {locale === 'bn' 
-                ? `${member.name} এর জন্য ঋণ আবেদন। সর্বোচ্চ: ${formatCurrency(member.loanEligibility.maxLoanAmount, locale)}`
-                : `Loan application for ${member.name}. Max: ${formatCurrency(member.loanEligibility.maxLoanAmount, locale)}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {actionError && (
-              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
-                {actionError}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'ঋণের পরিমাণ (টাকা)' : 'Loan Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                min="1"
-                max={member.loanEligibility.maxLoanAmount}
-                step="1"
-                inputMode="numeric"
-                placeholder="0"
-                value={loanAmount}
-                onChange={(e) => setLoanAmount(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'ঋণের উদ্দেশ্য' : 'Loan Purpose'}</Label>
-              <Textarea
-                placeholder={locale === 'bn' ? 'ঋণ কেন প্রয়োজন...' : 'Why the loan is needed...'}
-                value={loanPurpose}
-                onChange={(e) => setLoanPurpose(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'কিস্তি সংখ্যা' : 'Number of Installments'}</Label>
-              <Input
-                type="number"
-                min={1}
-                max={maxInstallmentMonths}
-                step={1}
-                value={loanInstallments}
-                onChange={(e) => setLoanInstallments(e.target.value)}
-                placeholder={locale === 'bn' ? `১-${maxInstallmentMonths} মাস` : `1-${maxInstallmentMonths} months`}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLoanModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleLoanApplication} disabled={isSubmitting}>
-              {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'ঋণ দিন' : 'Submit Loan')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Loan Payment Modal */}
-      <Dialog open={showLoanPaymentModal} onOpenChange={(open) => {
-        setShowLoanPaymentModal(open);
-        if (!open) {
-          setSelectedLoanForPayment(null);
-          setLoanPaymentAmount('');
-          setLoanPaymentNotes('');
-          setActionError(null);
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{locale === 'bn' ? 'ঋণ পরিশোধ' : 'Record Loan Payment'}</DialogTitle>
-            <DialogDescription>
-              {selectedLoanForPayment && (
-                locale === 'bn' 
-                  ? `ঋণ নং: ${selectedLoanForPayment.loanNumber} | বাকি: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
-                  : `Loan #: ${selectedLoanForPayment.loanNumber} | Remaining: ${formatCurrency(selectedLoanForPayment.remainingAmount, locale)}`
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {actionError && (
-              <div className="rounded-sm bg-red-50 border border-red-200 p-3 text-sm text-red-800">
-                {actionError}
-              </div>
-            )}
-            
-            {selectedLoanForPayment && (
-              <div className="rounded-sm bg-blue-50 border border-blue-200 p-3 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-muted-foreground">{locale === 'bn' ? 'মাসিক কিস্তি:' : 'Monthly:'}</span>
-                    <span className="font-medium ml-1">{formatCurrency(selectedLoanForPayment.installmentAmount, locale)}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">{locale === 'bn' ? 'পরিশোধিত:' : 'Paid:'}</span>
-                    <span className="font-medium ml-1">{selectedLoanForPayment.paidInstallments}/{selectedLoanForPayment.totalInstallments}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'পরিশোধের পরিমাণ (টাকা)' : 'Payment Amount (BDT)'}</Label>
-              <Input
-                type="number"
-                min="1"
-                max={selectedLoanForPayment ? selectedLoanForPayment.remainingAmount : undefined}
-                step="1"
-                inputMode="numeric"
-                placeholder="0"
-                value={loanPaymentAmount}
-                onChange={(e) => setLoanPaymentAmount(e.target.value)}
-              />
-              {selectedLoanForPayment && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const presets = getLoanRepaymentPresets(
-                        selectedLoanForPayment.installmentAmount,
-                        selectedLoanForPayment.remainingAmount,
-                      );
-                      setLoanPaymentAmount(presets.weekly.toString());
-                    }}
-                  >
-                    {locale === 'bn' ? 'সাপ্তাহিক' : 'Weekly'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const presets = getLoanRepaymentPresets(
-                        selectedLoanForPayment.installmentAmount,
-                        selectedLoanForPayment.remainingAmount,
-                      );
-                      setLoanPaymentAmount(presets.monthly.toString());
-                    }}
-                  >
-                    {locale === 'bn' ? 'মাসিক কিস্তি' : 'Monthly'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setLoanPaymentAmount(selectedLoanForPayment.remainingAmount.toString())}
-                  >
-                    {locale === 'bn' ? 'সম্পূর্ণ বাকি' : 'Full Balance'}
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>{locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}</Label>
-              <Textarea
-                placeholder={locale === 'bn' ? 'অতিরিক্ত তথ্য...' : 'Additional notes...'}
-                value={loanPaymentNotes}
-                onChange={(e) => setLoanPaymentNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLoanPaymentModal(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button onClick={handleLoanPayment} disabled={isSubmitting}>
-              {isSubmitting ? (locale === 'bn' ? 'প্রক্রিয়াকরণ...' : 'Processing...') : (locale === 'bn' ? 'পরিশোধ করুন' : 'Record Payment')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Every money action on this page — one dialog, shared with the
+          Deposits and Loans screens. */}
+      <MoneyActionDialog
+        action={moneyAction?.action ?? 'DEPOSIT'}
+        open={moneyAction !== null}
+        onOpenChange={(next) => {
+          if (!next) setMoneyAction(null);
+        }}
+        memberUserId={memberUserId}
+        loanId={moneyAction?.loanId}
+        onCompleted={async () => {
+          setActionSuccess(moneyActionSuccessMessage(moneyAction?.action ?? 'DEPOSIT', locale));
+          await loadMemberDetails();
+        }}
+      />
     </div>
   );
 }

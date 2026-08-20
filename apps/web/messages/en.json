@@ -348,7 +348,6 @@
       "refresh": "Refresh",
       "filterByType": "Filter by transaction type",
       "filterByStatus": "Filter by status",
-      "filterByRole": "Filter by role",
       "filterByPeriod": "Filter by period",
       "staffRole": "Staff role",
       "rowActions": "More actions for this row",

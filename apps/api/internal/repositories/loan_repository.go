@@ -374,6 +374,11 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 			l."totalInstallments",
 			l."installmentAmount"::bigint,
 			l."paidInstallments",
+			-- The schedule's start, so the next due date and the arrears count
+			-- come from money.NextDueDate rather than from whichever column was
+			-- nearest to hand. This list used to return no due date at all, which
+			-- rendered as "0 overdue" on a screen the worker's copy of showed 4.
+			COALESCE(l."installmentStartDate", l."disbursementDate"),
 			COALESCE(l."expectedEndDate", '0001-01-01'::timestamp),
 			COALESCE(l."completedAt", '0001-01-01'::timestamp),
 			l.purpose,
@@ -443,9 +448,10 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		var principalAmount, remainingAmount, installmentAmount, memberDeposit int64
 		var totalInstallments, paidInstallments int
 		var approvedAt, disbursementDate, expectedEndDate, completedAt, createdAt time.Time
+		var installmentStart *time.Time
 
 		if err := rows.Scan(&id, &loanNumber, &approvedAt, &disbursementDate, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
-			&expectedEndDate, &completedAt, &purpose, &status, &createdAt, &approvedBy, &memberDeposit,
+			&installmentStart, &expectedEndDate, &completedAt, &purpose, &status, &createdAt, &approvedBy, &memberDeposit,
 			&borrowerID, &borrowerName, &borrowerNameBn, &borrowerAccountNo, &guarantorID, &guarantorName, &guarantorAccountNo); err != nil {
 			continue
 		}
@@ -475,10 +481,9 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 				"id":   guarantorID,
 				"name": guarantorName,
 			},
-			"memberDeposit":  memberDeposit,
-			"missedPayments": 0,
-			"createdAt":      createdAt.Format(time.RFC3339),
-			"approvedBy":     approvedBy,
+			"memberDeposit": memberDeposit,
+			"createdAt":     createdAt.Format(time.RFC3339),
+			"approvedBy":    approvedBy,
 
 			// Backward-compat fields
 			"principalAmount":         principalAmount,
@@ -505,6 +510,10 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		if !completedAt.IsZero() && completedAt.Year() > 1 {
 			loan["completedAt"] = completedAt.Format(time.RFC3339)
 		}
+		// `missedPayments` was a literal 0 here, so the admin's loan list reported
+		// no arrears on any loan in the foundation.
+		attachLoanSchedule(loan, status, installmentStart, totalInstallments, paidInstallments)
+		loan["missedPayments"] = loan["missedInstallments"]
 
 		loans = append(loans, loan)
 	}
@@ -513,10 +522,10 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 }
 
 func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface{}, error) {
-	const query = `
+	query := `
 		SELECT
-			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN "principalAmount" ELSE 0 END)::bigint, 0) as total_disbursed,
-			COALESCE(SUM(CASE WHEN status IN ('ACTIVE', 'COMPLETED', 'DEFAULTED') THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
+			COALESCE(SUM(CASE WHEN status IN ` + disbursedLoanStatuses + ` THEN "principalAmount" ELSE 0 END)::bigint, 0) as total_disbursed,
+			COALESCE(SUM(CASE WHEN status IN ` + disbursedLoanStatuses + ` THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
 			COALESCE(COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int, 0) as active_loans,
 			COALESCE(COUNT(CASE WHEN status = 'DEFAULTED' THEN 1 END)::int, 0) as defaulted_loans,
 			-- WO-71: was status = 'PENDING', the legacy label. Applications

@@ -768,7 +768,13 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 			t."createdAt",
 			COALESCE(u."nameEn", '') as donor_name,
 			COALESCE(u."nameBn", '') as donor_name_bn,
-			COALESCE(u."accountNo", '') as donor_id
+			COALESCE(u."accountNo", '') as donor_id,
+			-- Every row, whatever its status: this is the ledger of donations and
+			-- hiding one from the admin who has to explain it helps nobody. The
+			-- status comes with it so the screens can total the *fund* on a
+			-- predicate rather than on "everything the list happened to hold",
+			-- which is how this sum and the admin dashboard's came apart.
+			t.status::text
 		FROM transactions t
 		LEFT JOIN users u ON u.id = t."userId"
 		WHERE t.type = 'DONATION'
@@ -783,10 +789,10 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 
 	donations := []map[string]interface{}{}
 	for rows.Next() {
-		var id, receipt, description, donorName, donorNameBn, donorId string
+		var id, receipt, description, donorName, donorNameBn, donorId, status string
 		var amount int64
 		var createdAt time.Time
-		if err := rows.Scan(&id, &amount, &receipt, &description, &createdAt, &donorName, &donorNameBn, &donorId); err != nil {
+		if err := rows.Scan(&id, &amount, &receipt, &description, &createdAt, &donorName, &donorNameBn, &donorId, &status); err != nil {
 			continue
 		}
 
@@ -826,6 +832,7 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 			"donorName":   displayDonor,
 			"donorNameBn": displayDonorBn,
 			"donorId":     donorId,
+			"status":      status,
 		})
 	}
 

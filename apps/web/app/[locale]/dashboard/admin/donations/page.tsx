@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseWholeTaka } from '@/lib/utils';
 import { apiPost } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
 
@@ -21,7 +21,19 @@ type Donation = {
   donorName?: string;
   donorNameBn?: string;
   donorId?: string;
+  status?: string;
 };
+
+/**
+ * Which rows total as the fund.
+ *
+ * A donation is written CONFIRMED and only leaves that state through a dispute,
+ * so this excludes exactly one thing: a donation somebody has challenged. The
+ * table below still lists it — hiding a posting from the admin who has to
+ * explain it helps nobody — but the headline figure is the fund, and the
+ * overview and the reports screen total it the same way.
+ */
+const isCountedDonation = (d: Donation) => (d.status ?? 'CONFIRMED') === 'CONFIRMED';
 
 function exportDonationsCsv(rows: Donation[], locale: string) {
   const headers = [locale === 'bn' ? 'তারিখ' : 'Date', locale === 'bn' ? 'রসিদ' : 'Receipt', locale === 'bn' ? 'দাতার নাম' : 'Donor Name', locale === 'bn' ? 'পরিমাণ (BDT)' : 'Amount (BDT)', locale === 'bn' ? 'বিবরণ' : 'Description'];
@@ -71,19 +83,34 @@ export default function AdminDonationsPage() {
     return donations.filter((d) => `${d.donorName || ''} ${d.donorNameBn || ''}`.toLowerCase().includes(q) || (d.receipt || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
   }, [donations, searchQuery]);
 
-  const totalReceived = useMemo(() => donations.reduce((s, d) => s + d.amount, 0), [donations]);
+  const totalReceived = useMemo(
+    () => donations.filter(isCountedDonation).reduce((s, d) => s + d.amount, 0),
+    [donations],
+  );
   const monthReceived = useMemo(() => {
     const now = new Date();
-    return donations.filter((d) => { const date = new Date(d.date); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); }).reduce((s, d) => s + d.amount, 0);
+    return donations
+      .filter(isCountedDonation)
+      .filter((d) => { const date = new Date(d.date); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); })
+      .reduce((s, d) => s + d.amount, 0);
   }, [donations]);
 
   const handleAddDonation = async () => {
-    const amountBdt = Number.parseFloat(newDonation.amount);
-    if (!Number.isFinite(amountBdt) || amountBdt <= 0) { setSubmitError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount'); return; }
+    // Whole taka, or refuse it (rule 1) — not parseFloat-then-round, which
+    // recorded a donation of 501 against a donor who handed over 500.75.
+    const amountBdt = parseWholeTaka(newDonation.amount);
+    if (amountBdt === null) {
+      setSubmitError(
+        locale === 'bn'
+          ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
+          : 'Enter a whole-taka amount, with no paisa',
+      );
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await apiPost('/v1/dashboard/admin/donations', { amount: Math.round(amountBdt ), donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
+      await apiPost('/v1/dashboard/admin/donations', { amount: amountBdt, donorName: newDonation.donorName.trim(), notes: newDonation.notes.trim() });
       setShowAddDonationModal(false);
       setNewDonation({ donorName: '', amount: '', notes: '' });
       await loadDonations();
@@ -175,7 +202,7 @@ export default function AdminDonationsPage() {
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-              <Input type="number" min="0" step="0.01" value={newDonation.amount} onChange={(e) => setNewDonation((p) => ({ ...p, amount: e.target.value }))} placeholder="0" className="mt-1" />
+              <Input type="number" min="1" step="1" inputMode="numeric" value={newDonation.amount} onChange={(e) => setNewDonation((p) => ({ ...p, amount: e.target.value }))} placeholder="0" className="mt-1" />
             </div>
             <div>
               <Label className="text-sm">{locale === 'bn' ? 'নোট' : 'Notes'}</Label>

@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"hasnahena/apps/api/internal/money"
 	"hasnahena/apps/api/internal/utils"
 )
 
@@ -25,6 +27,20 @@ type UserRepository struct {
 func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
+
+// disbursedLoanStatuses names the loans whose principal actually left the fund.
+//
+// Interpolated into SQL rather than passed as a parameter because it is a fixed
+// set of enum labels, not user input; `enum-literals.test.ts` checks that every
+// label here is one this schema declares.
+//
+// It exists because three places counted "disbursed" three ways: the admin
+// dashboard summed every row (so a REJECTED application counted as lending),
+// GetLoanStats summed ACTIVE/COMPLETED/DEFAULTED but forgot SETTLED (so a loan
+// closed against a member's savings vanished from both the total and the
+// recovery rate), and the loans screen used all four. Three answers to "how
+// much has the foundation lent?" on three screens a worker can open at once.
+const disbursedLoanStatuses = `('ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')`
 
 func normalizedRolePtr(role string) *string {
 	normalized := strings.ToUpper(strings.TrimSpace(role))
@@ -260,4 +276,43 @@ func (r *UserRepository) getLoanPolicy(ctx context.Context) (int64, int64, int) 
 		maxInstallmentMonths = 24
 	}
 	return minDepositRequired, maxLoanMultiplier, maxInstallmentMonths
+}
+
+// attachLoanSchedule writes the three schedule fields every loan list shows,
+// from the one calculation in internal/money.
+//
+// Before this, "next due date" was whatever column the query nearest to hand
+// happened to have, and the answers disagreed by design: the worker's loan list
+// sent `installmentStartDate` (always in the past on an active loan) and every
+// borrower rendered as overdue; the admin's sent nothing and none did. The two
+// staff dashboards are one component now, so the same four loans read "4
+// overdue" and "0 overdue" depending only on which URL fetched them.
+//
+// `isOverdue` is decided here rather than in the browser for the same reason
+// `matured` is decided here for a withdrawal notice: a second implementation of
+// a policy rule eventually disagrees with the one that acts on it.
+//
+// A loan that is not ACTIVE has no arrears to report — a pending application
+// has no schedule, and a completed or defaulted loan's schedule is over.
+func attachLoanSchedule(
+	loan map[string]interface{},
+	status string,
+	installmentStart *time.Time,
+	totalInstallments, paidInstallments int,
+) {
+	loan["missedInstallments"] = 0
+	loan["isOverdue"] = false
+
+	if installmentStart == nil || installmentStart.IsZero() {
+		return
+	}
+	if due, ok := money.NextDueDate(*installmentStart, totalInstallments, paidInstallments); ok {
+		loan["nextDueDate"] = due.Format(time.RFC3339)
+	}
+	if strings.ToUpper(status) != "ACTIVE" {
+		return
+	}
+	missed := money.MissedInstallments(*installmentStart, time.Now(), totalInstallments, paidInstallments)
+	loan["missedInstallments"] = missed
+	loan["isOverdue"] = missed > 0
 }

@@ -23,7 +23,8 @@ Two backends share one database. That is deliberate but bounded — see [ADR-001
 | Deposits, withdrawals, loans, repayments, donations, approvals, reports | **Go** | financial writes must be transactional + audited |
 | Support chat (incl. SSE stream) | **Go**, proxied through Next at `/api/v1/dashboard/support/*` | avoids mixed-content/CORS on the stream |
 | Public registration submit | **Next** | needs Cloudinary upload + Prisma in one request |
-| Content & Media (gallery + public copy), system settings, audit-log viewer, worker CRUD, branches | **Next** | CMS-style admin, no ledger impact |
+| Content & Media (gallery + public copy + brand images) — **staff, incl. workers** | **Next** | CMS-style publishing, no ledger impact. `PUT /api/v1/settings` gates by *key*: a worker writes `CONTENT_CONFIG_KEYS` and is refused the rest |
+| System settings, audit-log viewer, worker CRUD, branches — **admin only** | **Next** | identity, money policy, staff accounts |
 | Transaction dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
 
 Rule of thumb: **if it changes a balance, it belongs in Go.**
@@ -62,6 +63,7 @@ components/layout          header, footer, dashboard-layout
 components/dashboard       screens/  ONE component per staff screen, shared by worker and admin
                            nav.ts    what each dashboard contains — sidebar and action cards
                            role.tsx  useDashboardRole(); presentation only, the API decides
+                           money-actions.tsx  the ONE deposit/withdrawal/instalment/loan form
                            profile-editor, loan-application-form, guarantor-requests
 lib/                       api client, auth, prisma, validation, receipt PDF, cloudinary, seo
 messages/{en,bn}.json      all copy — next-intl, locale prefix always present

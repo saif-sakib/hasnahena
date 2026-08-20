@@ -220,7 +220,10 @@ Three steps, **in this order**:
    it is identity, policy, money or retention (Settings). Those two lists are a
    partition and `test/unit/settings-keys-read.test.ts` refuses anything else — a
    key in neither has no control at all, and a key in both means each form's save
-   reverts the other's.
+   reverts the other's. The partition is also the **write** boundary: `PUT
+   /api/v1/settings` takes a worker for a `CONTENT_CONFIG_KEYS` body and 403s
+   them for anything else, so putting a money or policy key on Content & Media
+   hands it to every field worker.
 
 The allow-list entry is last for a reason, and the ordering is not pedantry:
 `PUT /api/v1/settings` rejects the **entire request** on one unrecognised key,
@@ -251,6 +254,25 @@ are enforced now ([ADR-016](decisions.md)). If you add a key, search the
 proves only that the key exists.
 
 ---
+
+## "I want to add a way for staff to move money"
+
+You almost certainly do not want a new form. `components/dashboard/money-actions.tsx`
+is the one implementation of all four staff actions — deposit, withdrawal, loan
+instalment, loan application. Add a `MoneyAction` there and open it from
+wherever; do not build a second form beside it.
+
+The reason is not tidiness. Each of those four existed twice before, and the
+copies disagreed about things that matter: one refused paisa and the other
+rounded them into the ledger, one refused a withdrawal with no matured FR-08
+notice and the other let the worker submit and wait for a 409. The dialog fetches
+`/v1/dashboard/worker/members/{id}` itself, so it always has the balance, the
+notices, the eligibility and the loans its rules are about — which is why the
+rules can live in one place at all.
+
+Two guards will stop you if you try anyway: `lib/utils.test.ts` walks the source
+for anything posting an `amount:` and requires `parseWholeTaka`, and rule 2 means
+the balance change is the Go API's regardless.
 
 ## "I want to add an endpoint"
 

@@ -46,7 +46,6 @@ import {
   uploadSettingsImageAction,
   deleteSettingsImageAction,
 } from '@/app/actions/upload-settings-image';
-import { useDashboardRole } from '@/components/dashboard/role';
 
 /**
  * Content & Media.
@@ -61,10 +60,19 @@ import { useDashboardRole } from '@/components/dashboard/role';
  * foundation is, what its money rules are, where a donor sends money, and how
  * long support chats are kept.
  *
- * Roles: a worker gets the gallery, which is the part that is genuinely daily
- * work — photograph a distribution, post it. Public copy and brand assets are an
- * admin's, and the API agrees: `PUT /api/v1/settings` is admin-only, so the
- * sections below are hidden for a worker rather than merely disabled.
+ * Roles: none. A worker sees and edits exactly what an admin does here — the
+ * gallery, the public copy and the brand images alike. The first cut gave a
+ * worker the gallery tab only, on the theory that public copy is an admin's
+ * job; in a foundation this size the person who photographs a distribution is
+ * the person who writes the caption under it and the line on the landing page
+ * about it, and a worker who can post a photograph to the public site but not
+ * fix the typo beside it has to go and find an admin to press one key.
+ *
+ * The API agrees rather than being worked around. `PUT /api/v1/settings` takes
+ * a worker **only** when every key in the body is in `CONTENT_CONFIG_KEYS`; the
+ * money and policy rows in `SETTINGS_CONFIG_KEYS` stay admin-only, and Settings
+ * is still an admin-only screen. What a page shows is content; what the
+ * foundation does with money is not.
  */
 
 type SettingImageType =
@@ -104,9 +112,6 @@ const getAuthToken = () =>
 export default function ContentScreen() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
-  const role = useDashboardRole();
-  const canEditSite = role === 'admin';
-
   const [activeTab, setActiveTab] = useState<ContentTab>('gallery');
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -151,9 +156,9 @@ export default function ContentScreen() {
     isLoading: isSettingsLoading,
     mutate: reloadSettings,
   } = useSWR<Record<string, string>>(
-    canEditSite ? '/api/v1/settings?content' : null,
+    '/api/v1/settings?content',
     async () => {
-      // The admin tier. Without the token this reads the public subset and then
+      // The staff tier. Without the token this reads the public subset and then
       // saves it back, which is a form with fields silently missing.
       const data = await readSettings();
       if (!data) throw new Error('Failed to load settings');
@@ -200,7 +205,7 @@ export default function ContentScreen() {
         throw new Error(body?.error || 'Failed to save content');
       }
       // Re-read first: the form then shows what the API actually stored, which
-      // is the only way an admin learns a value was normalised on the way in.
+      // is the only way the editor learns a value was normalised on the way in.
       await reloadSettings();
       resetContentDraft();
       toast({
@@ -333,12 +338,8 @@ export default function ContentScreen() {
 
   const tabs: Array<{ key: ContentTab; label: string }> = [
     { key: 'gallery', label: locale === 'bn' ? 'গ্যালারি' : 'Gallery' },
-    ...(canEditSite
-      ? ([
-          { key: 'pages' as const, label: locale === 'bn' ? 'পাবলিক পেজ' : 'Public Pages' },
-          { key: 'brand' as const, label: locale === 'bn' ? 'ব্র্যান্ড ও ছবি' : 'Brand & Images' },
-        ])
-      : []),
+    { key: 'pages', label: locale === 'bn' ? 'পাবলিক পেজ' : 'Public Pages' },
+    { key: 'brand', label: locale === 'bn' ? 'ব্র্যান্ড ও ছবি' : 'Brand & Images' },
   ];
 
   const imageField = (
@@ -536,7 +537,7 @@ export default function ContentScreen() {
       )}
 
       {/* ---- Public pages ---- */}
-      {activeTab === 'pages' && canEditSite && (
+      {activeTab === 'pages' && (
         <Card className="rounded-none border-gray-200 shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -632,7 +633,7 @@ export default function ContentScreen() {
       )}
 
       {/* ---- Brand & images ---- */}
-      {activeTab === 'brand' && canEditSite && (
+      {activeTab === 'brand' && (
         <Card className="rounded-none border-gray-200 shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

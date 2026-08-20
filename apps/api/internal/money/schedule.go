@@ -66,3 +66,35 @@ func IsDefaultable(missedInstallments, missedPaymentsForDefault int) bool {
 	}
 	return missedInstallments >= missedPaymentsForDefault
 }
+
+// NextDueDate is when the next unpaid instalment falls due.
+//
+// It is `paidInstallments + 1` months after the schedule starts, for the same
+// reason InstallmentsDue counts from one month after the start: the first
+// payment is not due on the day the money is handed over.
+//
+// `ok` is false when there is no next instalment — no schedule, no start date,
+// or every instalment already paid. A caller must not substitute a zero time
+// for that: every screen treats a due date in the past as arrears, and
+// `0001-01-01` is very much in the past.
+//
+// This exists because three queries each answered "next due date" with a
+// different column. `/worker/loans` returned `installmentStartDate`, which is
+// behind every active loan by construction, so the worker's loan list showed
+// every borrower overdue; `/admin/loans` returned no such field at all, so the
+// admin's showed none overdue; and the member's own dashboard was handed
+// `expectedEndDate`, the day the *last* instalment is due. Same loans, three
+// answers, and the two staff screens are now literally the same component
+// rendering them side by side.
+func NextDueDate(installmentStart time.Time, totalInstallments, paidInstallments int) (time.Time, bool) {
+	if totalInstallments < 1 || installmentStart.IsZero() {
+		return time.Time{}, false
+	}
+	if paidInstallments < 0 {
+		paidInstallments = 0
+	}
+	if paidInstallments >= totalInstallments {
+		return time.Time{}, false
+	}
+	return installmentStart.AddDate(0, paidInstallments+1, 0), true
+}

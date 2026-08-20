@@ -5,17 +5,14 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  Check,
   Download,
   Eye,
   Loader2,
   Plus,
   RefreshCw,
   Search,
-  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -24,10 +21,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useApi } from '@/lib/use-api';
-import { apiPost } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { buildReceipt, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
 import { useDashboardRole } from '@/components/dashboard/role';
+import { MoneyActionDialog, type MoneyAction } from '@/components/dashboard/money-actions';
 
 /**
  * Deposits and withdrawals — one screen for both staff dashboards.
@@ -63,13 +60,6 @@ interface Posting {
   memberName: string;
   memberPhone: string;
   accountNo: string;
-}
-
-interface MemberOption {
-  id: string;
-  name: string;
-  phone: string;
-  balance: number;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -124,23 +114,11 @@ export default function DepositsScreen() {
     isLoading,
     refresh: reloadPostings,
   } = useApi<any>(listPath);
-  const { data: membersData, refresh: reloadMembers } = useApi<any[]>('/v1/dashboard/worker/members');
 
   const postings = useMemo<Posting[]>(() => {
     const rows: any[] = Array.isArray(data) ? data : (data?.deposits ?? []);
     return rows.map(normalise).filter((row): row is Posting => row !== null);
   }, [data]);
-
-  const members = useMemo<MemberOption[]>(
-    () =>
-      (membersData ?? []).map((member) => ({
-        id: String(member.id ?? ''),
-        name: String(member.name ?? ''),
-        phone: String(member.phone ?? ''),
-        balance: Number(member.currentDeposit ?? 0),
-      })),
-    [membersData],
-  );
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -148,17 +126,13 @@ export default function DepositsScreen() {
   const [selected, setSelected] = useState<Posting | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
-  const [showForm, setShowForm] = useState(false);
-  const [formType, setFormType] = useState<PostingType>('DEPOSIT');
-  const [selectedMember, setSelectedMember] = useState<MemberOption | null>(null);
-  const [amount, setAmount] = useState('');
-  const [notes, setNotes] = useState('');
-  const [memberSearch, setMemberSearch] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  // Recording a posting fails for its own reasons — a suspended member, a
-  // notice period that has not run — and must not be confused with a failure to
-  // load the list behind it.
-  const [formError, setFormError] = useState<string | null>(null);
+  // Which posting the shared dialog is open on, or null. The member picker, the
+  // whole-taka rule, the FR-08 matured-notice check and the API's refusal
+  // messages all live in MoneyActionDialog. This screen used to carry its own
+  // copy of the form: it accepted paisa and silently rounded them, and it knew
+  // nothing about withdrawal notices, so a worker submitted and waited to be
+  // told by the API that the member had not given notice.
+  const [formAction, setFormAction] = useState<MoneyAction | null>(null);
 
   const filtered = useMemo(
     () =>
@@ -189,11 +163,6 @@ export default function DepositsScreen() {
     .reduce((sum, p) => sum + p.amount, 0);
   const pendingCount = postings.filter((p) => p.status === 'PENDING').length;
 
-  const filteredMembers = members.filter(
-    (m) =>
-      m.name.toLowerCase().includes(memberSearch.toLowerCase()) || m.phone.includes(memberSearch),
-  );
-
   const handleDownloadReceipt = async (p: Posting) => {
     try {
       const orgSettings = await fetchOrgSettings();
@@ -218,44 +187,6 @@ export default function DepositsScreen() {
     }
   };
 
-  const openForm = (type: PostingType) => {
-    setFormType(type);
-    setShowForm(true);
-    setSelectedMember(null);
-    setAmount('');
-    setNotes('');
-    setMemberSearch('');
-    setFormError(null);
-  };
-
-  const handleSubmit = async () => {
-    const parsed = Number.parseFloat(amount);
-    if (!selectedMember || !Number.isFinite(parsed) || parsed <= 0) {
-      setFormError(locale === 'bn' ? 'সঠিক পরিমাণ দিন' : 'Enter a valid amount');
-      return;
-    }
-    if (formType === 'WITHDRAWAL' && parsed > selectedMember.balance) {
-      setFormError(locale === 'bn' ? 'পর্যাপ্ত ব্যালেন্স নেই' : 'Insufficient balance');
-      return;
-    }
-
-    setIsSubmitting(true);
-    setFormError(null);
-    try {
-      const endpoint =
-        formType === 'DEPOSIT'
-          ? `/v1/dashboard/worker/members/${selectedMember.id}/deposit`
-          : `/v1/dashboard/worker/members/${selectedMember.id}/withdrawal`;
-      await apiPost(endpoint, { amount: Math.round(parsed), notes: notes.trim() });
-      setShowForm(false);
-      await Promise.all([reloadPostings(), reloadMembers()]);
-    } catch (error: any) {
-      setFormError(error?.message || (locale === 'bn' ? 'অনুরোধ ব্যর্থ হয়েছে' : 'Request failed'));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const statusLabel = (status: string) =>
     STATUS_LABELS[status]
       ? locale === 'bn'
@@ -271,8 +202,24 @@ export default function DepositsScreen() {
           <h1 className="text-lg font-semibold text-gray-900">
             {locale === 'bn' ? 'জমা ও উত্তোলন' : 'Deposits & Withdrawals'}
           </h1>
+          {/*
+            The scope, stated. An admin reads the whole ledger and a worker reads
+            the postings they processed — deliberately, because the queries
+            differ — but with both dashboards rendering this one component, two
+            different totals under one heading read as a bug rather than as two
+            different questions.
+          */}
           <p className="text-sm text-gray-500">
-            {filtered.length} {locale === 'bn' ? 'টি লেনদেন' : 'transactions'}
+            {filtered.length}{' '}
+            {locale === 'bn' ? 'টি লেনদেন' : 'transactions'}
+            {' · '}
+            {role === 'admin'
+              ? locale === 'bn'
+                ? 'পুরো ফাউন্ডেশন'
+                : 'whole foundation'
+              : locale === 'bn'
+                ? 'আপনার প্রক্রিয়াকৃত'
+                : 'processed by you'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -288,7 +235,7 @@ export default function DepositsScreen() {
           </Button>
           <Button
             size="sm"
-            onClick={() => openForm('DEPOSIT')}
+            onClick={() => setFormAction('DEPOSIT')}
             className="h-8 bg-green-600 hover:bg-green-700"
           >
             <Plus className="h-4 w-4 mr-1" />
@@ -296,7 +243,7 @@ export default function DepositsScreen() {
           </Button>
           <Button
             size="sm"
-            onClick={() => openForm('WITHDRAWAL')}
+            onClick={() => setFormAction('WITHDRAWAL')}
             className="h-8 bg-blue-600 hover:bg-blue-700"
           >
             <Plus className="h-4 w-4 mr-1" />
@@ -568,147 +515,16 @@ export default function DepositsScreen() {
         </DialogContent>
       </Dialog>
 
-      {/* Record a posting */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {formType === 'DEPOSIT'
-                ? locale === 'bn'
-                  ? 'জমা করুন'
-                  : 'New Deposit'
-                : locale === 'bn'
-                  ? 'উত্তোলন করুন'
-                  : 'New Withdrawal'}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {formError && (
-              <div className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {formError}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {locale === 'bn' ? 'সদস্য নির্বাচন করুন' : 'Select Member'}
-              </label>
-              {selectedMember ? (
-                <div className="flex items-center justify-between p-3 border border-gray-200 bg-gray-50">
-                  <div>
-                    <p className="font-medium">{selectedMember.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {selectedMember.phone} • {locale === 'bn' ? 'ব্যালেন্স:' : 'Balance:'}{' '}
-                      {formatCurrency(selectedMember.balance, locale)}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedMember(null)}
-                    className="text-gray-400 hover:text-gray-600"
-                    aria-label={locale === 'bn' ? 'সদস্য বাদ দিন' : 'Clear member'}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="border border-gray-200">
-                  <div className="p-2 border-b border-gray-200">
-                    <Input
-                      placeholder={
-                        locale === 'bn' ? 'নাম বা ফোন দিয়ে খুঁজুন...' : 'Search by name or phone...'
-                      }
-                      value={memberSearch}
-                      onChange={(e) => setMemberSearch(e.target.value)}
-                      className="h-8 border-0 focus-visible:ring-0 shadow-none"
-                    />
-                  </div>
-                  <div className="max-h-40 overflow-y-auto">
-                    {filteredMembers.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => setSelectedMember(m)}
-                        className="w-full flex items-center justify-between p-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">{m.name}</p>
-                          <p className="text-xs text-gray-500">{m.phone}</p>
-                        </div>
-                        <span className="text-xs text-gray-500">
-                          {formatCurrency(m.balance, locale)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {locale === 'bn' ? 'পরিমাণ (৳)' : 'Amount (৳)'}
-              </label>
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                className="h-9"
-              />
-              {selectedMember &&
-                formType === 'WITHDRAWAL' &&
-                Number.parseFloat(amount) > selectedMember.balance && (
-                  <p className="text-xs text-red-600 mt-1">
-                    {locale === 'bn' ? 'পর্যাপ্ত ব্যালেন্স নেই' : 'Insufficient balance'}
-                  </p>
-                )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {locale === 'bn' ? 'নোট (ঐচ্ছিক)' : 'Notes (optional)'}
-              </label>
-              <Input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={locale === 'bn' ? 'যেকোনো মন্তব্য...' : 'Any comments...'}
-                className="h-9"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowForm(false)}>
-              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void handleSubmit()}
-              disabled={
-                !selectedMember ||
-                !amount ||
-                isSubmitting ||
-                (formType === 'WITHDRAWAL' &&
-                  Number.parseFloat(amount) > (selectedMember?.balance ?? 0))
-              }
-              className={
-                formType === 'DEPOSIT'
-                  ? 'bg-green-600 hover:bg-green-700'
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }
-            >
-              <Check className="h-4 w-4 mr-1" />
-              {isSubmitting
-                ? locale === 'bn'
-                  ? 'প্রক্রিয়াকরণ...'
-                  : 'Processing...'
-                : locale === 'bn'
-                  ? 'নিশ্চিত করুন'
-                  : 'Confirm'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Record a posting — the one implementation, shared with the member's
+          page and the loans screen. It asks which member itself. */}
+      <MoneyActionDialog
+        action={formAction ?? 'DEPOSIT'}
+        open={formAction !== null}
+        onOpenChange={(next) => {
+          if (!next) setFormAction(null);
+        }}
+        onCompleted={reloadPostings}
+      />
     </div>
   );
 }

@@ -39,7 +39,26 @@ type Donation = {
   donorNameBn?: string;
   date: string;
   receipt?: string;
+  status?: string;
 };
+
+/**
+ * Which loans count as money the foundation has lent.
+ *
+ * The same four statuses the loans screen totals and the same set the Go API
+ * interpolates as `disbursedLoanStatuses`. Summing every row instead — which
+ * this screen did — counts a REJECTED application and one still waiting for a
+ * guarantor as lending, and then disagrees with the overview beside it.
+ */
+const DISBURSED_STATUSES = ['ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED'];
+
+/**
+ * A donation is written CONFIRMED and only leaves that state through a dispute,
+ * so this excludes exactly one thing: a donation somebody has challenged. That
+ * is a reconciliation matter ([ADR-026](../../../docs/decisions.md)), not a
+ * figure to publish as the fund. The list below still shows every row.
+ */
+const isCountedDonation = (d: Donation) => (d.status ?? 'CONFIRMED') === 'CONFIRMED';
 
 type Deposit = {
   id: string;
@@ -168,9 +187,10 @@ export default function ReportsScreen() {
     () => reportsData?.[5] ?? null,
     [reportsData],
   );
-  /** The charity fund is every donation ever recorded — see the note above. */
+  /** The charity fund is every confirmed donation ever recorded — see the notes
+   * on `isCountedDonation` above and on the endpoint list. */
   const charityFund = useMemo(
-    () => donations.reduce((sum, d) => sum + (d.amount || 0), 0),
+    () => donations.filter(isCountedDonation).reduce((sum, d) => sum + (d.amount || 0), 0),
     [donations],
   );
 
@@ -205,8 +225,9 @@ export default function ReportsScreen() {
     const totalWithdrawals = filteredDeposits
       .filter((d) => d.type === 'WITHDRAWAL' && d.status === 'CONFIRMED')
       .reduce((sum, d) => sum + d.amount, 0);
-    const loansDisbursed = filteredLoans.reduce((sum, l) => sum + (l.amount || 0), 0);
-    const loansRecovered = filteredLoans.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
+    const disbursedLoans = filteredLoans.filter((l) => DISBURSED_STATUSES.includes(l.status));
+    const loansDisbursed = disbursedLoans.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const loansRecovered = disbursedLoans.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
 
     return {
       totalDeposits,
@@ -245,8 +266,13 @@ export default function ReportsScreen() {
     const active = list.filter((l) => l.status === 'ACTIVE').length;
     const completed = list.filter((l) => l.status === 'COMPLETED' || l.status === 'SETTLED').length;
     const defaulted = list.filter((l) => l.status === 'DEFAULTED').length;
-    const disbursed = list.reduce((sum, l) => sum + (l.amount || 0), 0);
-    const recovered = list.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
+    // The money figures are over the loans that were actually disbursed, which
+    // is what the Go API's own recovery rate divides by. Dividing recovered by
+    // every application's principal — including the rejected ones — is how the
+    // "all time" rate and the "this month" rate came from different formulas.
+    const lent = list.filter((l) => DISBURSED_STATUSES.includes(l.status));
+    const disbursed = lent.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const recovered = lent.reduce((sum, l) => sum + (l.paidAmount || 0), 0);
 
     return {
       total,
@@ -255,12 +281,14 @@ export default function ReportsScreen() {
       defaulted,
       defaultRate: total > 0 ? Number(((defaulted / total) * 100).toFixed(1)) : 0,
       recoveryRate: disbursed > 0 ? Number(((recovered / disbursed) * 100).toFixed(1)) : 0,
-      avgLoanAmount: total > 0 ? disbursed / total : 0,
+      avgLoanAmount: lent.length > 0 ? disbursed / lent.length : 0,
     };
   }, [filteredLoans, loanPerformanceReport, period]);
 
   const donationsSummary = useMemo(() => {
-    const received = filteredDonations.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const received = filteredDonations
+      .filter(isCountedDonation)
+      .reduce((sum, d) => sum + (d.amount || 0), 0);
     const currentFund = charityFund;
 
     const donorMap = new Map<string, number>();

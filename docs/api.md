@@ -125,7 +125,7 @@ exercised, so treat it as untested.
 |---|---|---|---|
 | GET·POST | `/api/v1/registrations` | public registration submit + admin listing | register page |
 | POST | `/api/v1/auth/login` | legacy login path, kept for older clients | login page |
-| GET·PUT | `/api/v1/settings` | `system_config` read / upsert | login, member loans, admin settings/members, `lib/documents/org-settings.ts`. **GET takes no token and answers anyway, in three tiers** — public / member / admin ([ADR-024 is the CSP one; see ADR-021's neighbours and `lib/system-config.ts`](decisions.md)). The browser must call it through `lib/settings-client.ts`, which attaches the token; a bare `fetch` silently gets the public subset |
+| GET·PUT | `/api/v1/settings` | `system_config` read / upsert | login, member loans, admin settings/members, `lib/documents/org-settings.ts`. **GET takes no token and answers anyway, in four tiers** — public / member / worker (+`CONTENT_CONFIG_KEYS`) / admin ([ADR-024 is the CSP one; see ADR-021's neighbours and `lib/system-config.ts`](decisions.md)). **PUT is gated by key, not only by role**: an admin writes anything declared, a worker writes `CONTENT_CONFIG_KEYS` and is refused 403 for anything else, all-or-nothing per request. The browser must call GET through `lib/settings-client.ts`, which attaches the token; a bare `fetch` silently gets the public subset |
 | GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | admin gallery + settings |
 | POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD | admin workers |
 | POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount | member transactions |

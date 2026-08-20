@@ -23,7 +23,7 @@ Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়
 | Role | Can | Cannot |
 |---|---|---|
 | **Member** | Register, request deposit/withdrawal/loan/repayment, confirm or dispute postings, guarantee another member, donate, edit nominee | See another member's data |
-| **Worker** | Process pending member requests, record deposits/withdrawals/disbursements/installments, record offline donations, post to the gallery, read reports | Initiate money movement without a request; **decide** anything — a registration, a loan, a default; delete anything |
+| **Worker** | Process pending member requests, record deposits/withdrawals/disbursements/installments, record offline donations, publish the public site (gallery, page copy, brand images), read reports | Initiate money movement without a request; **decide** anything — a registration, a loan, a default; delete anything |
 | **Admin** | Everything a worker can, plus approve/reject registrations and loans, mark defaults, run settlement, manage workers, configure policy, publish public page copy and brand assets, read audit log | Delete or alter audit history; create another admin from the application |
 
 "Approve" was doing two jobs in this table. **Processing** a pending posting — a

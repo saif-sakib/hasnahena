@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { corsHeaders } from '@/lib/cors';
 import { authenticateRequest } from '@/lib/server-auth';
 import {
+  CONTENT_CONFIG_KEYS,
   MEMBER_CONFIG_KEYS,
   PUBLIC_CONFIG_KEYS,
   partitionConfigKeys,
@@ -35,7 +36,8 @@ export async function OPTIONS(request: NextRequest) {
 // What a caller gets depends on who they are (WO-77 / SEC-12):
 //
 //   anonymous       PUBLIC_CONFIG_KEYS  — branding, org details, landing copy
-//   signed in       + the loan policy governing their own money
+//   member          + the loan policy governing their own money
+//   worker          + CONTENT_CONFIG_KEYS, because Content & Media edits them
 //   admin           SYSTEM_CONFIG_KEYS  — everything, because they edit it
 //
 // It has not returned `SELECT *` since WO-64: before that it handed the entire
@@ -70,10 +72,43 @@ export async function GET(request: NextRequest) {
 async function readableKeysFor(request: NextRequest): Promise<string[]> {
   const auth = await authenticateRequest(request);
   if (!auth.ok) return [...PUBLIC_CONFIG_KEYS];
-  if (auth.user.role === UserRole.ADMIN || auth.user.role === UserRole.SUPER_ADMIN) {
+  if (isAdmin(auth.user.role)) {
     return [...SYSTEM_CONFIG_KEYS];
   }
+  // A worker edits the public site on Content & Media, and a form cannot save
+  // back a value it was never handed — it would render the input empty and then
+  // post that emptiness over what an admin had set. Every content key happens to
+  // be public today, so this changes nothing yet; it is here so that adding a
+  // content key that is *not* on a public page does not quietly break the form.
+  if (auth.user.role === UserRole.WORKER) {
+    return [...new Set([...MEMBER_CONFIG_KEYS, ...CONTENT_CONFIG_KEYS])];
+  }
   return [...MEMBER_CONFIG_KEYS];
+}
+
+function isAdmin(role: string): boolean {
+  return role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
+}
+
+/**
+ * Who may write which keys.
+ *
+ * An admin writes anything declared. A worker writes `CONTENT_CONFIG_KEYS` and
+ * nothing else — what the public pages *show*. The split is the same partition
+ * the two screens are built from (lib/system-config.ts), so this is one rule
+ * rather than a second opinion: Content & Media posts only content keys, and a
+ * request that reaches here with a settings key in it did not come from that
+ * screen.
+ *
+ * It is deliberately all-or-nothing. Saving the content keys out of a mixed body
+ * and dropping the rest would report success for a request that was half
+ * refused, which is the same lie the unknown-key check below exists to prevent.
+ */
+function unwritableKeysFor(role: string, keys: string[]): string[] {
+  if (isAdmin(role)) return [];
+  if (role !== UserRole.WORKER) return keys;
+  const allowed = new Set<string>(CONTENT_CONFIG_KEYS);
+  return keys.filter((key) => !allowed.has(key));
 }
 
 export async function PUT(request: NextRequest) {
@@ -83,7 +118,7 @@ export async function PUT(request: NextRequest) {
       return errorResponse(request, 'Unauthorized', auth.error, 401);
     }
 
-    if (auth.user.role !== UserRole.ADMIN && auth.user.role !== UserRole.SUPER_ADMIN) {
+    if (!isAdmin(auth.user.role) && auth.user.role !== UserRole.WORKER) {
       return errorResponse(request, 'Forbidden', 'Insufficient permissions', 403);
     }
 
@@ -108,6 +143,16 @@ export async function PUT(request: NextRequest) {
         `Unknown settings key${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
           + 'A key must be declared in apps/web/lib/system-config.ts before it can be saved.',
         400,
+      );
+    }
+
+    const forbidden = unwritableKeysFor(auth.user.role, Object.keys(body));
+    if (forbidden.length > 0) {
+      return errorResponse(
+        request,
+        'Forbidden',
+        `This role may not write: ${forbidden.join(', ')}`,
+        403,
       );
     }
 
@@ -137,6 +182,7 @@ export async function PUT(request: NextRequest) {
     revalidatePath('/[locale]/gallery');
     revalidatePath('/[locale]/dashboard/admin/settings');
     revalidatePath('/[locale]/dashboard/admin/content');
+    revalidatePath('/[locale]/dashboard/worker/content');
 
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {

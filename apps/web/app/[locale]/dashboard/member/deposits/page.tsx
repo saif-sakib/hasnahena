@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiPost } from '@/lib/api';
 import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseWholeTaka } from '@/lib/utils';
 import { buildStatement, downloadDocumentPDF, buildReceipt, fetchOrgSettings } from '@/lib/documents';
 
 type DepositStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
@@ -195,9 +195,15 @@ export default function DepositsPage() {
     setActionError(null);
     setActionSuccess(null);
 
-    const amountValue = Number.parseFloat(requestAmount);
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
+    // Whole taka, or refuse it (rule 1). It used to parseFloat and round, so a
+    // member requesting 500.75 was confirmed for 501.
+    const amountValue = parseWholeTaka(requestAmount);
+    if (amountValue === null) {
+      setActionError(
+        locale === 'bn'
+          ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
+          : 'Enter a whole-taka amount, with no paisa',
+      );
       return;
     }
     if (!requestReference.trim()) {
@@ -208,7 +214,7 @@ export default function DepositsPage() {
     try {
       setIsRequestSubmitting(true);
       await apiPost('/v1/dashboard/member/requests/deposit', {
-        amount: Math.round(amountValue ),
+        amount: amountValue,
         bkashReference: requestReference.trim(),
         notes: requestNotes.trim(),
       });
@@ -241,9 +247,13 @@ export default function DepositsPage() {
     setActionError(null);
     setActionSuccess(null);
 
-    const amountValue = Number.parseInt(withdrawalAmount, 10);
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      setActionError(locale === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Enter a valid amount');
+    const amountValue = parseWholeTaka(withdrawalAmount);
+    if (amountValue === null) {
+      setActionError(
+        locale === 'bn'
+          ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
+          : 'Enter a whole-taka amount, with no paisa',
+      );
       return;
     }
 
@@ -363,8 +373,9 @@ export default function DepositsPage() {
                 <Input
                   type="number"
                   min="1"
-                  step="0.01"
-                  placeholder="0.00"
+                  step="1"
+                  inputMode="numeric"
+                  placeholder="0"
                   value={requestAmount}
                   onChange={(e) => setRequestAmount(e.target.value)}
                 />

@@ -158,7 +158,11 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 		FROM loans l
 		JOIN users u ON u.id = l."borrowerId"
 		LEFT JOIN users g ON g.id = l."guarantorId"
-		WHERE l.status IN ('PENDING_GUARANTOR', 'PENDING_APPROVAL', 'ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')
+		-- Every loan, like GetAllLoans. This used to omit APPROVED and REJECTED,
+		-- and since both dashboards render one Loans component the same table
+		-- reported a different number of loans depending on who opened it. A
+		-- rejected application is also the thing a member is most likely to ask a
+		-- field worker about, and the worker could not see it.
 		ORDER BY l."createdAt" DESC
 		LIMIT 100
 	`
@@ -174,7 +178,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 		var id, loanNumber, status, memberUserID, memberName, memberNameBn, memberID, memberPhone, guarantorName string
 		var principalAmount, remainingAmount, installmentAmount int64
 		var paidInstallments, totalInstallments int
-		var nextDueDate *time.Time
+		var installmentStart *time.Time
 		var createdAt time.Time
 
 		if err := rows.Scan(
@@ -192,7 +196,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 			&memberID,
 			&memberPhone,
 			&guarantorName,
-			&nextDueDate,
+			&installmentStart,
 			&createdAt,
 		); err != nil {
 			continue
@@ -215,9 +219,10 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 			"guarantorName":     guarantorName,
 			"createdAt":         createdAt.Format(time.RFC3339),
 		}
-		if nextDueDate != nil {
-			loan["nextDueDate"] = nextDueDate.Format(time.RFC3339)
-		}
+		// Not `installmentStart` — that is the day the schedule opened, which is
+		// behind every active loan and made this list report every borrower
+		// overdue. See attachLoanSchedule.
+		attachLoanSchedule(loan, status, installmentStart, totalInstallments, paidInstallments)
 		loans = append(loans, loan)
 	}
 
@@ -499,8 +504,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		var loanID, loanNumber, loanStatus string
 		var principal, remaining, installmentAmt int64
 		var totalInst, paidInst int
-		var disbursementDate, nextDueDate *time.Time
-		if err := loanRows.Scan(&loanID, &loanNumber, &principal, &remaining, &totalInst, &paidInst, &installmentAmt, &loanStatus, &disbursementDate, &nextDueDate); err != nil {
+		var disbursementDate, installmentStart *time.Time
+		if err := loanRows.Scan(&loanID, &loanNumber, &principal, &remaining, &totalInst, &paidInst, &installmentAmt, &loanStatus, &disbursementDate, &installmentStart); err != nil {
 			continue
 		}
 		loan := map[string]interface{}{
@@ -516,9 +521,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		if disbursementDate != nil {
 			loan["disbursementDate"] = disbursementDate.Format(time.RFC3339)
 		}
-		if nextDueDate != nil {
-			loan["nextDueDate"] = nextDueDate.Format(time.RFC3339)
-		}
+		attachLoanSchedule(loan, loanStatus, installmentStart, totalInst, paidInst)
 		loans = append(loans, loan)
 	}
 

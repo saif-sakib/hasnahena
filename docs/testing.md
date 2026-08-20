@@ -13,7 +13,7 @@ is one line per phase in [changelog.md](changelog.md). This file is what you nee
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, the SEO metadata and JSON-LD builders, and the source censuses — foreign-key index coverage, the settings keys pages read, and the count of `dangerouslySetInnerHTML` that [ADR-024](decisions.md) rests on |
+| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, the SEO metadata and JSON-LD builders, and the source censuses — foreign-key index coverage, the settings keys pages read, **every form that posts a money `amount`** (found by walking `app/`, `components/` and `lib/` rather than by a hand-written list, which is how the previous version went on passing while two screens rounded paisa into the ledger), and the count of `dangerouslySetInnerHTML` that [ADR-024](decisions.md) rests on |
 | `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; **the ledger reconciliation, with a drift planted for every invariant it claims to check**; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
 | `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
@@ -152,7 +152,7 @@ number nobody trusts. Taken on the author's machine.
 | List read | 1–2 queries, flat in row count |
 | Member dashboard read | 5 queries, flat in history length |
 | Go integration suite | ~8 s; ~40 s under `-race` |
-| Web unit suite | ~6 s for 544 tests across 30 files |
+| Web unit suite | ~6 s for 556 tests across 30 files |
 | Next route contracts | ~3 s |
 | Browser suite | 153 passed + 1 skipped, 10.8 min, one worker, on an idle machine |
-| Largest client bundle | `/[locale]/dashboard/{worker,admin}/transactions`, 1.45 MB uncompressed first-load JS — the same figure twice, because they are the same component. Recorded, not endorsed — see `bundle-budget.json` |
+| Largest client bundle | `/[locale]/dashboard/{worker,admin}/transactions`, ~1.41 MB uncompressed first-load JS — the same figure twice, because they are the same component. Recorded, not endorsed — see `bundle-budget.json` |

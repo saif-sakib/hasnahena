@@ -65,6 +65,7 @@ type Contract = {
 };
 
 const ADMINS: TestRole[] = ['ADMIN', 'SUPER_ADMIN'];
+const STAFF: TestRole[] = ['ADMIN', 'SUPER_ADMIN', 'WORKER'];
 
 /**
  * One row per exported method. `file` is the route directory relative to
@@ -263,12 +264,16 @@ const ROUTES: Array<{
     contract: { public: true },
   },
   {
+    // Staff, not admins — but the *keys* decide, not only the role. A worker
+    // edits Content & Media, which posts `CONTENT_CONFIG_KEYS`; the money and
+    // policy rows stay an admin's. The row below covers the role gate; the
+    // key gate has its own test under "role separation".
     name: 'PUT /api/v1/settings',
     file: 'v1/settings',
     method: 'PUT',
     handler: asHandler(settings.PUT),
     path: '/api/v1/settings',
-    contract: { roles: ADMINS, body: {} },
+    contract: { roles: STAFF, body: { 'hero.tagline': 'contract probe' } },
   },
   // The support routes are a transparent proxy to the Go API, which does its
   // own authorization. They are listed so the filesystem check passes and so
@@ -392,6 +397,29 @@ describe.skipIf(skip)('TEST-16 — Next route access contract', () => {
         });
       }
     }
+
+    // The settings PUT is the one route where the role is not the whole
+    // contract. Content & Media is a worker's screen and Settings is not, so
+    // the same endpoint takes a worker for one set of keys and refuses them for
+    // another. Without this, widening the role gate would silently hand a
+    // worker the loan multiplier and the bKash number.
+    it('WORKER may write a content key', async () => {
+      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
+      const res = await call({ ...route, contract: { ...route.contract, body: { 'hero.tagline': 'worker probe' } } }, tokenFor('WORKER'));
+      expect(res.status, `body: ${res.text}`).not.toBe(403);
+    });
+
+    it('WORKER may not write a settings key', async () => {
+      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
+      const res = await call({ ...route, contract: { ...route.contract, body: { 'donation.bkash': '01700000000' } } }, tokenFor('WORKER'));
+      expect(res.status, `body: ${res.text}`).toBe(403);
+    });
+
+    it('ADMIN may write a settings key', async () => {
+      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
+      const res = await call({ ...route, contract: { ...route.contract, body: { 'donation.bkash': '01700000000' } } }, tokenFor('ADMIN'));
+      expect(res.status, `body: ${res.text}`).not.toBe(403);
+    });
   });
 });
 

@@ -24,6 +24,27 @@ export function formatDate(date: string | Date, locale: string = 'en') {
 }
 
 /**
+ * Whole taka, or nothing (rule 1).
+ *
+ * The one parser every amount box on a money form goes through. It returns null
+ * for anything that is not a positive whole number — it does **not** round.
+ *
+ * Rounding is the failure this replaced. Three screens ran
+ * `Math.round(Number.parseFloat(value))`, so a worker who typed 1500.75 posted
+ * 1501 and was told it worked. Silently changing an amount somebody said out
+ * loud is the one thing a money form must not do, and it cannot be caught
+ * afterwards: the ledger, the receipt and the audit row all agree on the wrong
+ * figure. Pair it with `step="1"` on the input so the control does not invite
+ * the paisa in the first place.
+ */
+export function parseWholeTaka(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
  * Weekly/monthly/full quick-fill amounts for loan repayment (installmentAmount
  * is per month).
  *

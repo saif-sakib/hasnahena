@@ -33,13 +33,18 @@ function revalidateSettingsPaths() {
   revalidatePath('/');
   revalidatePath('/[locale]');
   // The brand images moved to Content & Media when Settings stopped being two
-  // screens in one.
+  // screens in one, and both staff dashboards render that screen.
   revalidatePath('/[locale]/dashboard/admin/content');
+  revalidatePath('/[locale]/dashboard/worker/content');
 }
 
 /**
- * Upload settings image server action
- * Only admins can upload settings images
+ * Upload settings image server action.
+ *
+ * Staff, not admins. These are the brand and hero images on Content & Media,
+ * which a worker edits — see the note on that screen. The money and policy rows
+ * are a different list and a different screen, and `PUT /api/v1/settings`
+ * refuses a worker who names one.
  */
 export async function uploadSettingsImageAction(
   imageType: SettingImageType,
@@ -59,8 +64,8 @@ export async function uploadSettingsImageAction(
 
     const auth = await authorizeServerActionRoles(
       authToken,
-      ['ADMIN', 'SUPER_ADMIN'],
-      'Unauthorized. Only admins can upload settings images.'
+      ['ADMIN', 'SUPER_ADMIN', 'WORKER'],
+      'Unauthorized. Only staff can upload settings images.'
     );
     if (!auth.ok) {
       return { success: false, error: auth.error };
@@ -152,8 +157,8 @@ export async function deleteSettingsImageAction(
 
     const auth = await authorizeServerActionRoles(
       authToken,
-      ['ADMIN', 'SUPER_ADMIN'],
-      'Unauthorized. Only admins can delete settings images.'
+      ['ADMIN', 'SUPER_ADMIN', 'WORKER'],
+      'Unauthorized. Only staff can delete settings images.'
     );
     if (!auth.ok) {
       return { success: false, error: auth.error };

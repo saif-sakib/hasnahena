@@ -136,3 +136,71 @@ func TestABorrowerBecomesDefaultableOnlyAtTheThreshold(t *testing.T) {
 		t.Errorf("three instalments missed (%d) should be defaultable at a threshold of %d", missed, threshold)
 	}
 }
+
+func TestNextDueDate(t *testing.T) {
+	start := date(2026, time.January, 15)
+
+	cases := []struct {
+		name   string
+		total  int
+		paid   int
+		want   time.Time
+		wantOK bool
+	}{
+		// Nothing paid: the first instalment, one month after the start. This is
+		// the case the bug turned on — three queries answered it with the start
+		// date itself, which is always in the past on an active loan, so every
+		// borrower rendered as overdue on the worker's screen.
+		{"nothing paid", 12, 0, date(2026, time.February, 15), true},
+		{"one paid", 12, 1, date(2026, time.March, 15), true},
+		{"eleven paid", 12, 11, date(2027, time.January, 15), true},
+		// Fully paid: there is no next instalment, and a zero time must not be
+		// substituted for one — every screen reads a past date as arrears.
+		{"all paid", 12, 12, time.Time{}, false},
+		{"paid beyond the schedule", 12, 15, time.Time{}, false},
+		{"no schedule", 0, 0, time.Time{}, false},
+		{"negative paid count", 12, -3, date(2026, time.February, 15), true},
+	}
+
+	for _, c := range cases {
+		got, ok := NextDueDate(start, c.total, c.paid)
+		if ok != c.wantOK {
+			t.Errorf("%s: ok = %v, want %v", c.name, ok, c.wantOK)
+			continue
+		}
+		if ok && !got.Equal(c.want) {
+			t.Errorf("%s: NextDueDate = %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	if _, ok := NextDueDate(time.Time{}, 12, 0); ok {
+		t.Error("a zero start date has no next instalment")
+	}
+}
+
+// The two must agree, because one decides what a screen shows and the other
+// decides whether a loan may be defaulted. "Overdue" on the loan list is
+// `MissedInstallments > 0`; it has to mean the same thing as "the next due date
+// has passed", or the badge and the default waterfall disagree about the same
+// borrower.
+func TestNextDueDateAgreesWithMissedInstallments(t *testing.T) {
+	start := date(2026, time.January, 15)
+	const total = 12
+
+	for paid := 0; paid < total; paid++ {
+		due, ok := NextDueDate(start, total, paid)
+		if !ok {
+			t.Fatalf("paid=%d: expected a next instalment", paid)
+		}
+
+		justBefore := due.Add(-24 * time.Hour)
+		if missed := MissedInstallments(start, justBefore, total, paid); missed != 0 {
+			t.Errorf("paid=%d: the day before the due date reports %d missed, want 0", paid, missed)
+		}
+
+		justAfter := due.Add(24 * time.Hour)
+		if missed := MissedInstallments(start, justAfter, total, paid); missed != 1 {
+			t.Errorf("paid=%d: the day after the due date reports %d missed, want 1", paid, missed)
+		}
+	}
+}

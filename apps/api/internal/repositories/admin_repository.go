@@ -24,10 +24,21 @@ type RegistrationApprovalCandidate struct {
 	AccountNo string
 }
 
-func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool) ([]map[string]interface{}, error) {
+// GetMembersList returns either the members or the field workers.
+//
+// `staffOnly` returns **workers**, and only workers. It used to return
+// `('WORKER', 'ADMIN')`, which put admin rows on the Workers screen — a list
+// whose whole purpose is the accounts an admin creates, edits, suspends and
+// deletes. None of those apply to an admin: the API refuses every one of them
+// on a non-worker target, and an admin account is made directly in the database
+// (see `app/api/v1/admin/workers/route.ts`). So the rows were unactionable, and
+// a list of things you cannot do anything about reads as a list of things that
+// are broken. SUPER_ADMIN was never in it either, so "who has the keys" was
+// never what this answered.
+func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]map[string]interface{}, error) {
 	roleFilter := "u.role = 'MEMBER'"
-	if includeAdmins {
-		roleFilter = "u.role IN ('WORKER', 'ADMIN')"
+	if staffOnly {
+		roleFilter = "u.role = 'WORKER'"
 	}
 	query := `
 		SELECT
@@ -105,17 +116,35 @@ func (r *UserRepository) GetMembersList(ctx context.Context, includeAdmins bool)
 }
 
 func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]interface{}, error) {
-	const query = `
+	// Every figure here is also shown on the worker's dashboard, on the loans
+	// screen or on the workers screen, and four of them used to be counted
+	// differently in each place — the same afternoon reading "Total Members 41"
+	// in one dashboard and "38" in the other, with nothing to say which was
+	// right. The definitions below are the ones those screens use.
+	query := `
 		SELECT
-			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER'), 0)::bigint,
-			COALESCE((SELECT COUNT(*) FROM users WHERE role IN ('WORKER','ADMIN')), 0)::bigint,
-			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT'), 0)::bigint,
-			COALESCE((SELECT SUM("principalAmount") FROM loans), 0)::bigint,
+			-- ACTIVE, as the worker's dashboard counts it. A PENDING registration
+			-- is an application, not a member.
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'), 0)::bigint,
+			-- WORKER only, matching the Workers screen. Admin accounts are made in
+			-- the database and are not listed there, so counting them here made
+			-- the tally disagree with the list underneath it.
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'WORKER'), 0)::bigint,
+			-- Rule 6a: a PENDING deposit is a *request*. Summing it reported money
+			-- nobody has handed over yet as income (ADR-016), and the worker's own
+			-- "today's deposits" filtered on CONFIRMED while this did not.
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND status = 'CONFIRMED'), 0)::bigint,
+			-- "Loans Disbursed": money that actually left. This summed every row,
+			-- so a REJECTED application and one still awaiting a guarantor counted
+			-- as lending — and the loans screen's own total, over exactly these
+			-- four statuses, disagreed with it.
+			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status IN ` + disbursedLoanStatuses + `), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'DEFAULTED'), 0)::bigint,
-			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DONATION'), 0)::bigint,
-			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE)), 0)::bigint,
-			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND "createdAt" >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month') AND "createdAt" < date_trunc('month', CURRENT_DATE)), 0)::bigint
+			-- Rule 6a again: an unconfirmed donation is a pledge.
+			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DONATION' AND status = 'CONFIRMED'), 0)::bigint,
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE' AND "createdAt" >= date_trunc('month', CURRENT_DATE)), 0)::bigint,
+			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE' AND "createdAt" >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month') AND "createdAt" < date_trunc('month', CURRENT_DATE)), 0)::bigint
 	`
 	var totalMembers, totalWorkers, totalDepositsPaisa, totalLoansPaisa, activeLoanCount, defaultedLoans, charityFundPaisa int64
 	var thisMonthMembers, lastMonthMembers int64

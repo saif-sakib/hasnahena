@@ -45,6 +45,12 @@ type ActiveLoan struct {
 	NextDueDate       string `json:"nextDueDate"`
 	PaidInstallments  int    `json:"paidInstallments"`
 	TotalInstallments int    `json:"totalInstallments"`
+	// How many due instalments are unpaid, from money.MissedInstallments. The
+	// member's own dashboard used to render the schedule's START date under
+	// "next payment due", so anyone with an active loan was shown a date in the
+	// past and no way to tell whether they were actually behind.
+	MissedInstallments int  `json:"missedInstallments"`
+	IsOverdue          bool `json:"isOverdue"`
 }
 
 type RecentTransaction struct {
@@ -204,17 +210,23 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		LIMIT 1
 	`
 	var activeLoan ActiveLoan
-	var nextDueDate *time.Time
+	var installmentStart *time.Time
 	if err := r.db.QueryRow(ctx, activeLoanQuery, userID).Scan(
 		&activeLoan.LoanNumber,
 		&activeLoan.RemainingAmount,
 		&activeLoan.NextInstallment,
-		&nextDueDate,
+		&installmentStart,
 		&activeLoan.PaidInstallments,
 		&activeLoan.TotalInstallments,
 	); err == nil {
-		if nextDueDate != nil {
-			activeLoan.NextDueDate = nextDueDate.Format(time.RFC3339)
+		if installmentStart != nil {
+			if due, ok := money.NextDueDate(*installmentStart, activeLoan.TotalInstallments, activeLoan.PaidInstallments); ok {
+				activeLoan.NextDueDate = due.Format(time.RFC3339)
+			}
+			activeLoan.MissedInstallments = money.MissedInstallments(
+				*installmentStart, time.Now(), activeLoan.TotalInstallments, activeLoan.PaidInstallments,
+			)
+			activeLoan.IsOverdue = activeLoan.MissedInstallments > 0
 		}
 		data.ActiveLoan = &activeLoan
 	}
@@ -464,6 +476,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			l."installmentAmount"::bigint,
 			l."disbursementDate",
 			l."expectedEndDate",
+			COALESCE(l."installmentStartDate", l."disbursementDate"),
 			COALESCE(l.purpose, ''),
 			l.status::text,
 			COALESCE(g."nameEn", '')
@@ -484,11 +497,11 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 		var id, loanNumber, purpose, status, guarantor string
 		var principalAmount, remainingAmount, installmentAmount int64
 		var totalInstallments, paidInstallments int
-		var disbursementDate, expectedEndDate *time.Time
+		var disbursementDate, expectedEndDate, installmentStart *time.Time
 		if scanErr := rows.Scan(
 			&id, &loanNumber, &principalAmount, &remainingAmount,
 			&totalInstallments, &paidInstallments, &installmentAmount,
-			&disbursementDate, &expectedEndDate, &purpose, &status, &guarantor,
+			&disbursementDate, &expectedEndDate, &installmentStart, &purpose, &status, &guarantor,
 		); scanErr != nil {
 			continue
 		}
@@ -509,8 +522,12 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			item["disbursementDate"] = disbursementDate.Format(time.RFC3339)
 		}
 		if expectedEndDate != nil {
-			item["nextDueDate"] = expectedEndDate.Format(time.RFC3339)
+			// The day the LAST instalment is due. It used to be sent as
+			// `nextDueDate`, which told a member on instalment 2 of 24 that
+			// nothing was due for two years.
+			item["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
 		}
+		attachLoanSchedule(item, status, installmentStart, totalInstallments, paidInstallments)
 
 		if strings.ToUpper(status) == "ACTIVE" || strings.ToUpper(status) == "APPROVED" {
 			if activeLoan == nil {
