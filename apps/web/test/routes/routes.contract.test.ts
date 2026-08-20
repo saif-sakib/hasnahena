@@ -24,6 +24,7 @@ import {
   tokenFor,
   mintToken,
   hasTestDatabase,
+  testPrisma,
   disconnectTestPrisma,
   TEST_JWT_SECRET,
   type TestRole,
@@ -273,7 +274,7 @@ const ROUTES: Array<{
     method: 'PUT',
     handler: asHandler(settings.PUT),
     path: '/api/v1/settings',
-    contract: { roles: STAFF, body: { 'hero.tagline': 'contract probe' } },
+    contract: { roles: STAFF, body: {} },
   },
   // The support routes are a transparent proxy to the Go API, which does its
   // own authorization. They are listed so the filesystem check passes and so
@@ -403,22 +404,53 @@ describe.skipIf(skip)('TEST-16 — Next route access contract', () => {
     // the same endpoint takes a worker for one set of keys and refuses them for
     // another. Without this, widening the role gate would silently hand a
     // worker the loan multiplier and the bKash number.
-    it('WORKER may write a content key', async () => {
-      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
-      const res = await call({ ...route, contract: { ...route.contract, body: { 'hero.tagline': 'worker probe' } } }, tokenFor('WORKER'));
-      expect(res.status, `body: ${res.text}`).not.toBe(403);
-    });
+    //
+    // Two of these three probes are *accepted*, which means they write. This
+    // database is shared with the browser suite, so the rows are put back —
+    // seeding `branding.logo` with a value that was not a URL once made every
+    // public page answer 500 for the rest of a run.
+    describe('the key decides too, not only the role', () => {
+      const PROBE_KEYS = ['hero.tagline', 'donation.bkash'];
+      let before: Array<{ key: string; value: string }> = [];
 
-    it('WORKER may not write a settings key', async () => {
-      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
-      const res = await call({ ...route, contract: { ...route.contract, body: { 'donation.bkash': '01700000000' } } }, tokenFor('WORKER'));
-      expect(res.status, `body: ${res.text}`).toBe(403);
-    });
+      const settingsPut = () => guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
+      const put = (body: Record<string, unknown>, role: TestRole) => {
+        const route = settingsPut();
+        return call({ ...route, contract: { ...route.contract, body } }, tokenFor(role));
+      };
 
-    it('ADMIN may write a settings key', async () => {
-      const route = guarded.find((r) => r.name === 'PUT /api/v1/settings')!;
-      const res = await call({ ...route, contract: { ...route.contract, body: { 'donation.bkash': '01700000000' } } }, tokenFor('ADMIN'));
-      expect(res.status, `body: ${res.text}`).not.toBe(403);
+      beforeAll(async () => {
+        before = await testPrisma().systemConfig.findMany({
+          where: { key: { in: PROBE_KEYS } },
+          select: { key: true, value: true },
+        });
+      });
+
+      afterAll(async () => {
+        const db = testPrisma();
+        const kept = new Set(before.map((row) => row.key));
+        await db.systemConfig.deleteMany({
+          where: { key: { in: PROBE_KEYS.filter((key) => !kept.has(key)) } },
+        });
+        for (const row of before) {
+          await db.systemConfig.update({ where: { key: row.key }, data: { value: row.value } });
+        }
+      });
+
+      it('WORKER may write a content key', async () => {
+        const res = await put({ 'hero.tagline': 'worker probe' }, 'WORKER');
+        expect(res.status, `body: ${res.text}`).not.toBe(403);
+      });
+
+      it('WORKER may not write a settings key', async () => {
+        const res = await put({ 'donation.bkash': '01700000000' }, 'WORKER');
+        expect(res.status, `body: ${res.text}`).toBe(403);
+      });
+
+      it('ADMIN may write a settings key', async () => {
+        const res = await put({ 'donation.bkash': '01700000000' }, 'ADMIN');
+        expect(res.status, `body: ${res.text}`).not.toBe(403);
+      });
     });
   });
 });

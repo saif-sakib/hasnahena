@@ -56,24 +56,52 @@ async function get(token?: string): Promise<Record<string, string>> {
   return json as Record<string, string>;
 }
 
+const SEEDED_KEYS = [PUBLIC_KEY, MEMBER_KEY, ADMIN_KEY, ...CONTENT_CONFIG_KEYS];
+
+/**
+ * A value this key can legally hold.
+ *
+ * Not a detail. Seeding every key with the string `wo77-fixture` put it in
+ * `branding.logo` and the six other image keys, and `next/image` throws
+ * "Failed to construct 'URL': Invalid URL" on a src that is not one — so every
+ * public page answered **500** for the rest of the run. This suite only checks
+ * *which* keys come back, so the value was beneath notice right up until it
+ * took the whole marketing site down in the browser suite that ran next.
+ */
+function fixtureValue(key: string): string {
+  return /logo|favicon|image/i.test(key) ? 'https://example.com/fixture.png' : 'wo77-fixture';
+}
+
 describeWithDb('GET /api/v1/settings serves one tier per caller', () => {
+  /** Only the rows this suite created, so cleanup cannot delete a real one. */
+  let createdKeys: string[] = [];
+
   beforeAll(async () => {
     await seedRoleUsers();
     // Seeded here rather than relying on `pnpm db:seed`: this suite shares a
     // database with the Go integration tests, which truncate between tests, so
-    // a row another suite left behind is not something to depend on. Values are
-    // irrelevant — only which keys come back is under test.
+    // a row another suite left behind is not something to depend on.
     const db = testPrisma();
-    for (const key of [PUBLIC_KEY, MEMBER_KEY, ADMIN_KEY, ...CONTENT_CONFIG_KEYS]) {
-      await db.systemConfig.upsert({
-        where: { key },
-        update: {},
-        create: { key, value: 'wo77-fixture' },
-      });
+    const existing = await db.systemConfig.findMany({
+      where: { key: { in: SEEDED_KEYS } },
+      select: { key: true },
+    });
+    const alreadyThere = new Set(existing.map((row) => row.key));
+    createdKeys = SEEDED_KEYS.filter((key) => !alreadyThere.has(key));
+    for (const key of createdKeys) {
+      await db.systemConfig.create({ data: { key, value: fixtureValue(key) } });
     }
   });
 
   afterAll(async () => {
+    // `system_config` is global — a key cannot be namespaced to one suite the
+    // way testing.md's fixture contract asks — so this suite puts back what it
+    // found instead. Leaving its rows behind is how it took the marketing pages
+    // down for the browser run that shared the database.
+    const db = testPrisma();
+    if (createdKeys.length > 0) {
+      await db.systemConfig.deleteMany({ where: { key: { in: createdKeys } } });
+    }
     await disconnectTestPrisma();
   });
 
