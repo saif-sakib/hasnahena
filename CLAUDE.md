@@ -81,6 +81,8 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | an invariant to `repositories.AllChecks` | `apps/api/internal/repositories/reconcile_integration_test.go` — plant a drift for it. A check nobody has seen fail may not work |
 | a write reachable from the reconciliation job | `apps/api/cmd/server/wiring_test.go` — it reads the source and fails on any `UPDATE accounts` there. The job reports drift; it must never correct it ([ADR-027](docs/decisions.md)) |
 | an import to a shared component | `apps/web/scripts/assert-bundle-budget.mjs` after `pnpm build` — first-load JS per route against `bundle-budget.json`, >10% growth fails. Accept a real cost with `pnpm test:bundle:update` |
+| a `system_config` key | `apps/web/test/unit/settings-keys-read.test.ts` — put it in **exactly one** of `CONTENT_CONFIG_KEYS` (Content & Media) or `SETTINGS_CONFIG_KEYS` (Settings). In neither, no admin can change it; in both, whichever form saves last reverts the other |
+| a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
 
@@ -154,7 +156,15 @@ apps/api/internal/middleware/     the global stack, mounted by mountMiddleware i
                                   in a handler; use RequestClientIP(r) (ADR-019). Identity does the same
                                   for *who* a caller is: RequestUserID(r), verified signature and expiry
                                   only — for attributing a request, never for authorising one (ADR-025)
-apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}
+apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}. Every
+                                  staff route file is a one-line re-export — edit the screen, not it
+apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE component each. Both
+                                  role folders re-export the same file; the screen asks
+                                  useDashboardRole() and hides what that role may not do
+                                  nav.ts    the single description of what each dashboard contains —
+                                  the sidebar and the overview's action cards both render from it
+                                  role.tsx  which dashboard a screen is in. Presentation only:
+                                  the API decides, and proxy.ts pins the URL segment to the role
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)

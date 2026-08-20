@@ -51,10 +51,11 @@ page.tsx
    English string is invisible until a Bengali member reads it. Add the key to
    *both* files — `test/unit/messages.test.ts` fails on an unequal key set, on a
    long untranslated copy-paste, and on a dropped `{placeholder}`.
-2. **`hero.*` and `org.*` come from the admin settings page,** not from code. If
-   your new design drops `hero.backgroundImage`, remove the key from
-   [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too, or you leave a
-   setting an admin can still edit that does nothing.
+2. **`hero.*` comes from Content & Media and `org.*` from Settings,** not from
+   code. If your new design drops `hero.backgroundImage`, remove the key from
+   [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too — from
+   `SYSTEM_CONFIG_KEYS` *and* from whichever of `CONTENT_CONFIG_KEYS` /
+   `SETTINGS_CONFIG_KEYS` claims it — or you leave a control that does nothing.
 3. **Use semantic colour classes** — `bg-primary`, `text-muted-foreground`,
    `border-border` — not hex, and not raw `emerald-600`. The tokens are defined
    once in `app/globals.css` for light and `.dark`. A hardcoded colour is the one
@@ -99,8 +100,18 @@ and `robots.ts` generate from the route tree.
   `<StructuredData locale={…} path="/its-path" settings={settings} />` in its
   JSX. Without them it is a page search engines read as belonging to nobody.
 - Dashboard pages go under `dashboard/{member,worker,admin}/`. These are
-  **already role-gated** by `proxy.ts` (redirects on missing/expired token) and
-  by the layout in each role folder. The gate is where the file lives.
+  **already role-gated** by `proxy.ts` — it redirects on a missing or expired
+  token, and on a role asking for a section it does not own — and by the layout
+  in each role folder. The gate is where the file lives.
+- **A staff screen is written once.** The worker and admin dashboards render the
+  same components, from `components/dashboard/screens/`; the route files under
+  `app/` are one-line re-exports and carry no logic. Add the screen there, add a
+  row to [`components/dashboard/nav.ts`](../apps/web/components/dashboard/nav.ts)
+  naming the roles that may see it, and re-export it from both role folders. Ask
+  `useDashboardRole()` inside the component to hide what a worker may not do —
+  and make sure the endpoints it calls are mounted for `staff` in
+  [`cmd/server/main.go`](../apps/api/cmd/server/main.go), because a shared
+  component calling an admin-only route is a 403 and a blank page.
 - Every locale string in `messages/{en,bn}.json`.
 
 ---
@@ -204,7 +215,12 @@ Three steps, **in this order**:
 3. Declare it in [`lib/system-config.ts`](../apps/web/lib/system-config.ts) —
    in `SYSTEM_CONFIG_KEYS`, **and in `PUBLIC_CONFIG_KEYS` if a public page reads
    it, or `MEMBER_CONFIG_KEYS` if a signed-in member's own screen does**. Then
-   give it a control.
+   give it a control, on **exactly one** admin screen: `CONTENT_CONFIG_KEYS` if
+   it is something a visitor reads (Content & Media), `SETTINGS_CONFIG_KEYS` if
+   it is identity, policy, money or retention (Settings). Those two lists are a
+   partition and `test/unit/settings-keys-read.test.ts` refuses anything else — a
+   key in neither has no control at all, and a key in both means each form's save
+   reverts the other's.
 
 The allow-list entry is last for a reason, and the ordering is not pedantry:
 `PUT /api/v1/settings` rejects the **entire request** on one unrecognised key,

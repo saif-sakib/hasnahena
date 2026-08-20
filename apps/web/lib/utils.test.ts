@@ -71,10 +71,14 @@ describe('getLoanRepaymentPresets', () => {
 // are no-ops — which is exactly why they must not be deleted as redundant.
 describe('the screens that use a preset still round before posting', () => {
   const WEB = resolve(process.cwd());
+  // The two staff screens moved into components/dashboard/screens when the
+  // worker and admin dashboards stopped being two copies of each other; the
+  // route files under app/ are now one-line re-exports with no arithmetic in
+  // them, so pointing this list at those would make it pass by reading nothing.
   const SCREENS = [
     'app/[locale]/dashboard/member/loans/page.tsx',
-    'app/[locale]/dashboard/worker/loans/page.tsx',
-    'app/[locale]/dashboard/admin/members/[id]/page.tsx',
+    'components/dashboard/screens/loans-screen.tsx',
+    'components/dashboard/screens/member-detail-screen.tsx',
   ];
 
   for (const rel of SCREENS) {

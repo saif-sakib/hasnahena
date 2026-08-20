@@ -613,12 +613,20 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 		FROM transactions t
 		JOIN users u ON  u.id = t."userId"
 		LEFT JOIN users processor ON processor.id = t."processedBy"
-		WHERE t.type IN ('DEPOSIT', 'WITHDRAWAL')
+		WHERE TRUE
 	`
 
 	// Add filters
 	args := []interface{}{}
 	argCount := 0
+
+	// The deposits screen wants savings movements; the transactions screen wants
+	// every posting, disbursements and repayments included. Both read this one
+	// query, so the caller says which — and the narrow set stays the default,
+	// because that is what every existing caller means.
+	if scope, _ := filters["types"].(string); scope != "all" {
+		query += ` AND t.type IN ('DEPOSIT', 'WITHDRAWAL')`
+	}
 
 	if typeFilter, ok := filters["type"].(string); ok && typeFilter != "" {
 		argCount++

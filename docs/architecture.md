@@ -23,7 +23,7 @@ Two backends share one database. That is deliberate but bounded — see [ADR-001
 | Deposits, withdrawals, loans, repayments, donations, approvals, reports | **Go** | financial writes must be transactional + audited |
 | Support chat (incl. SSE stream) | **Go**, proxied through Next at `/api/v1/dashboard/support/*` | avoids mixed-content/CORS on the stream |
 | Public registration submit | **Next** | needs Cloudinary upload + Prisma in one request |
-| Gallery, system settings, audit-log viewer, worker CRUD, branches | **Next** | CMS-style admin, no ledger impact |
+| Content & Media (gallery + public copy), system settings, audit-log viewer, worker CRUD, branches | **Next** | CMS-style admin, no ledger impact |
 | Transaction dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
 
 Rule of thumb: **if it changes a balance, it belongs in Go.**
@@ -43,7 +43,7 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 ## Auth
 
 - Login posts to Go `/v1/auth/login`; on success the JWT is stored in the `hn_access_token` cookie and read client-side by `lib/client-auth.ts`.
-- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
+- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`, and a role asking for a section it does not own → redirect to the one it does (`MEMBER`→member, `WORKER`→worker, `ADMIN`/`SUPER_ADMIN`→admin or worker, since an admin may cover a round). That second redirect is UX, not authorisation — it stops a worker being handed an admin shell whose every fetch 403s, which became worth preventing once both dashboards started rendering from the same components. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
 - **Revocation is platform-wide.** Both surfaces consult `token_blacklist` on every authenticated request — Go directly, Next through `lib/auth-revocation.ts`, which **fails closed**: if the lookup errors, the request is refused. Both truncate `iat` to whole seconds, without which a first-login token is born revoked.
@@ -55,10 +55,14 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 ```
 app/[locale]/(marketing)   home, about, activities, gallery, faq, contact, donate, privacy, terms
 app/[locale]/(auth)        login, register, forgot-password, reset-password
-app/[locale]/dashboard/    member/ worker/ admin/   — one folder per role, mirrored subpages
+app/[locale]/dashboard/    member/ worker/ admin/   — one folder per role. Every staff route file
+                           is a one-line re-export of a screen; there is no page logic under app/
 components/ui              shadcn-style primitives (button, card, dialog, table, toast, …)
 components/layout          header, footer, dashboard-layout
-components/dashboard       profile-editor
+components/dashboard       screens/  ONE component per staff screen, shared by worker and admin
+                           nav.ts    what each dashboard contains — sidebar and action cards
+                           role.tsx  useDashboardRole(); presentation only, the API decides
+                           profile-editor, loan-application-form, guarantor-requests
 lib/                       api client, auth, prisma, validation, receipt PDF, cloudinary, seo
 messages/{en,bn}.json      all copy — next-intl, locale prefix always present
 ```

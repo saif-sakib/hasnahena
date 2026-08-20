@@ -261,6 +261,84 @@ export const MEMBER_CONFIG_KEYS = [
   'loan.noticePeriodMonths',
 ] as const;
 
+/**
+ * Which admin screen owns each key.
+ *
+ * The settings screen used to own all of them, and it had grown a "Landing" tab
+ * holding the hero image, the partner logos, three section headings, the login
+ * greeting *and* a gallery uploader — beside the bKash number and the loan
+ * policy. Two different jobs on one screen: publishing the public site, and
+ * configuring how the foundation's money works.
+ *
+ * They are two screens now. `CONTENT_CONFIG_KEYS` is what a page *shows* and
+ * lives on Content & Media, next to the gallery it belongs with;
+ * `SETTINGS_CONFIG_KEYS` is what the organisation *is* and what its money does,
+ * and stays on Settings.
+ *
+ * The split is a partition, and `test/unit/settings-keys-read.test.ts` refuses
+ * anything else — a key in neither list is a key no admin screen can reach,
+ * which is WO-67's failure again, and a key in both is two controls writing one
+ * row and disagreeing about what it currently holds.
+ */
+export const CONTENT_CONFIG_KEYS = [
+  'hero.tagline',
+  'hero.backgroundImage',
+  'hero.partnerLogo1',
+  'hero.partnerLogo2',
+  'hero.partnerLogo3',
+
+  'features.title',
+  'contact.title',
+  'donation.title',
+  'donation.subtitle',
+  'donation.referenceNote',
+
+  'navigation.features',
+  'navigation.donate',
+
+  'auth.welcomeBack',
+
+  'branding.logo',
+  'branding.dashboardLogo',
+  'branding.favicon',
+] as const;
+
+/**
+ * The rest: who the foundation is, what its money rules are, and where a donor
+ * sends money. The payment channels stay here rather than moving to Content
+ * with the rest of the donate page's copy — a wrong heading is embarrassing, a
+ * wrong bKash number sends a donor's money to a stranger.
+ */
+export const SETTINGS_CONFIG_KEYS = [
+  'org.name',
+  'org.nameEn',
+  'org.address',
+  'org.phone',
+  'org.email',
+  'org.website',
+  'org.regNumber',
+  'org.description',
+
+  'loan.minDepositForLoan',
+  'loan.maxLoanMultiplier',
+  'loan.maxInstallmentMonths',
+  'loan.allowActiveLoanWithdrawal',
+  'loan.missedPaymentsForDefault',
+  'loan.guarantorThresholdAmount',
+  'loan.noticePeriodMonths',
+
+  'donation.bkash',
+  'donation.nagad',
+  'donation.rocket',
+
+  'bank.name',
+  'bank.accountName',
+  'bank.accountNo',
+  'bank.branch',
+
+  'support.chatRetentionDays',
+] as const;
+
 export type SystemConfigKey = (typeof SYSTEM_CONFIG_KEYS)[number];
 
 const KEY_SET: ReadonlySet<string> = new Set(SYSTEM_CONFIG_KEYS);

@@ -224,6 +224,14 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 	return loans, nil
 }
 
+// GetWorkerTransactions lists the postings this member of staff processed.
+//
+// The `u.id::text` column is load-bearing: without it the SELECT returned twelve
+// columns while the Scan below asked for thirteen, so *every* row failed and hit
+// the `continue`. The endpoint answered `[]` with a 200 and no log line, which
+// is why both worker screens that read it — the deposits ledger and the
+// transaction history — were permanently empty and looked like a member with no
+// activity rather than a broken query.
 func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
 	const query = `
 		SELECT
@@ -235,6 +243,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			t.status::text,
 			COALESCE(t."savingsAfter", 0)::bigint,
 			t."createdAt",
+			u.id::text,
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."accountNo", ''),

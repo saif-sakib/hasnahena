@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useLocale } from 'next-intl';
-import { Building2, Wallet, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, LayoutTemplate, Globe, Trash2 } from 'lucide-react';
+import { Building2, Wallet, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, Globe, Banknote, MessageCircle, Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,30 +12,29 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
-import { ImageUpload } from '@/components/ui/image-upload';
 import { clearOrgSettingsCache } from '@/lib/documents';
 import { useDraft } from '@/lib/use-api';
-import { uploadSettingsImageAction, deleteSettingsImageAction } from '@/app/actions/upload-settings-image';
-import { uploadGalleryAction, deleteGalleryAction } from '@/app/actions/upload-gallery';
 // Aliased: `fetchSettings` is already taken in this file by the SWR mutator below.
 import { fetchSettings as readSettings } from '@/lib/settings-client';
+import { SETTINGS_CONFIG_KEYS } from '@/lib/system-config';
 
-type SettingImageType =
-  | 'branding.logo'
-  | 'branding.dashboardLogo'
-  | 'branding.favicon'
-  | 'hero.backgroundImage'
-  | 'hero.partnerLogo1'
-  | 'hero.partnerLogo2'
-  | 'hero.partnerLogo3';
-
-interface AdminGalleryItem {
-  id: string;
-  imageUrl: string;
-  captionEn: string | null;
-  captionBn: string | null;
-  date: string;
-}
+/**
+ * Settings is the money-and-identity screen.
+ *
+ * It used to carry a "Landing" tab too — hero image, partner logos, section
+ * headings, the login greeting and a gallery uploader, sitting beside the loan
+ * multiplier and the bKash number. Publishing the public site and configuring
+ * how the foundation's money works are two jobs, and they are two screens now:
+ * everything a visitor *reads* moved to Content & Media, next to the gallery it
+ * belongs with.
+ *
+ * What is left is what a wrong value costs real money or real trust: who the
+ * organisation is (this prints on every generated document's letterhead), the
+ * loan policy, the accounts a donor sends money to, and how long support
+ * conversations are kept. `SETTINGS_CONFIG_KEYS` in lib/system-config.ts is the
+ * authoritative list, and the two screens' lists are a partition — a unit test
+ * refuses a key that lands in both or in neither.
+ */
 
 const DEFAULT_ORG_SETTINGS = {
   name: 'হাসনাহেনা',
@@ -54,33 +53,28 @@ const DEFAULT_LOAN_SETTINGS = {
   maxInstallmentMonths: 24,
   missedPaymentsForDefault: 3,
   noticePeriodMonths: 3,
+  // WO-45. Declared since then and read by the loan application endpoint, but
+  // no screen offered it — so the only value it could ever hold was whatever
+  // the seed wrote. 0 means every loan needs a guarantor.
+  //
+  // 20000 rather than 0 because that is what `app/api/v1/loans/applications`
+  // falls back to when the row is missing, and what `seed.mjs` writes. A form
+  // whose default disagrees with the enforcer shows an admin a policy the
+  // system does not apply — the failure ADR-016 was opened for.
+  guarantorThresholdAmount: 20000,
   allowActiveLoanWithdrawal: false,
 };
 
 const DEFAULT_SUPPORT_RETENTION_DAYS = 10;
 
-const DEFAULT_LANDING_SETTINGS: Record<string, string> = {
-  'hero.tagline': '',
-  'navigation.features': '',
-  'navigation.donate': '',
-  'features.title': '',
-  'auth.welcomeBack': '',
-  'contact.title': '',
-  'donation.title': '',
-  'donation.subtitle': '',
+/** The donor-facing account details and the support retention policy. */
+const DEFAULT_PAYMENT_SETTINGS: Record<string, string> = {
   'donation.bkash': '',
   'donation.nagad': '',
   'donation.rocket': '',
-  'donation.referenceNote': '',
-  'branding.logo': '',
-  'branding.dashboardLogo': '',
-  'branding.favicon': '',
-  'hero.backgroundImage': '',
-  'hero.partnerLogo1': '',
-  'hero.partnerLogo2': '',
-  'hero.partnerLogo3': '',
-  // WO-67. Read by /donate. Until these were added here the page could only ever
-  // show its hardcoded fallbacks, because the endpoint rejects undeclared keys.
+  // WO-67. Seeded EMPTY, deliberately: /donate hides the whole bank card until
+  // an admin fills the account number in, because a plausible-looking wrong
+  // number is worse than a visible gap when a donor can act on it.
   'bank.name': '',
   'bank.accountName': '',
   'bank.accountNo': '',
@@ -111,9 +105,6 @@ export default function AdminSettingsPage() {
   const locale = useLocale();
   const [activeTab, setActiveTab] = useState('organization');
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
-  const [galleryCaptionEn, setGalleryCaptionEn] = useState('');
-  const [galleryCaptionBn, setGalleryCaptionBn] = useState('');
 
   // WO-27 — SWR, not an effect. This screen *edits* what it fetches, so the
   // server value stays derived and only the admin's edits are state; see
@@ -136,16 +127,6 @@ export default function AdminSettingsPage() {
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  const { data: galleryData, mutate: fetchGalleryItems } = useSWR<AdminGalleryItem[]>(
-    '/api/v1/gallery?admin',
-    async () => {
-      const response = await fetch('/api/v1/gallery', { cache: 'no-store' });
-      if (!response.ok) throw new Error('Failed to fetch gallery items');
-      return response.json();
-    },
-    { revalidateOnFocus: false, shouldRetryOnError: false },
-  );
-  const galleryItems = useMemo<AdminGalleryItem[]>(() => galleryData ?? [], [galleryData]);
 
   const serverOrgSettings = useMemo(() => {
     const data = settingsData ?? {};
@@ -171,6 +152,10 @@ export default function AdminSettingsPage() {
       maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], DEFAULT_LOAN_SETTINGS.maxInstallmentMonths),
       missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], DEFAULT_LOAN_SETTINGS.missedPaymentsForDefault),
       noticePeriodMonths: parseNonNegativeSetting(data['loan.noticePeriodMonths'], DEFAULT_LOAN_SETTINGS.noticePeriodMonths),
+      guarantorThresholdAmount: parseNonNegativeSetting(
+        data['loan.guarantorThresholdAmount'],
+        DEFAULT_LOAN_SETTINGS.guarantorThresholdAmount,
+      ),
       allowActiveLoanWithdrawal: parseBooleanSetting(
         data['loan.allowActiveLoanWithdrawal'],
         DEFAULT_LOAN_SETTINGS.allowActiveLoanWithdrawal,
@@ -183,19 +168,23 @@ export default function AdminSettingsPage() {
     [settingsData],
   );
 
-  const serverLandingSettings = useMemo<Record<string, string>>(() => {
-    // Only the string-valued keys belong to landing copy.
+  const serverPaymentSettings = useMemo<Record<string, string>>(() => {
+    // Only this screen's own string keys. Reading every string key and posting
+    // the lot back is what made the old form a second writer for the landing
+    // copy, so a save here could resurrect a value Content & Media had cleared.
     const stringSettings = Object.fromEntries(
-      Object.entries(settingsData ?? {}).filter(([, value]) => typeof value === 'string'),
+      Object.entries(settingsData ?? {}).filter(
+        ([key, value]) => typeof value === 'string' && key in DEFAULT_PAYMENT_SETTINGS,
+      ),
     ) as Record<string, string>;
-    return { ...DEFAULT_LANDING_SETTINGS, ...stringSettings };
+    return { ...DEFAULT_PAYMENT_SETTINGS, ...stringSettings };
   }, [settingsData]);
 
   const [orgSettings, setOrgSettings, resetOrgDraft] = useDraft(serverOrgSettings);
   const [loanSettings, setLoanSettings, resetLoanDraft] = useDraft(serverLoanSettings);
   const [supportRetentionDays, setSupportRetentionDays, resetSupportDraft] =
     useDraft(serverSupportRetentionDays);
-  const [landingSettings, setLandingSettings, resetLandingDraft] = useDraft(serverLandingSettings);
+  const [paymentSettings, setPaymentSettings, resetPaymentDraft] = useDraft(serverPaymentSettings);
 
   const getAuthToken = () =>
     typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
@@ -213,89 +202,6 @@ export default function AdminSettingsPage() {
   };
 
 
-  const handleSettingsImageUpload = (imageType: SettingImageType) => async (formData: FormData) => {
-    const authToken = getAuthToken();
-    if (!authToken) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    setIsUploadingMedia(true);
-    formData.append('authToken', authToken);
-    const result = await uploadSettingsImageAction(imageType, formData);
-    setIsUploadingMedia(false);
-
-    if (result.success && result.imageUrl) {
-      setLandingSettings((prev) => ({ ...prev, [imageType]: result.imageUrl as string }));
-      return { success: true, imageUrl: result.imageUrl };
-    }
-
-    return { success: false, error: result.error || 'Upload failed' };
-  };
-
-  const handleSettingsImageDelete = async (imageType: SettingImageType) => {
-    const authToken = getAuthToken();
-    const result = await deleteSettingsImageAction(imageType, authToken ?? undefined);
-    if (!result.success) {
-      toast({
-        title: 'Error',
-        description: result.error || 'Failed to delete image',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setLandingSettings((prev) => ({ ...prev, [imageType]: '' }));
-    toast({
-      title: 'Success',
-      description: 'Image removed',
-      variant: 'default',
-    });
-  };
-
-  const handleGalleryUploadFromSettings = async (formData: FormData) => {
-    const authToken = getAuthToken();
-    if (!authToken) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    setIsUploadingMedia(true);
-    formData.append('authToken', authToken);
-    if (galleryCaptionEn.trim()) formData.append('captionEn', galleryCaptionEn.trim());
-    if (galleryCaptionBn.trim()) formData.append('captionBn', galleryCaptionBn.trim());
-
-    const result = await uploadGalleryAction(formData);
-    setIsUploadingMedia(false);
-
-    if (result.success && result.galleryItem) {
-      setGalleryCaptionEn('');
-      setGalleryCaptionBn('');
-      await fetchGalleryItems();
-      return { success: true, imageUrl: result.galleryItem.imageUrl };
-    }
-
-    return { success: false, error: result.error || 'Upload failed' };
-  };
-
-  const handleGalleryDeleteFromSettings = async (id: string) => {
-    const authToken = getAuthToken();
-    const result = await deleteGalleryAction(id, authToken ?? undefined);
-    if (!result.success) {
-      toast({
-        title: 'Error',
-        description: result.error || 'Failed to delete gallery item',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Re-read rather than patch: the server decides what remains.
-    await fetchGalleryItems();
-    toast({
-      title: 'Success',
-      description: 'Gallery item deleted',
-    });
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
     try {
@@ -305,13 +211,16 @@ export default function AdminSettingsPage() {
         maxInstallmentMonths: Math.max(1, Math.trunc(loanSettings.maxInstallmentMonths)),
         missedPaymentsForDefault: Math.max(1, Math.trunc(loanSettings.missedPaymentsForDefault)),
         noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
+        guarantorThresholdAmount: Math.max(0, Math.trunc(loanSettings.guarantorThresholdAmount)),
         allowActiveLoanWithdrawal: loanSettings.allowActiveLoanWithdrawal,
       };
       const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
 
-      // Flatten settings for saving
+      // Flatten settings for saving. Only SETTINGS_CONFIG_KEYS — Content & Media
+      // owns the rest, and the two lists are a partition, so neither screen can
+      // overwrite the other's rows with a copy it read minutes ago.
       const settingsToSave = {
-        ...landingSettings,
+        ...paymentSettings,
         'org.name': orgSettings.name,
         'org.nameEn': orgSettings.nameEn,
         'org.email': orgSettings.email,
@@ -325,6 +234,7 @@ export default function AdminSettingsPage() {
         'loan.maxInstallmentMonths': String(normalizedLoanSettings.maxInstallmentMonths),
         'loan.missedPaymentsForDefault': String(normalizedLoanSettings.missedPaymentsForDefault),
         'loan.noticePeriodMonths': String(normalizedLoanSettings.noticePeriodMonths),
+        'loan.guarantorThresholdAmount': String(normalizedLoanSettings.guarantorThresholdAmount),
         'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
         'support.chatRetentionDays': String(normalizedSupportRetentionDays),
 
@@ -352,7 +262,17 @@ export default function AdminSettingsPage() {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify(settingsToSave),
+        // Filtered to this screen's own keys rather than posted as assembled.
+        // The two admin screens share one key/value table, and each save posts a
+        // whole list, so a stray key here would silently revert whatever Content
+        // & Media last wrote to it.
+        body: JSON.stringify(
+          Object.fromEntries(
+            Object.entries(settingsToSave).filter(([key]) =>
+              (SETTINGS_CONFIG_KEYS as readonly string[]).includes(key),
+            ),
+          ),
+        ),
       });
 
       if (!response.ok) {
@@ -373,7 +293,7 @@ export default function AdminSettingsPage() {
       resetOrgDraft();
       resetLoanDraft();
       resetSupportDraft();
-      resetLandingDraft();
+      resetPaymentDraft();
 
       toast({
         title: 'Success',
@@ -403,8 +323,8 @@ export default function AdminSettingsPage() {
 
   const tabs = [
     { key: 'organization', label: locale === 'bn' ? 'প্রতিষ্ঠান' : 'Organization' },
-    { key: 'landing', label: locale === 'bn' ? 'ল্যান্ডিং' : 'Landing' },
     { key: 'loans', label: locale === 'bn' ? 'ঋণ নীতি' : 'Loans' },
+    { key: 'payments', label: locale === 'bn' ? 'পেমেন্ট ও সাপোর্ট' : 'Payments & Support' },
   ];
 
   return (
@@ -538,427 +458,149 @@ export default function AdminSettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Landing Page Settings */}
-          <TabsContent value="landing">
+          {/* Payment channels and support retention */}
+          <TabsContent value="payments">
             <Card className="rounded-none border-gray-200 shadow-none">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <LayoutTemplate className="h-5 w-5" />
-                  {locale === 'bn' ? 'ল্যান্ডিং পেজ কনটেন্ট' : 'Landing Page Content'}
+                  <Banknote className="h-5 w-5" />
+                  {locale === 'bn' ? 'পেমেন্ট ও সাপোর্ট' : 'Payments & Support'}
                 </CardTitle>
                 <CardDescription>
                   {locale === 'bn'
-                    ? 'ল্যান্ডিং পেজের টেক্সট এবং কনফিগারেশন পরিবর্তন করুন'
-                    : 'Customize landing page text and configuration'}
+                    ? 'দাতারা যেখানে টাকা পাঠান, এবং সাপোর্ট কথোপকথন কতদিন রাখা হবে'
+                    : 'Where donors send money, and how long support conversations are kept'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-4">
+                <div className="space-y-1">
+                  <h4 className="font-semibold text-sm">
+                    {locale === 'bn' ? 'মোবাইল ব্যাংকিং' : 'Mobile banking'}
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Printed on the public donate page. The headings and the reference note that
+                    surround them are edited on <strong>Content &amp; Media</strong>.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label>Hero Tagline</Label>
+                    <Label htmlFor="pay-bkash">bKash Number</Label>
                     <Input
-                      value={landingSettings['hero.tagline']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'hero.tagline': e.target.value })}
-                      placeholder="e.g. Empowering Community through Islamic Finance"
-                    />
-                    <p className="text-xs text-muted-foreground">The main headline on the home page.</p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Navigation Features Label</Label>
-                    <Input
-                      value={landingSettings['navigation.features']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'navigation.features': e.target.value })}
-                      placeholder="e.g. Features"
-                    />
-                    <p className="text-xs text-muted-foreground">The menu item text for the Features section.</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Navigation Donate Label</Label>
-                    <Input
-                      value={landingSettings['navigation.donate']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'navigation.donate': e.target.value })}
-                      placeholder="e.g. Donate"
-                    />
-                    <p className="text-xs text-muted-foreground">The menu item text for the Donate section.</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Features Section Title</Label>
-                    <Input
-                      value={landingSettings['features.title']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'features.title': e.target.value })}
-                      placeholder="e.g. Why Choose Us?"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Contact Section Title</Label>
-                    <Input
-                      value={landingSettings['contact.title']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'contact.title': e.target.value })}
-                      placeholder="e.g. Contact Us"
-                    />
-                  </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-2">
-                    <Label>Donate Section Title</Label>
-                    <Input
-                      value={landingSettings['donation.title']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.title': e.target.value })}
-                      placeholder="e.g. Donate to Support Our Mission"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Donate Section Subtitle</Label>
-                    <Input
-                      value={landingSettings['donation.subtitle']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.subtitle': e.target.value })}
-                      placeholder="e.g. Send your donation through the following channels"
-                    />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label>bKash Number</Label>
-                      <Input
-                        value={landingSettings['donation.bkash']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.bkash': e.target.value })}
-                        placeholder="+8801XXXXXXXXX"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Nagad Number</Label>
-                      <Input
-                        value={landingSettings['donation.nagad']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.nagad': e.target.value })}
-                        placeholder="+8801XXXXXXXXX"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Rocket Number</Label>
-                      <Input
-                        value={landingSettings['donation.rocket']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.rocket': e.target.value })}
-                        placeholder="+8801XXXXXXXXX"
-                      />
-                    </div>
-                  </div>
-
-                  {/*
-                    WO-67. Bank transfer details for /donate.
-
-                    Leave the account number blank and the whole bank card is
-                    hidden on the public page. That is deliberate: what these
-                    replaced was a hardcoded `2050 0000 0000 0000` that looked
-                    like a real account and could not be changed from anywhere.
-                  */}
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-1">
-                    <h4 className="font-semibold text-sm">Bank Transfer Details (Donate page)</h4>
-                    <p className="text-xs text-muted-foreground">
-                      Shown on the public donate page. Leave the account number empty
-                      to hide the bank card entirely — better a visible gap than a
-                      number a donor might send money to by mistake.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Bank Name</Label>
-                      <Input
-                        value={landingSettings['bank.name']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.name': e.target.value })}
-                        placeholder="e.g. Islami Bank Bangladesh PLC"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Account Name</Label>
-                      <Input
-                        value={landingSettings['bank.accountName']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.accountName': e.target.value })}
-                        placeholder="e.g. Hasnahena Foundation"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Account Number</Label>
-                      <Input
-                        value={landingSettings['bank.accountNo']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.accountNo': e.target.value })}
-                        placeholder="empty hides the bank card"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Branch</Label>
-                      <Input
-                        value={landingSettings['bank.branch']}
-                        onChange={(e) => setLandingSettings({ ...landingSettings, 'bank.branch': e.target.value })}
-                        placeholder="e.g. Jashore Branch"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                    <div className="space-y-2">
-                      <Label>Donation Reference Note</Label>
-                      <Textarea
-                      value={landingSettings['donation.referenceNote']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'donation.referenceNote': e.target.value })}
-                      rows={3}
-                      placeholder="e.g. Please mention your name, address and mobile number in reference..."
-                    />
-                  </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-2">
-                    <Label>Welcome Back Message (Login Page)</Label>
-                    <Input
-                      value={landingSettings['auth.welcomeBack']}
-                      onChange={(e) => setLandingSettings({ ...landingSettings, 'auth.welcomeBack': e.target.value })}
-                      placeholder="e.g. Welcome Back!"
-                    />
-                    <p className="text-xs text-muted-foreground">The greeting message shown on the login screen.</p>
-                  </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-4">
-                    <h4 className="font-medium">
-                      {locale === 'bn' ? 'ল্যান্ডিং পেজ ইমেজ' : 'Landing Page Images'}
-                    </h4>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>{locale === 'bn' ? 'সাইট লোগো' : 'Site Logo'}</Label>
-                        <ImageUpload
-                          currentImage={landingSettings['branding.logo'] || undefined}
-                          onUpload={handleSettingsImageUpload('branding.logo')}
-                          onUploadComplete={(url) =>
-                            setLandingSettings((prev) => ({ ...prev, 'branding.logo': url }))
-                          }
-                          onUploadError={(error) =>
-                            toast({ title: 'Upload Error', description: error, variant: 'destructive' })
-                          }
-                          maxSizeMB={5}
-                          aspectRatio="aspect-3/1"
-                        />
-                        {landingSettings['branding.logo'] && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleSettingsImageDelete('branding.logo')}
-                            disabled={isUploadingMedia}
-                            className="gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            {locale === 'bn' ? 'সরান' : 'Remove'}
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>{locale === 'bn' ? 'ড্যাশবোর্ড লোগো' : 'Dashboard Logo'}</Label>
-                        <ImageUpload
-                          currentImage={landingSettings['branding.dashboardLogo'] || undefined}
-                          onUpload={handleSettingsImageUpload('branding.dashboardLogo')}
-                          onUploadComplete={(url) =>
-                            setLandingSettings((prev) => ({ ...prev, 'branding.dashboardLogo': url }))
-                          }
-                          onUploadError={(error) =>
-                            toast({ title: 'Upload Error', description: error, variant: 'destructive' })
-                          }
-                          maxSizeMB={5}
-                          aspectRatio="aspect-3/1"
-                        />
-                        {landingSettings['branding.dashboardLogo'] && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleSettingsImageDelete('branding.dashboardLogo')}
-                            disabled={isUploadingMedia}
-                            className="gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            {locale === 'bn' ? 'সরান' : 'Remove'}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-2">
-                    <Label>Support Chat Retention Days</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={supportRetentionDays}
-                      onChange={(e) => setSupportRetentionDays(parseIntegerInput(e.target.value, supportRetentionDays))}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {locale === 'bn'
-                        ? 'এই দিনের বেশি পুরনো সাপোর্ট কথোপকথন স্বয়ংক্রিয়ভাবে মুছে যাবে'
-                        : 'Support conversations older than this many days will be removed automatically'}
-                    </p>
-                  </div>
-
-                    <div className="space-y-2">
-                      <Label>{locale === 'bn' ? 'হিরো ব্যাকগ্রাউন্ড ইমেজ' : 'Hero Background Image'}</Label>
-                      <ImageUpload
-                        currentImage={landingSettings['hero.backgroundImage'] || undefined}
-                        onUpload={handleSettingsImageUpload('hero.backgroundImage')}
-                        onUploadComplete={(url) =>
-                          setLandingSettings((prev) => ({ ...prev, 'hero.backgroundImage': url }))
-                        }
-                        onUploadError={(error) =>
-                          toast({ title: 'Upload Error', description: error, variant: 'destructive' })
-                        }
-                        maxSizeMB={5}
-                        aspectRatio="aspect-video"
-                      />
-                      {landingSettings['hero.backgroundImage'] && (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleSettingsImageDelete('hero.backgroundImage')}
-                          disabled={isUploadingMedia}
-                          className="gap-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          {locale === 'bn' ? 'সরান' : 'Remove'}
-                        </Button>
-                      )}
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-3">
-                      {(
-                        [
-                          ['hero.partnerLogo1', locale === 'bn' ? 'পার্টনার লোগো ১' : 'Partner Logo 1'],
-                          ['hero.partnerLogo2', locale === 'bn' ? 'পার্টনার লোগো ২' : 'Partner Logo 2'],
-                          ['hero.partnerLogo3', locale === 'bn' ? 'পার্টনার লোগো ৩' : 'Partner Logo 3'],
-                        ] as const
-                      ).map(([key, title]) => (
-                        <div key={key} className="space-y-2">
-                          <Label>{title}</Label>
-                          <ImageUpload
-                            currentImage={landingSettings[key] || undefined}
-                            onUpload={handleSettingsImageUpload(key)}
-                            onUploadComplete={(url) =>
-                              setLandingSettings((prev) => ({ ...prev, [key]: url }))
-                            }
-                            onUploadError={(error) =>
-                              toast({ title: 'Upload Error', description: error, variant: 'destructive' })
-                            }
-                            maxSizeMB={5}
-                            aspectRatio="aspect-4/3"
-                          />
-                          {landingSettings[key] && (
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => handleSettingsImageDelete(key)}
-                              disabled={isUploadingMedia}
-                              className="gap-2"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              {locale === 'bn' ? 'সরান' : 'Remove'}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-gray-200 my-4" />
-
-                  <div className="space-y-4">
-                    <h4 className="font-medium">
-                      {locale === 'bn' ? 'গ্যালারিতে পোস্ট করুন' : 'Post to Gallery'}
-                    </h4>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>{locale === 'bn' ? 'ক্যাপশন (ইংরেজি)' : 'Caption (English)'}</Label>
-                        <Input
-                          value={galleryCaptionEn}
-                          onChange={(e) => setGalleryCaptionEn(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>{locale === 'bn' ? 'ক্যাপশন (বাংলা)' : 'Caption (Bengali)'}</Label>
-                        <Input
-                          value={galleryCaptionBn}
-                          onChange={(e) => setGalleryCaptionBn(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <ImageUpload
-                      label={locale === 'bn' ? 'গ্যালারি ইমেজ আপলোড' : 'Upload Gallery Image'}
-                      onUpload={handleGalleryUploadFromSettings}
-                      onUploadComplete={() => {
-                        toast({
-                          title: 'Success',
-                          description: locale === 'bn' ? 'গ্যালারিতে পোস্ট করা হয়েছে' : 'Posted to gallery',
-                        });
-                      }}
-                      onUploadError={(error) =>
-                        toast({ title: 'Upload Error', description: error, variant: 'destructive' })
+                      id="pay-bkash"
+                      value={paymentSettings['donation.bkash']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'donation.bkash': e.target.value })
                       }
-                      maxSizeMB={10}
-                      aspectRatio="aspect-video"
+                      placeholder="+8801XXXXXXXXX"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pay-nagad">Nagad Number</Label>
+                    <Input
+                      id="pay-nagad"
+                      value={paymentSettings['donation.nagad']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'donation.nagad': e.target.value })
+                      }
+                      placeholder="+8801XXXXXXXXX"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pay-rocket">Rocket Number</Label>
+                    <Input
+                      id="pay-rocket"
+                      value={paymentSettings['donation.rocket']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'donation.rocket': e.target.value })
+                      }
+                      placeholder="+8801XXXXXXXXX"
+                    />
+                  </div>
+                </div>
 
-                  {galleryItems.length > 0 && (
-                    <div className="space-y-3">
-                      <h4 className="font-medium">
-                        {locale === 'bn' ? 'গ্যালারি পোস্টসমূহ' : 'Gallery Posts'}
-                      </h4>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {galleryItems.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center gap-3 rounded-sm border border-gray-200 p-2"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={item.imageUrl}
-                              alt={item.captionEn || item.captionBn || 'Gallery image'}
-                              className="h-14 w-20 rounded object-cover"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {item.captionEn || item.captionBn || '-'}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {new Date(item.date).toLocaleDateString()}
-                              </p>
-                            </div>
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              onClick={() => void handleGalleryDeleteFromSettings(item.id)}
-                              disabled={isUploadingMedia}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div className="border-t border-gray-200 my-4" />
+
+                <div className="space-y-1">
+                  <h4 className="font-semibold text-sm">Bank Transfer Details</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Leave the account number empty to hide the bank card entirely — better a
+                    visible gap than a number a donor might send money to by mistake.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="bank-name">Bank Name</Label>
+                    <Input
+                      id="bank-name"
+                      value={paymentSettings['bank.name']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'bank.name': e.target.value })
+                      }
+                      placeholder="e.g. Islami Bank Bangladesh PLC"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bank-account-name">Account Name</Label>
+                    <Input
+                      id="bank-account-name"
+                      value={paymentSettings['bank.accountName']}
+                      onChange={(e) =>
+                        setPaymentSettings({
+                          ...paymentSettings,
+                          'bank.accountName': e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Hasnahena Foundation"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bank-account-no">Account Number</Label>
+                    <Input
+                      id="bank-account-no"
+                      value={paymentSettings['bank.accountNo']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'bank.accountNo': e.target.value })
+                      }
+                      placeholder="empty hides the bank card"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bank-branch">Branch</Label>
+                    <Input
+                      id="bank-branch"
+                      value={paymentSettings['bank.branch']}
+                      onChange={(e) =>
+                        setPaymentSettings({ ...paymentSettings, 'bank.branch': e.target.value })
+                      }
+                      placeholder="e.g. Jashore Branch"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 my-4" />
+
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="support-retention" className="flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4" />
+                    {locale === 'bn' ? 'সাপোর্ট চ্যাট রাখার দিন' : 'Support Chat Retention Days'}
+                  </Label>
+                  <Input
+                    id="support-retention"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={supportRetentionDays}
+                    onChange={(e) =>
+                      setSupportRetentionDays(parseIntegerInput(e.target.value, supportRetentionDays))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'bn'
+                      ? 'এই দিনের বেশি পুরনো সাপোর্ট কথোপকথন স্বয়ংক্রিয়ভাবে মুছে যাবে'
+                      : 'Support conversations older than this many days will be removed automatically'}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1115,6 +757,37 @@ export default function AdminSettingsPage() {
                       {locale === 'bn'
                         ? 'সদস্য নোটিস দেওয়ার পর এই সময় পার হলেই উত্তোলন করা যাবে। ০ দিলে নোটিস পিরিয়ড থাকবে না।'
                         : 'A withdrawal is paid only after this long has passed since the member gave notice. Set 0 to run no notice period.'}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      {locale === 'bn' ? 'জামিনদার লাগবে না যত টাকা পর্যন্ত' : 'Guarantor-free Loan Limit'}
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <span>৳</span>
+                      <Input
+                        type="number"
+                        value={loanSettings.guarantorThresholdAmount}
+                        onChange={(e) =>
+                          setLoanSettings({
+                            ...loanSettings,
+                            guarantorThresholdAmount: parseIntegerInput(
+                              e.target.value,
+                              loanSettings.guarantorThresholdAmount,
+                              0,
+                            ),
+                          })
+                        }
+                        min={0}
+                        step={1}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {locale === 'bn'
+                        ? 'এই পরিমাণ বা তার কম ঋণে জামিনদার লাগবে না। ০ দিলে প্রতিটি ঋণেই জামিনদার লাগবে।'
+                        : 'Loans at or below this amount skip the guarantor step. Set 0 to require a guarantor on every loan.'}
                     </p>
                   </div>
 

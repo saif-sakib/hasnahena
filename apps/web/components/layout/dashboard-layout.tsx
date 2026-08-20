@@ -5,12 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import useSWR from 'swr';
 import {
-  LayoutDashboard,
-  Wallet,
-  HandCoins,
-  Receipt,
   User,
-  Settings,
   Menu,
   X,
   Bell,
@@ -18,18 +13,11 @@ import {
   LogOut,
   Home,
   ChevronRight,
-  Users,
-  UserPlus,
-  ClipboardList,
-  PieChart,
-  FileText,
   Shield,
   CheckCircle2,
-  Image as ImageIcon,
   MessageCircle,
   Send,
   ArrowLeft,
-  Building2,
 } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
@@ -42,6 +30,8 @@ import { getInitials, getAvatarColor } from '@/lib/image-utils';
 import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
 import Image from 'next/image';
 import { Input } from '@/components/ui/input';
+import { navFor, type DashboardNavItem } from '@/components/dashboard/nav';
+import { DashboardRoleProvider } from '@/components/dashboard/role';
 
 interface NotificationItem {
   id: string;
@@ -96,45 +86,6 @@ interface DashboardLayoutProps {
 const USER_INFO_CACHE_KEY = 'hn_user_info_cache';
 const USER_INFO_CACHE_TIMESTAMP_KEY = 'hn_user_info_timestamp';
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes cache
-
-// Member navigation - view-only access to account information
-const memberNav = [
-  { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
-  { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposit History', bn: 'আমানতের ইতিহাস' },
-  { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loan Status', bn: 'ঋণের স্থিতি' },
-  { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
-];
-
-// Worker navigation - based on requirements: process requests, manage members, record transactions
-const workerNav = [
-  { name: 'overview', href: '', icon: LayoutDashboard, en: 'Overview', bn: 'সারসংক্ষেপ' },
-  { name: 'approvals', href: '/approvals', icon: ClipboardList, en: 'Approvals', bn: 'অনুমোদন' },
-  { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
-  { name: 'deposits', href: '/deposits', icon: Wallet, en: 'Deposits', bn: 'আমানত' },
-  { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
-  { name: 'transactions', href: '/transactions', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
-];
-
-// Admin primary navigation - day-to-day operational workflow
-const adminPrimaryNav = [
-  { name: 'overview', href: '', icon: LayoutDashboard, en: 'Command Center', bn: 'কমান্ড সেন্টার' },
-  { name: 'approvals', href: '/approvals', icon: ClipboardList, en: 'Approvals', bn: 'অনুমোদন' },
-  { name: 'members', href: '/members', icon: Users, en: 'Members', bn: 'সদস্যগণ' },
-  { name: 'deposits', href: '/deposits', icon: Receipt, en: 'Transactions', bn: 'লেনদেন' },
-  { name: 'loans', href: '/loans', icon: HandCoins, en: 'Loans', bn: 'ঋণ' },
-];
-
-// Admin secondary navigation - management and configuration tools
-const adminSecondaryNav = [
-  { name: 'workers', href: '/workers', icon: UserPlus, en: 'Workers', bn: 'কর্মীগণ' },
-  { name: 'reports', href: '/reports', icon: FileText, en: 'Reports', bn: 'রিপোর্ট' },
-  { name: 'donations', href: '/donations', icon: PieChart, en: 'Donations', bn: 'দান তহবিল' },
-  { name: 'gallery', href: '/gallery', icon: ImageIcon, en: 'Gallery', bn: 'গ্যালারি' },
-  // WO-72. Branches became manageable when users.assignedBranch stopped being a
-  // free string.
-  { name: 'branches', href: '/branches', icon: Building2, en: 'Branches', bn: 'শাখাসমূহ' },
-  { name: 'settings', href: '/settings', icon: Settings, en: 'Settings', bn: 'সেটিংস' },
-];
 
 // Helper functions for caching
 function getCachedUserInfo(): UserInfo | null {
@@ -276,7 +227,41 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     },
   );
 
-  const navItems = role === 'worker' ? workerNav : memberNav;
+  const renderNavLink = (item: DashboardNavItem) => {
+    const href = `${basePath}${item.href}`;
+    const isActive = pathname === href || (item.href === '' && pathname === basePath);
+
+    return (
+      <Link
+        key={item.name}
+        href={href}
+        prefetch={true}
+        className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
+          isActive
+            ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
+            : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
+        }`}
+        onClick={() => {
+          if (pathname !== href) {
+            setPendingHref(href);
+          }
+          setSidebarOpen(false);
+        }}
+      >
+        <item.icon
+          className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`}
+          strokeWidth={isActive ? 2.5 : 2}
+        />
+        {locale === 'bn' ? item.bn : item.en}
+        {pendingHref === href && pathname !== href ? (
+          <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : null}
+      </Link>
+    );
+  };
+
+  const primaryNav = navFor(role, 'primary');
+  const managementNav = navFor(role, 'management');
   const basePath = `/${locale}/dashboard/${role}`;
 
   const roleLabels = {
@@ -795,111 +780,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
             </div>
           </div>
 
-          {/* Navigation - Clean list */}
+          {/* Navigation - one grouped list, built from components/dashboard/nav.ts */}
           <nav className="flex-1 py-1 overflow-y-auto px-3" style={{ scrollbarWidth: 'thin' }}>
-            {role === 'admin' ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
-                    {locale === 'bn' ? 'প্রতিদিনের কাজ' : 'Daily Operations'}
-                  </p>
-                  <div className="space-y-1">
-                    {adminPrimaryNav.map((item) => {
-                      const href = `${basePath}${item.href}`;
-                      const isActive = pathname === href || (item.href === '' && pathname === basePath);
+            <div className="space-y-4">
+              {managementNav.length > 0 ? (
+                <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
+                  {locale === 'bn' ? 'প্রতিদিনের কাজ' : 'Daily Operations'}
+                </p>
+              ) : null}
+              <div className="space-y-1">{primaryNav.map(renderNavLink)}</div>
 
-                      return (
-                        <Link
-                          key={item.name}
-                          href={href}
-                          prefetch={true}
-                          className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
-                            isActive
-                              ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
-                              : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
-                          }`}
-                          onClick={() => {
-                            if (pathname !== href) {
-                              setPendingHref(href);
-                            }
-                            setSidebarOpen(false);
-                          }}
-                        >
-                          <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
-                          {locale === 'bn' ? item.bn : item.en}
-                          {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </div>
-
+              {managementNav.length > 0 ? (
                 <div>
                   <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
                     {locale === 'bn' ? 'ম্যানেজমেন্ট টুলস' : 'Management Tools'}
                   </p>
-                  <div className="space-y-1">
-                    {adminSecondaryNav.map((item) => {
-                      const href = `${basePath}${item.href}`;
-                      const isActive = pathname === href || (item.href === '' && pathname === basePath);
-
-                      return (
-                        <Link
-                          key={item.name}
-                          href={href}
-                          prefetch={true}
-                          className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
-                            isActive
-                              ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
-                              : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
-                          }`}
-                          onClick={() => {
-                            if (pathname !== href) {
-                              setPendingHref(href);
-                            }
-                            setSidebarOpen(false);
-                          }}
-                        >
-                          <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
-                          {locale === 'bn' ? item.bn : item.en}
-                          {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-                        </Link>
-                      );
-                    })}
-                  </div>
+                  <div className="space-y-1">{managementNav.map(renderNavLink)}</div>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {navItems.map((item) => {
-                  const href = `${basePath}${item.href}`;
-                  const isActive = pathname === href || (item.href === '' && pathname === basePath);
-
-                  return (
-                    <Link
-                      key={item.name}
-                      href={href}
-                      prefetch={true}
-                      className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
-                        isActive
-                          ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
-                          : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
-                      }`}
-                      onClick={() => {
-                        if (pathname !== href) {
-                          setPendingHref(href);
-                        }
-                        setSidebarOpen(false);
-                      }}
-                    >
-                      <item.icon className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`} strokeWidth={isActive ? 2.5 : 2} />
-                      {locale === 'bn' ? item.bn : item.en}
-                      {pendingHref === href && pathname !== href ? <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : null}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
+              ) : null}
+            </div>
           </nav>
 
           {/* Logout - Compact */}
@@ -1297,7 +1196,9 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-6 md:p-8 lg:p-10 w-full max-w-7xl mx-auto">{children}</main>
+        <main className="flex-1 p-6 md:p-8 lg:p-10 w-full max-w-7xl mx-auto">
+          <DashboardRoleProvider role={role}>{children}</DashboardRoleProvider>
+        </main>
       </div>
     </div>
   );

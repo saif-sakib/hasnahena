@@ -106,12 +106,6 @@ mainstream reading, while one paid entirely to charity is the form scholars perm
 
 Recorded rather than fixed, because each is a decision rather than a defect.
 
-- `[ ]` **No client-side role guard on the dashboards.** A member who types
-  `/en/dashboard/worker` sees the worker shell with no data in it. The API refuses
-  every request, so nothing leaks — it is confusing, not dangerous. A redirect in
-  the dashboard layout would fix it. `e2e/journeys.spec.ts` asserts the safety
-  property and deliberately does *not* pin the current behaviour, which would make
-  the gap harder to fix.
 - `[ ]` **Admin, worker and `(auth)` screens keep their copy inline** —
   `locale === 'bn' ? … : …` rather than `messages/{en,bn}.json` (rule 5). They
   *are* translated (the `/bn` dashboards measure 84–97% Bengali), so this is a
@@ -167,7 +161,7 @@ The legacy `LoanStatus` values were the third item here and are gone
 | 7 | **Fix FR-12's worker path** so a worker-created loan follows the same lifecycle a member-created one does |
 | 8 | **Fairness and solvency caps** (FR-10) |
 | 9 | **Answer the late-fee question** (FR-13) — needs foundation policy, not code |
-| 10 | **A client-side role guard**, and **an SSE client** for support (the UI polls) |
+| 10 | **An SSE client** for support (the UI polls) |
 | 11 | **Admin audit viewer UI** (OBS-08, FR-22) and worker SLA colouring (FR-21) |
 | 12 | **DATA-06** — back up the Cloudinary assets, as soon as there is something to back up |
 | 13 | **Host move** (INF-01 → INF-12). Only once everything above is quiet |

@@ -418,6 +418,21 @@ answered 500.
 
 ## Interface
 
+- **A one-line re-export is not proof that two screens are the same screen.**
+  `dashboard/worker/approvals` was `export { default } from '../../admin/approvals/page'`
+  and had never worked for a worker: the component it re-exported calls
+  `/v1/dashboard/admin/approvals`, which was mounted inside the admin-only group,
+  so every worker who opened it got a 403 and a blank page. Sharing a component
+  across roles only works if the endpoints it calls are reachable by all of them —
+  check the route table, not the import.
+- **Two forms over one key/value table will fight.** Each posts the whole list it
+  read, so the later save reverts the other's edits, and neither reports
+  anything. When Settings split into Settings and Content & Media, the fix was to
+  make the two key lists a partition and pin it with a test
+  (`CONTENT_CONFIG_KEYS` / `SETTINGS_CONFIG_KEYS`); the same test catches the
+  opposite failure, a declared key that *no* form offers, whose value is then
+  whatever the seed wrote.
+
 - **A `|| 'fallback'` on a value nobody can set is not a fallback.** The public
   `/donate` page read four `bank.*` keys that were absent from
   `SYSTEM_CONFIG_KEYS`, so `PUT /api/v1/settings` — which rejects the whole
@@ -480,6 +495,14 @@ scanned from before renaming anything. The route parameter is `{memberUserId}`
 now, which is what it always was.
 
 ## Go
+
+- **A `Scan` with more destinations than the SELECT has columns fails every row,
+  silently.** `GetWorkerTransactions` listed twelve columns and scanned thirteen,
+  and the loop's error branch was `continue` — so the endpoint answered `[]` with
+  a 200, no log line, and two worker screens that had never shown anything looked
+  exactly like a worker who had processed nothing. `continue` on a scan error is
+  how a column-count bug becomes an empty page instead of a crash; if you write
+  one, count the columns first.
 
 - **A startup context is not a background context.** `main.go` had a bare `ctx`
   that was a 10-second startup timeout; anything long-lived handed it runs exactly

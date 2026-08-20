@@ -180,25 +180,19 @@ var routeContract = map[string]access{
 	"PUT /v1/dashboard/worker/profile": staff,
 
 	// Administration.
+	// The dashboard payload carries `recentActivity`, which is the audit
+	// trail — admin-only by product.md even though the counters beside it are
+	// not sensitive.
 	"GET /v1/dashboard/admin/":                               adminOnly,
-	"GET /v1/dashboard/admin/members":                        adminOnly,
 	"GET /v1/dashboard/admin/workers":                        adminOnly,
 	"POST /v1/dashboard/admin/workers/welcome-email":         adminOnly,
 	"POST /v1/dashboard/admin/members/status":                adminOnly,
-	"GET /v1/dashboard/admin/approvals":                      adminOnly,
 	"POST /v1/dashboard/admin/approvals/registration":        adminOnly,
 	"POST /v1/dashboard/admin/approvals/registration/reject": adminOnly,
 	"POST /v1/dashboard/admin/approvals/loan":                adminOnly,
 	"POST /v1/dashboard/admin/approvals/loan/reject":         adminOnly,
-	"POST /v1/dashboard/admin/approvals/withdrawal":          adminOnly,
-	"POST /v1/dashboard/admin/approvals/withdrawal/reject":   adminOnly,
-	"GET /v1/dashboard/admin/deposits":                       adminOnly,
-	"GET /v1/dashboard/admin/loans":                          adminOnly,
 	"GET /v1/dashboard/admin/loans/detail":                   adminOnly,
 	"POST /v1/dashboard/admin/loans/default":                 adminOnly,
-	"GET /v1/dashboard/admin/reports/monthly":                adminOnly,
-	"GET /v1/dashboard/admin/reports/yearly":                 adminOnly,
-	"GET /v1/dashboard/admin/reports/loans":                  adminOnly,
 	"GET /v1/dashboard/admin/profile":                        adminOnly,
 	// Same handler as the worker PUT above, but mounted inside the adminOnly
 	// group, so the middleware narrows it regardless of what the handler asks
@@ -209,6 +203,30 @@ var routeContract = map[string]access{
 	// by field workers too.
 	"GET /v1/dashboard/admin/donations":  staff,
 	"POST /v1/dashboard/admin/donations": staff,
+
+	// The approvals queue, and processing a pending posting. Approving a
+	// *registration* or a *loan* is an admin decision and stays above; moving
+	// money a member has already asked for is the worker's job (FR-07, FR-08),
+	// and these three handlers have asked for WORKER since they were written.
+	// Only the mounting said otherwise, which 403'd the worker approvals
+	// screen — the same component the admin opens.
+	"GET /v1/dashboard/admin/approvals":                    staff,
+	"POST /v1/dashboard/admin/approvals/withdrawal":        staff,
+	"POST /v1/dashboard/admin/approvals/withdrawal/reject": staff,
+
+	// Read-only aggregates over postings a worker already sees one at a time.
+	"GET /v1/dashboard/admin/reports/monthly": staff,
+	"GET /v1/dashboard/admin/reports/yearly":  staff,
+	"GET /v1/dashboard/admin/reports/loans":   staff,
+
+	// The three read-only lists the shared reports screen cross-foots.
+	// `/admin/members` is the same handler body as `/worker/members`, and
+	// `/worker/loans` already returns every loan, so those two hand a worker
+	// nothing they could not already fetch. The savings ledger is the real
+	// widening — read only; every write to it is gated elsewhere.
+	"GET /v1/dashboard/admin/members":  staff,
+	"GET /v1/dashboard/admin/loans":    staff,
+	"GET /v1/dashboard/admin/deposits": staff,
 }
 
 // ---------------------------------------------------------------------------

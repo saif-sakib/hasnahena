@@ -35,12 +35,19 @@ function revalidateGalleryPaths() {
   updateTag(GALLERY_TAG);
   revalidatePath('/gallery');
   revalidatePath('/[locale]/gallery');
-  revalidatePath('/[locale]/dashboard/admin/gallery');
+  // Both staff dashboards render the same Content & Media screen.
+  revalidatePath('/[locale]/dashboard/admin/content');
+  revalidatePath('/[locale]/dashboard/worker/content');
 }
 
 /**
- * Upload gallery image server action
- * Only admins can upload to gallery
+ * Upload gallery image server action.
+ *
+ * Staff, not admins. The gallery is a field worker's tool — they are the ones at
+ * the distribution with a phone — and it is one of the two management screens a
+ * worker was given. Nothing else on Content & Media is theirs: the public copy
+ * and the brand assets go through `PUT /api/v1/settings`, which is admin-only,
+ * and the screen hides those sections rather than letting them 403.
  */
 export async function uploadGalleryAction(
   formData: FormData
@@ -59,8 +66,8 @@ export async function uploadGalleryAction(
 
     const auth = await authorizeServerActionRoles(
       authToken,
-      ['ADMIN', 'SUPER_ADMIN'],
-      'Unauthorized. Only admins can upload gallery images.'
+      ['ADMIN', 'SUPER_ADMIN', 'WORKER'],
+      'Unauthorized. Only staff can upload gallery images.'
     );
     if (!auth.ok) {
       return { success: false, error: auth.error };
@@ -144,8 +151,8 @@ export async function deleteGalleryAction(
 
     const auth = await authorizeServerActionRoles(
       authToken,
-      ['ADMIN', 'SUPER_ADMIN'],
-      'Unauthorized. Only admins can delete gallery images.'
+      ['ADMIN', 'SUPER_ADMIN', 'WORKER'],
+      'Unauthorized. Only staff can delete gallery images.'
     );
     if (!auth.ok) {
       return { success: false, error: auth.error };
@@ -207,8 +214,8 @@ export async function updateGalleryImageAction(
 
     const auth = await authorizeServerActionRoles(
       authToken,
-      ['ADMIN', 'SUPER_ADMIN'],
-      'Unauthorized. Only admins can update gallery images.'
+      ['ADMIN', 'SUPER_ADMIN', 'WORKER'],
+      'Unauthorized. Only staff can update gallery images.'
     );
     if (!auth.ok) {
       return { success: false, error: auth.error };

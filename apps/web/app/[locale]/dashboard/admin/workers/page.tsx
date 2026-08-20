@@ -103,6 +103,20 @@ async function requestWorkersApi<T>(path: string, method: 'POST' | 'PUT' | 'PATC
   return payload.data as T;
 }
 
+/**
+ * Field-worker accounts.
+ *
+ * This screen creates and edits **workers**. It does not create admins, and it
+ * cannot promote a worker into one: an admin account is made directly in the
+ * database, deliberately, because the alternative is that anyone who reaches an
+ * admin session can mint another one from a web form and the audit trail records
+ * it as ordinary staff administration. `/api/v1/admin/workers` enforces the same
+ * rule server-side — role is not a field it accepts on create or on update — so
+ * this is a UI that matches the API rather than a UI that hides a capability.
+ *
+ * Existing admin accounts are still listed, because "who has the keys" is worth
+ * being able to see. Their rows carry no actions.
+ */
 export default function AdminWorkersPage() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
@@ -137,14 +151,12 @@ export default function AdminWorkersPage() {
     name: '',
     email: '',
     phone: '',
-    role: 'WORKER' as 'WORKER' | 'ADMIN',
     assignedBranchId: '',
   });
   const [editWorker, setEditWorker] = useState({
     name: '',
     phone: '',
     assignedBranchId: '',
-    role: 'WORKER' as 'WORKER' | 'ADMIN',
   });
   const [branches, setBranches] = useState<BranchOption[]>([]);
 
@@ -225,14 +237,13 @@ export default function AdminWorkersPage() {
         name: newWorker.name,
         email: newWorker.email,
         phone: newWorker.phone,
-        role: newWorker.role,
         assignedBranchId: newWorker.assignedBranchId || null,
         locale,
       });
 
       await loadWorkers();
       setShowAddModal(false);
-      setNewWorker({ name: '', email: '', phone: '', role: 'WORKER', assignedBranchId: '' });
+      setNewWorker({ name: '', email: '', phone: '', assignedBranchId: '' });
       toast({
         title: locale === 'bn' ? 'সফল' : 'Success',
         description:
@@ -260,7 +271,6 @@ export default function AdminWorkersPage() {
       name: worker.name,
       phone: worker.phone,
       assignedBranchId: worker.branchId,
-      role: worker.role,
     });
     setShowEditModal(true);
   };
@@ -274,7 +284,6 @@ export default function AdminWorkersPage() {
         id: selectedWorker.id,
         name: editWorker.name,
         phone: editWorker.phone,
-        role: editWorker.role,
         assignedBranchId: editWorker.assignedBranchId || null,
       });
 
@@ -484,32 +493,41 @@ export default function AdminWorkersPage() {
                   <td className="px-4 py-3">{getRoleBadge(worker.role)}</td>
                   <td className="px-4 py-3">{getStatusBadge(worker.status)}</td>
                   <td className="px-4 py-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isMutating}>
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">{tA11y('rowActions')}</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDetailModal(true); }}>
-                          <Eye className="h-4 w-4 mr-2" />{locale === 'bn' ? 'বিস্তারিত' : 'Details'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
-                          <Edit className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void handleToggleStatus(worker)}>
-                          {worker.status === 'ACTIVE' ? (
-                            <><Ban className="h-4 w-4 mr-2" />{locale === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate'}</>
-                          ) : (
-                            <><CheckCircle2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}</>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDeleteModal(true); }} className="text-red-600">
-                          <Trash2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'মুছুন' : 'Delete'}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {worker.role === 'ADMIN' ? (
+                      // Admin accounts are made and unmade in the database, so
+                      // there is nothing here to offer. Shown rather than hidden
+                      // so the list still answers "who has the keys".
+                      <span className="text-xs text-gray-400">
+                        {locale === 'bn' ? 'ডেটাবেসে পরিচালিত' : 'Managed in database'}
+                      </span>
+                    ) : (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isMutating}>
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">{tA11y('rowActions')}</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDetailModal(true); }}>
+                            <Eye className="h-4 w-4 mr-2" />{locale === 'bn' ? 'বিস্তারিত' : 'Details'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleStartEdit(worker)}>
+                            <Edit className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void handleToggleStatus(worker)}>
+                            {worker.status === 'ACTIVE' ? (
+                              <><Ban className="h-4 w-4 mr-2" />{locale === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate'}</>
+                            ) : (
+                              <><CheckCircle2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'সক্রিয় করুন' : 'Activate'}</>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setSelectedWorker(worker); setShowDeleteModal(true); }} className="text-red-600">
+                            <Trash2 className="h-4 w-4 mr-2" />{locale === 'bn' ? 'মুছুন' : 'Delete'}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </td>
                 </tr>
               ))
@@ -569,13 +587,6 @@ export default function AdminWorkersPage() {
               <Input value={newWorker.phone} onChange={(e) => setNewWorker({ ...newWorker, phone: e.target.value })} placeholder={locale === 'bn' ? 'ফোন' : 'Phone'} className="mt-1" />
             </div>
             <div>
-              <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select aria-label={tA11y('staffRole')} value={newWorker.role} onChange={(e) => setNewWorker({ ...newWorker, role: e.target.value as 'WORKER' | 'ADMIN' })} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
-                <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
-                <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
-              </select>
-            </div>
-            <div>
               <Label className="text-sm">{locale === 'bn' ? 'শাখা' : 'Branch'}</Label>
               <select
                 aria-label={locale === 'bn' ? 'শাখা' : 'Branch'}
@@ -633,13 +644,6 @@ export default function AdminWorkersPage() {
                       {b.isActive ? '' : locale === 'bn' ? ' — নিষ্ক্রিয়' : ' — inactive'}
                     </option>
                   ))}
-              </select>
-            </div>
-            <div>
-              <Label className="text-sm">{locale === 'bn' ? 'ভূমিকা' : 'Role'}</Label>
-              <select aria-label={tA11y('staffRole')} value={editWorker.role} onChange={(e) => setEditWorker((prev) => ({ ...prev, role: e.target.value as 'WORKER' | 'ADMIN' }))} className="mt-1 w-full h-9 px-3 text-sm border border-gray-200 focus:outline-hidden focus:border-blue-500">
-                <option value="WORKER">{locale === 'bn' ? 'কর্মী' : 'Worker'}</option>
-                <option value="ADMIN">{locale === 'bn' ? 'অ্যাডমিন' : 'Admin'}</option>
               </select>
             </div>
           </div>

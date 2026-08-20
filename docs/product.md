@@ -23,8 +23,21 @@ Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়
 | Role | Can | Cannot |
 |---|---|---|
 | **Member** | Register, request deposit/withdrawal/loan/repayment, confirm or dispute postings, guarantee another member, donate, edit nominee | See another member's data |
-| **Worker** | Process pending member requests, record deposits/withdrawals/disbursements/installments, record offline donations | Initiate money movement without a request; approve anything; delete anything |
-| **Admin** | Everything a worker can, plus approve/reject registrations and loans, mark defaults, run settlement, manage workers, configure policy, read audit log | Delete or alter audit history |
+| **Worker** | Process pending member requests, record deposits/withdrawals/disbursements/installments, record offline donations, post to the gallery, read reports | Initiate money movement without a request; **decide** anything — a registration, a loan, a default; delete anything |
+| **Admin** | Everything a worker can, plus approve/reject registrations and loans, mark defaults, run settlement, manage workers, configure policy, publish public page copy and brand assets, read audit log | Delete or alter audit history; create another admin from the application |
+
+"Approve" was doing two jobs in this table. **Processing** a pending posting — a
+member's deposit request, their matured withdrawal notice, their repayment — is
+the worker's whole job under FR-07 and FR-08, and it moves money. **Deciding** —
+admitting a member, granting a loan, declaring a default — is the admin's, and it
+does not. The worker and admin dashboards render the same screens; what a worker
+does not see is the deciding.
+
+An **admin account is created directly in the database**, never through the
+application. `/api/v1/admin/workers` accepts no `role` field on create or update,
+and the Workers screen offers no Admin option: otherwise anyone holding an admin
+session could mint a permanent one, recorded in `audit_logs` as ordinary staff
+administration.
 
 `SUPER_ADMIN` exists in the schema and is treated as ADMIN everywhere.
 

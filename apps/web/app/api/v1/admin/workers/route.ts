@@ -51,11 +51,24 @@ async function resolveBranch(branchId: string | null | undefined): Promise<
   return { ok: true, id: branch.id };
 }
 
+/**
+ * Creating staff means creating a **worker**.
+ *
+ * `role` is not a field here, and that is the point rather than an omission. An
+ * admin account is made directly in the database: a web form that mints one
+ * turns "whoever holds an admin session right now" into "whoever can hold one
+ * forever", and it records that escalation in `audit_logs` as routine staff
+ * administration. The screen offers no Admin option either
+ * (`dashboard/admin/workers`), so the UI and the API say the same thing.
+ *
+ * The schema used to accept `z.enum(['WORKER', 'ADMIN'])` on both create and
+ * update, so a compromised or careless admin session could promote any account —
+ * including a member's — in one request.
+ */
 const createStaffSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
-  role: z.enum(['WORKER', 'ADMIN']),
   // WO-72. Was a free string written straight into `users.assignedBranch`, so a
   // typo created a branch that existed on exactly one row and renaming an office
   // left every worker pointing at the old name. It is now a Branch id, validated
@@ -64,11 +77,11 @@ const createStaffSchema = z.object({
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
 
+/** Editing staff cannot change a role either — see the note on create. */
 const updateStaffSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(2),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
-  role: z.enum(['WORKER', 'ADMIN']),
   // WO-72. Was a free string written straight into `users.assignedBranch`, so a
   // typo created a branch that existed on exactly one row and renaming an office
   // left every worker pointing at the old name. It is now a Branch id, validated
@@ -100,7 +113,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, email, phone, role, assignedBranchId, locale } = parsed.data;
+    const { name, email, phone, assignedBranchId, locale } = parsed.data;
 
     const branch = await resolveBranch(assignedBranchId);
     if (!branch.ok) {
@@ -130,7 +143,7 @@ export async function POST(req: Request) {
         email: normalizedEmail,
         phone: normalizedPhone,
         passwordHash,
-        role: role === 'ADMIN' ? UserRole.ADMIN : UserRole.WORKER,
+        role: UserRole.WORKER,
         status: UserStatus.ACTIVE,
         accountNo,
         nameEn: name.trim(),
@@ -159,7 +172,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         email: created.email || '',
         name: created.nameEn,
-        role: created.role === UserRole.ADMIN ? 'ADMIN' : 'WORKER',
+        role: 'WORKER',
         phone: created.phone,
         temporaryPassword: tempPassword,
         locale,
@@ -192,7 +205,7 @@ export async function POST(req: Request) {
       entityId: created.id,
       userId: auth.id,
       newValue: { name: created.nameEn, role: created.role, email: created.email },
-      details: `Created ${role} account for ${created.nameEn}`,
+      details: `Created worker account for ${created.nameEn}`,
     });
 
     return NextResponse.json({
@@ -235,7 +248,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    const { id, name, phone, role, assignedBranchId } = parsed.data;
+    const { id, name, phone, assignedBranchId } = parsed.data;
 
     const branch = await resolveBranch(assignedBranchId);
     if (!branch.ok) {
@@ -250,6 +263,18 @@ export async function PUT(req: Request) {
       where: { id },
       select: { nameEn: true, phone: true, role: true, assignedBranchId: true },
     });
+
+    // This screen manages workers. An admin row is listed there but carries no
+    // actions, so reaching this with one means a request the UI does not make.
+    if (!oldUser) {
+      return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
+    }
+    if (oldUser.role !== UserRole.WORKER) {
+      return NextResponse.json(
+        { ok: false, error: 'Only worker accounts can be edited here' },
+        { status: 400 },
+      );
+    }
 
     const existingPhone = await prisma.user.findFirst({
       where: {
@@ -267,7 +292,6 @@ export async function PUT(req: Request) {
       data: {
         nameEn: name.trim(),
         phone: normalizedPhone,
-        role: role === 'ADMIN' ? UserRole.ADMIN : UserRole.WORKER,
         assignedBranchId: resolvedBranchId,
       },
       select: STAFF_SELECT,
@@ -279,9 +303,9 @@ export async function PUT(req: Request) {
       entityType: 'USER',
       entityId: updated.id,
       userId: auth.id,
-      oldValue: oldUser || undefined,
+      oldValue: oldUser,
       newValue: { name: updated.nameEn, role: updated.role, phone: updated.phone },
-      details: `Updated ${role} account for ${updated.nameEn}`,
+      details: `Updated worker account for ${updated.nameEn}`,
     });
 
     return NextResponse.json({
@@ -339,8 +363,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
     }
 
-    if (existing.role !== UserRole.WORKER && existing.role !== UserRole.ADMIN) {
-      return NextResponse.json({ ok: false, error: 'Only worker/admin accounts can be updated here' }, { status: 400 });
+    if (existing.role !== UserRole.WORKER) {
+      return NextResponse.json({ ok: false, error: 'Only worker accounts can be updated here' }, { status: 400 });
     }
 
     const updated = await prisma.user.update({
@@ -419,8 +443,8 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
     }
 
-    if (existing.role !== UserRole.WORKER && existing.role !== UserRole.ADMIN) {
-      return NextResponse.json({ ok: false, error: 'Only worker/admin accounts can be deleted here' }, { status: 400 });
+    if (existing.role !== UserRole.WORKER) {
+      return NextResponse.json({ ok: false, error: 'Only worker accounts can be deleted here' }, { status: 400 });
     }
 
     const [processedTransactions, approvedLoans, approvedUsers, processedSupportThreads] = await prisma.$transaction([

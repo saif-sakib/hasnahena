@@ -79,21 +79,35 @@ an admin changed it.
 | POST | `/v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal,loan,loan-payment}` |
 | PUT | `/v1/dashboard/worker/profile` |
 
-### Admin
+### Staff — `WORKER`, `ADMIN`, `SUPER_ADMIN`
+
+Under `/admin/` for historical URL reasons; a field worker's daily work. The
+worker and admin dashboards render the *same* screens, so these are the reads and
+the processing actions both of them make.
 
 | Method | Path |
 |---|---|
-| GET | `/v1/dashboard/admin` |
-| GET | `/v1/dashboard/admin/{members,workers,deposits,loans,donations,approvals,profile}` |
+| GET | `/v1/dashboard/admin/approvals` — registrations omitted for a `WORKER` |
+| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` — processes any pending posting (FR-07, FR-08) |
+| GET | `/v1/dashboard/admin/{members,loans,deposits}` |
+| GET | `/v1/dashboard/admin/reports/monthly?year=&month=` · `reports/yearly?year=` · `reports/loans` |
+| GET · POST | `/v1/dashboard/admin/donations` |
+
+### Admin — `ADMIN`, `SUPER_ADMIN`
+
+Deciding, rather than processing: approving a registration or a loan, starting a
+settlement, administering staff, reading the audit trail.
+
+| Method | Path |
+|---|---|
+| GET | `/v1/dashboard/admin` — carries `recentActivity`, the audit trail |
+| GET | `/v1/dashboard/admin/{workers,profile}` |
 | POST | `/v1/dashboard/admin/members/status` |
 | POST | `/v1/dashboard/admin/workers/welcome-email` |
 | POST | `/v1/dashboard/admin/approvals/registration` · `/registration/reject` |
 | POST | `/v1/dashboard/admin/approvals/loan` · `/loan/reject` |
-| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` |
 | GET | `/v1/dashboard/admin/loans/detail?id=` |
 | POST | `/v1/dashboard/admin/loans/default` — triggers the settlement waterfall |
-| POST | `/v1/dashboard/admin/donations` |
-| GET | `/v1/dashboard/admin/reports/monthly?year=&month=` · `reports/yearly?year=` · `reports/loans` |
 | PUT | `/v1/dashboard/admin/profile` |
 
 ## Next.js route handlers — same origin, `/api/v1/*`

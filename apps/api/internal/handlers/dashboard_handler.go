@@ -468,7 +468,7 @@ func (h *DashboardHandler) AdminDashboard(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DashboardHandler) AdminMembers(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 	data, err := h.userRepo.GetMembersList(r.Context(), false)
@@ -996,12 +996,16 @@ func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Reque
 // ==================== ADMIN DEPOSITS HANDLERS ====================
 
 func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
 	filters := map[string]interface{}{
-		"type":   r.URL.Query().Get("type"),
+		"type": r.URL.Query().Get("type"),
+		// "all" widens the answer from savings movements to every posting type,
+		// which is what the transactions screen shows. Anything else keeps the
+		// DEPOSIT/WITHDRAWAL default.
+		"types":  r.URL.Query().Get("types"),
 		"search": r.URL.Query().Get("search"),
 		"page":   r.URL.Query().Get("page"),
 		"limit":  r.URL.Query().Get("limit"),
@@ -1019,7 +1023,7 @@ func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request)
 // ==================== ADMIN LOANS HANDLERS ====================
 
 func (h *DashboardHandler) AdminLoans(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1157,7 +1161,7 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 // ==================== ADMIN REPORTS HANDLERS ====================
 
 func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1186,7 +1190,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *DashboardHandler) YearlyReport(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 
@@ -1208,7 +1212,7 @@ func (h *DashboardHandler) YearlyReport(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *DashboardHandler) LoanPerformanceReport(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireRoles(w, r, "ADMIN", "SUPER_ADMIN"); !ok {
+	if _, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN"); !ok {
 		return
 	}
 

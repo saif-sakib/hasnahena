@@ -442,47 +442,74 @@ func mountRoutes(r chi.Router, d routerDeps) {
 				admin.Group(func(adminOnly chi.Router) {
 					adminOnly.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN"))
 
-					// Admin dashboard
+					// Admin dashboard. Stays admin-only because its payload
+					// carries `recentActivity` — the audit trail — which
+					// product.md reserves for an admin.
 					adminOnly.Get("/", dashboardHandler.AdminDashboard)
-					adminOnly.Get("/members", dashboardHandler.AdminMembers)
 					adminOnly.Get("/workers", dashboardHandler.AdminWorkers)
 					adminOnly.Post("/workers/welcome-email", dashboardHandler.SendWorkerWelcomeEmail)
 					adminOnly.Post("/members/status", dashboardHandler.UpdateMemberStatus)
 
-					// Admin approvals
-					adminOnly.Get("/approvals", dashboardHandler.AdminApprovals)
+					// Registration and loan approval are the two decisions
+					// product.md reserves for an admin ("approve/reject
+					// registrations and loans"). The rest of the approvals
+					// screen is *processing*, which is a worker's job, and
+					// lives in the staff group below.
 					adminOnly.Post("/approvals/registration", dashboardHandler.ApproveRegistration)
 					adminOnly.Post("/approvals/registration/reject", dashboardHandler.RejectRegistration)
 					adminOnly.Post("/approvals/loan", dashboardHandler.ApproveLoan)
 					adminOnly.Post("/approvals/loan/reject", dashboardHandler.RejectLoan)
-					adminOnly.Post("/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
-					adminOnly.Post("/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
-
-					// Admin deposits
-					adminOnly.Get("/deposits", dashboardHandler.AdminDeposits)
 
 					// Admin loans
-					adminOnly.Get("/loans", dashboardHandler.AdminLoans)
 					adminOnly.Get("/loans/detail", dashboardHandler.AdminLoanDetail)
+					// Marking a default starts a settlement waterfall against
+					// the borrower's savings. Admin only, by product.md.
 					adminOnly.Post("/loans/default", dashboardHandler.MarkLoanDefaulted)
-
-					// Admin reports
-					adminOnly.Get("/reports/monthly", dashboardHandler.MonthlyReport)
-					adminOnly.Get("/reports/yearly", dashboardHandler.YearlyReport)
-					adminOnly.Get("/reports/loans", dashboardHandler.LoanPerformanceReport)
 
 					// Admin profile
 					adminOnly.Get("/profile", dashboardHandler.AdminProfile)
 					adminOnly.Put("/profile", dashboardHandler.UpdateProfile)
 				})
 
-				// Donations sit under /admin for historical URL reasons but are
-				// recorded by field workers too, so they get the wider gate.
+				// These sit under /admin for historical URL reasons but are a
+				// worker's daily work, so they get the wider gate.
 				admin.Group(func(staff chi.Router) {
 					staff.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN", "WORKER"))
 
 					staff.Get("/donations", dashboardHandler.AdminDonations)
 					staff.Post("/donations", dashboardHandler.RecordDonation)
+
+					// The approvals *queue* and the act of processing a pending
+					// posting. Both handlers have always asked for
+					// WORKER|ADMIN|SUPER_ADMIN; only the mounting disagreed, so
+					// the worker approvals screen — which is the admin screen,
+					// re-exported — answered 403 for every worker who opened it.
+					// AdminApprovals leaves registrations out of a worker's
+					// response, so widening the gate widens no data.
+					staff.Get("/approvals", dashboardHandler.AdminApprovals)
+					staff.Post("/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
+					staff.Post("/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
+
+					// Reporting is read-only aggregate over postings a worker
+					// already sees one at a time.
+					staff.Get("/reports/monthly", dashboardHandler.MonthlyReport)
+					staff.Get("/reports/yearly", dashboardHandler.YearlyReport)
+					staff.Get("/reports/loans", dashboardHandler.LoanPerformanceReport)
+
+					// The three read-only lists the shared reports screen
+					// cross-foots. Two of them hand a worker nothing new:
+					// `/admin/members` is literally the same handler body as
+					// `/worker/members` (GetMembersList(ctx, false)), and
+					// `/worker/loans` has no worker predicate in its WHERE — it
+					// already returns every loan, in a flatter shape. The third,
+					// the savings ledger, is the one real widening: a field
+					// worker could previously see only the postings they
+					// processed. They handle that cash in person and are
+					// accountable for the book, so they may read it; what stays
+					// admin-only is *acting* on it.
+					staff.Get("/members", dashboardHandler.AdminMembers)
+					staff.Get("/loans", dashboardHandler.AdminLoans)
+					staff.Get("/deposits", dashboardHandler.AdminDeposits)
 				})
 			})
 		})

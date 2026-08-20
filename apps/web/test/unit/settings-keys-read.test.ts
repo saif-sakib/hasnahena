@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import {
+  CONTENT_CONFIG_KEYS,
   MEMBER_CONFIG_KEYS,
   PUBLIC_CONFIG_KEYS,
+  SETTINGS_CONFIG_KEYS,
   SYSTEM_CONFIG_KEYS,
   UNIMPLEMENTED_CONFIG_KEYS,
 } from '@/lib/system-config';
@@ -170,6 +172,57 @@ describe('the tiers `GET /api/v1/settings` serves are exhaustive', () => {
   });
 });
 
+describe('every declared key has exactly one admin screen that writes it', () => {
+  /**
+   * Settings used to own every key, and had grown a "Landing" tab holding the
+   * hero image, the partner logos, three section headings and a gallery
+   * uploader — beside the bKash number and the loan multiplier. That is two
+   * jobs, so it is two screens: Content & Media publishes the public site,
+   * Settings configures the organisation and its money.
+   *
+   * Two screens over one table is only safe if each key belongs to exactly one
+   * of them. A key in **neither** is a key no admin can change — WO-67's failure
+   * with a new cause, and just as silent, because the page keeps rendering its
+   * `|| 'fallback'`. A key in **both** is two forms writing one row, each
+   * posting a copy it read minutes ago, so whichever saves last quietly reverts
+   * the other.
+   */
+  const content: string[] = [...CONTENT_CONFIG_KEYS];
+  const settings: string[] = [...SETTINGS_CONFIG_KEYS];
+
+  it('neither list repeats a key', () => {
+    expect(new Set(content).size, 'CONTENT_CONFIG_KEYS repeats a key').toBe(content.length);
+    expect(new Set(settings).size, 'SETTINGS_CONFIG_KEYS repeats a key').toBe(settings.length);
+  });
+
+  it('no key is claimed by both screens', () => {
+    const contentSet = new Set(content);
+    const both = settings.filter((key) => contentSet.has(key));
+    expect(
+      both,
+      'these keys have a control on Content & Media *and* on Settings; each save ' +
+        'posts a whole list, so the later save reverts the earlier one',
+    ).toEqual([]);
+  });
+
+  it('every declared key is claimed by one of them', () => {
+    const claimed = new Set([...content, ...settings]);
+    const orphans = SYSTEM_CONFIG_KEYS.filter((key) => !claimed.has(key));
+    expect(
+      orphans,
+      'these keys are declared, so PUT accepts them and a page may read them, but ' +
+        'no admin screen offers a control — the value they hold is whatever the ' +
+        'seed wrote, forever',
+    ).toEqual([]);
+  });
+
+  it('neither list names a key that is not declared', () => {
+    const declared: ReadonlySet<string> = new Set(SYSTEM_CONFIG_KEYS);
+    const strays = [...content, ...settings].filter((key) => !declared.has(key));
+    expect(strays, 'a screen offers a control for a key PUT would reject').toEqual([]);
+  });
+});
+
 describe('the public pages can only read public keys', () => {
   /**
    * WO-73 made every page outside `dashboard/` render from one cached
@@ -183,8 +236,15 @@ describe('the public pages can only read public keys', () => {
    * header and footer read every one of their keys. Both forms are matched now.
    */
   const PUBLIC: ReadonlySet<string> = new Set(PUBLIC_CONFIG_KEYS);
-  const isPublicPage = (file: string) =>
-    !file.includes(`app/[locale]/dashboard/`) && !file.startsWith('app/api/');
+  // `components/dashboard/` is dashboard code even though it does not live under
+  // `app/[locale]/dashboard/`: the worker and admin screens moved there when the
+  // two dashboards stopped being separate copies. Without this clause every one
+  // of them counted as a public page, and the member-detail screen's reads of
+  // the loan policy — which the member tier serves and the public tier does not —
+  // failed the check.
+  const isDashboard = (file: string) =>
+    file.includes('app/[locale]/dashboard/') || file.startsWith('components/dashboard/');
+  const isPublicPage = (file: string) => !isDashboard(file) && !file.startsWith('app/api/');
 
   it('finds the reads on the public pages at all', () => {
     const reads = READS.filter((r) => isPublicPage(r.file));

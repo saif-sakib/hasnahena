@@ -155,4 +155,4 @@ number nobody trusts. Taken on the author's machine.
 | Web unit suite | ~6 s for 544 tests across 30 files |
 | Next route contracts | ~3 s |
 | Browser suite | 153 passed + 1 skipped, 10.8 min, one worker, on an idle machine |
-| Largest client bundle | `/[locale]/dashboard/worker/loans`, 1.43 MB uncompressed first-load JS. Recorded, not endorsed — see `bundle-budget.json` |
+| Largest client bundle | `/[locale]/dashboard/{worker,admin}/transactions`, 1.45 MB uncompressed first-load JS — the same figure twice, because they are the same component. Recorded, not endorsed — see `bundle-budget.json` |

@@ -4,7 +4,7 @@ import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
 import { locales, defaultLocale } from './i18n';
 import { buildCsp, isSessionRoute } from './lib/csp';
-import { isJwtExpired } from './lib/utils';
+import { isJwtExpired, parseJwtPayload } from './lib/utils';
 
 const intlMiddleware = createMiddleware({
   locales,
@@ -37,6 +37,36 @@ function newNonce(): string {
   return btoa(crypto.randomUUID());
 }
 
+/**
+ * Which `/dashboard/{section}` a role may open.
+ *
+ * An admin may work a worker's round — the Go router says the same thing, with
+ * WORKER|ADMIN|SUPER_ADMIN on every `/worker/*` route — so `admin` gets both.
+ * Nobody else crosses.
+ *
+ * This is a redirect, not an authorisation check: the token's signature is not
+ * verified here (the edge runtime has no secret) and it never needs to be,
+ * because every request those screens make is checked again by the API with the
+ * same token. What it prevents is a worker who bookmarks
+ * `/dashboard/admin/settings` being handed an admin shell whose every fetch
+ * 403s — which became worth preventing the day both dashboards started
+ * rendering from the same components.
+ */
+const SECTIONS_BY_ROLE: Record<string, readonly string[]> = {
+  MEMBER: ['member'],
+  WORKER: ['worker'],
+  ADMIN: ['admin', 'worker'],
+  SUPER_ADMIN: ['admin', 'worker'],
+};
+
+/** The section a role lands on when it has no business where it was going. */
+const HOME_SECTION: Record<string, string> = {
+  MEMBER: 'member',
+  WORKER: 'worker',
+  ADMIN: 'admin',
+  SUPER_ADMIN: 'admin',
+};
+
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -54,6 +84,18 @@ export default function proxy(request: NextRequest) {
           expires: new Date(0),
         });
       }
+      return withCsp(request, response, pathname);
+    }
+
+    const locale = pathname.split('/')[1] || defaultLocale;
+    const section = pathname.split('/')[3];
+    const role = (parseJwtPayload<{ role?: string }>(token)?.role || '').toUpperCase();
+    const allowed = SECTIONS_BY_ROLE[role];
+    // An unrecognised role is left alone rather than redirected in a loop: the
+    // API will refuse it anyway, and guessing a home for it would be a guess.
+    if (allowed && section && !allowed.includes(section)) {
+      const home = HOME_SECTION[role];
+      const response = NextResponse.redirect(new URL(`/${locale}/dashboard/${home}`, request.url));
       return withCsp(request, response, pathname);
     }
   }

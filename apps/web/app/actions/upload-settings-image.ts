@@ -32,7 +32,9 @@ function revalidateSettingsPaths() {
   updateTag(SYSTEM_CONFIG_TAG);
   revalidatePath('/');
   revalidatePath('/[locale]');
-  revalidatePath('/[locale]/dashboard/admin/settings');
+  // The brand images moved to Content & Media when Settings stopped being two
+  // screens in one.
+  revalidatePath('/[locale]/dashboard/admin/content');
 }
 
 /**

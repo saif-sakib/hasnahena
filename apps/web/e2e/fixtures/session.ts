@@ -54,26 +54,32 @@ export const PAGES: Record<'public' | SeededRole, string[]> = {
     'dashboard/member/profile',
     'dashboard/member/transactions',
   ],
+  // The worker and admin dashboards render the same screens; the worker's list
+  // is the admin's minus the four admin-only management tools.
   WORKER: [
     'dashboard/worker',
     'dashboard/worker/approvals',
+    'dashboard/worker/content',
     'dashboard/worker/deposits',
     'dashboard/worker/loans',
     'dashboard/worker/members',
     'dashboard/worker/profile',
+    'dashboard/worker/reports',
     'dashboard/worker/transactions',
   ],
   ADMIN: [
     'dashboard/admin',
     'dashboard/admin/approvals',
+    'dashboard/admin/branches',
+    'dashboard/admin/content',
     'dashboard/admin/deposits',
     'dashboard/admin/donations',
-    'dashboard/admin/gallery',
     'dashboard/admin/loans',
     'dashboard/admin/members',
     'dashboard/admin/profile',
     'dashboard/admin/reports',
     'dashboard/admin/settings',
+    'dashboard/admin/transactions',
     'dashboard/admin/workers',
   ],
 };

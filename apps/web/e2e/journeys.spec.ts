@@ -8,7 +8,7 @@ import {
   memberSavings,
   disconnect,
 } from './fixtures/accounts';
-import { loginAs, waitForContent } from './fixtures/session';
+import { loginAs, PAGES, waitForContent } from './fixtures/session';
 
 /**
  * TEST-26 and TEST-27 — the member, worker and admin journeys.
@@ -130,12 +130,15 @@ test.describe('journeys', () => {
   test('a worker reaches every one of their pages', async ({ page }) => {
     test.setTimeout(120_000);
     await loginAs(page, 'WORKER');
-    for (const path of ['approvals', 'deposits', 'loans', 'members', 'transactions', 'profile']) {
-      const response = await page.goto(`/en/dashboard/worker/${path}`);
-      expect(response?.status(), `worker/${path} answered ${response?.status()}`).toBeLessThan(400);
+    // Driven from PAGES rather than a list written here. The copy that used to
+    // live in this file went stale the day a screen was renamed, and it failed
+    // as a 404 in a sweep rather than as "the inventory is out of date".
+    for (const path of PAGES.WORKER) {
+      const response = await page.goto(`/en/${path}`);
+      expect(response?.status(), `${path} answered ${response?.status()}`).toBeLessThan(400);
       await waitForContent(page);
       const text = await page.locator('body').innerText();
-      expect(text.trim().length, `worker/${path} rendered an empty page`).toBeGreaterThan(50);
+      expect(text.trim().length, `${path} rendered an empty page`).toBeGreaterThan(50);
     }
   });
 
@@ -163,15 +166,12 @@ test.describe('journeys', () => {
   test('an admin reaches every one of their pages', async ({ page }) => {
     test.setTimeout(180_000);
     await loginAs(page, 'ADMIN');
-    for (const path of [
-      'approvals', 'deposits', 'donations', 'gallery', 'loans',
-      'members', 'reports', 'settings', 'workers', 'profile',
-    ]) {
-      const response = await page.goto(`/en/dashboard/admin/${path}`);
-      expect(response?.status(), `admin/${path} answered ${response?.status()}`).toBeLessThan(400);
+    for (const path of PAGES.ADMIN) {
+      const response = await page.goto(`/en/${path}`);
+      expect(response?.status(), `${path} answered ${response?.status()}`).toBeLessThan(400);
       await waitForContent(page);
       const text = await page.locator('body').innerText();
-      expect(text.trim().length, `admin/${path} rendered an empty page`).toBeGreaterThan(50);
+      expect(text.trim().length, `${path} rendered an empty page`).toBeGreaterThan(50);
     }
   });
 

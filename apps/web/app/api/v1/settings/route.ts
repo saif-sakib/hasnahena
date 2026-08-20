@@ -136,6 +136,7 @@ export async function PUT(request: NextRequest) {
     revalidatePath('/[locale]');
     revalidatePath('/[locale]/gallery');
     revalidatePath('/[locale]/dashboard/admin/settings');
+    revalidatePath('/[locale]/dashboard/admin/content');
 
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {
