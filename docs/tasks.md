@@ -14,7 +14,16 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
 >
-> **Every work-order block is done** (WO-67 → 84, 2026-08-19). The `/donate` and
+> **Three work-order blocks are open** — X, Y and Z (WO-85 → 97), opened
+> 2026-08-24 from an owner review. **Block X is account security and should go
+> first.** Its sharpest finding: token revocation is built and enforced on both
+> backends, and the *logged-in* password change calls it — but the
+> **forgot-password reset does not**, so the one flow a locked-out member can
+> actually reach leaves the attacker's session alive. Specs are in
+> [work-orders.md](work-orders.md); prompt with an ID (`do WO-85`) or a block
+> (`do block X`).
+>
+> **Blocks R → W are done** (WO-67 → 84, 2026-08-19). The `/donate` and
 > `/contact` pages no longer show unchangeable placeholder details, every foreign
 > key is indexed, the database has CHECK constraints of its own, migrations are
 > the only definition of the schema, **20 marketing routes are prerendered
