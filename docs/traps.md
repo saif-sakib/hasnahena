@@ -600,3 +600,33 @@ the way it used to read, and prose has no compiler.
 staff member-detail screen, which nothing catches, because a card that says "no
 notices outstanding" forever is valid code. Grep for the *concept*, not only for
 the identifier.
+
+---
+
+## Locale routing
+
+**A response whose target depends on a request header must send `Vary`.**
+next-intl's middleware reads `Accept-Language` to decide whether `/` sends a
+visitor to `/bn` or `/en`, and emits a 307 with `cache-control: public` and no
+`Vary` of its own. As shipped that is cache-poisonable in the ordinary sense: a
+shared cache may store the redirect computed for one visitor and hand it to the
+next, so a member in Jashore lands on the English site because an English
+speaker asked first. Cloudflare sits in front of production, which makes the
+shared cache real rather than theoretical.
+
+`proxy.ts` adds `Vary: Accept-Language` now, and `e2e/locale-negotiation.spec.ts`
+holds it. The test is in the **browser** suite on purpose: `proxy.ts` is edge
+middleware and the header it sets can be replaced further down the response
+path, so the only honest check is what comes back over HTTP. Next does exactly
+that on a rendered page — `/bn` comes back with Next's own `Vary` and not this
+one, which is correct, because `/bn` is Bengali for everyone and its content
+does not depend on the header.
+
+**And know what it does not fix.** Search Console reporting
+`/bn` as *"Duplicate, Google chose different canonical than user"* is a
+different thing: `/` redirects to `/bn`, Google merges a redirect with its
+target, and it often keeps the shorter URL. The content stays indexed under `/`.
+Before blaming the canonical tags, check the two pages are not *actually*
+duplicates — strip the tags and compare. Here they share 6% of their tokens and
+`/bn` is 95% Bengali script, which ruled out the obvious suspect in one command
+and stopped a day of edits to correct canonical tags.

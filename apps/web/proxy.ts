@@ -119,6 +119,38 @@ export default function proxy(request: NextRequest) {
  * produced rather than on a fresh one; building a new NextResponse here would
  * drop the locale cookie and the rewrite it just decided on.
  */
+/**
+ * Declare that a locale-negotiated response depends on `Accept-Language`.
+ *
+ * next-intl's middleware reads `Accept-Language` to decide where `/` sends a
+ * visitor — `/bn` for a Bengali browser, `/en` for an English one — and emits a
+ * 307 with `cache-control: public` and **no `Vary`**. That combination is a
+ * cache-poisoning bug in the ordinary sense of the word: a shared cache is
+ * entitled to serve the redirect it stored for one visitor to the next, so a
+ * Bengali speaker can be sent to `/en` because an English speaker asked first.
+ * Cloudflare sits in front of this site, which makes the shared cache real
+ * rather than theoretical.
+ *
+ * `must-revalidate` limits the blast radius today; it does not make the header
+ * correct, and the response is `public`.
+ *
+ * It is also what tells a crawler that `/` is a negotiated entry point rather
+ * than a fixed alias of whichever locale it happened to receive. That is the
+ * honest description of what `/` is, and it is the reverse of the claim an
+ * un-Varied redirect makes.
+ *
+ * Applied to every response rather than only to redirects: next-intl also
+ * *rewrites* on the locale it detected, and a rewritten page body depends on
+ * the same header.
+ */
+function varyOnLanguage(response: Response): void {
+  const existing = response.headers.get('vary');
+  if (existing?.toLowerCase().split(',').some((part) => part.trim() === 'accept-language')) {
+    return;
+  }
+  response.headers.set('vary', existing ? `${existing}, Accept-Language` : 'Accept-Language');
+}
+
 function withCsp(request: NextRequest, response: Response, pathname: string): Response {
   const isDev = process.env.NODE_ENV === 'development';
   const session = isSessionRoute(pathname);
@@ -137,6 +169,7 @@ function withCsp(request: NextRequest, response: Response, pathname: string): Re
 
   if (!nonce) {
     response.headers.set(headerName, policy);
+    varyOnLanguage(response);
     return response;
   }
 
@@ -157,6 +190,7 @@ function withCsp(request: NextRequest, response: Response, pathname: string): Re
     next.headers.set(key, value);
   });
   next.headers.set(headerName, policy);
+  varyOnLanguage(next);
   return next;
 }
 
