@@ -40,6 +40,8 @@ still true.
 | [ADR-028](#adr-028--a-public-page-renders-without-a-database) | A public page renders without a database | accepted |
 | [ADR-029](#adr-029--the-identifier-is-called-an-account-number) | The identifier is called an account number | accepted |
 | [ADR-030](#adr-030--staff-pay-a-withdrawal-when-the-member-asks) | Staff pay a withdrawal when the member asks | accepted |
+| [ADR-031](#adr-031--a-password-reset-is-one-transaction-and-the-table-behind-it-holds-no-secrets) | A password reset is one transaction, and the table behind it holds no secrets | accepted |
+| [ADR-032](#adr-032--the-auth-endpoints-answer-the-same-way-whoever-is-asked-about) | The auth endpoints answer the same way whoever is asked about | accepted |
 
 ---
 
@@ -996,3 +998,139 @@ understand why a withdrawal went through.
   prerendered marketing page and reads only that tier.
 - The guarantor lock and the active-loan rule are untouched. What was removed is
   the notice period, not FR-09.
+
+---
+
+### ADR-031 — A password reset is one transaction, and the table behind it holds no secrets
+
+**Status:** accepted · WO-85, WO-86, WO-87 (2026-08-24).
+
+Three defects shared one cause: `password_reset_tokens` and the password write
+were treated as bookkeeping rather than as the credential path they are.
+
+**1. The reset did not revoke anything.** Token revocation is built, wired and
+enforced on both backends — `services.IsUserTokensRevoked` and
+`apps/web/lib/auth-revocation.ts` — and it was called from the *logged-in*
+password change and not from the forgot-password reset. That is the wrong way
+round. The logged-in change is made by someone who still controls the account;
+the reset is the path a member reaches **because they cannot get in**, which
+includes "somebody else is using my account". A member whose password was stolen
+did the only thing available to them and left the attacker signed in for up to 24
+hours, with nothing telling them it had not worked.
+
+**2. The table was a set of working credentials.** `token` held the raw secret
+from the email and the lookup was `WHERE token = $1`. Anything that could read
+one row — a backup, the Neon console, a support screenshot, an injection
+anywhere in either backend — could take over the account. `token_blacklist` has
+stored `sha256(token)` since SEC-01 and says why in the schema comment; reset
+tokens simply never got the same treatment.
+
+**3. One reset could set two accounts' passwords.**
+`UPDATE users SET "passwordHash" = $1 WHERE email = $2 OR phone = $3`, with no
+row-count check. When the email on a token belonged to one row and the phone to
+another — reachable through a rejection tombstone, an admin phone edit, or any
+contact change — it reset a stranger's password to the requester's. Zero rows
+returned `nil`, so the API answered "password reset" to a member whose password
+had not changed.
+
+**Decision.**
+
+1. **One method, one transaction.** `UserRepository.CompletePasswordReset` spends
+   the link, writes the hash, retires the first-login marker and writes the
+   revocation marker, or none of them happens. The password write is scoped to
+   `id` and must affect exactly one row; spending the link requires exactly one
+   row with `"usedAt" IS NULL`, which is what makes it single-use under
+   concurrency rather than only in the happy path.
+2. **The secret is hashed on the way in.** `CreateResetToken` takes the plaintext
+   and hashes it itself, so no call site can store a secret by forgetting to.
+   SHA-256, not bcrypt: the forgot-password secret is 32 bytes from
+   `crypto/rand`, the lookup is *by* the hash, and a per-row salt would make that
+   a table scan.
+3. **The purpose moved to a `scope` column.** A hash has no prefix, so
+   `first-login-…` and `pwd-change:<userId>:…` could not survive as conventions
+   on the secret. Uniqueness is `(scope, tokenHash)` rather than the hash alone,
+   because a `pwd-change` secret is six digits and two members can hold the same
+   one.
+4. **The revoke-all *write* lives in `repositories`.** It has to run inside a
+   password's transaction, `services` imports `repositories` and not the reverse,
+   and two copies of one INSERT is the shape that disagrees eventually. The read
+   side stays in `SecurityService`.
+5. **The marker's lifetime is derived from `JWT_EXPIRY_SECONDS`.** It was
+   `INTERVAL '24 hours'`, which is exactly that variable's default and was safe
+   only by coincidence. Raising the variable past 86400 would have brought
+   revoked tokens back to life, silently, on both backends at once.
+
+**Consequences.**
+
+- The migration deletes `reset` and `pwd-change` rows and **migrates**
+  `first-login` rows in place. WO-86 said to delete everything on the grounds
+  that plaintext cannot be recovered from a hash; nothing needs recovering —
+  hashing runs forward from the column — and deleting the first-login markers
+  would have switched off `mustChangePassword` for every already-approved member
+  with no message anywhere.
+- Both languages write this table, so `apps/web/lib/reset-tokens.ts` holds the
+  Next half and `test/unit/reset-token-scopes.test.ts` reads the Go source and
+  fails if either side moves.
+- Retiring the first-login marker belongs to the reset now. It used to happen as
+  a side effect of `ForgotPassword` deleting every row for the address, so asking
+  for a link and never clicking it cleared the forced password change.
+
+---
+
+### ADR-032 — The auth endpoints answer the same way whoever is asked about
+
+**Status:** accepted · WO-88, WO-89 (2026-08-24).
+
+For a religious-finance cooperative in one town, **membership itself is the
+sensitive fact** — a list of who banks here is worth more to the wrong person
+than any single balance. That reasoning is written out in
+`apps/web/app/api/v1/registrations/route.ts`, which throttles the registration
+availability check for exactly this reason. `POST /v1/auth/forgot-password`
+answered the same question more precisely and carried no throttle at all: `404`
+meant *not a member*, `400 AUTH_EMAIL_REQUIRED` meant *a member, and here is a
+fact about their record*, `200` meant *a member*.
+
+**Decision.**
+
+1. **One reply.** Always `200`, always the same body, for a member, a suspended
+   member, a member with no email address, and a phone number nobody here has.
+   The lookup and the send happen behind it and every failure is logged rather
+   than returned. The two refusals that survive are true of every caller alike:
+   the throttle counts what *this* caller has asked for, and an unconfigured
+   email service is decided **before** any lookup runs.
+2. **The attempts that find nothing get an audit row.** That is the signal an
+   enumeration is under way, and it used to be a 404 nobody keeps.
+3. **Two throttles.** One on the identifier, one on the address — the second is
+   what stops one address cycling through numbers, at the 20-per-10-minutes the
+   registration endpoint already settled on.
+4. **The login lockout escalates on the identifier *and the address*, and stays
+   flat on the identifier alone.** This is the load-bearing half. The counter has
+   always keyed on the identifier, which means anybody who knows a member's phone
+   number can keep them out of their own savings by guessing; at 30 seconds that
+   is a nuisance and at an hour it is a weapon. So the pair escalates — 30 s, 2
+   m, 10 m, 1 h — and a member signing in from their own phone is untouched by an
+   attack from somewhere else. An escalation past the first step writes an audit
+   row, because a flat lockout looks identical on the fifth failed attempt and on
+   the five-hundredth.
+5. **`ErrUserInactive` is answered only after the password verifies.** A
+   suspended member needs to be told why they cannot get in; an anonymous caller
+   with the wrong password does not get to learn that the account is real. The
+   ordering already held; it is pinned by a test now, because it is a one-line
+   move away from being wrong.
+6. **An unknown identifier still pays for a bcrypt comparison.** Otherwise the
+   oracle simply moves from the status code to the stopwatch.
+
+**Consequences.**
+
+- The forgot-password screen no longer says "Email Sent!". It says "if an account
+  exists…", in both languages, because a screen that confirms delivery hands back
+  the fact the endpoint stopped disclosing.
+- Rate limits are per-action policies (`rateLimitPolicies`) rather than three
+  package constants. `TestEveryRateLimitedActionIsDeclared` reads every `.go`
+  file in the API and fails on a bare string literal at a call site, because an
+  undeclared action silently gets the default policy; a second test refuses a
+  declared action with no policy.
+- `CheckRateLimit` no longer refuses on `attempts >= MaxAttempts` alone. That
+  branch made the `RetryAfterSecs` it reported a number nothing enforced, and
+  made a lockout impossible to *serve* — which is what an escalation escalates
+  from.

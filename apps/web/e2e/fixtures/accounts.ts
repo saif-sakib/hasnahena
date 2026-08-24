@@ -15,6 +15,7 @@
 
 import bcrypt from 'bcryptjs';
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
+import { RESET_SCOPE_FIRST_LOGIN } from '../../lib/reset-tokens';
 
 /** Obviously fake, and strong enough to pass the API's own policy check. */
 export const E2E_PASSWORD = 'E2e-Test-Password-1234';
@@ -73,12 +74,12 @@ export async function seedAccounts(openingBalance = 50_000): Promise<void> {
   const passwordHash = await bcrypt.hash(E2E_PASSWORD, 10);
 
   // `mustChangePassword` is not a column — the API derives it from an unused
-  // `first-login-` row in password_reset_tokens. Clearing those is what stops
+  // first-login row in password_reset_tokens. Clearing those is what stops
   // the login form diverting these accounts to the change-password step.
   await db().passwordResetToken.updateMany({
     where: {
       usedAt: null,
-      token: { startsWith: 'first-login-' },
+      scope: RESET_SCOPE_FIRST_LOGIN,
       OR: Object.values(ACCOUNTS).flatMap((a) => [{ email: a.email }, { phone: a.phone }]),
     },
     data: { usedAt: new Date() },

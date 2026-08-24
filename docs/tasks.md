@@ -14,14 +14,21 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > **monitoring is built and switched off**
 > ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
 >
-> **Three work-order blocks are open** — X, Y and Z (WO-85 → 97), opened
-> 2026-08-24 from an owner review. **Block X is account security and should go
-> first.** Its sharpest finding: token revocation is built and enforced on both
-> backends, and the *logged-in* password change calls it — but the
-> **forgot-password reset does not**, so the one flow a locked-out member can
-> actually reach leaves the attacker's session alive. Specs are in
-> [work-orders.md](work-orders.md); prompt with an ID (`do WO-85`) or a block
-> (`do block X`).
+> **Two work-order blocks are open** — Y and Z (WO-90 → 97), opened 2026-08-24
+> from an owner review. Specs are in [work-orders.md](work-orders.md); prompt
+> with an ID (`do WO-91`) or a block (`do block Y`).
+>
+> **Block X — account security — is done** (WO-85 → 89, 2026-08-24). A
+> forgot-password reset now revokes every session the account has open, which is
+> the one flow a locked-out member can actually reach and the one that did not
+> ([ADR-031](decisions.md)); reset secrets are stored as SHA-256 with the purpose
+> in a `scope` column, so the table is no longer a set of working credentials;
+> a reset is scoped to one user id and checks its row count; `forgot-password`
+> answers identically for a member, a suspended member, a member with no email
+> address and a stranger; and the login lockout escalates on the
+> identifier+address pair while staying flat on the identifier alone, so an
+> attacker cannot lock a member out of their own savings
+> ([ADR-032](decisions.md)).
 >
 > **Blocks R → W are done** (WO-67 → 84, 2026-08-19). The `/donate` and
 > `/contact` pages no longer show unchangeable placeholder details, every foreign

@@ -53,11 +53,16 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 	ctx := context.Background()
 
 	const memberID = "wd-member"
+	// 019111 is this file's phone namespace. The number used to be 01955500001,
+	// which is what `apps/web/test/routes` seeds `nextroute-member` with — so
+	// this fixture failed on users_phone_key whenever the route suite had run
+	// first against the same database, and passed whenever it had not. Every
+	// unique column in a shared-database suite has to be namespaced to it.
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO users (id, phone, email, "passwordHash", role, status,
 		                   "accountNo", "nameEn", "fatherName", "motherName",
 		                   "createdAt", "updatedAt")
-		VALUES ($1, '01955500001', $1 || '@wd.test', 'x', 'MEMBER', 'ACTIVE',
+		VALUES ($1, '01911100001', $1 || '@wd.test', 'x', 'MEMBER', 'ACTIVE',
 		        'WD-MEMBER-1', 'Withdrawal Fixture', 'F', 'M', NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', "updatedAt" = NOW()
 	`, memberID); err != nil {

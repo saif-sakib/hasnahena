@@ -152,6 +152,15 @@ Postgres also does **not** rename the dependent index, so
 under it. `ALTER INDEX … RENAME` separately, or the next drift check compares an
 index name against a schema that disagrees.
 
+- **"These rows cannot be migrated" is worth checking before believing.** The
+  spec for hashing `password_reset_tokens` said existing rows had to be deleted
+  because plaintext cannot be recovered from a hash. Nothing needed recovering:
+  the plaintext was in the column and `encode(sha256(col::bytea), 'hex')` runs
+  forward. Deleting them all would have destroyed the `first-login` markers,
+  whose existence *is* `mustChangePassword`, silently switching off the forced
+  password change for every already-approved member. Ask what each row is before
+  writing one `DELETE` for all of them.
+
 ## PostgreSQL clients
 
 - **`/usr/bin/pg_dump` is not a binary.** On Debian and Ubuntu it is
@@ -165,6 +174,16 @@ index name against a schema that disagrees.
   [.github/actions/postgres-client](../.github/actions/postgres-client). **A bare
   container with no cluster does not reproduce this** — the wrapper picks
   correctly there, which is what makes the bug look like a failed install.
+
+- **Two parameters added together are `unknown + unknown`.** pgx's simple
+  protocol renders `$2` and `$3` as untyped literals, so
+  `make_interval(secs => $2 + $3)` fails at runtime with
+  `operator is not unique: unknown + unknown (SQLSTATE 42725)` — and only on the
+  branch that runs it, which for a rate-limit lockout is the *fifth* failed
+  attempt, not the first. Cast at the call site (`$2::double precision`)
+  whenever a parameter appears in arithmetic rather than as a plain value. The
+  integration suite pins its connections to simple protocol, so a query that only
+  works under the extended protocol fails there and nowhere else.
 
 ## Test stacks and stale processes
 
@@ -394,6 +413,31 @@ the **translation** from error to HTTP answer: the repository behaviour here was
 thoroughly covered and every one of those tests passed while the endpoint
 answered 500.
 
+- **A test cannot clean up after itself in `audit_logs`.** The DATA-08 trigger
+  refuses `DELETE` unless the transaction has set `hasnahena.allow_audit_purge`,
+  so a `t.Cleanup` deleting audit rows fails, is ignored because the cleanup
+  discards the error, and the next run counts two where it expected one. Assert
+  on a **delta**: read the count before, read it after. The same applies to any
+  assertion over a table something else has appended to.
+- **A hardcoded unique value in a shared-database suite passes until another
+  suite runs first.** `withdrawal_status_integration_test.go` seeded its fixture
+  with phone `01955500001`, which is the number `apps/web/test/routes` gives
+  `nextroute-member`. Both suites use the same database, so the whole file failed
+  on `users_phone_key` when the route suite had run first and passed when it had
+  not — and `pnpm test:integration` alone always passed. Namespace every unique
+  column to the suite that owns it, and prove it by running the two suites in
+  **both** orders.
+- **Comparing whole response bodies compares the clock.** The API envelope
+  carries `meta.timestamp`, so a test asserting two responses are byte-identical
+  — which is the only way to state "this endpoint is not an oracle" — passes when
+  both land in the same second and fails when they do not. Normalise the envelope
+  first; the fingerprint that matters is the status and everything except `meta`.
+- **A red run for the wrong reason is not evidence.** Reverting WO-87's fix to
+  prove its test could fail produced `unused argument: 0`, because the
+  reconstructed statement no longer referenced `$1` — the test went red on a pgx
+  error rather than on the cross-account write it exists to catch. Read *why* the
+  red run failed, not just that it did.
+
 ## Browser suites
 
 - **A spec that passes alone and fails in the suite is shared state or a limit,
@@ -567,6 +611,17 @@ now, which is what it always was.
   `digits[b % 10]` makes 0–5 4% likelier than 6–9 and the 62-character alphabet
   skews 21%. Use `utils.RandomString`, which rejection-samples. Both suites keep
   the biased version to prove a chi-square can tell them apart.
+- **A security mechanism can be built, enforced and wired to the wrong half of
+  the problem.** Token revocation was correct on both backends and called from
+  the logged-in password *change* — the path taken by someone who still controls
+  the account — and not from the forgot-password *reset*, the path a member
+  reaches because they have lost control of it. Every component passed its own
+  test. When auditing a control, do not ask whether it works; ask which paths
+  reach it, and whether those are the paths that need it.
+- **An oracle closed at the status code can still run on the clock.** Making
+  every login answer `401 AUTH_INVALID_CREDENTIALS` leaves an unknown identifier
+  answering in microseconds and a real member's wrong password taking ~60 ms,
+  because only one of them reaches bcrypt. Equalise the work, not just the words.
 
 ## Dependencies
 

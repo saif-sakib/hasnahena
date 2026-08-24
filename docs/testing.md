@@ -14,13 +14,23 @@ is one line per phase in [changelog.md](changelog.md). This file is what you nee
 | Command | Needs | Covers |
 |---|---|---|
 | `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, the SEO metadata and JSON-LD builders, and the source censuses — foreign-key index coverage, the settings keys pages read, **every form that posts a money `amount`** (found by walking `app/`, `components/` and `lib/` rather than by a hand-written list, which is how the previous version went on passing while two screens rounded paisa into the ledger), and the count of `dangerouslySetInnerHTML` that [ADR-024](decisions.md) rests on |
-| `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes |
+| `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes, the lockout escalation table, and the source census that every rate-limited action is a declared constant with a policy |
 | `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; **the ledger reconciliation, with a drift planted for every invariant it claims to check**; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
 | `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
 | `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. CI runs it after `db:migrate` |
 | `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility, **zero CSP violations across every page and both dashboards**, and **how many background requests one open dashboard tab makes in a minute** |
 | `node apps/web/scripts/assert-static-routes.mjs` | a completed `pnpm build` | that the marketing routes are still prerendered and no dashboard or auth route is. Reads `.next/prerender-manifest.json`; CI runs it right after the build |
 | `pnpm test:bundle` | a completed `pnpm build` | first-load JavaScript per route against `bundle-budget.json`, failing on >10% growth, an unrecorded route, or a recorded route the build no longer produces. Reads `.next/diagnostics/route-bundle-stats.json` — the bundler's own answer. Accept a real cost with `pnpm test:bundle:update` |
+
+**Two things about the auth suites are worth knowing before you add to them.**
+`securityRouter` in `cmd/server/auth_security_integration_test.go` builds a
+router with a **configured** email service (Brevo stubbed in-process), because
+with no email service every identifier gets the same 503 and an oracle test
+passes without the fix. And every response comparison goes through `answerOf`,
+which drops `meta.timestamp` — otherwise "these two answers are identical" is a
+statement about the clock. Assertions about `audit_logs` count a **delta**: the
+append-only trigger means a test cannot delete its own rows
+([traps.md](traps.md)).
 
 **The split is load-bearing.** The first two must stay fast enough to run on
 every save, so nothing needing a database belongs in them — which is why
@@ -56,6 +66,7 @@ left behind would pass or fail on package ordering.
 | a cross-file invariant read off disk | `apps/web/test/unit/*.test.ts` | nothing |
 | SQL, a transaction, a race | `apps/api/internal/repositories/*_integration_test.go` | Postgres |
 | a Go HTTP contract | `apps/api/cmd/server/routes_integration_test.go` | Postgres |
+| **what an auth endpoint discloses** | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
 | a Next route handler | `apps/web/test/routes/*.test.ts` | Postgres |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
 | a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |

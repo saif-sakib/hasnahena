@@ -84,13 +84,17 @@ export default function ForgotPasswordPage() {
             <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
               <CheckCircle2 className="h-10 w-10 text-emerald-600" />
             </div>
+            {/* Deliberately conditional. The API answers identically whether or
+                not that email or phone belongs to a member (WO-88), and a screen
+                that says "sent!" hands back the fact the endpoint just stopped
+                disclosing. */}
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'ইমেইল পাঠানো হয়েছে!' : 'Email Sent!'}
+              {locale === 'bn' ? 'ইমেইল চেক করুন' : 'Check your email'}
             </CardTitle>
             <CardDescription className="text-base">
               {locale === 'bn'
-                ? 'পাসওয়ার্ড রিসেট লিঙ্ক আপনার ইমেইলে পাঠানো হয়েছে। আপনার ইনবক্স চেক করুন।'
-                : 'Password reset link was sent to your email. Please check your inbox.'}
+                ? 'এই ইমেইল বা ফোন নম্বরে কোনো অ্যাকাউন্ট থাকলে পাসওয়ার্ড রিসেট লিঙ্ক পাঠানো হয়েছে। আপনার ইনবক্স চেক করুন।'
+                : 'If an account exists for that email or phone, a password reset link has been sent. Please check your inbox.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

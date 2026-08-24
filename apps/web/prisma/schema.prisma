@@ -565,8 +565,24 @@ model GalleryItem {
 // ============================================================
 
 model PasswordResetToken {
-  id    String  @id @default(cuid())
-  token String  @unique
+  id String @id @default(cuid())
+
+  // What the secret is for. Three values today: "reset" (a forgot-password
+  // link), "first-login" (the marker that derives mustChangePassword), and
+  // "pwd-change:<userId>" (the emailed code for a logged-in password change).
+  //
+  // It exists because the purpose used to be a prefix on the secret itself
+  // ("first-login-<hex>", "pwd-change:<userId>:<code>") and every query matched
+  // it with LIKE. A hash has no prefix, so the purpose had to move to a column
+  // of its own before the secret could be hashed (WO-86).
+  scope String
+
+  // SHA-256 of the secret that was emailed — never the secret. Same treatment,
+  // and the same reason, as TokenBlacklist.tokenHash: anything that can read
+  // one row of this table used to be able to take over the account it belongs
+  // to.
+  tokenHash String
+
   email String?
   phone String?
 
@@ -575,6 +591,10 @@ model PasswordResetToken {
 
   createdAt DateTime @default(now())
 
+  // Unique on the pair, not on the hash alone. A "pwd-change" secret is a
+  // 6-digit code, so two members can legitimately hold the same one at the
+  // same time; the scope carries their user id and keeps the rows apart.
+  @@unique([scope, tokenHash])
   @@index([email])
   @@index([phone])
   @@map("password_reset_tokens")

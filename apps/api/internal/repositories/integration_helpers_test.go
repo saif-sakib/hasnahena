@@ -79,7 +79,8 @@ func newTestRepo(t *testing.T) *UserRepository {
 		TRUNCATE TABLE
 			audit_logs, transactions, loans, accounts,
 			notifications, support_messages, support_threads,
-			token_blacklist, rate_limits, document_sequences, sse_tickets,
+			token_blacklist, rate_limits, password_reset_tokens,
+			document_sequences, sse_tickets,
 			system_config,
 			users
 		RESTART IDENTITY CASCADE

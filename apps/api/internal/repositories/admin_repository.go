@@ -568,12 +568,20 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 	return &candidate, nil
 }
 
-func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginToken string) error {
+// ApproveRegistration activates a pending member and plants the first-login
+// marker whose existence is `mustChangePassword`.
+//
+// firstLoginSecret is the raw secret; it is hashed on the way in like every
+// other row of password_reset_tokens (WO-86). It used to arrive carrying a
+// "first-login-" prefix that this function validated and stored verbatim — the
+// prefix is a `scope` column now, so there is nothing left to validate beyond
+// the secret being present.
+func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret string) error {
 	if strings.TrimSpace(passwordHash) == "" {
 		return errors.New("password hash is required")
 	}
-	if !strings.HasPrefix(strings.TrimSpace(firstLoginToken), "first-login-") {
-		return errors.New("invalid first login token")
+	if strings.TrimSpace(firstLoginSecret) == "" {
+		return errors.New("first login secret is required")
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -636,17 +644,17 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM password_reset_tokens
-		WHERE token LIKE 'first-login-%'
+		WHERE scope = $3
 		  AND "usedAt" IS NULL
 		  AND (("email" = $1 AND $1 <> '') OR "phone" = $2)
-	`, email, phone); err != nil {
+	`, email, phone, ResetScopeFirstLogin); err != nil {
 		return err
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO password_reset_tokens (id, token, email, phone, "expiresAt", "createdAt")
-		VALUES (gen_random_uuid()::text, $1, NULLIF($2, ''), $3, NOW() + INTERVAL '365 days', NOW())
-	`, firstLoginToken, email, phone); err != nil {
+		INSERT INTO password_reset_tokens (id, scope, "tokenHash", email, phone, "expiresAt", "createdAt")
+		VALUES (gen_random_uuid()::text, $4, $1, NULLIF($2, ''), $3, NOW() + INTERVAL '365 days', NOW())
+	`, hashResetSecret(firstLoginSecret), email, phone, ResetScopeFirstLogin); err != nil {
 		return err
 	}
 

@@ -58,12 +58,19 @@ func (h *DashboardHandler) BeginShutdown() {
 	h.shutdownOnce.Do(func() { close(h.shutdown) })
 }
 
-func generateFirstLoginToken() (string, error) {
+// generateFirstLoginSecret is the value behind the first-login marker.
+//
+// It carries no "first-login-" prefix any more: the purpose is a `scope` column
+// and the secret itself is stored hashed (WO-86). Nothing ever presents this
+// value — the marker's *existence* is what `mustChangePassword` reads — but it
+// is generated from crypto/rand all the same, because a row keyed on something
+// guessable is a row somebody can plant.
+func generateFirstLoginSecret() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return "first-login-" + hex.EncodeToString(buf), nil
+	return hex.EncodeToString(buf), nil
 }
 
 // tempPasswordAlphabet omits I, l, 1, O and 0 — a temporary password is read
@@ -701,7 +708,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	firstLoginToken, err := generateFirstLoginToken()
+	firstLoginToken, err := generateFirstLoginSecret()
 	if err != nil {
 		utils.Error(w, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "Failed to prepare first-login token")
 		return
@@ -1326,15 +1333,17 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		return
 	}
 
-	tokenPrefix := "pwd-change:" + auth.UserID + ":"
-	if err := h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix); err != nil {
+	// The user id is the scope, not part of the secret. Six digits hashed on
+	// their own would collide across members under the (scope, tokenHash)
+	// unique index the moment two of them were sent the same code.
+	scope := repositories.PasswordChangeScope(auth.UserID)
+	if err := h.userRepo.DeleteResetTokensByScope(r.Context(), scope); err != nil {
 		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to prepare verification code")
 		return
 	}
 
-	token := tokenPrefix + code
 	expiresAt := time.Now().Add(10 * time.Minute)
-	if err := h.userRepo.CreateResetToken(r.Context(), token, email, phone, expiresAt); err != nil {
+	if err := h.userRepo.CreateResetToken(r.Context(), scope, code, email, phone, expiresAt); err != nil {
 		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to store verification code")
 		return
 	}
@@ -1345,7 +1354,7 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	}
 
 	if err := h.emailService.SendPasswordChangeVerificationCodeEmail(r.Context(), email, nameEn, code, locale); err != nil {
-		_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), tokenPrefix)
+		_ = h.userRepo.DeleteResetTokensByScope(r.Context(), scope)
 		summary := summarizeEmailDeliveryError(err)
 		slog.Error("password change code email failed", "userId", auth.UserID, "reason", summary, "error", err)
 		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_DELIVERY_FAILED", "Failed to send verification code: "+summary)
@@ -1403,8 +1412,7 @@ func (h *DashboardHandler) VerifyPasswordChangeCode(w http.ResponseWriter, r *ht
 		}
 	}
 
-	token := "pwd-change:" + auth.UserID + ":" + verificationCode
-	if _, err := h.authService.ValidateResetToken(r.Context(), token); err != nil {
+	if _, err := h.userRepo.GetResetToken(r.Context(), repositories.PasswordChangeScope(auth.UserID), verificationCode); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Invalid or expired verification code")
 		return
 	}
@@ -1456,8 +1464,8 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 		return
 	}
 
-	token := "pwd-change:" + auth.UserID + ":" + verificationCode
-	resetToken, err := h.authService.ValidateResetToken(r.Context(), token)
+	scope := repositories.PasswordChangeScope(auth.UserID)
+	resetToken, err := h.userRepo.GetResetToken(r.Context(), scope, verificationCode)
 	if err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_VERIFICATION_CODE", "Invalid or expired verification code")
 		return
@@ -1475,7 +1483,7 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	if err := h.userRepo.MarkResetTokenUsed(r.Context(), resetToken.ID); err != nil {
 		slog.Error("failed to mark password change verification code used", "userId", auth.UserID, "tokenId", resetToken.ID, "error", err)
 	}
-	_ = h.userRepo.DeleteResetTokensByPrefix(r.Context(), "pwd-change:"+auth.UserID+":")
+	_ = h.userRepo.DeleteResetTokensByScope(r.Context(), scope)
 
 	// Invalidate all user tokens (force re-login on all devices).
 	//

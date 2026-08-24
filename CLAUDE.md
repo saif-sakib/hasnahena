@@ -88,6 +88,9 @@ count that used to open this sentence is gone too. See
 | a page title, or the site's own name | `apps/web/test/unit/seo.test.ts` — call `siteTitle(locale)`. The `<title>` existed three times and had already drifted: the layout said "Hasnahena Foundation" while the home page said "Hasnahena", and the home page's `generateMetadata` overrides the layout's, so the most-crawled title on the site was the one missing the word people search for |
 | **member-facing copy about a loan** | `apps/web/test/unit/messages.test.ts` — it reads the prose for a promise of a charge. The Terms of Service told every member, in both languages, that loans "are interest-free but may include administrative fees"; `applicationFee = 0`, the CHECK constraint and the "markup" source search all passed, because none of them reads a string in a page |
 | a loan list, or a `nextDueDate` | `apps/api/internal/repositories/loan_schedule_integration_test.go` — `/admin/loans` and `/worker/loans` are one React component and must return the **same rows** and agree on `isOverdue`, `missedInstallments` and the date. Three queries once answered the date three ways, and the two lists carried different statuses |
+| a rate-limited action | `apps/api/internal/services/rate_limit_policy_test.go` — declare it as a `RateLimitAction` constant and give it a policy. A bare string at the call site fails the census, because an unnamed action silently gets the default five-attempts-flat-30-seconds whatever the endpoint needs |
+| a row in `password_reset_tokens`, in **either** language | `apps/web/test/unit/reset-token-scopes.test.ts` — `scope` plus `sha256(secret)`, never the secret. The Next half is `apps/web/lib/reset-tokens.ts`; the test reads the Go source, so a scope renamed on one side fails on the other |
+| a branch in `forgot-password` that depends on what the lookup found | `apps/api/cmd/server/auth_security_integration_test.go` — a member, a suspended member, a member with no email and a stranger must get a byte-identical answer ([ADR-032](docs/decisions.md)). The three answers this replaced were a membership oracle on an unauthenticated endpoint |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -136,6 +139,13 @@ count that used to open this sentence is gone too. See
    pool-based variant takes a second connection and deadlocks the pool under
    concurrency ([ADR-017](docs/decisions.md)).
 7. Never commit `.env*` or credentials.
+7a. **An auth endpoint must not disclose who is a member.** For a
+   religious-finance cooperative in one town, membership itself is the sensitive
+   fact. `forgot-password` answers `200` with one constant body for everybody;
+   `login` answers `401` identically for a wrong password, an unknown identifier
+   and a suspended member's wrong password — and pays the same bcrypt cost for
+   all three, or the oracle just moves to the stopwatch
+   ([ADR-032](docs/decisions.md)).
 8. **End every task with an "Action required from you" section** — or the single line `**Action required from you:** none.` Never leave it out, and never bury a required step in prose. It lists what *I* cannot do and the user must, each with where to do it and what breaks if it is skipped:
    - env vars to add, change, or delete — **name the host** (Render for the Go API, Vercel for the web app, and the local `.env.local`), since they are separate stores and a var added in one is missing in the others
    - `pnpm db:migrate:dev` to generate a migration when `schema.prisma` changed, and `pnpm db:migrate` to apply it in each environment ([ADR-014](docs/decisions.md) — `db:push` is no longer the workflow)
@@ -157,7 +167,10 @@ apps/api/internal/repositories/   all SQL, split by domain (WO-38):
     member_repository.go          what a member sees about their own money (read-only)
     worker_repository.go          the field worker's view and the postings they process
     admin_repository.go           approvals, admin dashboard, member list
-    auth_repository.go            identity, passwords, reset tokens
+    auth_repository.go            identity, passwords, reset tokens. Owns the revoke-all marker WRITE
+                                  (SecurityService still reads it) because a reset revokes sessions in
+                                  the same transaction as the password (ADR-031). Secrets are hashed
+                                  on the way in — no call site can store plaintext by forgetting
     support_repository.go         support chat + SSE tickets
     report_repository.go          aggregate reporting
     reconcile_repository.go       sums the whole ledger and compares it to the stored balances (WO-82).
@@ -199,6 +212,8 @@ apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/sett
 apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
+apps/web/lib/reset-tokens.ts      the password_reset_tokens contract for the half Next writes: the
+                                  scopes and the SHA-256. Must agree with the Go half (ADR-031)
 apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member is given (ADR-023/029).
                                   `users.accountNo`; called memberId before 2026-08-19. The Go half is
                                   apps/api/internal/utils/account_no.go and the two must agree

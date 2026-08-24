@@ -37,6 +37,13 @@
 | `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `staff User[]` — a worker's assigned office. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](work-orders.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 
+`PasswordResetToken` stores **no secrets**: `tokenHash` is `sha256(secret)` and
+`scope` says what the secret is for — `reset`, `first-login`, or
+`pwd-change:<userId>` ([ADR-031](decisions.md)). Unique on the *pair*, because a
+`pwd-change` secret is six digits and two members can hold the same one. The
+`first-login` rows are load-bearing beyond authentication: `mustChangePassword`
+is not a column, it is `EXISTS` over an unused, unexpired one of them.
+
 ## Enums
 
 - `UserRole` MEMBER · WORKER · ADMIN · SUPER_ADMIN

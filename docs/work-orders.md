@@ -24,23 +24,24 @@ do later, the same principle as [go-live.md](go-live.md).
 | ~~**U**~~ | ~~Security~~ | WO-76 → 78 | **Done 2026-08-19** |
 | ~~**V**~~ | ~~SEO~~ | WO-79 → 81 | **Done 2026-08-19** |
 | ~~**W**~~ | ~~Future-proof~~ | WO-82 → 84 | **Done 2026-08-19** |
-| **X** | **Account security — the live ones** | WO-85 → 89 | **Open.** Opened 2026-08-24. Every order here is a way an account survives its own remediation. Cheapest to fix now, most expensive to fix after a member is robbed |
+| ~~**X**~~ | ~~Account security — the live ones~~ | WO-85 → 89 | **Done 2026-08-24** |
 | **Y** | **Identity and deletion integrity** | WO-90 → 93 | **Open.** One contact = one account, and a deleted thing is actually gone. Costs more the more rows exist, so it is before launch, not after |
 | **Z** | **English first** | WO-94 → 97 | **Open.** Locale defaults and the URL shape. Last because nothing here can lose money — but WO-95 gets dearer with every link and every indexed URL |
 
-Blocks R → W are closed. **X, Y and Z are open** and were opened 2026-08-24 from
-an owner review. Everything else is in
+Blocks R → X are closed. **Y and Z are open**; they were opened 2026-08-24 from
+an owner review, along with X, which is done. Everything else is in
 [production-readiness.md](production-readiness.md) and
 [go-live.md](go-live.md) — and one item in this file's last section that needs a
 credential rather than a session.
 
 ### Doing these in order
 
-**X before Y before Z.** Within a block the orders are independent unless an
-order says otherwise, so `do WO-86` on its own is a valid instruction. Three
-dependencies exist and are named where they bind: WO-91 needs WO-85's revocation
-helper, WO-95 supersedes WO-94's URL shape, and WO-93 needs a decision from the
-owner before a line is written.
+**Y before Z.** Within a block the orders are independent unless an order says
+otherwise, so `do WO-91` on its own is a valid instruction. Three dependencies
+existed and are named where they bind: WO-91 needs WO-85's revocation helper,
+which now exists as `UserRepository.RevokeAllUserTokens`; WO-95 supersedes
+WO-94's URL shape; and WO-93 needs a decision from the owner before a line is
+written.
 
 ### Standing rules for every order
 
@@ -189,274 +190,74 @@ code change anyone can make today:
 
 ---
 
-# Block X — Account security
+# Block X — closed 2026-08-24
 
-Opened 2026-08-24 from an owner review: *"I don't want anyone account to be
-compromised by a hacker."*
+WO-85 → WO-89 are done. What they contained is one row in
+[changelog.md](changelog.md); the reasoning is [ADR-031](decisions.md) and
+[ADR-032](decisions.md); what they *taught* is in [traps.md](traps.md). Seven
+things are worth repeating here, because all seven were found by the work rather
+than specified by it.
 
-**Read this table before touching anything in this block.** The authentication
-here is in better shape than a quick reading suggests, and the fastest way to
-create a vulnerability is to "fix" one of these:
+- **WO-86's migration instruction was wrong, and following it would have been a
+  silent regression.** The order said existing rows "cannot be migrated — the
+  plaintext cannot be recovered from a hash". Nothing has to be recovered: the
+  plaintext is in the column, and hashing runs forward. What deleting every row
+  *would* have done is destroy the `first-login` markers, whose existence is the
+  entire implementation of `mustChangePassword` — so every member already
+  approved and not yet signed in would have quietly stopped being asked to
+  change the temporary password they were emailed. The migration splits them:
+  `reset` and `pwd-change` rows are deleted (live credentials, minutes old, and
+  the point is that plaintext does not survive), `first-login` rows are hashed in
+  place.
 
-| Already correct — leave it alone | Where |
-|---|---|
-| Reset tokens are 32 bytes from **`crypto/rand`**, hex-encoded, 30-minute expiry, and every older token for that account is deleted before a new one is issued | `auth_service.go:266-275` |
-| Login has a **distributed, per-identifier** lockout that counts failures on both the unknown-user and wrong-password branches, returns the same error either way, and clears on success | `auth_service.go:61-95` |
-| A logged-in password change **does** revoke every other session | `dashboard_handler.go:1244`, `:1487` |
-| Both backends check the revocation marker on every request, and both fail closed on a lookup error | `auth_service.go:238`, `lib/auth-revocation.ts:85` |
-| The registration availability endpoint is throttled to 20 per 10 minutes with the membership-disclosure reasoning written out | `registrations/route.ts:78` |
-| Passwords are bcrypt at `DefaultCost`; the blacklist stores SHA-256, never the token | `security_service.go:29` |
+- **A six-digit secret cannot be unique on its hash.** Moving the prefix to a
+  `scope` column and hashing the rest looked like a mechanical change until two
+  members were sent the same password-change code: `sha256("123456")` is one
+  value, and the old unique index on the token had been satisfied only because
+  the user id was *inside* the secret. The constraint is `(scope, tokenHash)`
+  now, and the scope carries the user id.
 
-What follows are the five places that reasoning did **not** reach. The theme is
-not weak authentication — it is that the good mechanisms are **wired to some
-paths and not others**, and the paths they miss are the ones a member reaches
-*after* something has already gone wrong.
+- **The flat lockout was not the five-guesses-then-thirty-seconds WO-89
+  described.** `CheckRateLimit` refused unconditionally once `attempts >= 5`,
+  which had two consequences that both read as the code working: the
+  `RetryAfterSecs: 30` it answered with was a number nothing enforced — the real
+  wait was whatever the row had left of its TTL — and a lockout could never be
+  *served*, so there was nothing for an escalation to escalate from. Removing
+  that branch was the prerequisite, not the polish.
 
----
+- **`ForgotPassword` was already deleting the first-login marker.** It cleared
+  every reset-token row matching the address before issuing a link, so asking
+  for a password reset and never clicking it switched off the forced password
+  change. Invisible before the `scope` column existed, because there was nothing
+  to scope the delete to. The retire-the-marker step now belongs to the reset
+  itself, where it is true.
 
-## WO-85 — A password *reset* leaves every session alive
+- **Atomicity moved code across a layer boundary.** WO-85 asks for the marker to
+  be written in the same transaction as the password. `services` imports
+  `repositories`, not the reverse, and repositories are the only layer that owns
+  a transaction — so `BlacklistAllUserTokens` moved out of `SecurityService` and
+  became `UserRepository.RevokeAllUserTokens`, with the read side
+  (`IsUserTokensRevoked`) staying where it was. One definition of the INSERT, two
+  entry points.
 
-**The defect, precisely.** Token revocation is built, wired and enforced on both
-backends. It is called from **one of the two** password paths — and it is the
-wrong one that is missing.
+- **The membership oracle also ran on a clock.** WO-88 is about status codes, but
+  an unknown identifier skipped `bcrypt.CompareHashAndPassword` entirely and
+  answered in microseconds where a real member's wrong password took ~60 ms.
+  Equalising the responses without equalising the timing would have moved the
+  oracle rather than closed it.
 
-| Path | Reached by | Revokes other sessions? |
-|---|---|---|
-| Logged-in change — `handlers/dashboard_handler.go:1244`, `:1487` | someone who **still has** access | **Yes** — `InvalidateAllUserTokens(…, "password_change")` |
-| Forgot-password reset — `services/auth_service.go:291` | someone who has **lost** access | **No. Nothing.** |
-
-`ResetPassword` runs `UpdatePassword` → `MarkResetTokenUsed` → audit → `return
-nil`, and never touches revocation. `handlers/auth_handler.go:154` adds nothing.
-
-**Why this asymmetry is the wrong way round.** The logged-in change is performed
-by a member who already controls the account — ending their other sessions is
-good hygiene. The reset is the flow a member reaches *because they cannot get
-in*: the locked-out case, and the **"someone else is using my account"** case.
-It is the one path where evicting the other sessions is the entire purpose, and
-it is the one path that does not do it.
-
-So: a member's password is stolen. They cannot log in, so they use *Forgot
-password* — the only route available to them — and set a new one. The attacker's
-token keeps working, against both backends, for up to 24 hours. The member has
-done everything right and has no way to know it did not work.
-
-**The enforcement half is already correct — do not touch it.**
-
-| Surface | Honours the `all:<userId>` marker at |
-|---|---|
-| Go | `services/auth_service.go:238` → `IsUserTokensRevoked` |
-| Next | `apps/web/lib/auth-revocation.ts:85` → `checkRevocation` |
-
-**Change.** In `services/auth_service.go` `ResetPassword`, after `UpdatePassword`
-succeeds and before `MarkResetTokenUsed`, call
-`s.InvalidateAllUserTokens(ctx, user.ID, "password_reset")`. One call site.
-
-**Write it in the same transaction as the password.** `UpdatePassword`
-(`auth_repository.go:320`) `Exec`s against the pool today. A password that
-changed without its marker is exactly the defect being fixed; two independent
-statements with a crash between them rebuilds it on a smaller scale. This
-overlaps WO-87, which is rewriting that same statement — **do WO-87 first and
-this becomes a two-line change.**
-
-**The 24-hour trap — fix it here, it is latent in the path that already works.**
-`BlacklistAllUserTokens` (`services/security_service.go:58`) hardcodes
-`"expiresAt" = NOW() + INTERVAL '24 hours'`, while `JWT_EXPIRY_SECONDS` defaults
-to `86400` — exactly 24h (`internal/config/config.go:94`). It is safe today
-*only* because the marker is always created after the token it revokes, so it
-outlives it by the gap between the two. Raise `JWT_EXPIRY_SECONDS` past 86400 —
-a plausible operational change, with nothing warning against it — and **revoked
-tokens come back to life** when the marker expires early, silently, on both
-backends at once. Derive the interval from `cfg.JWTExpiry` plus a margin.
-
-**Test — must be seen red first.**
-- Integration: issue a token → complete a forgot-password reset → `ValidateToken`
-  returns `ErrTokenRevoked`. Red today.
-- Integration, as the control: the same for the logged-in change. **Green
-  today** — it pins the behaviour that already works so this order cannot
-  regress it. Say in the test that it is the control.
-- Pure: the marker outlives the longest issuable token for any `JWTExpiry`.
-  Cannot be made red without changing the config default — say so in the test.
-
-**Verify.** `pnpm test:go && pnpm test:integration`
-
----
-
-## WO-86 — Password-reset tokens are stored in plaintext
-
-**The defect.** `password_reset_tokens.token` holds the raw secret from the
-email, and `GetResetToken` (`auth_repository.go:295`) matches
-`WHERE token = $1`.
-
-Anything that can read one row of that table can take over the account it
-belongs to: a database backup, the Neon console, a support screenshot, a log
-line, an SQL-injection anywhere in either backend, or a restored snapshot
-handed to a contractor. The table is not a set of pointers to credentials — for
-its lifetime it *is* a set of working credentials.
-
-**This codebase already knows the answer.** `token_blacklist.tokenHash` stores
-`sha256(token)` for exactly this reason, and says so in the schema comment:
-*"(not the full token)"*. Reset tokens simply never got the same treatment.
-
-**Change.**
-- Store `sha256(token)`; look up by the hash of the presented token. The
-  plaintext exists only in the email.
-- **The prefix conventions break under hashing** and must move to their own
-  column first. `DeleteResetTokensByPrefix` (`auth_repository.go:263`) does
-  `token LIKE $1`, and `ChangePassword` matches `token LIKE 'first-login-%'`.
-  Two live conventions: `first-login-…` and `pwd-change:<userId>:…`. Add a
-  `scope String` column carrying the prefix, hash only the secret, and rewrite
-  both queries against `scope`.
-- Migration: `pnpm db:migrate:dev`. Existing unexpired rows cannot be migrated —
-  the plaintext cannot be recovered from a hash and must not be kept. Delete
-  them in the migration; the affected members re-request a link. Say this in the
-  migration comment.
-
-**Test.** `internal/repositories/…_integration_test.go` — create a token, assert
-no column of the row equals the token handed to the caller, and that presenting
-the plaintext still validates. Seen red: today the first assertion fails.
-
-**Verify.** `pnpm db:migrate:check && pnpm test:integration`
-
----
-
-## WO-87 — `UpdatePassword` can set two accounts' passwords at once
-
-**The defect.** `auth_repository.go:320`:
-
-```sql
-UPDATE users SET "passwordHash" = $1 WHERE email = $2 OR phone = $3
-```
-
-Three faults in one statement:
-
-1. **It is not scoped to a user.** If the email on the token belongs to one row
-   and the phone to another — reachable through the rejection tombstones
-   (`admin_repository.go:717`), an admin phone edit, or any future contact
-   change — this sets **both** accounts to the requester's new password. The
-   caller asked to reset one account and silently reset a stranger's.
-2. **It never checks how many rows it touched.** Zero rows affected returns
-   `nil`. The API answers *"password reset"* and the member's password is
-   unchanged; they are now locked out of an account they still own, with a used
-   token and no error anywhere.
-3. `ResetPassword` (`auth_service.go:306`) already resolved the row —
-   `FindByIdentifier(email)`, falling back to phone. The id is in hand and
-   thrown away.
-
-**Change.** Pass `user.ID`; `WHERE id = $1`; require exactly one row affected
-and return an error otherwise. While there: the `FindByIdentifier` fallback at
-`auth_service.go:306-312` treats *any* error from the email lookup as "not
-found" and retries with the phone, so a transient database error silently
-resolves a different account. Distinguish not-found from failed.
-
-**Test.** `internal/repositories/…_integration_test.go`, seen red: two users, one
-holding the token's email and one holding its phone; reset; assert the second
-user's `passwordHash` is byte-identical to what it was.
-
-**Verify.** `pnpm test:integration`
-
----
-
-## WO-88 — `forgot-password` is a membership oracle
-
-**The defect.** `internal/handlers/auth_handler.go:112` answers a
-password-reset request with the truth about who exists:
-
-| Response | What it tells an unauthenticated caller |
-|---|---|
-| `404 AUTH_USER_NOT_FOUND` — *"No account found with this email or phone"* | this person is **not** a member |
-| `400 AUTH_EMAIL_REQUIRED` — *"This account does not have an email address"* | this person **is** a member, and here is a fact about their record |
-| `200` | this person **is** a member |
-
-**Why it matters here specifically.** This repository has already reasoned about
-exactly this risk and reached the opposite conclusion three files away.
-`apps/web/app/api/v1/registrations/route.ts:78`:
-
-> *"unthrottled it is a bulk membership-disclosure oracle, and for a
-> religious-finance cooperative in one town, membership itself is the sensitive
-> fact. A list of who banks here is worth more to the wrong person than any
-> single balance."*
-
-That endpoint is throttled to 20 checks per 10 minutes per address and the
-reasoning is sound — **leave it exactly as it is.** `forgot-password` answers
-the same question, more precisely, and carries no such throttle: only the global
-per-IP mutating-request limiter applies.
-
-**Change.** Always `200`, always the same body, whatever the identifier. Do the
-lookup and the send after the response is decided, never branching the reply on
-what was found. Add a throttle keyed on the *identifier* as well as the address,
-via the existing `consumeRateLimit` / `rate_limits` table, so one address
-cycling through numbers is stopped and one member retrying is not. Keep an audit
-row for the attempts that found nothing — that is the signal an enumeration is
-under way, and right now it is invisible.
-
-The "no email on this account" case becomes a silent no-op. That is the correct
-trade: a member without an email cannot be sent a link either way, and the
-support route already exists for them.
-
-**Test.** `cmd/server/…_integration_test.go`, seen red: a known and an unknown
-identifier produce byte-identical status and body.
-
-**Verify.** `pnpm test:integration`
-
----
-
-## WO-89 — The login lockout never escalates and never tells anyone
-
-**Read this first: login throttling is already implemented, and implemented
-well.** `services/auth_service.go:61` checks a **distributed, per-identifier**
-limit before the password is compared, records a failed attempt on both the
-unknown-user and wrong-password branches (`:68`, `:76`), returns the *same*
-`ErrRateLimited` either way so it leaks nothing, and clears the counter on
-success (`:93`) with a comment explaining why that failure is logged rather than
-returned. `identifierKey` is lowercased, so case variants share one bucket.
-**Do not rewrite any of that.**
-
-Two things are left.
-
-**(a) The lockout is flat.** `services/security_service.go:116`:
-
-```go
-RateLimitMaxAttempts = 5
-RateLimitLockout     = 30 * time.Second
-```
-
-Five guesses, wait 30 seconds, five more — for ever, with no escalation, no
-alert and no audit row. That is **10 guesses a minute against one named account,
-indefinitely**: ~14,000 a day. Against a strong password, irrelevant. Against a
-first-login temporary password that was never changed, or a member who chose
-their phone number, it is not.
-
-Escalate the lockout instead — 30s, then 2m, 10m, 1h — off the attempt count
-already stored in `rate_limits`. The first lockout stays as cheap as it is now
-for the member who mistyped, and a sustained attack prices itself out within a
-few minutes. Write an audit row when the lockout escalates past the first step:
-today a sustained attack on one member is invisible to everyone.
-
-Note the tension both ways: the counter is keyed on the identifier alone, so an
-attacker can hold a known member out of their savings for as long as they keep
-guessing. At 30 seconds that is a nuisance; at 1 hour it is a weapon. **Escalate
-on the identifier+address pair, and keep the flat 30s for the identifier alone**
-— then a member logging in from their own phone is unaffected by an attack from
-somewhere else.
-
-**(b) An inactive account identifies itself.** `auth_service.go:83` returns
-`ErrUserInactive` where a wrong password returns `ErrInvalidCredentials`. That
-distinguishes *"this identifier is a real account, currently suspended"* from
-*"wrong credentials"* — the same membership oracle as WO-88, on a different
-endpoint. A suspended member does need to be told why they cannot get in; tell
-them **after** the password is verified, not before. The check already sits after
-`bcrypt.CompareHashAndPassword`, so this is only about not answering it to a
-caller who failed that comparison — confirm the ordering holds and add a test
-that pins it.
-
-**Test.** Integration, seen red: attempts 6→10 against one identifier are locked
-for longer than attempts 1→5; an audit row exists after escalation; a wrong
-password for a suspended account is indistinguishable from a wrong password for
-an active one.
-
-**Verify.** `pnpm test:integration`
-
----
+- **Two suites had been sharing a phone number.** `withdrawal_status_
+  integration_test.go` hardcoded `01955500001`, which is what
+  `apps/web/test/routes` seeds `nextroute-member` with, so that whole file
+  failed on `users_phone_key` if the route suite had run first and passed if it
+  had not. `pnpm test:integration` on its own always passed, which is why nobody
+  had seen it. Found by running the two in both orders, which is now the way to
+  check any new fixture.
+- **A test cannot clean up after itself in `audit_logs`.** The append-only
+  trigger (DATA-08) refuses DELETE without an explicit session opt-in, so
+  `t.Cleanup` deleting audit rows fails silently and the next run counts two.
+  Every assertion about an audit row counts a **delta**. This is a nice property
+  to have discovered from the enforcement rather than from a stale count.
 
 # Block Y — Identity and deletion integrity
 

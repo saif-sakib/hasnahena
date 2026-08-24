@@ -7,6 +7,7 @@ import { requireActiveAuth } from '@/lib/auth-revocation';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
+import { RESET_SCOPE_FIRST_LOGIN, hashResetSecret } from '@/lib/reset-tokens';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 /**
@@ -154,9 +155,14 @@ export async function POST(req: Request) {
       select: STAFF_SELECT,
     });
 
+    // The marker whose existence is `mustChangePassword`. Hashed and scoped
+    // like every other row of this table (WO-86) — the secret is never
+    // presented, but a row keyed on something guessable is a row somebody can
+    // plant.
     await prisma.passwordResetToken.create({
       data: {
-        token: `first-login-${randomBytes(24).toString('hex')}`,
+        scope: RESET_SCOPE_FIRST_LOGIN,
+        tokenHash: hashResetSecret(randomBytes(24).toString('hex')),
         email: created.email,
         phone: created.phone,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),

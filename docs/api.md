@@ -32,8 +32,30 @@ with no route.
 | GET | `/v1/ready` | readiness. Pings the database (2 s budget); 503 `DB_UNAVAILABLE` if unreachable |
 | POST | `/v1/auth/login` | `{identifier, password}` — identifier is email **or** phone |
 | POST | `/v1/auth/logout` | blacklists the presented token |
-| POST | `/v1/auth/forgot-password` | emails a reset link |
+| POST | `/v1/auth/forgot-password` | **always 200, always the same body** |
 | GET·POST | `/v1/auth/reset-password` | validate token · set new password |
+
+`forgot-password` does not tell an unauthenticated caller who is a member
+([ADR-032](decisions.md)). A member, a suspended member, a member with no email
+address and a phone number nobody here has all get the same `200` and the same
+message; what actually happened is in the logs and in `audit_logs`. The only
+other answers are `429` (throttled per identifier and per address) and `503
+EMAIL_NOT_CONFIGURED`, which is decided before any lookup and is therefore true
+of every caller alike. **Do not add a branch here that depends on what the lookup
+found.**
+
+`POST /v1/auth/reset-password` spends the link, writes the password, retires the
+first-login marker and **revokes every session the account has open**, in one
+transaction ([ADR-031](decisions.md)). A link is single-use: a second submission
+answers `400 AUTH_INVALID_TOKEN`, which is also the answer for unknown and
+expired, because which of the three it was is a fact about the account.
+
+`login` answers `401 AUTH_INVALID_CREDENTIALS` identically for a wrong password,
+an unknown identifier and a suspended member's wrong password — and pays the same
+bcrypt cost for all three. `403 AUTH_USER_INACTIVE` is reached only *after* the
+password verifies. `429 AUTH_RATE_LIMITED` comes from two buckets: the identifier
+alone (flat 30 s per 5 failures) and the identifier+address pair (30 s → 2 m →
+10 m → 1 h).
 
 ### Shared (any signed-in role)
 

@@ -4,9 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"hasnahena/apps/api/internal/repositories"
 )
 
 // SecurityService handles token blacklisting and distributed rate limiting
@@ -50,21 +54,11 @@ func (s *SecurityService) IsTokenBlacklisted(ctx context.Context, token string) 
 	return count > 0, nil
 }
 
-// BlacklistAllUserTokens revokes all tokens for a user (called on password change)
-func (s *SecurityService) BlacklistAllUserTokens(ctx context.Context, userID string, reason string) error {
-	// Insert a special marker that means "all tokens issued before this time are invalid".
-	// "tokenHash" is unique, so a repeat revocation for the same user has to move
-	// the existing marker forward rather than insert a second one.
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO token_blacklist (id, "tokenHash", "userId", reason, "expiresAt", "createdAt")
-		VALUES (gen_random_uuid()::text, $1, $2, $3, NOW() + INTERVAL '24 hours', NOW())
-		ON CONFLICT ("tokenHash") DO UPDATE SET
-			reason = EXCLUDED.reason,
-			"expiresAt" = EXCLUDED."expiresAt",
-			"createdAt" = EXCLUDED."createdAt"
-	`, "all:"+userID, userID, reason)
-	return err
-}
+// The revoke-all marker is WRITTEN by repositories.UserRepository — see
+// RevokeAllUserTokens and UpdatePasswordAndRevokeSessions there. It moved out of
+// this file because a password reset has to write the marker inside the same
+// transaction as the password, and repositories are the only layer that owns a
+// transaction. This file still reads it, below.
 
 // IsUserTokensRevoked checks if all user tokens have been revoked
 func (s *SecurityService) IsUserTokensRevoked(ctx context.Context, userID string, tokenIssuedAt time.Time) (bool, error) {
@@ -73,9 +67,9 @@ func (s *SecurityService) IsUserTokensRevoked(ctx context.Context, userID string
 		SELECT "createdAt" FROM token_blacklist
 		WHERE "tokenHash" = $1 AND "expiresAt" > NOW()
 		ORDER BY "createdAt" DESC LIMIT 1
-	`, "all:"+userID).Scan(&revokedAt)
+	`, repositories.TokenRevocationMarker(userID)).Scan(&revokedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
@@ -110,23 +104,173 @@ func (s *SecurityService) CleanupExpiredTokens(ctx context.Context) (int64, erro
 	return result.RowsAffected(), nil
 }
 
-// Rate Limiting using PostgreSQL
+// ==================== RATE LIMITING ====================
+//
+// Backed by the `rate_limits` table rather than by memory, and the reasons are
+// in middleware/ratelimit.go: this counter must survive a restart (a restart is
+// not a reason to forget an attacker), it must be the same count on every
+// instance, and it writes only on failure, which is rare.
 
+// RateLimitAction names a throttled action. Every value is declared here and
+// every one has a policy — `TestEveryRateLimitedActionIsDeclared` reads the
+// source and fails on a bare string literal passed to one of these methods,
+// because an action with no policy would silently get the default.
 const (
-	RateLimitMaxAttempts = 5
-	RateLimitLockout     = 30 * time.Second
-	RateLimitWindow      = 5 * time.Minute // Cleanup old entries after this
+	// RateLimitActionLogin counts failures against one identifier, wherever
+	// they come from.
+	RateLimitActionLogin = "login"
+
+	// RateLimitActionLoginOrigin counts failures against one identifier from
+	// one address.
+	RateLimitActionLoginOrigin = "login-origin"
+
+	// RateLimitActionForgotPassword counts reset requests for one identifier.
+	RateLimitActionForgotPassword = "forgot-password"
+
+	// RateLimitActionForgotPasswordOrigin counts reset requests from one
+	// address, whatever identifiers they name.
+	RateLimitActionForgotPasswordOrigin = "forgot-password-origin"
 )
+
+// RateLimitPolicy is how one action is throttled.
+type RateLimitPolicy struct {
+	// MaxAttempts failures are allowed before a lockout starts — and another
+	// MaxAttempts after each lockout has been served.
+	MaxAttempts int
+
+	// Window is how long the counter outlives the last attempt (added on top of
+	// any lockout still outstanding). It is what stops an attacker resetting
+	// the escalation by waiting out one step.
+	Window time.Duration
+
+	// Steps are the lockout durations in order; the last repeats for ever. A
+	// single-element Steps is a flat lockout that never escalates.
+	Steps []time.Duration
+}
+
+// The policies.
+//
+// Login carries two, and that is the point of WO-89. The counter used to key on
+// the identifier alone, which means an attacker who knows a member's phone
+// number can hold them out of their own savings for as long as they keep
+// guessing. At a flat 30 seconds that is a nuisance; at the one hour a
+// sustained attack deserves, it is a weapon — so the escalation keys on the
+// identifier *and the address*, and the identifier alone keeps the flat 30
+// seconds it always had. A member logging in from their own phone is then
+// unaffected by an attack from somewhere else, and the attacker's own bucket
+// prices itself out within a few minutes.
+var rateLimitPolicies = map[string]RateLimitPolicy{
+	RateLimitActionLogin: {
+		MaxAttempts: 5,
+		Window:      5 * time.Minute,
+		Steps:       []time.Duration{30 * time.Second},
+	},
+	RateLimitActionLoginOrigin: {
+		MaxAttempts: 5,
+		Window:      15 * time.Minute,
+		Steps: []time.Duration{
+			30 * time.Second,
+			2 * time.Minute,
+			10 * time.Minute,
+			time.Hour,
+		},
+	},
+	// A member asking for a reset link twice is normal; asking six times in a
+	// quarter of an hour is not, and the email costs money either way.
+	RateLimitActionForgotPassword: {
+		MaxAttempts: 5,
+		Window:      15 * time.Minute,
+		Steps:       []time.Duration{15 * time.Minute},
+	},
+	// The enumeration limit. 20 per 10 minutes is the number
+	// apps/web/app/api/v1/registrations/route.ts already settled on for the
+	// same question — membership itself is the sensitive fact for a
+	// religious-finance cooperative in one town — and answering it twice with
+	// two different numbers would be worse than either.
+	RateLimitActionForgotPasswordOrigin: {
+		MaxAttempts: 20,
+		Window:      10 * time.Minute,
+		Steps:       []time.Duration{10 * time.Minute, time.Hour},
+	},
+}
+
+// defaultRateLimitPolicy is what an unnamed action gets. It exists so a typo
+// fails closed rather than unthrottled.
+var defaultRateLimitPolicy = RateLimitPolicy{
+	MaxAttempts: 5,
+	Window:      5 * time.Minute,
+	Steps:       []time.Duration{30 * time.Second},
+}
+
+func policyFor(action string) RateLimitPolicy {
+	if p, ok := rateLimitPolicies[action]; ok {
+		return p
+	}
+	return defaultRateLimitPolicy
+}
+
+// lockoutFor reports how long the nth consecutive failure locks the caller out,
+// and whether this failure starts a lockout at all.
+//
+// A lockout starts on every multiple of MaxAttempts and lengthens each time: 5
+// wrong guesses cost the first step, the next 5 cost the second, and so on to
+// the last, which repeats. Between multiples nothing new is set, so a member
+// who mistypes once after serving a lockout is not punished for it — which is
+// what "five guesses, wait, five more" has always meant, and what the flat
+// version could not express.
+func (p RateLimitPolicy) lockoutFor(attempts int) (lockout time.Duration, escalated bool, locked bool) {
+	if p.MaxAttempts <= 0 || len(p.Steps) == 0 || attempts <= 0 || attempts%p.MaxAttempts != 0 {
+		return 0, false, false
+	}
+	step := attempts/p.MaxAttempts - 1
+	if step >= len(p.Steps) {
+		step = len(p.Steps) - 1
+	}
+	return p.Steps[step], step > 0, true
+}
+
+// remainingTries is how many failures are left before the next lockout.
+func (p RateLimitPolicy) remainingTries(attempts int) int {
+	if p.MaxAttempts <= 0 {
+		return 0
+	}
+	return p.MaxAttempts - attempts%p.MaxAttempts
+}
 
 type RateLimitResult struct {
 	Allowed        bool
 	RemainingTries int
 	LockedUntil    *time.Time
 	RetryAfterSecs int
+
+	// Attempts is the failure count this result was computed from, and
+	// Escalated says the lockout just moved past its first step. Together they
+	// are the signal that an attack on one account is under way — which used to
+	// be invisible to everyone, because a flat lockout looks the same on the
+	// fifth failure as on the five-hundredth.
+	Attempts  int
+	Escalated bool
 }
 
-// CheckRateLimit checks if an action is allowed for the given identifier
+func lockedResult(lockedUntil *time.Time) *RateLimitResult {
+	return &RateLimitResult{
+		Allowed:        false,
+		RemainingTries: 0,
+		LockedUntil:    lockedUntil,
+		RetryAfterSecs: int(time.Until(*lockedUntil).Seconds()) + 1,
+	}
+}
+
+// CheckRateLimit reports whether an action is allowed for the given identifier.
+//
+// It refuses only while a lockout is actually outstanding. It used to *also*
+// refuse whenever `attempts >= MaxAttempts`, which had two consequences worth
+// naming, because both look like the code working: the RetryAfterSecs it
+// answered with ("30 seconds") was a number nothing enforced — the real wait
+// was however long the row had left to live — and a lockout could never be
+// served, so escalating it would have meant nothing.
 func (s *SecurityService) CheckRateLimit(ctx context.Context, action, identifier string) (*RateLimitResult, error) {
+	policy := policyFor(action)
 	id := action + ":" + identifier
 
 	var attempts int
@@ -138,79 +282,96 @@ func (s *SecurityService) CheckRateLimit(ctx context.Context, action, identifier
 	`, id).Scan(&attempts, &lockedUntil)
 
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// No record - first attempt
-			return &RateLimitResult{Allowed: true, RemainingTries: RateLimitMaxAttempts - 1}, nil
+			return &RateLimitResult{Allowed: true, RemainingTries: policy.MaxAttempts}, nil
 		}
 		return nil, err
 	}
 
-	// Check if currently locked
 	if lockedUntil != nil && lockedUntil.After(time.Now()) {
-		return &RateLimitResult{
-			Allowed:        false,
-			RemainingTries: 0,
-			LockedUntil:    lockedUntil,
-			RetryAfterSecs: int(time.Until(*lockedUntil).Seconds()) + 1,
-		}, nil
-	}
-
-	// Check if max attempts reached
-	if attempts >= RateLimitMaxAttempts {
-		lockUntil := time.Now().Add(RateLimitLockout)
-		return &RateLimitResult{
-			Allowed:        false,
-			RemainingTries: 0,
-			LockedUntil:    &lockUntil,
-			RetryAfterSecs: int(RateLimitLockout.Seconds()),
-		}, nil
+		result := lockedResult(lockedUntil)
+		result.Attempts = attempts
+		return result, nil
 	}
 
 	return &RateLimitResult{
 		Allowed:        true,
-		RemainingTries: RateLimitMaxAttempts - attempts - 1,
+		RemainingTries: policy.remainingTries(attempts),
+		Attempts:       attempts,
 	}, nil
 }
 
-// RecordFailedAttempt increments the failure count and applies lockout if needed
+// RecordFailedAttempt increments the failure count and starts a lockout when
+// this failure is the one that earns it.
+//
+// Two statements rather than one. The count is what has to be atomic, and the
+// first statement makes it so; the length of the lockout is then pure
+// arithmetic over that count (lockoutFor), which is testable without a database
+// and readable without an array subscript inside a CASE.
 func (s *SecurityService) RecordFailedAttempt(ctx context.Context, action, identifier string) (*RateLimitResult, error) {
+	policy := policyFor(action)
 	id := action + ":" + identifier
-	expiresAt := time.Now().Add(RateLimitWindow)
 
 	var attempts int
 	var lockedUntil *time.Time
 
-	// Upsert: increment attempts and check if lock is needed
+	// GREATEST, so counting one more failure can never shorten a window that a
+	// lockout has already extended.
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO rate_limits (id, attempts, "expiresAt", "updatedAt")
-		VALUES ($1, 1, $2, NOW())
+		VALUES ($1, 1, NOW() + make_interval(secs => $2), NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			attempts = rate_limits.attempts + 1,
-			"lockedUntil" = CASE
-				WHEN rate_limits.attempts + 1 >= $3 THEN NOW() + INTERVAL '30 seconds'
-				ELSE rate_limits."lockedUntil"
-			END,
-			"expiresAt" = $2,
+			"expiresAt" = GREATEST(rate_limits."expiresAt", NOW() + make_interval(secs => $2)),
 			"updatedAt" = NOW()
 		RETURNING attempts, "lockedUntil"
-	`, id, expiresAt, RateLimitMaxAttempts).Scan(&attempts, &lockedUntil)
-
+	`, id, policy.Window.Seconds()).Scan(&attempts, &lockedUntil)
 	if err != nil {
 		return nil, err
 	}
 
-	result := &RateLimitResult{
-		Allowed:        attempts < RateLimitMaxAttempts,
-		RemainingTries: RateLimitMaxAttempts - attempts,
+	lockout, escalated, locked := policy.lockoutFor(attempts)
+	if locked {
+		// The row has to outlive the lockout by a whole window, or serving the
+		// longest step would delete the counter and hand the attacker a fresh
+		// start at step one.
+		err := s.db.QueryRow(ctx, `
+			UPDATE rate_limits
+			SET "lockedUntil" = NOW() + make_interval(secs => $2::double precision),
+			    "expiresAt"   = NOW() + make_interval(secs => $2::double precision + $3::double precision),
+			    "updatedAt"   = NOW()
+			WHERE id = $1
+			RETURNING "lockedUntil"
+		`, id, lockout.Seconds(), policy.Window.Seconds()).Scan(&lockedUntil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	result := &RateLimitResult{
+		Allowed:        true,
+		RemainingTries: policy.remainingTries(attempts),
+		Attempts:       attempts,
+		Escalated:      escalated,
+	}
 	if lockedUntil != nil && lockedUntil.After(time.Now()) {
-		result.Allowed = false
-		result.LockedUntil = lockedUntil
-		result.RetryAfterSecs = int(time.Until(*lockedUntil).Seconds()) + 1
+		locked := lockedResult(lockedUntil)
+		locked.Attempts = attempts
+		locked.Escalated = escalated
+		return locked, nil
 	}
 
 	return result, nil
+}
+
+// RecordAttempt counts one attempt against a limit that has no notion of
+// success. A password-reset request is throttled whether or not an account was
+// found, because *whether one was found* is precisely the fact being protected;
+// a limit that only counted misses would tell an attacker which was which by
+// how fast they ran out.
+func (s *SecurityService) RecordAttempt(ctx context.Context, action, identifier string) (*RateLimitResult, error) {
+	return s.RecordFailedAttempt(ctx, action, identifier)
 }
 
 // ClearRateLimit clears rate limit on successful action (e.g., successful login)

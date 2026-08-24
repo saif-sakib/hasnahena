@@ -125,6 +125,14 @@ membership. It logs a warning at boot when the value is `0` outside development 
 check the Render log after the next deploy. **Do not set it to 2** even though
 Vercel proxies the support routes ([ADR-021](decisions.md)).
 
+**This one now also decides whether a member can be locked out of their own
+savings.** The login lockout escalates on the identifier *and the address* and
+stays flat on the identifier alone, precisely so that an attack from somewhere
+else cannot hold a member out for an hour ([ADR-032](decisions.md)). At
+`TRUSTED_PROXIES=0` every caller has the same address, the two buckets collapse
+into one, and the escalation applies to the member as well as to the attacker.
+The mechanism is correct and the variable is what makes it true.
+
 ---
 
 ## Stage 2 — The cutover

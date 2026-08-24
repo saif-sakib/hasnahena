@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -109,6 +110,17 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Successfully logged out"})
 }
 
+// forgotPasswordReply is the ONLY thing a caller learns from this endpoint, and
+// it is the same for a member, a suspended member, a member with no email
+// address, and a phone number that has never been near this foundation.
+//
+// The three answers it replaces were a membership oracle: 404 meant "not a
+// member", 400 AUTH_EMAIL_REQUIRED meant "a member, and here is a fact about
+// their record", 200 meant "a member" (WO-88). Nothing below may branch on what
+// the lookup found — see AuthService.ForgotPassword, which returns nil for
+// every one of those cases and logs what actually happened.
+const forgotPasswordReply = "If an account exists for that email or phone, a password reset link has been sent."
+
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req models.ForgotPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -126,28 +138,28 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		req.Locale = "en"
 	}
 
-	err := h.authService.ForgotPassword(r.Context(), req.Identifier, req.Locale)
-	if err != nil {
-		errorText := strings.ToLower(strings.TrimSpace(err.Error()))
-		switch {
-		case strings.Contains(errorText, "user not found"):
-			utils.Error(w, http.StatusNotFound, "AUTH_USER_NOT_FOUND", "No account found with this email or phone")
-			return
-		case strings.Contains(errorText, "no email"):
-			utils.Error(w, http.StatusBadRequest, "AUTH_EMAIL_REQUIRED", "This account does not have an email address for password reset")
-			return
-		case strings.Contains(errorText, "not configured"):
-			utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
-			return
-		default:
-			utils.Error(w, http.StatusInternalServerError, "AUTH_FORGOT_PASSWORD_FAILED", "Failed to send password reset email")
-			return
-		}
+	// The two refusals that survive are both true of every caller alike: the
+	// throttle counts what *this* caller has asked for, and an unconfigured
+	// email service is decided before any lookup happens.
+	err := h.authService.ForgotPassword(r.Context(), req.Identifier, req.Locale, getClientIP(r))
+	var rateLimited *services.ErrRateLimited
+	switch {
+	case err == nil:
+	case errors.As(err, &rateLimited):
+		utils.Error(w, http.StatusTooManyRequests, "AUTH_RATE_LIMITED",
+			"Too many password reset requests. Try again in "+strconv.Itoa(rateLimited.RetryAfterSeconds)+" seconds")
+		return
+	case errors.Is(err, services.ErrEmailNotConfigured):
+		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
+		return
+	default:
+		utils.Error(w, http.StatusBadRequest, "AUTH_VALIDATION_ERROR", "Email or phone is required")
+		return
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
 		"ok":      true,
-		"message": "Password reset link sent to your email.",
+		"message": forgotPasswordReply,
 	})
 }
 
@@ -163,9 +175,16 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.authService.ResetPassword(r.Context(), req.Token, req.Password)
-	if err != nil {
-		utils.Error(w, http.StatusBadRequest, "AUTH_RESET_ERROR", err.Error())
+	// An invalid link is the caller's problem and says so; anything else is
+	// ours, and answering it with err.Error() used to put internal detail on a
+	// public endpoint.
+	if err := h.authService.ResetPassword(r.Context(), req.Token, req.Password); err != nil {
+		if errors.Is(err, services.ErrInvalidResetToken) {
+			utils.Error(w, http.StatusBadRequest, "AUTH_INVALID_TOKEN", "This reset link is invalid or has expired")
+			return
+		}
+		slog.Error("password reset failed", "error", err)
+		utils.Error(w, http.StatusInternalServerError, "AUTH_RESET_ERROR", "Failed to reset password")
 		return
 	}
 
@@ -182,9 +201,8 @@ func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_, err := h.authService.ValidateResetToken(r.Context(), token)
-	if err != nil {
-		utils.Error(w, http.StatusBadRequest, "AUTH_INVALID_TOKEN", err.Error())
+	if _, err := h.authService.ValidateResetToken(r.Context(), token); err != nil {
+		utils.Error(w, http.StatusBadRequest, "AUTH_INVALID_TOKEN", "This reset link is invalid or has expired")
 		return
 	}
 
