@@ -46,16 +46,17 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
-**Twenty-three suites and three CI checks enumerate rather than list, and will fail
-the build when the code grows something they do not know about.** That is
-deliberate — a list a human maintains goes stale the day it is written. See
+**The suites and CI checks below enumerate rather than list, and will fail the
+build when the code grows something they do not know about.** That is deliberate
+— a list a human maintains goes stale the day it is written, which is why the
+count that used to open this sentence is gone too. See
 [docs/testing.md](docs/testing.md).
 
 | Add this | And this fails until you act |
 |---|---|
 | a Go route | `cmd/server/routes_integration_test.go` — walks the chi router; declare who may call it |
 | a Next route file | `apps/web/test/routes/routes.contract.test.ts` — walks `app/api` on disk |
-| a repository method that writes a balance | `TestBalanceWritersAreEnumerated` — demands a concurrency test and an audit test |
+| a repository method that writes a balance | `TestBalanceWritersAreEnumerated` — demands a concurrency test and an audit test. `AddLoanTopUp` writes three (loan principal, loan remaining, account `loanBalance`) and its test asserts the three still agree afterwards, which a per-column check would miss |
 | an FR, or a change of FR status | `apps/web/test/unit/requirements.test.ts` — `product.md`, `tasks.md` and the code must agree, and a requirement marked `[~]` must **still** be unimplemented in the source |
 | a notification builder | `internal/notify/messages_test.go` — `TestEveryBuilderIsTested` reads `messages.go`; every builder needs a table row |
 | a notification message built **outside** `internal/notify` | `internal/notify/repositories_test.go` — a string literal or a float verb in a repository fails |
@@ -83,6 +84,8 @@ deliberate — a list a human maintains goes stale the day it is written. See
 | an import to a shared component | `apps/web/scripts/assert-bundle-budget.mjs` after `pnpm build` — first-load JS per route against `bundle-budget.json`, >10% growth fails. Accept a real cost with `pnpm test:bundle:update` |
 | a `system_config` key | `apps/web/test/unit/settings-keys-read.test.ts` — put it in **exactly one** of `CONTENT_CONFIG_KEYS` (Content & Media) or `SETTINGS_CONFIG_KEYS` (Settings). In neither, no admin can change it; in both, whichever form saves last reverts the other |
 | a form that posts a money `amount` | `apps/web/lib/utils.test.ts` — it walks `app/`, `components/` and `lib/` for anything posting one and demands `parseWholeTaka`. And ask first whether `components/dashboard/money-actions.tsx` should own it: staff deposits, withdrawals, instalments and loan applications each existed twice and the copies disagreed about paisa and about FR-08 |
+| a page title, or the site's own name | `apps/web/test/unit/seo.test.ts` — call `siteTitle(locale)`. The `<title>` existed three times and had already drifted: the layout said "Hasnahena Foundation" while the home page said "Hasnahena", and the home page's `generateMetadata` overrides the layout's, so the most-crawled title on the site was the one missing the word people search for |
+| **member-facing copy about a loan** | `apps/web/test/unit/messages.test.ts` — it reads the prose for a promise of a charge. The Terms of Service told every member, in both languages, that loans "are interest-free but may include administrative fees"; `applicationFee = 0`, the CHECK constraint and the "markup" source search all passed, because none of them reads a string in a page |
 | a loan list, or a `nextDueDate` | `apps/api/internal/repositories/loan_schedule_integration_test.go` — `/admin/loans` and `/worker/loans` are one React component and must return the **same rows** and agree on `isOverdue`, `missedInstallments` and the date. Three queries once answered the date three ways, and the two lists carried different statuses |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
@@ -96,10 +99,19 @@ deliberate — a list a human maintains goes stale the day it is written. See
    with `errors.Is` in the handler, and answer 4xx with the reason. Classifying
    by `strings.Contains(err.Error(), …)` is how "is guarantor for active loan"
    got reported as "has an active loan", and how FR-08's two refusals became
-   `500 Failed to process withdrawal` on both admin screens at once.
+   `500 Failed to process withdrawal` on both admin screens at once. (Those two
+   refusals no longer exist — [ADR-030](docs/decisions.md) — but the rule they
+   taught does.)
 2a. **Write a balance relatively** (`SET "savingsBalance" = "savingsBalance" + $1 ... RETURNING`), or read it `FOR UPDATE` inside the same transaction. Reading it from the pool and writing back an absolute total is a lost update: it silently destroys money and makes the ledger disagree with the balance. That was LEDGER-01, fixed 2026-08-17 and pinned by concurrency tests — see [ADR-015](docs/decisions.md).
 3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
-4. Lifecycle is **Request → Process → Confirm**: workers never initiate money movement, members confirm every posting.
+4. Lifecycle is **Request → Process → Confirm** for deposits and loan
+   repayments: the member requests, staff process, the member confirms.
+   **Withdrawals are the exception** — the member asks a field worker in person,
+   and staff post it directly ([ADR-030](docs/decisions.md)). There is no
+   self-service withdrawal request and no notice period; `loan.noticePeriodDays`
+   is what the foundation *asks* for and gates nothing. A payout still settles an
+   outstanding `PENDING` withdrawal when one exists, rather than writing a second
+   row for the same money.
 5. UI copy lives in `apps/web/messages/{en,bn}.json` — both files, never hardcoded in a component. **Generated documents are English only** (ADR-012).
 6. `audit_logs` is append-only. Corrections append.
 5a. **The database enforces the money invariants too.** CHECK constraints reject
@@ -108,9 +120,9 @@ deliberate — a list a human maintains goes stale the day it is written. See
    backend can go around. They are invisible to `prisma migrate diff`, like the
    `audit_logs` trigger, so a `--from-empty` baseline would drop them silently.
 6a. **A `transactions` row is not necessarily money that moved.** A `PENDING`
-   withdrawal is a member's *notice* (FR-08) and a `PENDING` deposit is a
-   request; only `CONFIRMED` moved money. Any aggregate over `transactions` must
-   filter on status — four were not, and counted intentions as income
+   withdrawal is an unpaid intention and a `PENDING` deposit is a request; only
+   `CONFIRMED` moved money. Any aggregate over `transactions` must filter on
+   status — four were not, and counted intentions as income
    ([ADR-016](docs/decisions.md)). **And the converse**: a `CONFIRMED` posting a
    member disputes becomes `DISPUTED` while the balance stays moved, so
    reconciliation counts both ([ADR-026](docs/decisions.md)).
@@ -170,8 +182,8 @@ apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE
                                   role.tsx  which dashboard a screen is in. Presentation only:
                                   the API decides, and proxy.ts pins the URL segment to the role
                                   money-actions.tsx  the ONE deposit / withdrawal / instalment /
-                                  loan-application form. Every screen opens it; it fetches the member
-                                  detail its rules are about. Never write a second one
+                                  loan-application / loan-top-up form. Every screen opens it; it
+                                  fetches the member detail its rules are about. Never write a second one
 apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)

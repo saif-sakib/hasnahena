@@ -53,9 +53,11 @@ another doc, add it here and link instead.
   installment — so the signed contract and the stored schedule disagreed and the
   loan could never reach zero. `money.InstallmentPlan` returns both figures.
 - **A `transactions` row is not necessarily money that moved.** A `PENDING`
-  withdrawal is a member's notice and a `PENDING` deposit is a request. Four
+  withdrawal is an intention and a `PENDING` deposit is a request. Four
   aggregates were counting intentions as income. Filter on status
-  ([ADR-016](decisions.md)).
+  ([ADR-016](decisions.md)). Still true after [ADR-030](decisions.md) removed the
+  notice: staff can pay without a `PENDING` row, and a `PENDING` row can sit
+  unpaid, so neither direction lets you skip the filter.
 - **The same function can write one correct record and one wrong one.** Every
   posting wrote an audit line with `%d BDT` — correct — and a member
   notification with `BDT %.2f` from a `float64`. A test reading either alone
@@ -374,7 +376,9 @@ import, and no test over the source can reach it. Same reasoning as
 `assert-static-routes.mjs` reading `prerender-manifest.json`.
 
 **An ordinary refusal reported as a 500 reads as a broken feature.**
-`WorkerAddWithdrawal` classified the repository's errors with
+(The two FR-08 refusals in this story no longer exist — [ADR-030](decisions.md)
+deleted the notice period itself. The lesson is about error classification and
+stands unchanged.) `WorkerAddWithdrawal` classified the repository's errors with
 `strings.Contains(err.Error(), …)`. The two FR-08 refusals — no withdrawal
 notice on file, notice not yet matured — matched no branch, so both arrived as
 `500 WITHDRAWAL_FAILED "Failed to process withdrawal"`: the single most common
@@ -461,7 +465,9 @@ answered 500.
   is the *same defect* that had already been found and fixed once, on the other
   copy. The member's page refused a withdrawal with no matured FR-08 notice
   because it had the notices loaded; the deposits screen had only the balance, so
-  it let the worker submit and wait for a 409. Whichever entry point you happened
+  it let the worker submit and wait for a 409. (That particular rule is gone —
+  [ADR-030](decisions.md) — but it took one edit in one file to remove, which is
+  the point.) Whichever entry point you happened
   to use decided which rules you got. Extract the action, not the form: one
   dialog that fetches the facts its rules are about, opened from anywhere.
 - **A census that names files by hand tests the past.** The guard on that
@@ -571,3 +577,26 @@ now, which is what it always was.
   regenerated lockfile.** Every such PR rewrites it, and merging two in a row
   leaves a lockfile that resolves neither — Vercel installs frozen and fails.
   The pre-push hook checks this; `--no-verify` skips it.
+
+---
+
+## Deleting a rule
+
+**A rule you remove needs a test that asserts its absence, or nothing stops it
+coming back.** [ADR-030](decisions.md) deleted the withdrawal notice period. Every
+test that had covered it was deleted with it — which left a suite where
+reintroducing the gate would break nothing, because no assertion said "this must
+be paid". Two tests now do exactly that:
+`TestWithdrawalWithNoRequestBehindItIsPaid` and `TestAFreshRequestIsPaidImmediately`.
+
+The same shape applies to wording. `WithdrawalRequestReady` replaced a builder
+that told the member their "notice period has elapsed", and its test row carries
+`mustNotContain: ["notice"]` — because the natural way to write that message is
+the way it used to read, and prose has no compiler.
+
+**And check what the deletion strands.** Removing the two config readers left
+`getSystemConfigNonNegativeInt64Tx` with no callers, which `golangci-lint`'s
+`unused` catches; removing the member-side notice left an empty panel on the
+staff member-detail screen, which nothing catches, because a card that says "no
+notices outstanding" forever is valid code. Grep for the *concept*, not only for
+the identifier.

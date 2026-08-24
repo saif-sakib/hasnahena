@@ -63,9 +63,88 @@ function withScheme(value: string): string {
 export const siteOrigin = resolveSiteOrigin();
 export const siteBaseUrl = new URL(siteOrigin);
 
-export const SITE_NAME = 'Hasnahena';
+export const SITE_NAME = 'Hasnahena Foundation';
+
+/**
+ * The other names people search for.
+ *
+ * The owner reports that "hasnahena foundation" ranks first, and that the
+ * neighbouring spellings — hasnahena, hasanah foundation — are a crowded field.
+ * These are published as `alternateName` on the Organization node so a crawler
+ * can attach the variants to one entity instead of treating each as a different
+ * organisation it has never heard of.
+ *
+ * The Bengali name is NOT in this list. It comes from `org.name`, which an admin
+ * edits, and duplicating it here would be the second copy that goes stale.
+ */
+export const SITE_NAME_VARIANTS = [
+  'Hasnahena',
+  'Hasnahena Foundation Jashore',
+  'Hasna Hena Foundation',
+] as const;
+
 export const SITE_DESCRIPTION =
-  'Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest. A community-driven cooperative finance platform.';
+  'Hasnahena Foundation is an interest-free (Qard al-Hasan) cooperative finance society in Jashore, Bangladesh. Members save together, borrow without interest, guarantee one another and give.';
+
+/**
+ * Icons, declared explicitly rather than by Next's `app/icon.*` file convention.
+ *
+ * **This is what was missing.** `public/favicon.ico` was served — a browser asks
+ * for `/favicon.ico` by convention whether anything links to it or not — but no
+ * `<link rel="icon">` appeared in the HTML, because Next only emits one for an
+ * icon file inside `app/`. Google's favicon crawler reads the home page's `head`
+ * and its documented requirement is a square that is a multiple of 48px; with no
+ * declared icon it falls back to the generic globe, which is what the search
+ * result showed.
+ *
+ * So: stable paths under `public/`, declared here, with `sizes` stated. Stable
+ * matters — Google caches the favicon against its URL, and Next's `app/icon.png`
+ * convention appends a content hash that moves whenever the file is edited.
+ *
+ * `apple-icon.png` is the one that is deliberately **not** transparent. iOS
+ * composites a transparent touch icon onto black; the rest are transparent so
+ * the tab shows the mark and not a white plate.
+ */
+export const SITE_ICONS = {
+  icon: [
+    { url: '/favicon.ico', sizes: '16x16 32x32 48x48 64x64 128x128 256x256', rel: 'icon' },
+    { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
+    { url: '/icon-512.png', type: 'image/png', sizes: '512x512' },
+  ],
+  shortcut: ['/favicon.ico'],
+  apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+} satisfies Metadata['icons'];
+
+/**
+ * The site's own title, in one place.
+ *
+ * It was written out three times — the root layout's `createLocalizedMetadata`
+ * call, that same layout's `title.default`, and the home page's own
+ * `generateMetadata`, which overrides both. They had already drifted: the two in
+ * the layout said "Hasnahena Foundation" once `SITE_NAME` changed, while the
+ * home page hardcoded the bare "Hasnahena" — and the home page is the one that
+ * wins, so the single most-crawled `<title>` on the site did not contain the
+ * word people search for.
+ *
+ * Jashore is in it deliberately. "Hasnahena" is a crowded name; the town is what
+ * separates this foundation from the others.
+ */
+export function siteTitle(locale: Locale): string {
+  return locale === 'bn'
+    ? `${SITE_NAME_BN} — সুদমুক্ত সমবায় অর্থায়ন, যশোর`
+    : `${SITE_NAME} — Interest-Free Cooperative Finance, Jashore`;
+}
+
+/**
+ * The Bengali name, for the Bengali `<title>` only.
+ *
+ * Hardcoded here rather than read from `org.name`, unlike everywhere else, and
+ * the reason is mechanical: `generateMetadata` for the root layout runs without
+ * the settings map, and making it async to fetch one would opt every route out
+ * of the prerendering WO-73 established. The organisation's *own* description of
+ * itself still comes from `org.name` — that is what the JSON-LD publishes.
+ */
+const SITE_NAME_BN = 'হাসনাহেনা ফাউন্ডেশন';
 
 export const publicPagePaths = [
   '/',
@@ -209,5 +288,9 @@ export function createLocalizedMetadata({
       description,
       images: [`${siteOrigin}/images/logo/logo-og.png`],
     },
+    // On every page, not only the root layout. Google reads the favicon from
+    // whichever page it crawled, and a site whose home page is `/bn` and whose
+    // English entry point is `/en` has no single page it is guaranteed to see.
+    icons: SITE_ICONS,
   };
 }

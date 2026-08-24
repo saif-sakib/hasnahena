@@ -1177,6 +1177,204 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	return loanNumber, nil
 }
 
+// Sentinels for the top-up path. Each is an ordinary answer rather than a
+// fault — a loan that has finished, a member whose savings no longer support
+// what they would owe — so the handler maps them to 4xx and names the reason
+// (rule 2b).
+var (
+	// ErrLoanNotActive means the loan exists but is not ACTIVE, so there is no
+	// running schedule to add to. Adding to a COMPLETED or DEFAULTED loan would
+	// resurrect it silently.
+	ErrLoanNotActive = errors.New("loan is not active")
+	// ErrTopUpExceedsLimit means the member would end up owing more than
+	// `loan.maxLoanMultiplier` times their savings. The same ceiling a new loan
+	// is measured against, applied to the total rather than to the increment —
+	// otherwise a member could be walked past the cap in instalments.
+	ErrTopUpExceedsLimit = errors.New("top-up would exceed the member's borrowing limit")
+)
+
+// AddLoanTopUp adds principal to a loan that is already running (staff action).
+//
+// Why this exists. `CreateMemberLoan` refuses a member who already has an
+// active loan, which is the right rule for a *second* loan and the wrong answer
+// to "this family needs another 20,000 for the same emergency". Staff had no
+// way to say yes short of settling the loan and re-issuing it, which loses the
+// repayment history and the loan number the member has on paper.
+//
+// ## What changes on the loan
+//
+// `principalAmount` and `remainingAmount` both rise by the amount, so the
+// database's `loans_remaining_in_range` CHECK still holds and the loan never
+// claims to owe more than was lent. `totalInstallments` does NOT change: the
+// outstanding balance is re-spread over the payments that are left, so the end
+// date the member was given stands and each remaining instalment goes up
+// (money.TopUpPlan). `paidInstallments` is untouched — those payments happened.
+//
+// ## Zero interest, zero fees (rule 3)
+//
+// The amount added and the amount owed are the same money. There is no rate, no
+// markup, no arrangement fee, and `applicationFee` is not written here at all —
+// the database rejects a non-zero one anyway (loans_zero_fee).
+//
+// ## The ledger
+//
+// One CONFIRMED LOAN_DISBURSEMENT row, because that is what happened: money
+// left the fund and reached the borrower. It carries the loan's number, so a
+// statement shows the original disbursement and the top-up under the same
+// reference rather than as two unrelated loans.
+func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, loanID string, amount int64, notes string) (string, error) {
+	if amount <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+	if strings.TrimSpace(loanID) == "" {
+		return "", ErrLoanIDRequired
+	}
+
+	// Read from the pool BEFORE opening the transaction. ADR-017: a pool read
+	// taken while this method already holds a connection deadlocks under
+	// concurrency, and getLoanPolicy takes three of them.
+	_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
+
+	// The account is locked first and the loan second, in the same order every
+	// other money path takes them, so two concurrent top-ups queue instead of
+	// deadlocking against each other.
+	var memberStatus, accountID string
+	var savingsBalance int64
+	if err := tx.QueryRow(ctx, `
+		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
+		FROM users u
+		JOIN accounts a ON a."userId" = u.id
+		WHERE u.id = $1 AND u.role::text = 'MEMBER'
+		FOR UPDATE OF a
+	`, memberID).Scan(&memberStatus, &accountID, &savingsBalance); err != nil {
+		return "", ErrMemberNotFound
+	}
+	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
+		return "", ErrMemberNotActive
+	}
+
+	var loanNumber, loanStatus string
+	var principal, remaining int64
+	var totalInstallments, paidInstallments int
+	if err := tx.QueryRow(ctx, `
+		SELECT "loanNumber", status::text,
+			"principalAmount"::bigint, "remainingAmount"::bigint,
+			"totalInstallments", "paidInstallments"
+		FROM loans
+		WHERE id = $1 AND "borrowerId" = $2
+		FOR UPDATE
+	`, loanID, memberID).Scan(
+		&loanNumber, &loanStatus, &principal, &remaining, &totalInstallments, &paidInstallments,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrLoanNotFound
+		}
+		return "", err
+	}
+	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "ACTIVE" {
+		return "", fmt.Errorf("%w: loan %s is %s", ErrLoanNotActive, loanNumber, loanStatus)
+	}
+
+	// The cap is measured against what the member will owe *in total*, not
+	// against the increment. Checking the increment alone would let five
+	// 10,000-taka top-ups do what one 50,000-taka loan is refused.
+	newRemaining := remaining + amount
+	maxLoanAmount := money.MaxLoanAmount(savingsBalance, maxLoanMultiplier)
+	if newRemaining > maxLoanAmount {
+		return "", fmt.Errorf("%w: this member may owe at most %d BDT against savings of %d BDT, and would owe %d",
+			ErrTopUpExceedsLimit, maxLoanAmount, savingsBalance, newRemaining)
+	}
+
+	installmentAmount, _ := money.TopUpPlan(newRemaining, totalInstallments, paidInstallments)
+
+	// Written relatively and RETURNING the result (ADR-015), so two top-ups
+	// landing together add up instead of one overwriting the other.
+	var updatedPrincipal, updatedRemaining int64
+	if err := tx.QueryRow(ctx, `
+		UPDATE loans
+		SET "principalAmount" = "principalAmount" + $1,
+			"remainingAmount" = "remainingAmount" + $1,
+			"installmentAmount" = $2,
+			"updatedAt" = NOW()
+		WHERE id = $3 AND status = 'ACTIVE'
+		RETURNING "principalAmount"::bigint, "remainingAmount"::bigint
+	`, amount, installmentAmount, loanID).Scan(&updatedPrincipal, &updatedRemaining); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The loan stopped being ACTIVE between the lock and the write —
+			// only reachable if something else changed it in this window.
+			return "", ErrLoanNotActive
+		}
+		return "", err
+	}
+
+	var updatedLoanBalance int64
+	if err := tx.QueryRow(ctx, `
+		UPDATE accounts
+		SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW()
+		WHERE id = $2
+		RETURNING "loanBalance"::bigint
+	`, amount, accountID).Scan(&updatedLoanBalance); err != nil {
+		return "", fmt.Errorf("failed to update account loan balance: %w", err)
+	}
+
+	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoan)
+	if err != nil {
+		return "", err
+	}
+
+	description := strings.TrimSpace(notes)
+	if description == "" {
+		description = fmt.Sprintf("ঋণ বৃদ্ধি (%s)", loanNumber)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO transactions (
+			id, type, amount, "receiptNumber", description, status,
+			"accountId", "userId", "loanId", "processedBy",
+			"loanAfter", "processedAt", "confirmedAt", "createdAt"
+		) VALUES (
+			gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, $2, $3, 'CONFIRMED',
+			$4, $5, $6, $7,
+			$8, NOW(), NOW(), NOW()
+		)
+	`, amount, receipt, description, accountID, memberID, loanID, staffID, updatedLoanBalance); err != nil {
+		return "", fmt.Errorf("failed to record the top-up: %w", err)
+	}
+
+	memberTitle, memberMessage := notify.LoanToppedUp(loanNumber, amount, updatedRemaining, installmentAmount)
+	if err := r.insertNotificationTx(
+		ctx, tx, "LOAN_APPROVED", memberTitle, memberMessage, &memberID, nil,
+	); err != nil {
+		return "", fmt.Errorf("failed to create member notification: %w", err)
+	}
+	staffTitle, staffMessage := notify.LoanToppedUpForStaff(loanNumber, memberID)
+	if err := r.insertNotificationTx(
+		ctx, tx, "SYSTEM_ALERT", staffTitle, staffMessage, nil, normalizedRolePtr("WORKER"),
+	); err != nil {
+		return "", fmt.Errorf("failed to create staff notification: %w", err)
+	}
+
+	if err := r.insertAuditLogTx(ctx, tx, "LOAN_TOPPED_UP", "LOAN", loanID, staffID,
+		fmt.Sprintf("Loan %s increased by %d BDT for member %s, receipt %s, principal %d -> %d, owing %d -> %d, instalment now %d over %d remaining of %d",
+			loanNumber, amount, memberID, receipt, principal, updatedPrincipal,
+			remaining, updatedRemaining,
+			installmentAmount, money.RemainingInstallments(totalInstallments, paidInstallments), totalInstallments),
+	); err != nil {
+		return "", fmt.Errorf("failed to write audit log: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("failed to commit loan top-up: %w", err)
+	}
+
+	return receipt, nil
+}
+
 // AddMemberLoanPayment records a loan payment for a member
 
 // AddMemberLoanPayment records a loan payment for a member

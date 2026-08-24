@@ -121,15 +121,15 @@ const REQUIREMENTS: Record<string, Coverage> = {
     absent: /nominee\.update|UPDATE\s+nominees|updateNominee/i,
   },
   'FR-07': { covered: 'lifecycle_integration_test.go — only a PENDING request can be approved or rejected' },
-  // Implemented 2026-08-18. `loan.noticePeriodMonths` used to be a declared
-  // config key the admin could set and nothing read — a setting that reported a
-  // policy the system did not apply. The member's request is now the notice,
-  // and the period is enforced on BOTH paths that can move the money: the
-  // admin's approval and the worker's payout. A gate on only one would have
-  // been bypassable by the other.
+  // Rewritten 2026-08-24 (ADR-030). FR-08 was "withdrawal request with
+  // notice-period validation" and was implemented as exactly that: the member's
+  // request was a binding notice, and both payout paths refused until it
+  // matured. The owner removed the rule — a member asks a field worker, and
+  // staff pay at the desk — so the requirement now describes the act rather
+  // than the gate, and the tests that cover it assert an ABSENCE of refusal.
   'FR-08': {
     covered:
-      'apps/api/internal/repositories/policy_enforcement_integration_test.go — refused before maturity, paid after, and refused outright with no notice',
+      'apps/api/internal/repositories/policy_enforcement_integration_test.go — paid with no request behind it, paid on the day one is filed, and an outstanding request settled rather than duplicated',
   },
   'FR-09': {
     gap: 'active-loan block exists; a guarantor’s outstanding obligation is not checked',

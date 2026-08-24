@@ -83,13 +83,14 @@ interface MemberDetails {
   totalWithdrawn: number;
   isGuarantorForActiveLoan: boolean;
   /**
-   * FR-08. The notices this member has given and not yet been paid against,
-   * with the date each becomes payable. A withdrawal *settles* one of these; it
-   * never originates one (rule 4), so without them this screen was asking the
-   * admin to guess.
+   * Withdrawal requests this member has outstanding and unpaid.
+   *
+   * Not a precondition of anything since ADR-030 — a payout needs no request
+   * behind it and waits out no period. They are here so a worker at the desk
+   * can see that ৳5,000 was already asked for and settle *that* rather than pay
+   * it twice. Nothing creates new ones; the list empties as they are paid.
    */
-  withdrawalNotices?: WithdrawalNotice[];
-  noticePeriodMonths?: number;
+  pendingWithdrawals?: PendingWithdrawal[];
   loanEligibility: {
     eligible: boolean;
     maxLoanAmount: number;
@@ -98,14 +99,11 @@ interface MemberDetails {
   documents?: MemberDocument[];
 }
 
-interface WithdrawalNotice {
+interface PendingWithdrawal {
   id: string;
   amount: number;
   status: string;
-  givenAt: string;
-  /** Computed by the API, because `noticeMaturityDate` lives there. */
-  eligibleFrom: string;
-  matured: boolean;
+  requestedAt: string;
 }
 
 interface MemberDocument {
@@ -179,11 +177,8 @@ export default function MemberDetailScreen() {
     typeof settings?.['loan.allowActiveLoanWithdrawal'] === 'string' &&
     (settings['loan.allowActiveLoanWithdrawal'] as string).trim().toLowerCase() === 'true';
 
-  // FR-08. `matured` is decided by the API, which owns `noticeMaturityDate` —
-  // three months from 31 January is 1 May, and a second implementation of that
-  // rule in the browser would eventually disagree with the one that pays out.
-  const withdrawalNotices = useMemo<WithdrawalNotice[]>(
-    () => member?.withdrawalNotices ?? [],
+  const pendingWithdrawals = useMemo<PendingWithdrawal[]>(
+    () => member?.pendingWithdrawals ?? [],
     [member],
   );
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -555,57 +550,46 @@ export default function MemberDetailScreen() {
       )}
 
       {/*
-        FR-08 withdrawal notices.
+        Outstanding withdrawal requests.
+
         A panel on the page rather than a list inside the withdrawal form, which
-        is where it used to be: a worker had to open the form to find out that
-        there was nothing to pay, and a member asking "when can I take my money
-        out?" is a question you answer before you open anything.
+        is where it used to be: a member asking "when can I take my money out?"
+        is a question you answer before you open anything.
+
+        The panel now hides itself when there is nothing in it. Under FR-08 an
+        empty list was the answer to "may I pay this member?" and had to be
+        shown; since ADR-030 the answer is always yes, so an empty card would be
+        a permanent reminder of a rule that no longer exists.
       */}
-      {member.status === 'ACTIVE' && (
+      {member.status === 'ACTIVE' && pendingWithdrawals.length > 0 && (
         <Card className="rounded-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Wallet className="h-4 w-4" />
-              {locale === 'bn' ? 'উত্তোলন নোটিশ' : 'Withdrawal Notices'}
+              {locale === 'bn' ? 'অপরিশোধিত উত্তোলন অনুরোধ' : 'Outstanding Withdrawal Requests'}
             </CardTitle>
             <CardDescription>
               {locale === 'bn'
-                ? `সদস্য নিজের ড্যাশবোর্ড থেকে নোটিশ দেন; ${member.noticePeriodMonths ?? 3} মাস পর তা পরিশোধযোগ্য হয়।`
-                : `The member gives notice from their own dashboard; it becomes payable ${member.noticePeriodMonths ?? 3} months later.`}
+                ? 'সদস্য এই পরিমাণ চেয়েছেন, এখনো পরিশোধ হয়নি। পরিশোধ করলে এই অনুরোধই নিষ্পত্তি হবে — দ্বিতীয় কোনো এন্ট্রি হবে না।'
+                : 'The member asked for this and has not been paid. Paying settles this request rather than adding a second entry.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {withdrawalNotices.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {locale === 'bn'
-                  ? 'কোনো নোটিশ নেই। কর্মী নিজে উত্তোলন শুরু করতে পারেন না।'
-                  : 'No notice outstanding. Staff never start a withdrawal.'}
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {withdrawalNotices.map((notice) => (
-                  <li
-                    key={notice.id}
-                    className={`flex items-center justify-between gap-3 rounded-sm border p-2 text-sm ${
-                      notice.matured
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                        : 'border-slate-200 bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    <span className="font-medium">{formatCurrency(notice.amount, locale)}</span>
-                    <span className="text-xs">
-                      {notice.matured
-                        ? locale === 'bn'
-                          ? 'পরিশোধযোগ্য'
-                          : 'Payable now'
-                        : locale === 'bn'
-                          ? `${formatDate(notice.eligibleFrom)} থেকে`
-                          : `From ${formatDate(notice.eligibleFrom)}`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="space-y-2">
+              {pendingWithdrawals.map((request) => (
+                <li
+                  key={request.id}
+                  className="flex items-center justify-between gap-3 rounded-sm border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900"
+                >
+                  <span className="font-medium">{formatCurrency(request.amount, locale)}</span>
+                  <span className="text-xs">
+                    {locale === 'bn'
+                      ? `${formatDate(request.requestedAt)} তারিখে চাওয়া`
+                      : `Asked ${formatDate(request.requestedAt)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}
@@ -866,6 +850,22 @@ export default function MemberDetailScreen() {
                             >
                               <Minus className="h-3 w-3" />
                               {locale === 'bn' ? 'পরিশোধ' : 'Pay'}
+                            </Button>
+                          )}
+                          {/* Adding to a loan that is already running. It lives
+                              on the loan rather than beside "New Loan" because
+                              it needs a loan to act on, and because a member
+                              with an active loan is refused a new one — which
+                              is the whole reason this exists. */}
+                          {loan.status === 'ACTIVE' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setMoneyAction({ action: 'LOAN_TOPUP', loanId: loan.id })}
+                              className="gap-1"
+                            >
+                              <Plus className="h-3 w-3" />
+                              {locale === 'bn' ? 'বাড়ান' : 'Add'}
                             </Button>
                           )}
                           <Button variant="ghost" size="icon" onClick={() => void handlePrintLoanDocument(loan)} title={locale === 'bn' ? 'ঋণ দলিল ডাউনলোড' : 'Download Loan Document'}>

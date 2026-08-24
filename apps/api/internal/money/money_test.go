@@ -240,3 +240,65 @@ func TestWaterfall(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TopUpPlan — staff adding to a loan that is already running
+// ---------------------------------------------------------------------------
+
+func TestRemainingInstallmentsNeverReturnsLessThanOne(t *testing.T) {
+	cases := []struct{ total, paid, want int }{
+		{12, 0, 12},
+		{12, 6, 6},
+		{12, 11, 1},
+		// Every scheduled payment made, money still owed. The caller divides by
+		// this, so a zero would be a panic on a money path.
+		{12, 12, 1},
+		// Paid MORE often than the schedule — possible, because
+		// paidInstallments is incremented per payment and a borrower may pay
+		// weekly against a monthly schedule.
+		{12, 20, 1},
+		{12, -3, 12},
+	}
+	for _, c := range cases {
+		if got := RemainingInstallments(c.total, c.paid); got != c.want {
+			t.Errorf("RemainingInstallments(%d, %d) = %d, want %d", c.total, c.paid, got, c.want)
+		}
+	}
+}
+
+// The invariant that makes a top-up Shariah-compliant: the payments still sum
+// to exactly what is owed. One taka more is riba, however it arrived.
+func TestTopUpPlanRepaysExactlyWhatIsOwed(t *testing.T) {
+	outstandings := []int64{1, 999, 8000, 50000, 73501, 1234567}
+	schedules := [][2]int{{12, 0}, {12, 6}, {12, 11}, {10, 3}, {24, 23}, {3, 0}}
+
+	for _, outstanding := range outstandings {
+		for _, sched := range schedules {
+			total, paid := sched[0], sched[1]
+			left := RemainingInstallments(total, paid)
+			per, final := TopUpPlan(outstanding, total, paid)
+
+			if !InstallmentPlanIsExact(outstanding, left, per, final) {
+				t.Errorf("TopUpPlan(%d, %d, %d) = (%d, %d) over %d payments: %d*%d + %d != %d",
+					outstanding, total, paid, per, final, left, per, left-1, final, outstanding)
+			}
+			if per < 0 || final < 0 {
+				t.Errorf("TopUpPlan(%d, %d, %d) produced a negative payment (%d, %d)",
+					outstanding, total, paid, per, final)
+			}
+		}
+	}
+}
+
+// The worked example from the top-up's own documentation: 30,000 owed on a
+// 12-payment loan with 6 made, plus 20,000, is 50,000 over the 6 that remain.
+func TestTopUpPlanSpreadsOverThePaymentsThatRemain(t *testing.T) {
+	per, final := TopUpPlan(50000, 12, 6)
+	if per != 8333 {
+		t.Errorf("per-instalment = %d, want 8333 (50000 / 6)", per)
+	}
+	// The remainder lands in the last payment rather than being rounded away.
+	if final != 50000-8333*5 {
+		t.Errorf("final instalment = %d, want %d", final, 50000-8333*5)
+	}
+}

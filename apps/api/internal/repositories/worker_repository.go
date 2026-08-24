@@ -379,19 +379,19 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		},
 	}
 
-	// FR-08 — what this member may actually be paid, and when.
+	// Withdrawal requests this member has outstanding.
 	//
-	// A payout settles a notice the member gave; it never originates one
-	// (rule 4). The screen used to show only "Max: <balance>", so an admin had
-	// every reason to believe a withdrawal was a matter of typing an amount, and
-	// the refusal that followed named no notice, no date and no next step.
+	// These no longer gate anything (ADR-030): staff may pay a withdrawal with
+	// no request behind it at all, and there is no maturity date to wait out —
+	// which is why `eligibleFrom` and `matured` are gone from this payload
+	// along with the notice period itself. What the screen still needs is the
+	// list, so a worker paying at the desk can see that ৳5,000 was already
+	// asked for and settle *that* rather than pay it twice.
 	//
-	// The maturity date is computed here rather than in the browser because the
-	// rule that produces it lives here — `noticeMaturityDate` normalises 31
-	// January plus three months to 1 May, and a second implementation in
-	// TypeScript would be a second answer.
-	noticePeriodMonths := r.getWithdrawalNoticePeriodMonths(ctx)
-	const noticeQuery = `
+	// Rows here are pre-ADR-030 notices and anything a member filed before the
+	// member-side request was removed. The list empties on its own as they are
+	// paid; nothing creates a new one.
+	const pendingWithdrawalQuery = `
 		SELECT
 			t.id::text,
 			t.amount::bigint,
@@ -403,35 +403,31 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		  AND t.status IN ('PENDING', 'PROCESSED')
 		ORDER BY t."createdAt" ASC
 	`
-	noticeRows, err := r.db.Query(ctx, noticeQuery, memberID)
+	pendingRows, err := r.db.Query(ctx, pendingWithdrawalQuery, memberID)
 	if err != nil {
 		return nil, err
 	}
-	defer noticeRows.Close()
+	defer pendingRows.Close()
 
-	withdrawalNotices := make([]map[string]interface{}, 0)
-	for noticeRows.Next() {
-		var noticeID, noticeStatus string
-		var noticeAmount int64
-		var noticeCreatedAt time.Time
-		if err := noticeRows.Scan(&noticeID, &noticeAmount, &noticeCreatedAt, &noticeStatus); err != nil {
+	pendingWithdrawals := make([]map[string]interface{}, 0)
+	for pendingRows.Next() {
+		var requestID, requestStatus string
+		var requestAmount int64
+		var requestedAt time.Time
+		if err := pendingRows.Scan(&requestID, &requestAmount, &requestedAt, &requestStatus); err != nil {
 			continue
 		}
-		eligibleFrom := noticeMaturityDate(noticeCreatedAt, noticePeriodMonths)
-		withdrawalNotices = append(withdrawalNotices, map[string]interface{}{
-			"id":           noticeID,
-			"amount":       noticeAmount,
-			"status":       strings.ToUpper(noticeStatus),
-			"givenAt":      noticeCreatedAt.Format(time.RFC3339),
-			"eligibleFrom": eligibleFrom.Format(time.RFC3339),
-			"matured":      !time.Now().Before(eligibleFrom),
+		pendingWithdrawals = append(pendingWithdrawals, map[string]interface{}{
+			"id":          requestID,
+			"amount":      requestAmount,
+			"status":      strings.ToUpper(requestStatus),
+			"requestedAt": requestedAt.Format(time.RFC3339),
 		})
 	}
-	if err := noticeRows.Err(); err != nil {
+	if err := pendingRows.Err(); err != nil {
 		return nil, err
 	}
-	member["withdrawalNotices"] = withdrawalNotices
-	member["noticePeriodMonths"] = noticePeriodMonths
+	member["pendingWithdrawals"] = pendingWithdrawals
 
 	// Get recent transactions
 	const txnQuery = `

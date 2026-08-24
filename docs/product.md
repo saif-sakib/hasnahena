@@ -59,7 +59,7 @@ This three-step handshake replaces OTP. Statuses map to `TransactionStatus`: `PE
 | Max installment months | 24 | `loan.maxInstallmentMonths` |
 | Withdrawal while loan active | blocked | `loan.allowActiveLoanWithdrawal` |
 | Interest / processing fee | **zero, always** | not configurable |
-| Withdrawal notice | 3 months | `loan.noticePeriodMonths` (`0` = no notice period) |
+| Withdrawal notice **asked for** (not enforced) | 90 days | `loan.noticePeriodDays` (`0` = say nothing) |
 | Missed payments before a loan may be defaulted | 3 | `loan.missedPaymentsForDefault` |
 
 Two further caps are specified but **not implemented** (see [tasks.md](tasks.md)):
@@ -72,22 +72,43 @@ Effective max loan = min(all applicable caps).
 
 `PENDING_GUARANTOR → PENDING_APPROVAL → ACTIVE → COMPLETED`, with `DEFAULTED` / `REJECTED` / `SETTLED` as terminals. A guarantor is required above an admin-set threshold; the guarantor approves from their own dashboard before admin review. A guarantor cannot withdraw their base deposit while the guarantee is live.
 
-### Withdrawal notice period (FR-08)
+### Withdrawals (FR-08)
 
-**A member's withdrawal request *is* their notice.** It files a `PENDING`
-withdrawal that moves no money; the money is paid at the desk once
-`loan.noticePeriodMonths` has elapsed since the request. Both paths that can
-move it — the admin's approval and the worker's payout — refuse before then.
+**A member asks a field worker, and staff pay at the desk.** There is no
+self-service withdrawal request and no notice period ([ADR-030](decisions.md));
+`AddMemberWithdrawal` writes a `CONFIRMED` posting when the money is handed over.
 
-A notice covers any amount *up to* the one announced; taking more needs a new
-notice. Outstanding notices count against the balance, so a member cannot give
-several notices for the whole balance and present them all once matured. The
-guarantor lock and the active-loan rule are checked when notice is given as well
-as when it is paid, so a member finds out now rather than in three months.
+`loan.noticePeriodDays` is how much warning the foundation **asks** for. It is
+published on the member's savings screen and in the FAQ answer, and it gates
+nothing — a worker may pay whenever the member asks. Set it to `0` to say
+nothing.
 
-Since a `PENDING` withdrawal is a notice and a `CONFIRMED` one is a payment,
-**any total over `transactions` must filter on status** — see
-[ADR-016](decisions.md).
+What still refuses a payout: a suspended member, a balance that does not cover
+it, a member guaranteeing somebody else's active loan (FR-09), and a member with
+an active loan of their own unless `loan.allowActiveLoanWithdrawal` is on.
+
+**A member may still have an outstanding `PENDING` withdrawal** — rows filed
+before ADR-030, and any left from the removed member request flow. Paying one
+settles *that row*, with the amount rewritten to what was actually paid; it never
+writes a second row beside it. So a `PENDING` withdrawal is still an intention
+and a `CONFIRMED` one is still a payment, and **any total over `transactions`
+must filter on status** — see [ADR-016](decisions.md).
+
+### Adding to a loan that is already running
+
+A member with an active loan is refused a second one. Staff may instead **add
+principal to the existing loan** — the same emergency, the same loan number, the
+same repayment history.
+
+The added amount raises `principalAmount` and `remainingAmount` together, so the
+loan never claims to owe more than was lent. `totalInstallments` does not change:
+the outstanding balance is re-spread over the payments that are *left*, so the
+schedule keeps its end date and each remaining instalment goes up. Zero interest,
+zero fees — the amount added and the amount owed are the same money.
+
+The borrowing ceiling is measured against the **total** owed afterwards, not
+against the increment; otherwise five small top-ups would do what one large loan
+is refused.
 
 ### Default settlement waterfall
 
@@ -138,7 +159,7 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 | FR-05 | Admin approves/rejects registration with stored reason | High |
 | FR-06 | Member updates nominee, audit-logged | Medium |
 | FR-07 | Deposit: member requests → worker processes → member confirms | Critical |
-| FR-08 | Withdrawal request with notice-period validation | High |
+| FR-08 | Member withdrawal: asked for in person, paid and posted by staff | High |
 | FR-09 | Block withdrawal violating collateral ratio or active guarantee | Critical |
 | FR-10 | Max loan from configured caps and liquidity | High |
 | FR-11 | Guarantor request + approval before admin review | High |

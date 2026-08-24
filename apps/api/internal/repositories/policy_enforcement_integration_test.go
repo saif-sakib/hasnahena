@@ -1,17 +1,18 @@
 //go:build integration
 
-// FR-08 and the default threshold — the two admin settings that were editable
-// and read by nothing until 2026-08-18.
+// Withdrawal policy, and the default threshold.
 //
-// Both were the same defect: a control that reports a policy the system does not
-// apply. `loan.noticePeriodMonths` sat in the settings page above the words
-// "Not enforced yet"; `loan.missedPaymentsForDefault` sat above "a loan is
-// marked defaulted manually". An admin could set either and change nothing.
+// `loan.missedPaymentsForDefault` was one of two admin settings that were
+// editable and read by nothing until 2026-08-18 — a control reporting a policy
+// the system did not apply. Its tests assert the rule in BOTH directions,
+// refused below the threshold and allowed at it, because a rule that only ever
+// refuses is indistinguishable from a broken feature and one that only ever
+// allows is indistinguishable from no rule.
 //
-// These tests are the reason the words could be removed. Each one asserts the
-// policy in BOTH directions — refused below the threshold, allowed at it —
-// because a rule that only ever refuses is indistinguishable from a broken
-// feature, and one that only ever allows is indistinguishable from no rule.
+// The other was `loan.noticePeriodMonths`, which became FR-08's notice period
+// and has since been removed entirely (ADR-030). What is left here in its place
+// asserts that no gate remains — see the section below for why that is worth a
+// test at all.
 //
 //	scripts/test-stack.sh up
 //	eval "$(scripts/test-stack.sh env)"
@@ -23,113 +24,89 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 // ---------------------------------------------------------------------------
-// FR-08 — the withdrawal notice period
+// Withdrawals after ADR-030 — no notice, no notice period
 // ---------------------------------------------------------------------------
+//
+// FR-08 used to make a member's withdrawal *request* a binding notice and gate
+// both payout paths on it maturing. The owner removed that rule: staff take the
+// request in person and pay at the desk, and `loan.noticePeriodDays` is the
+// courtesy period the foundation publishes rather than a gate in this code.
+//
+// These tests are what stops it coming back. Two of them assert the absence of
+// a refusal, which is the only way to pin a rule that has been deleted — and
+// the settlement tests below them assert what did NOT change: one posting per
+// withdrawal, and the ledger summing to what left the account.
 
-// backdateNotice moves a notice's createdAt into the past, which is the only
-// way to test a three-month period in a test that runs in three milliseconds.
-func backdateNotice(t *testing.T, noticeID string, months int) {
-	t.Helper()
-	_, err := testPool.Exec(context.Background(), `
-		UPDATE transactions
-		SET "createdAt" = NOW() - ($2 || ' months')::interval
-		WHERE id = $1
-	`, noticeID, months)
-	if err != nil {
-		t.Fatalf("backdate notice %s: %v", noticeID, err)
-	}
-}
-
-func TestWithdrawalNoticeStartsTheClockAndReportsTheDate(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
-	setConfig(t, "loan.noticePeriodMonths", "3")
-
-	notice, err := repo.CreateMemberWithdrawalNotice(ctx, member, 5000, "school fees")
-	if err != nil {
-		t.Fatalf("give notice: %v", err)
-	}
-
-	if notice.NoticePeriodMonths != 3 {
-		t.Errorf("notice period = %d, want the configured 3", notice.NoticePeriodMonths)
-	}
-	// Roughly three months out — asserted as a range because month lengths vary
-	// and the exact day is the calendar's business, not this test's.
-	wait := time.Until(notice.EligibleFrom)
-	if wait < 80*24*time.Hour || wait > 95*24*time.Hour {
-		t.Errorf("eligible in %v, want about three months", wait)
-	}
-
-	// Giving notice moves no money. That is the whole distinction between a
-	// notice and a withdrawal.
-	if got := savingsOf(t, member); got != 20000 {
-		t.Errorf("savings = %d after giving notice, want 20000 unchanged", got)
-	}
-
-	var status string
-	if err := testPool.QueryRow(ctx,
-		`SELECT status::text FROM transactions WHERE id = $1`, notice.RequestID).Scan(&status); err != nil {
-		t.Fatalf("read notice: %v", err)
-	}
-	if status != "PENDING" {
-		t.Errorf("notice status = %s, want PENDING", status)
-	}
-}
-
-func TestWithdrawalIsRefusedBeforeTheNoticePeriodElapses(t *testing.T) {
+// The headline behaviour. Before ADR-030 this was ErrNoWithdrawalNotice.
+func TestWithdrawalWithNoRequestBehindItIsPaid(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	worker := seedStaff(t, "w1", "WORKER")
-	setConfig(t, "loan.noticePeriodMonths", "3")
 
-	notice, err := repo.CreateMemberWithdrawalNotice(ctx, member, 5000, "")
+	receipt, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "paid at the desk")
 	if err != nil {
-		t.Fatalf("give notice: %v", err)
+		t.Fatalf("payout with no request on file was refused: %v", err)
 	}
-
-	// Two months in: still short.
-	backdateNotice(t, notice.RequestID, 2)
-	_, err = repo.AddMemberWithdrawal(ctx, member, worker, 5000, "too early")
-	if !errors.Is(err, ErrNoticePeriodNotElapsed) {
-		t.Fatalf("payout two months into a three-month notice: err = %v, want ErrNoticePeriodNotElapsed", err)
-	}
-	if got := savingsOf(t, member); got != 20000 {
-		t.Errorf("savings = %d after a refused payout, want 20000", got)
-	}
-
-	// The error has to say when, or the member is told "no" with no next step.
-	if !strings.Contains(err.Error(), "payable from") {
-		t.Errorf("refusal does not name the eligible date: %v", err)
-	}
-
-	// Three months in: due.
-	backdateNotice(t, notice.RequestID, 3)
-	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "matured"); err != nil {
-		t.Fatalf("payout after the notice period: %v", err)
+	if receipt == "" {
+		t.Error("payout returned an empty receipt number")
 	}
 	if got := savingsOf(t, member); got != 15000 {
 		t.Errorf("savings = %d after the payout, want 15000", got)
 	}
+
+	// One CONFIRMED row, written by the payout itself.
+	var rows int
+	var status string
+	var ledger int64
+	if err := testPool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(MAX(status::text), ''), COALESCE(SUM(amount), 0)::bigint
+		FROM transactions WHERE "userId" = $1 AND type = 'WITHDRAWAL'
+	`, member).Scan(&rows, &status, &ledger); err != nil {
+		t.Fatalf("read the posting: %v", err)
+	}
+	if rows != 1 || status != "CONFIRMED" || ledger != 5000 {
+		t.Errorf("ledger has %d WITHDRAWAL row(s), status %s, summing %d; want 1 CONFIRMED row of 5000",
+			rows, status, ledger)
+	}
 }
 
-// The notice becomes the posting. Two rows would mean every total over
-// `transactions` counted the same withdrawal twice.
-func TestASettledNoticeBecomesThePostingRatherThanASecondRow(t *testing.T) {
+// A payout that is not settling anything must not be held up by a stale
+// request either — including one filed minutes ago, which under the old rule
+// was the most-refused case of all.
+func TestAFreshRequestIsPaidImmediately(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	worker := seedStaff(t, "w1", "WORKER")
 
-	noticeID := giveMaturedWithdrawalNotice(t, member, 5000)
+	// createdAt = NOW(), which is what a member's own request used to look like
+	// on day one of a three-month period.
+	fileWithdrawalRequest(t, member, 5000, 0)
+
+	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "same day"); err != nil {
+		t.Fatalf("payout against a request filed today was refused: %v", err)
+	}
+	if got := savingsOf(t, member); got != 15000 {
+		t.Errorf("savings = %d, want 15000", got)
+	}
+}
+
+// An outstanding request becomes the posting. Two rows would mean every total
+// over `transactions` counted the same withdrawal twice.
+func TestASettledRequestBecomesThePostingRatherThanASecondRow(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
+	worker := seedStaff(t, "w1", "WORKER")
+
+	requestID := fileWithdrawalRequest(t, member, 5000, 12)
 	receipt, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "settled")
 	if err != nil {
 		t.Fatalf("payout: %v", err)
@@ -141,66 +118,70 @@ func TestASettledNoticeBecomesThePostingRatherThanASecondRow(t *testing.T) {
 		t.Fatalf("count withdrawal rows: %v", err)
 	}
 	if rows != 1 {
-		t.Errorf("%d WITHDRAWAL rows after settling one notice, want 1", rows)
+		t.Errorf("%d WITHDRAWAL rows after settling one request, want 1", rows)
 	}
 
 	var status, storedReceipt string
 	if err := testPool.QueryRow(ctx,
 		`SELECT status::text, COALESCE("receiptNumber", '') FROM transactions WHERE id = $1`,
-		noticeID).Scan(&status, &storedReceipt); err != nil {
-		t.Fatalf("read settled notice: %v", err)
+		requestID).Scan(&status, &storedReceipt); err != nil {
+		t.Fatalf("read settled request: %v", err)
 	}
 	if status != "CONFIRMED" {
-		t.Errorf("settled notice status = %s, want CONFIRMED", status)
+		t.Errorf("settled request status = %s, want CONFIRMED", status)
 	}
 	if storedReceipt != receipt {
-		t.Errorf("settled notice carries receipt %q, want %q", storedReceipt, receipt)
+		t.Errorf("settled request carries receipt %q, want %q", storedReceipt, receipt)
 	}
 }
 
-// Without a notice there is nothing to pay against. This is the rule-4 half of
-// FR-08: a worker settles a member's request, never originates one.
-func TestWithdrawalWithoutANoticeIsRefused(t *testing.T) {
+// A request covers any amount up to what it asked for. Above that it is a
+// different withdrawal, which used to be a refusal and is now simply its own
+// row — the request is left outstanding for the money it still represents.
+func TestAPayoutAboveTheRequestWritesItsOwnRow(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	worker := seedStaff(t, "w1", "WORKER")
+	requestID := fileWithdrawalRequest(t, member, 10000, 1)
 
-	_, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "no notice given")
-	if !errors.Is(err, ErrNoWithdrawalNotice) {
-		t.Fatalf("payout with no notice: err = %v, want ErrNoWithdrawalNotice", err)
+	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 12000, "more than asked for"); err != nil {
+		t.Fatalf("payout above the request was refused: %v", err)
 	}
-	if got := savingsOf(t, member); got != 20000 {
-		t.Errorf("savings = %d, want 20000 unchanged", got)
+	if got := savingsOf(t, member); got != 8000 {
+		t.Errorf("savings = %d, want 8000", got)
+	}
+
+	var status string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status::text FROM transactions WHERE id = $1`, requestID).Scan(&status); err != nil {
+		t.Fatalf("read the untouched request: %v", err)
+	}
+	if status != "PENDING" {
+		t.Errorf("the request is %s after a larger payout, want PENDING — a payout it did not cover consumed it", status)
 	}
 }
 
-// A notice covers any amount up to what it announced: a member who gave notice
-// for 10,000 and takes 6,000 is withdrawing less than they said they would.
-// More than the notice needs its own notice.
-func TestANoticeCoversUpToTheAmountAnnounced(t *testing.T) {
+// Settling for less than was asked must record what was PAID, not what was
+// asked. Leaving the announced figure would debit 6,000 and tell the ledger
+// 10,000 — a passbook that cannot be reconciled against the balance beside it,
+// which is the ADR-015 class of defect in a new place.
+func TestASettledRequestRecordsWhatWasPaid(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	worker := seedStaff(t, "w1", "WORKER")
-	giveMaturedWithdrawalNotice(t, member, 10000)
+	fileWithdrawalRequest(t, member, 10000, 1)
 
-	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 12000, "more than announced"); !errors.Is(err, ErrNoWithdrawalNotice) {
-		t.Fatalf("payout above the notice: err = %v, want ErrNoWithdrawalNotice", err)
-	}
-	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 6000, "less than announced"); err != nil {
-		t.Fatalf("payout below the notice was refused: %v", err)
+	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 6000, "less than asked for"); err != nil {
+		t.Fatalf("payout below the request: %v", err)
 	}
 	if got := savingsOf(t, member); got != 14000 {
 		t.Errorf("savings = %d, want 14000", got)
 	}
 
-	// **The settled row must carry what was PAID, not what was announced.**
-	// Leaving the notice's 10,000 here would debit the account 6,000 and tell
-	// the ledger 10,000 — a passbook that cannot be reconciled against the
-	// balance beside it, which is the ADR-015 class of defect in a new place.
 	var ledger int64
 	if err := testPool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(amount), 0)::bigint
@@ -214,20 +195,23 @@ func TestANoticeCoversUpToTheAmountAnnounced(t *testing.T) {
 	}
 }
 
-// The general form of the assertion above: for any sequence of notices and
-// payouts, confirmed withdrawals must sum to exactly what left the account.
-func TestSettledNoticesReconcileAgainstTheBalance(t *testing.T) {
+// The general form: for any mixture of requested and unrequested payouts,
+// confirmed withdrawals must sum to exactly what left the account.
+func TestWithdrawalsReconcileAgainstTheBalance(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 30000)
 	worker := seedStaff(t, "w1", "WORKER")
 
-	// Three notices, each settled for less than it announced.
-	for _, pair := range [][2]int64{{10000, 6000}, {8000, 8000}, {5000, 1000}} {
-		giveMaturedWithdrawalNotice(t, member, pair[0])
+	// Two settled against a request for more than was taken, one with no
+	// request behind it at all.
+	for _, pair := range [][2]int64{{10000, 6000}, {8000, 8000}, {0, 1000}} {
+		if pair[0] > 0 {
+			fileWithdrawalRequest(t, member, pair[0], 1)
+		}
 		if _, err := repo.AddMemberWithdrawal(ctx, member, worker, pair[1], "partial"); err != nil {
-			t.Fatalf("payout of %d against a notice of %d: %v", pair[1], pair[0], err)
+			t.Fatalf("payout of %d against a request of %d: %v", pair[1], pair[0], err)
 		}
 	}
 
@@ -249,84 +233,52 @@ func TestSettledNoticesReconcileAgainstTheBalance(t *testing.T) {
 	}
 }
 
-// A notice period of 0 suspends the policy. It is a legitimate configuration —
-// a foundation may not run one — and must not silently fall back to 3.
-func TestAZeroNoticePeriodPaysImmediately(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
-	worker := seedStaff(t, "w1", "WORKER")
-	setConfig(t, "loan.noticePeriodMonths", "0")
-
-	if _, err := repo.CreateMemberWithdrawalNotice(ctx, member, 5000, ""); err != nil {
-		t.Fatalf("give notice: %v", err)
-	}
-	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "no notice period"); err != nil {
-		t.Fatalf("payout under a zero notice period: %v", err)
-	}
-	if got := savingsOf(t, member); got != 15000 {
-		t.Errorf("savings = %d, want 15000", got)
-	}
-}
-
-// Outstanding notices count against the balance, or a member could give three
-// separate notices for their whole balance and present all three once matured.
-func TestOutstandingNoticesCountAgainstTheBalance(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	member := seedMember(t, "m1", "ACC-KH-33001", 10000)
-
-	if _, err := repo.CreateMemberWithdrawalNotice(ctx, member, 7000, "first"); err != nil {
-		t.Fatalf("first notice: %v", err)
-	}
-	if _, err := repo.CreateMemberWithdrawalNotice(ctx, member, 5000, "second"); err == nil {
-		t.Fatal("a second notice taking the total past the balance was accepted")
-	}
-	// Within what is left, it is fine.
-	if _, err := repo.CreateMemberWithdrawalNotice(ctx, member, 3000, "third"); err != nil {
-		t.Fatalf("a notice within the remaining balance was refused: %v", err)
-	}
-}
-
-// The guarantor and active-loan locks apply at notice time as well as payout
-// time, so a member finds out now rather than in three months.
-func TestNoticeIsRefusedWhileGuaranteeingALoan(t *testing.T) {
+// The guarantor lock is FR-09 and survives ADR-030 untouched: what was removed
+// is the notice period, not the rule that a guarantor's savings are committed.
+func TestAPayoutIsStillRefusedWhileGuaranteeingALoan(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	borrower := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	guarantor := seedMember(t, "m2", "ACC-KH-33002", 30000)
+	worker := seedStaff(t, "w1", "WORKER")
 	seedLoanWithGuarantor(t, borrower, guarantor, 10000)
 
-	if _, err := repo.CreateMemberWithdrawalNotice(ctx, guarantor, 1000, ""); err == nil {
-		t.Fatal("a guarantor on an active loan was allowed to give notice")
+	_, err := repo.AddMemberWithdrawal(ctx, guarantor, worker, 1000, "")
+	if !errors.Is(err, ErrGuarantorBlocksWithdrawal) {
+		t.Fatalf("payout to a guarantor on an active loan: err = %v, want ErrGuarantorBlocksWithdrawal", err)
+	}
+	if got := savingsOf(t, guarantor); got != 30000 {
+		t.Errorf("savings = %d after a refused payout, want 30000", got)
 	}
 }
 
-// Approving a notice before it matures must fail for the same reason paying it
-// does — otherwise the gate is only on one of the two paths.
-func TestApprovingAWithdrawalBeforeMaturityIsRefused(t *testing.T) {
+// Approving a withdrawal request no longer waits on anything. Under the old
+// rule this returned ErrNoticePeriodNotElapsed for the first three months.
+func TestApprovingAWithdrawalDoesNotWaitOnANoticePeriod(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 
 	member := seedMember(t, "m1", "ACC-KH-33001", 20000)
 	admin := seedStaff(t, "a1", "ADMIN")
-	setConfig(t, "loan.noticePeriodMonths", "3")
 
-	notice, err := repo.CreateMemberWithdrawalNotice(ctx, member, 5000, "")
-	if err != nil {
-		t.Fatalf("give notice: %v", err)
+	requestID := fileWithdrawalRequest(t, member, 5000, 0)
+	if err := repo.ApproveWithdrawal(ctx, requestID, admin); err != nil {
+		t.Fatalf("approval of a request filed today: %v", err)
 	}
 
-	if err := repo.ApproveWithdrawal(ctx, notice.RequestID, admin); !errors.Is(err, ErrNoticePeriodNotElapsed) {
-		t.Fatalf("approval before maturity: err = %v, want ErrNoticePeriodNotElapsed", err)
+	// Approval readies the request; it does not move money. The debit happens
+	// when a worker pays it.
+	var status string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status::text FROM transactions WHERE id = $1`, requestID).Scan(&status); err != nil {
+		t.Fatalf("read the approved request: %v", err)
 	}
-
-	backdateNotice(t, notice.RequestID, 4)
-	if err := repo.ApproveWithdrawal(ctx, notice.RequestID, admin); err != nil {
-		t.Fatalf("approval after maturity: %v", err)
+	if status != "PROCESSED" {
+		t.Errorf("approved request status = %s, want PROCESSED", status)
+	}
+	if got := savingsOf(t, member); got != 20000 {
+		t.Errorf("savings = %d after an approval, want 20000 — approving must move no money", got)
 	}
 }
 

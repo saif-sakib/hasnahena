@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
+import useSWR from 'swr';
 import {
   Wallet,
   ArrowUpRight,
@@ -15,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiPost } from '@/lib/api';
+import { fetchSettings } from '@/lib/settings-client';
 import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency, parseWholeTaka } from '@/lib/utils';
 import { buildStatement, downloadDocumentPDF, buildReceipt, fetchOrgSettings } from '@/lib/documents';
@@ -77,6 +79,20 @@ export default function DepositsPage() {
     [pageData],
   );
 
+  // The courtesy notice period, in days (ADR-030). `fetchSettings` is the only
+  // way the browser may read this — it attaches the token, and without one the
+  // member tier is silently narrowed to the anonymous subset and this key comes
+  // back undefined.
+  const { data: settings } = useSWR<Record<string, string> | null>(
+    '/api/v1/settings',
+    () => fetchSettings(),
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+  const noticePeriodDays = useMemo(() => {
+    const parsed = Number(settings?.['loan.noticePeriodDays']);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
+  }, [settings]);
+
   // Submitting a request fails for its own reasons; kept apart from the read.
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -85,12 +101,6 @@ export default function DepositsPage() {
   const [requestAmount, setRequestAmount] = useState('');
   const [requestReference, setRequestReference] = useState('');
   const [requestNotes, setRequestNotes] = useState('');
-  // FR-08. A withdrawal is not an instant action any more: the member gives
-  // notice, the notice period runs, and the payout settles it at the desk.
-  const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
-  const [withdrawalAmount, setWithdrawalAmount] = useState('');
-  const [withdrawalNotes, setWithdrawalNotes] = useState('');
-  const [isWithdrawalSubmitting, setIsWithdrawalSubmitting] = useState(false);
 
   const resetDepositForm = () => {
     setRequestAmount('');
@@ -233,66 +243,6 @@ export default function DepositsPage() {
     }
   };
 
-  const resetWithdrawalForm = () => {
-    setWithdrawalAmount('');
-    setWithdrawalNotes('');
-  };
-
-  const closeWithdrawalForm = () => {
-    resetWithdrawalForm();
-    setShowWithdrawalForm(false);
-  };
-
-  const handleSubmitWithdrawalNotice = async () => {
-    setActionError(null);
-    setActionSuccess(null);
-
-    const amountValue = parseWholeTaka(withdrawalAmount);
-    if (amountValue === null) {
-      setActionError(
-        locale === 'bn'
-          ? 'পূর্ণ টাকায় পরিমাণ দিন (পয়সা নয়)'
-          : 'Enter a whole-taka amount, with no paisa',
-      );
-      return;
-    }
-
-    try {
-      setIsWithdrawalSubmitting(true);
-      const response = await apiPost<{ eligibleFrom?: string; noticePeriodMonths?: number }>(
-        '/v1/dashboard/member/requests/withdrawal',
-        { amount: amountValue, notes: withdrawalNotes.trim() },
-      );
-      closeWithdrawalForm();
-      // The maturity date comes back from the API rather than being computed
-      // here: the notice period is policy the server owns, and a date the
-      // screen worked out for itself would drift the moment it changed.
-      const eligible = response?.eligibleFrom
-        ? new Date(response.eligibleFrom).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB', {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit',
-          })
-        : null;
-      setActionSuccess(
-        eligible
-          ? locale === 'bn'
-            ? `উত্তোলনের নোটিস জমা হয়েছে। ${eligible} তারিখ থেকে টাকা তোলা যাবে।`
-            : `Withdrawal notice submitted. The money can be paid from ${eligible}.`
-          : locale === 'bn'
-            ? 'উত্তোলনের নোটিস জমা হয়েছে।'
-            : 'Withdrawal notice submitted.',
-      );
-      await refresh();
-    } catch (e: any) {
-      setActionError(
-        e?.message ?? (locale === 'bn' ? 'নোটিস জমা দেওয়া যায়নি' : 'Failed to submit notice'),
-      );
-    } finally {
-      setIsWithdrawalSubmitting(false);
-    }
-  };
-
   return (
     <div className="space-y-4">
       {actionError && (
@@ -412,91 +362,30 @@ export default function DepositsPage() {
         )}
       </div>
 
-      {/* Withdrawal notice — FR-08 */}
-      <div className="border border-gray-200 bg-white">
-        {!showWithdrawalForm ? (
-          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* How to withdraw.
+          ADR-030. A member used to give notice here — a form that filed a
+          PENDING withdrawal and started a clock, and the money could not be
+          paid until it ran out. Both are gone: staff pay when the member asks.
+          What replaces the form is the one thing the member still needs from
+          this screen, which is how much warning to give. It is not a rule the
+          app enforces, so it is written as the request it is. */}
+      {noticePeriodDays > 0 && (
+        <div className="border border-gray-200 bg-white">
+          <div className="flex items-start gap-3 p-4">
+            <CalendarClock className="h-4 w-4 mt-0.5 shrink-0 text-gray-400" />
             <div>
               <h2 className="text-sm font-semibold text-gray-900">
-                {locale === 'bn' ? 'উত্তোলনের নোটিস' : 'Withdrawal Notice'}
+                {locale === 'bn' ? 'টাকা তুলতে চাইলে' : 'Withdrawing your savings'}
               </h2>
               <p className="text-xs text-gray-500 mt-1">
                 {locale === 'bn'
-                  ? 'টাকা তুলতে হলে আগে নোটিস দিন। নোটিস পিরিয়ড শেষ হলে টাকা দেওয়া হবে।'
-                  : 'Give notice before withdrawing. The money is paid once the notice period has passed.'}
+                  ? `আপনার মাঠকর্মীকে জানান। উত্তোলনের অন্তত ${noticePeriodDays} দিন আগে জানাতে অনুরোধ করা হয়, যাতে টাকা প্রস্তুত রাখা যায়।`
+                  : `Tell your field worker. We ask for at least ${noticePeriodDays} days' notice so the money can be ready for you.`}
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => setShowWithdrawalForm(true)}
-              className="gap-2 shrink-0"
-            >
-              <CalendarClock className="h-4 w-4" />
-              {locale === 'bn' ? 'নোটিস দিন' : 'Give Notice'}
-            </Button>
           </div>
-        ) : (
-          <>
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">
-                  {locale === 'bn' ? 'নতুন উত্তোলনের নোটিস' : 'New Withdrawal Notice'}
-                </h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  {locale === 'bn'
-                    ? 'নোটিস দিলে এখনই টাকা কাটা হবে না। নোটিস পিরিয়ড শেষ হলে মাঠকর্মী টাকা পৌঁছে দেবেন।'
-                    : 'Giving notice does not debit anything now. A field worker pays it out once the notice period ends.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeWithdrawalForm}
-                className="text-gray-400 hover:text-gray-600 p-1"
-                aria-label={locale === 'bn' ? 'বন্ধ করুন' : 'Close'}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="p-4 grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>{locale === 'bn' ? 'পরিমাণ (টাকা)' : 'Amount (BDT)'}</Label>
-                {/* Whole taka only — there is no paisa in this ledger. */}
-                <Input
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="0"
-                  value={withdrawalAmount}
-                  onChange={(e) => setWithdrawalAmount(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>{locale === 'bn' ? 'কারণ (ঐচ্ছিক)' : 'Reason (optional)'}</Label>
-                <Textarea
-                  placeholder={locale === 'bn' ? 'কী কারণে তুলছেন...' : 'What the money is for...'}
-                  value={withdrawalNotes}
-                  onChange={(e) => setWithdrawalNotes(e.target.value)}
-                />
-              </div>
-              <div className="md:col-span-3 flex flex-wrap items-center justify-end gap-2">
-                <Button variant="outline" onClick={closeWithdrawalForm} disabled={isWithdrawalSubmitting}>
-                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-                </Button>
-                <Button
-                  onClick={handleSubmitWithdrawalNotice}
-                  disabled={isWithdrawalSubmitting}
-                  className="gap-2"
-                >
-                  <CalendarClock className="h-4 w-4" />
-                  {isWithdrawalSubmitting
-                    ? (locale === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...')
-                    : (locale === 'bn' ? 'নোটিস পাঠান' : 'Submit Notice')}
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Summary Stats */}
       <div className="border border-gray-200 bg-white">

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 
 // TEST-39 / WO-51 — EN/BN message parity, pinned.
 //
@@ -21,6 +21,7 @@ import { join, resolve } from 'node:path';
 // `pnpm test:unit`, in under a second, with no database and no browser.
 
 const REPO = resolve(process.cwd(), '..', '..');
+const WEB_ROOT = join(REPO, 'apps', 'web');
 const readMessages = (locale: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO, 'apps/web/messages', `${locale}.json`), 'utf8'));
 
@@ -117,5 +118,82 @@ describe('EN/BN message parity', () => {
   it('is not empty — a suite that reads nothing passes forever', () => {
     expect(en.size).toBeGreaterThan(250);
     expect(bn.size).toBe(en.size);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Rule 3, in the copy members actually read
+// ---------------------------------------------------------------------------
+
+/**
+ * Zero interest and zero fees is a Shariah requirement, not a pricing choice
+ * (CLAUDE.md rule 3). The code has been guarded for a long time: `applicationFee`
+ * is `BigInt(0)` on every application, a CHECK constraint rejects a non-zero
+ * one, `internal/money` computes no rate, and `requirements.test.ts` searches the
+ * Go and TypeScript source for the word "markup".
+ *
+ * **None of that reads the prose.** The Terms of Service told every member, in
+ * both languages, that loans "are interest-free but may include administrative
+ * fees" — a promise the platform cannot keep and would violate its own rule to
+ * keep. It survived every existing guard because it is a string in a page, and
+ * it was found by a census written for something else entirely.
+ *
+ * So this reads the prose. It is deliberately a search for the *promise of a
+ * charge* rather than for the word "fee": the copy has to be able to say "no
+ * processing fee", which is the whole point.
+ */
+describe('no member-facing page promises a fee', () => {
+  const PAGES = join(WEB_ROOT, 'app');
+
+  function pageFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === '.next') continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out.push(...pageFiles(full));
+      else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
+    }
+    return out;
+  }
+
+  /**
+   * Phrases that assert a charge exists. Each is the affirmative form — "may
+   * include a fee", "চার্জ প্রযোজ্য" — so a sentence denying one passes.
+   */
+  const PROMISES_A_CHARGE = [
+    /may\s+include\s+[\w\s]*fee/i,
+    /(?<!no\s)(?<!zero\s)(?:administrative|processing|service|application)\s+fees?\s+(?:apply|will|are\s+charged)/i,
+    /interest[- ]free\s+but/i,
+    /সুদমুক্ত\s+কিন্তু/,
+    /ফি\s+(?:প্রযোজ্য|অন্তর্ভুক্ত\s+থাকতে\s+পারে)/,
+    /চার্জ\s+প্রযোজ্য/,
+  ];
+
+  it('says nothing that commits the foundation to charging one', () => {
+    const offenders: string[] = [];
+    for (const file of pageFiles(PAGES)) {
+      const text = readFileSync(file, 'utf8');
+      for (const pattern of PROMISES_A_CHARGE) {
+        const hit = text.match(pattern);
+        if (hit) offenders.push(`${relative(WEB_ROOT, file)}: ${hit[0]}`);
+      }
+    }
+    expect(
+      offenders,
+      'Rule 3 is a Shariah requirement, not a pricing decision. A page that ' +
+        'tells a member a fee may apply describes a charge the platform cannot ' +
+        'make: applicationFee is BigInt(0) everywhere and the database rejects ' +
+        'anything else.\n  ' + offenders.join('\n  '),
+    ).toEqual([]);
+  });
+
+  it('the terms page states the rule positively in both languages', () => {
+    // The absence check above passes on a page that says nothing at all. This
+    // is the other half: the one page a member reads before borrowing has to
+    // say what the rule is.
+    const terms = readFileSync(join(PAGES, '[locale]', 'terms', 'page.tsx'), 'utf8');
+    expect(terms).toMatch(/no\s+(?:administrative|processing)/i);
+    expect(terms).toContain('সুদমুক্ত');
   });
 });

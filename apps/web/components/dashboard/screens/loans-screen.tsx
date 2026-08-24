@@ -7,6 +7,7 @@ import {
   Download,
   Eye,
   Loader2,
+  PlusCircle,
   RefreshCw,
   Search,
   Wallet,
@@ -170,6 +171,8 @@ export default function LoansScreen() {
   // rule, the presets and the refusal messages all live in MoneyActionDialog —
   // this screen had its own copy, which rounded 1500.75 to 1501 and posted it.
   const [payingLoan, setPayingLoan] = useState<Loan | null>(null);
+  /** Adding principal to a loan that is already running (ADR-030). */
+  const [toppingUpLoan, setToppingUpLoan] = useState<Loan | null>(null);
 
   const filteredLoans = useMemo(
     () =>
@@ -423,14 +426,24 @@ export default function LoansScreen() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       {l.status === 'ACTIVE' && l.memberUserId ? (
-                        <button
-                          onClick={() => setPayingLoan(l)}
-                          className="text-emerald-600 hover:text-emerald-800"
-                          title={locale === 'bn' ? 'কিস্তি গ্রহণ' : 'Record instalment'}
-                          aria-label={locale === 'bn' ? 'কিস্তি গ্রহণ করুন' : 'Record instalment'}
-                        >
-                          <Wallet className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setPayingLoan(l)}
+                            className="text-emerald-600 hover:text-emerald-800"
+                            title={locale === 'bn' ? 'কিস্তি গ্রহণ' : 'Record instalment'}
+                            aria-label={locale === 'bn' ? 'কিস্তি গ্রহণ করুন' : 'Record instalment'}
+                          >
+                            <Wallet className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setToppingUpLoan(l)}
+                            className="text-blue-600 hover:text-blue-800"
+                            title={locale === 'bn' ? 'ঋণ বাড়ান' : 'Increase loan'}
+                            aria-label={locale === 'bn' ? 'ঋণের পরিমাণ বাড়ান' : 'Add to this loan'}
+                          >
+                            <PlusCircle className="h-4 w-4" />
+                          </button>
+                        </>
                       ) : null}
                       <button
                         onClick={() => void handleDownloadLoan(l)}
@@ -555,6 +568,20 @@ export default function LoansScreen() {
         }}
         memberUserId={payingLoan?.memberUserId}
         loanId={payingLoan?.id}
+        onCompleted={loadLoans}
+      />
+
+      {/* Add to a running loan. Same dialog, same rules — a second form here
+          is how the deposit and instalment forms drifted apart before they
+          were merged (see money-actions.tsx). */}
+      <MoneyActionDialog
+        action="LOAN_TOPUP"
+        open={toppingUpLoan !== null}
+        onOpenChange={(next) => {
+          if (!next) setToppingUpLoan(null);
+        }}
+        memberUserId={toppingUpLoan?.memberUserId}
+        loanId={toppingUpLoan?.id}
         onCompleted={loadLoans}
       />
     </div>

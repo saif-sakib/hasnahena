@@ -59,6 +59,15 @@ const CONFIG_DEFAULTS = [
     description: 'Loans above this amount (taka) require a guarantor; 0 requires one always',
   },
   {
+    // Days, and informational only (ADR-030). Seeded so the member savings
+    // screen and the FAQ have a figure to publish; nothing in either backend
+    // reads it, and no payout waits on it. 90 is the three months that the
+    // enforced `loan.noticePeriodMonths` used to mean.
+    key: 'loan.noticePeriodDays',
+    value: '90',
+    description: 'Days of notice a member is ASKED to give before withdrawing (not enforced)',
+  },
+  {
     key: 'support.chatRetentionDays',
     value: '10',
     description: 'Days a resolved support thread is kept before deletion',

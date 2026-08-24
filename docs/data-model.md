@@ -66,7 +66,7 @@ through `getLoanPolicy()` in `internal/repositories/repository.go`:
 | `loan.maxLoanMultiplier` | `5` | personal cap = multiplier × deposit |
 | `loan.maxInstallmentMonths` | `24` | longest repayment schedule |
 | `loan.allowActiveLoanWithdrawal` | off | permit withdrawal while a loan is active |
-| `loan.noticePeriodMonths` | `3` | how long a withdrawal notice must sit before it can be paid (FR-08, [ADR-016](decisions.md)). `0` means no notice period |
+| `loan.noticePeriodDays` | `90` | days of notice a member is **asked** to give before withdrawing. Informational: rendered on the member's savings screen and in the FAQ, enforced by nothing ([ADR-030](decisions.md)). `0` shows nothing |
 | `loan.missedPaymentsForDefault` | `3` | scheduled instalments a borrower must have missed before a loan may be marked defaulted |
 
 The rest are read by the web app only: `org.*` (letterhead on generated

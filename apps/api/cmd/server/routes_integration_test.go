@@ -154,19 +154,24 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/member/profile":                  member,
 	"POST /v1/dashboard/member/requests/deposit":        member,
 	"POST /v1/dashboard/member/requests/loan-repayment": member,
-	// FR-08. A withdrawal notice is the member's own declaration, so only the
-	// member may give it — a worker filing one on their behalf would be the
-	// rule-4 violation the notice period exists to close.
-	"POST /v1/dashboard/member/requests/withdrawal": member,
+	// POST /member/requests/withdrawal is deliberately absent (ADR-030). It was
+	// the member's own withdrawal notice, and both it and the notice period it
+	// started are gone: a member asks a field worker, and staff pay from
+	// /worker/members/{memberUserId}/withdrawal below.
 
 	// Field-worker surface. Admins are included: an admin covering a round
 	// needs the same screens.
-	"GET /v1/dashboard/worker":                                      staff,
-	"GET /v1/dashboard/worker/members":                              staff,
-	"GET /v1/dashboard/worker/members/{memberUserId}":               staff,
-	"POST /v1/dashboard/worker/members/{memberUserId}/deposit":      staff,
-	"POST /v1/dashboard/worker/members/{memberUserId}/withdrawal":   staff,
-	"POST /v1/dashboard/worker/members/{memberUserId}/loan":         staff,
+	"GET /v1/dashboard/worker":                                    staff,
+	"GET /v1/dashboard/worker/members":                            staff,
+	"GET /v1/dashboard/worker/members/{memberUserId}":             staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/deposit":    staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/withdrawal": staff,
+	"POST /v1/dashboard/worker/members/{memberUserId}/loan":       staff,
+	// Adding principal to a loan that is already running. Staff, not admin
+	// only: it is a disbursement at the desk, the same act as `/loan`, and the
+	// ceiling it is measured against is enforced in the repository rather than
+	// by who is allowed to ask.
+	"POST /v1/dashboard/worker/members/{memberUserId}/loan-topup":   staff,
 	"POST /v1/dashboard/worker/members/{memberUserId}/loan-payment": staff,
 	"GET /v1/dashboard/worker/requests":                             staff,
 	"GET /v1/dashboard/worker/loans":                                staff,

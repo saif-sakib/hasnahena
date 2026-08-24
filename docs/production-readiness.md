@@ -43,6 +43,7 @@ Completed items are one line each; the record of what they contained is in
 | Git history | `[x]` | 39 files and three binaries remain in history; **assessed and accepted** — not live member data ([ADR-018](decisions.md)) |
 | Secrets management | `[~]` | Env vars per host, no rotation record, no central store (OPS-02, INF-09). The *order* to rotate them in is written down — [runbook.md §3](runbook.md#3-a-suspected-credential-leak) |
 | Infrastructure as code | `[ ]` | `vercel.json` only. Render config is click-ops (INF-02) |
+| Search discoverability | `[~]` | Canonicals, `hreflang` + `x-default`, sitemap, `robots.txt`, JSON-LD (`NGO`, never `FinancialService`), OG/Twitter cards, a declared favicon at 48px multiples and a web app manifest. **Two things are outside the code**: nobody has claimed the property in Google Search Console, so there is no way to see how the site is actually indexed, and `org.nameEn` in the production database still reads "Hasnahena" rather than "Hasnahena Foundation" — the JSON-LD publishes whatever that row holds |
 
 ---
 

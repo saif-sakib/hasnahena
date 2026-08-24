@@ -125,7 +125,7 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 	// is the balance and not the supply of notices. Without this the test would
 	// still report "2 succeeded" for entirely the wrong reason.
 	for i := 0; i < attempts; i++ {
-		giveMaturedWithdrawalNotice(t, member, each)
+		fileWithdrawalRequest(t, member, each, 12)
 	}
 
 	var wg sync.WaitGroup

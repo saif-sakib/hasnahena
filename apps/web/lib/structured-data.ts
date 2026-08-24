@@ -24,7 +24,13 @@
  */
 
 import { defaultLocale, locales, type Locale } from '@/i18n';
-import { getLocalizedUrl, siteOrigin, SITE_DESCRIPTION, SITE_NAME } from '@/lib/seo';
+import {
+  getLocalizedUrl,
+  siteOrigin,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_NAME_VARIANTS,
+} from '@/lib/seo';
 import type { FaqEntry } from '@/lib/faq';
 
 /** A JSON-LD node. Deliberately loose — the shape is schema.org's, not ours. */
@@ -75,14 +81,36 @@ const trimmed = (settings: Settings, key: string): string | undefined => {
 export function organizationSchema(settings: Settings): JsonLdNode {
   const streetAddress = trimmed(settings, 'org.address');
 
+  // Every name this organisation is searched under, deduplicated and with the
+  // primary name removed — `alternateName` means "also called", so repeating
+  // `name` inside it is noise. The Bengali name comes from `org.name`, which an
+  // admin edits; the Latin-script variants are SITE_NAME_VARIANTS.
+  const primaryName = trimmed(settings, 'org.nameEn') ?? SITE_NAME;
+  const alternateNames = [
+    ...new Set([trimmed(settings, 'org.name'), ...SITE_NAME_VARIANTS]),
+  ].filter((name): name is string => Boolean(name) && name !== primaryName);
+
   return compact({
     '@type': 'NGO',
     '@id': ORGANIZATION_ID,
-    name: trimmed(settings, 'org.nameEn') ?? SITE_NAME,
-    alternateName: trimmed(settings, 'org.name'),
+    name: primaryName,
+    alternateName: alternateNames,
     description: trimmed(settings, 'org.description') ?? SITE_DESCRIPTION,
     url: siteOrigin,
-    logo: `${siteOrigin}/images/logo/logo.png`,
+    // An ImageObject rather than a bare URL string. Google's logo guidance asks
+    // for width and height, and the square mark rather than the wide lockup:
+    // a knowledge-panel logo is cropped to a square, and cropping the lockup
+    // cuts the wordmark in half.
+    logo: {
+      '@type': 'ImageObject',
+      url: `${siteOrigin}/images/logo/logo-mark-square.png`,
+      width: 496,
+      height: 496,
+      caption: primaryName,
+    },
+    // The image a crawler shows beside the result, which is the wide lockup —
+    // the same asset the Open Graph card uses, so the two agree.
+    image: `${siteOrigin}/images/logo/logo-og.png`,
     // The locality, region and country are facts about where the foundation is
     // registered, not settings — there is no admin control for them and there
     // should not be, because moving would be a governance event rather than an
@@ -115,6 +143,7 @@ export function webSiteSchema(): JsonLdNode {
     '@id': WEBSITE_ID,
     url: siteOrigin,
     name: SITE_NAME,
+    alternateName: [...SITE_NAME_VARIANTS],
     description: SITE_DESCRIPTION,
     publisher: { '@id': ORGANIZATION_ID },
     inLanguage: [...locales],

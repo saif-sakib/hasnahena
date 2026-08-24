@@ -39,10 +39,10 @@ import { SETTINGS_CONFIG_KEYS } from '@/lib/system-config';
 const DEFAULT_ORG_SETTINGS = {
   name: 'হাসনাহেনা',
   nameEn: 'Hasnahena',
-  email: 'info@hasnahena.org',
+  email: 'info@hasnahenafoundation.com',
   phone: '+880 1712-345678',
   address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
-  website: 'https://hasnahena.org',
+  website: 'https://hasnahenafoundation.com',
   description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
   regNumber: '',
 };
@@ -52,7 +52,8 @@ const DEFAULT_LOAN_SETTINGS = {
   minDepositForLoan: 8000,
   maxInstallmentMonths: 24,
   missedPaymentsForDefault: 3,
-  noticePeriodMonths: 3,
+  // Days, not months (ADR-030). 90 is the three months this replaced.
+  noticePeriodDays: 90,
   // WO-45. Declared since then and read by the loan application endpoint, but
   // no screen offered it — so the only value it could ever hold was whatever
   // the seed wrote. 0 means every loan needs a guarantor.
@@ -151,7 +152,7 @@ export default function AdminSettingsPage() {
       minDepositForLoan: parseNonNegativeSetting(data['loan.minDepositForLoan'], DEFAULT_LOAN_SETTINGS.minDepositForLoan),
       maxInstallmentMonths: parseNumberSetting(data['loan.maxInstallmentMonths'], DEFAULT_LOAN_SETTINGS.maxInstallmentMonths),
       missedPaymentsForDefault: parseNumberSetting(data['loan.missedPaymentsForDefault'], DEFAULT_LOAN_SETTINGS.missedPaymentsForDefault),
-      noticePeriodMonths: parseNonNegativeSetting(data['loan.noticePeriodMonths'], DEFAULT_LOAN_SETTINGS.noticePeriodMonths),
+      noticePeriodDays: parseNonNegativeSetting(data['loan.noticePeriodDays'], DEFAULT_LOAN_SETTINGS.noticePeriodDays),
       guarantorThresholdAmount: parseNonNegativeSetting(
         data['loan.guarantorThresholdAmount'],
         DEFAULT_LOAN_SETTINGS.guarantorThresholdAmount,
@@ -210,7 +211,7 @@ export default function AdminSettingsPage() {
         minDepositForLoan: Math.max(0, Math.trunc(loanSettings.minDepositForLoan)),
         maxInstallmentMonths: Math.max(1, Math.trunc(loanSettings.maxInstallmentMonths)),
         missedPaymentsForDefault: Math.max(1, Math.trunc(loanSettings.missedPaymentsForDefault)),
-        noticePeriodMonths: Math.max(1, Math.trunc(loanSettings.noticePeriodMonths)),
+        noticePeriodDays: Math.max(0, Math.trunc(loanSettings.noticePeriodDays)),
         guarantorThresholdAmount: Math.max(0, Math.trunc(loanSettings.guarantorThresholdAmount)),
         allowActiveLoanWithdrawal: loanSettings.allowActiveLoanWithdrawal,
       };
@@ -233,7 +234,7 @@ export default function AdminSettingsPage() {
         'loan.minDepositForLoan': String(normalizedLoanSettings.minDepositForLoan),
         'loan.maxInstallmentMonths': String(normalizedLoanSettings.maxInstallmentMonths),
         'loan.missedPaymentsForDefault': String(normalizedLoanSettings.missedPaymentsForDefault),
-        'loan.noticePeriodMonths': String(normalizedLoanSettings.noticePeriodMonths),
+        'loan.noticePeriodDays': String(normalizedLoanSettings.noticePeriodDays),
         'loan.guarantorThresholdAmount': String(normalizedLoanSettings.guarantorThresholdAmount),
         'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
         'support.chatRetentionDays': String(normalizedSupportRetentionDays),
@@ -732,31 +733,39 @@ export default function AdminSettingsPage() {
                     </p>
                   </div>
 
+                  {/* ADR-030. This used to be enforced, in months, on both
+                      payout paths. It is now what the foundation ASKS for, in
+                      days: staff pay a withdrawal when the member asks, and
+                      this figure is published on the member's savings screen
+                      and in the FAQ so they know how much warning to give.
+                      Saying so on the control matters — an admin who believes
+                      this blocks a payout will not understand why one went
+                      through. */}
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Clock className="h-4 w-4" />
-                      {locale === 'bn' ? 'উত্তোলনের নোটিস পিরিয়ড' : 'Withdrawal Notice Period'}
+                      {locale === 'bn' ? 'উত্তোলনের নোটিসের সময় (দিন)' : 'Withdrawal Notice Period (days)'}
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
-                        value={loanSettings.noticePeriodMonths}
+                        value={loanSettings.noticePeriodDays}
                         onChange={(e) =>
                           setLoanSettings({
                             ...loanSettings,
-                            noticePeriodMonths: parseIntegerInput(e.target.value, loanSettings.noticePeriodMonths),
+                            noticePeriodDays: parseIntegerInput(e.target.value, loanSettings.noticePeriodDays),
                           })
                         }
-                        min={1}
+                        min={0}
                         step={1}
                         className="w-24"
                       />
-                      <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'মাস' : 'months'}</span>
+                      <span className="text-sm text-muted-foreground">{locale === 'bn' ? 'দিন' : 'days'}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {locale === 'bn'
-                        ? 'সদস্য নোটিস দেওয়ার পর এই সময় পার হলেই উত্তোলন করা যাবে। ০ দিলে নোটিস পিরিয়ড থাকবে না।'
-                        : 'A withdrawal is paid only after this long has passed since the member gave notice. Set 0 to run no notice period.'}
+                        ? 'সদস্যকে উত্তোলনের কত দিন আগে জানাতে বলা হবে। এটি সদস্যের সঞ্চয় পাতায় ও সাধারণ প্রশ্নে দেখানো হয়; এটি উত্তোলন আটকায় না — কর্মী চাইলে যেকোনো সময় পরিশোধ করতে পারেন। ০ দিলে কিছুই দেখানো হবে না।'
+                        : 'How many days ahead a member is asked to tell us before withdrawing. It is shown on their savings screen and in the FAQ. It does not block a payout — staff can pay whenever the member asks. Set 0 to show nothing.'}
                     </p>
                   </div>
 

@@ -290,73 +290,12 @@ func (h *DashboardHandler) MemberCreateDepositRequest(w http.ResponseWriter, r *
 	})
 }
 
-// MemberCreateWithdrawalNotice records a member's notice of withdrawal — FR-08.
-//
-// It moves no money. The notice starts the notice period; the payout happens at
-// the desk once it has matured, and both the approval and the payout paths
-// refuse until then.
-func (h *DashboardHandler) MemberCreateWithdrawalNotice(w http.ResponseWriter, r *http.Request) {
-	auth, ok := h.requireRoles(w, r, "MEMBER")
-	if !ok {
-		return
-	}
-
-	var req struct {
-		Amount int64  `json:"amount"`
-		Notes  string `json:"notes"`
-	}
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	if req.Amount <= 0 {
-		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
-		return
-	}
-	if req.Amount > utils.MaxWithdrawalAmount {
-		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
-		return
-	}
-
-	notice, err := h.userRepo.CreateMemberWithdrawalNotice(r.Context(), auth.UserID, req.Amount, req.Notes)
-	if err != nil {
-		// Sentinels, like the payout path. This switch happened to be ordered
-		// safely — "is guarantor for active loan" does not contain "has active
-		// loan" — but only because the string it tested first was long enough.
-		// That is not a property worth relying on twice.
-		switch {
-		case errors.Is(err, repositories.ErrMemberNotFound):
-			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-		case errors.Is(err, repositories.ErrMemberNotActive):
-			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
-		case errors.Is(err, repositories.ErrInsufficientBalance):
-			// Names the reason, because outstanding notices count against the
-			// balance and a member looking at their own screen will otherwise
-			// see enough money and no explanation.
-			utils.Error(w, http.StatusBadRequest, "INSUFFICIENT_BALANCE",
-				"Your savings, less any withdrawal notice already outstanding, do not cover this amount")
-		case errors.Is(err, repositories.ErrGuarantorBlocksWithdrawal):
-			utils.Error(w, http.StatusBadRequest, "GUARANTOR_LOCK",
-				"You are guaranteeing an active loan and cannot withdraw until it is settled")
-		case errors.Is(err, repositories.ErrActiveLoanBlocksWithdrawal):
-			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN",
-				"Withdrawals are not permitted while a loan is active")
-		default:
-			slog.Error("create withdrawal notice failed", "userId", auth.UserID, "error", err)
-			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit withdrawal notice")
-		}
-		return
-	}
-
-	utils.Success(w, http.StatusOK, map[string]interface{}{
-		"message":            "Withdrawal notice submitted successfully",
-		"requestId":          notice.RequestID,
-		"amount":             notice.Amount,
-		"noticePeriodMonths": notice.NoticePeriodMonths,
-		"eligibleFrom":       notice.EligibleFrom,
-	})
-}
+// A member used to file their own withdrawal notice here — POST
+// /member/requests/withdrawal, which started the FR-08 clock. The route and its
+// repository method are gone (ADR-030): a member asks a field worker, and staff
+// pay at the desk. `loan.noticePeriodDays` is what the foundation asks for
+// rather than what this code enforces, and it is published on the member's
+// savings screen and in the FAQ.
 
 func (h *DashboardHandler) MemberCreateLoanRepaymentRequest(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "MEMBER")
@@ -925,13 +864,6 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 	if err := h.userRepo.ApproveWithdrawal(r.Context(), requestID, userID); err != nil {
 		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		// FR-08. The most common reason an approval is refused is that the
-		// notice period has not run, and it fell through to the 500 below — so
-		// the approvals screen answered "Failed to approve withdrawal" for the
-		// one outcome the policy exists to produce. The error carries both
-		// dates; the admin needs them.
-		case errors.Is(err, repositories.ErrNoticePeriodNotElapsed):
-			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_NOT_MATURED", err.Error())
 		case strings.Contains(errMsg, "not found"):
 			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
 		case strings.Contains(errMsg, "only pending"),
@@ -2051,23 +1983,10 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, repositories.ErrActiveLoanBlocksWithdrawal):
 			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED",
 				"This member has an active loan. Enable loan.allowActiveLoanWithdrawal in settings to permit it")
-		// FR-08. Neither of these is a fault: they are the two ordinary reasons
-		// a payout is refused, and both used to reach the 500 below with the
-		// message "Failed to process withdrawal" — which says nothing about
-		// what to do, and reads as a broken screen rather than as a policy.
-		//
-		// 409 rather than 400: the request is well-formed and the caller is
-		// allowed to make it. What is wrong is the state of the member's
-		// account, and that changes on its own as the notice matures.
-		case errors.Is(err, repositories.ErrNoWithdrawalNotice):
-			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_REQUIRED",
-				"This member has no withdrawal notice covering that amount. A member gives notice "+
-					"from their own dashboard, and the payout settles it — a worker never starts one")
-		case errors.Is(err, repositories.ErrNoticePeriodNotElapsed):
-			// err.Error() carries the date the notice was given and the date it
-			// becomes payable. Throwing that away was the difference between an
-			// answer and a shrug.
-			utils.Error(w, http.StatusConflict, "WITHDRAWAL_NOTICE_NOT_MATURED", err.Error())
+		// The two FR-08 refusals that used to live here — no notice on file, and
+		// a notice not yet matured — are gone with the gate itself (ADR-030).
+		// The refusals that remain are all about the member's own position:
+		// suspended, overdrawn, or holding savings locked by a guarantee.
 		default:
 			slog.Error("add member withdrawal failed", "memberUserId", memberUserId, "error", err)
 			utils.Error(w, http.StatusInternalServerError, "WITHDRAWAL_FAILED", "Failed to process withdrawal")
@@ -2156,6 +2075,78 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 	utils.Success(w, http.StatusOK, map[string]interface{}{
 		"message":    "Loan created and disbursed successfully",
 		"loanNumber": loanNumber,
+	})
+}
+
+// WorkerAddLoanTopUp adds principal to a loan that is already running.
+//
+// Staff-initiated, like a disbursement and unlike a repayment request: the
+// money is handed over at the desk, so there is nothing for the member to
+// confirm afterwards. The refusals are all sentinels — a finished loan and a
+// member at their borrowing ceiling are answers, not faults (rule 2b), and the
+// ceiling message carries the two figures the member will ask about.
+func (h *DashboardHandler) WorkerAddLoanTopUp(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
+	if !ok {
+		return
+	}
+
+	memberUserId := r.PathValue("memberUserId")
+	if memberUserId == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Member ID is required")
+		return
+	}
+
+	var req struct {
+		LoanId string `json:"loanId"`
+		Amount int64  `json:"amount"`
+		Notes  string `json:"notes"`
+	}
+	if err := utils.ParseJSON(r, &req); err != nil {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.LoanId) == "" {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Loan ID is required")
+		return
+	}
+	if req.Amount <= 0 {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount must be greater than 0")
+		return
+	}
+	if req.Amount > utils.MaxLoanAmount {
+		utils.Error(w, http.StatusBadRequest, "INVALID_AMOUNT", "Amount exceeds maximum allowed")
+		return
+	}
+
+	receiptNumber, err := h.userRepo.AddLoanTopUp(
+		r.Context(), memberUserId, auth.UserID, strings.TrimSpace(req.LoanId), req.Amount, req.Notes)
+	if err != nil {
+		switch {
+		case errors.Is(err, repositories.ErrMemberNotFound):
+			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+		case errors.Is(err, repositories.ErrMemberNotActive):
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+		case errors.Is(err, repositories.ErrLoanNotFound):
+			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan not found for this member")
+		case errors.Is(err, repositories.ErrLoanNotActive):
+			utils.Error(w, http.StatusConflict, "LOAN_NOT_ACTIVE",
+				"Only an active loan can be increased. A completed or defaulted loan needs a new application")
+		case errors.Is(err, repositories.ErrTopUpExceedsLimit):
+			// err.Error() carries the ceiling, the savings it is derived from
+			// and what the member would owe. Discarding it would leave staff
+			// with "not allowed" and no number to act on.
+			utils.Error(w, http.StatusConflict, "TOPUP_EXCEEDS_LIMIT", err.Error())
+		default:
+			slog.Error("loan top-up failed", "memberUserId", memberUserId, "loanId", req.LoanId, "error", err)
+			utils.Error(w, http.StatusInternalServerError, "TOPUP_FAILED", "Failed to increase the loan")
+		}
+		return
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":       "Loan increased successfully",
+		"receiptNumber": receiptNumber,
 	})
 }
 

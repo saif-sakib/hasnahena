@@ -112,28 +112,19 @@ func DepositPostedForStaff(memberID string) (string, string) {
 // Withdrawals
 // ---------------------------------------------------------------------------
 
-// WithdrawalNoticeSubmitted acknowledges a member's notice of withdrawal and
-// names the date it matures. FR-08: the notice period is served by the request
-// itself, so the member has to be told when it ends or the wait looks arbitrary.
-func WithdrawalNoticeSubmitted(amount int64, noticePeriodMonths int, eligibleOn string) (string, string) {
-	return "Withdrawal notice submitted",
-		fmt.Sprintf(
-			"Your notice to withdraw %s has been recorded. Under the %s notice period it can be paid from %s.",
-			Money(amount), monthsAttributive(noticePeriodMonths), eligibleOn)
-}
+// WithdrawalNoticeSubmitted and WithdrawalNoticeForStaff are gone with the
+// member-side notice they announced (ADR-030). A member no longer files a
+// notice, so nothing has a maturity date to report.
 
-// WithdrawalNoticeForStaff tells admins and workers a notice has been given, so
-// the foundation can plan liquidity — which is the entire point of a notice
-// period.
-func WithdrawalNoticeForStaff(memberName string, amount int64, eligibleOn string) (string, string) {
-	return "New withdrawal notice",
-		fmt.Sprintf("%s gave notice to withdraw %s, payable from %s.", memberName, Money(amount), eligibleOn)
-}
-
-// WithdrawalNoticeMatured tells the member their notice period has elapsed.
-func WithdrawalNoticeMatured(amount int64) (string, string) {
+// WithdrawalRequestReady tells a member an outstanding withdrawal request has
+// been cleared for the desk.
+//
+// It is the one survivor of the FR-08 wording, and it no longer mentions a
+// notice period: the request is ready because an admin said so, not because a
+// clock ran out.
+func WithdrawalRequestReady(amount int64) (string, string) {
 	return "Withdrawal ready",
-		fmt.Sprintf("Your notice period has elapsed. %s is now available to withdraw.", Money(amount))
+		fmt.Sprintf("%s is ready to be paid. Collect it from your field worker.", Money(amount))
 }
 
 // WithdrawalProcessed is sent when the money actually leaves the account.
@@ -175,6 +166,29 @@ func LoanDisbursed(loanNumber string, amount int64) (string, string) {
 func LoanDisbursedForStaff(loanNumber, memberID string) (string, string) {
 	return "Daily task update",
 		fmt.Sprintf("Loan %s disbursed for member %s.", loanNumber, strings.ToUpper(memberID))
+}
+
+// LoanToppedUp tells a borrower staff have added to their existing loan.
+//
+// It names the new instalment as well as the amount added, because that is what
+// changes for them: the schedule keeps its original end date and each remaining
+// payment goes up (money.TopUpPlan). A member told only "20,000 added" would
+// discover the larger instalment at the next collection.
+//
+// No rate, no markup, no fee — the added amount and the outstanding total are
+// the same money (rule 3).
+func LoanToppedUp(loanNumber string, addedAmount, outstanding, installmentAmount int64) (string, string) {
+	return "Loan increased",
+		fmt.Sprintf(
+			"%s has been added to your loan %s. You now owe %s, and each remaining instalment is %s.",
+			Money(addedAmount), loanNumber, Money(outstanding), Money(installmentAmount))
+}
+
+// LoanToppedUpForStaff is the worker's task feed; see DepositPostedForStaff for
+// why it carries no amount.
+func LoanToppedUpForStaff(loanNumber, memberID string) (string, string) {
+	return "Daily task update",
+		fmt.Sprintf("Loan %s increased for member %s.", loanNumber, strings.ToUpper(memberID))
 }
 
 // LoanRepaymentRequestSubmitted confirms a member's repayment request.
@@ -272,10 +286,4 @@ func appendReason(message, reason string) string {
 		reason += "."
 	}
 	return fmt.Sprintf("%s Reason: %s", message, reason)
-}
-
-// monthsAttributive renders a count for use before a noun — "the 3-month notice
-// period" — where the plural "3 months notice period" would be wrong.
-func monthsAttributive(n int) string {
-	return fmt.Sprintf("%d-month", n)
 }

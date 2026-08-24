@@ -64,7 +64,7 @@ export default async function TermsPage({ params }: PageProps) {
         },
         {
           title: 'Loan Terms',
-          content: 'Loans provided by Hasnahena Foundation are interest-free but may include administrative fees. Specific terms, repayment schedules, and conditions will be provided in individual loan agreements.',
+          content: 'Loans provided by Hasnahena Foundation are interest-free. There is no profit rate, no markup, no service charge and no administrative or processing fee — you repay exactly the amount you borrowed and not one taka more. Specific repayment schedules and conditions are set out in your individual loan agreement.',
         },
         {
           title: 'Privacy',
@@ -107,7 +107,7 @@ export default async function TermsPage({ params }: PageProps) {
         },
         {
           title: 'ঋণের শর্তাবলী',
-          content: 'হাসনাহেনা ফাউন্ডেশন কর্তৃক প্রদত্ত ঋণ সুদমুক্ত কিন্তু প্রশাসনিক ফি অন্তর্ভুক্ত থাকতে পারে। নির্দিষ্ট শর্তাবলী, পরিশোধের সময়সূচী এবং শর্তাবলী পৃথক ঋণ চুক্তিতে প্রদান করা হবে।',
+          content: 'হাসনাহেনা ফাউন্ডেশন কর্তৃক প্রদত্ত ঋণ সম্পূর্ণ সুদমুক্ত। কোনো মুনাফার হার নেই, কোনো মার্কআপ নেই, কোনো সার্ভিস চার্জ নেই এবং কোনো প্রশাসনিক বা প্রসেসিং ফি নেই — আপনি যত টাকা নিয়েছেন ঠিক তত টাকাই ফেরত দেবেন, এক টাকাও বেশি নয়। নির্দিষ্ট পরিশোধের সময়সূচী ও শর্তাবলী আপনার পৃথক ঋণ চুক্তিতে উল্লেখ থাকবে।',
         },
         {
           title: 'গোপনীয়তা',

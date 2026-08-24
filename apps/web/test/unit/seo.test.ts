@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import sitemap from '@/app/sitemap';
+import manifest from '@/app/manifest';
 import { locales } from '@/i18n';
 import {
   createLocalizedMetadata,
@@ -7,6 +10,9 @@ import {
   publicPagePaths,
   resolveSiteOrigin,
   siteOrigin,
+  siteTitle,
+  SITE_ICONS,
+  SITE_NAME,
 } from '@/lib/seo';
 
 /**
@@ -176,5 +182,139 @@ describe('the social card survives being shared', () => {
         expect(canonical, `canonical on ${locale}${path}`).toBe(getLocalizedUrl(locale, path));
       }
     }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The favicon, and the name a crawler reads
+// ---------------------------------------------------------------------------
+
+/**
+ * Reported by the owner: searching "hasnahena foundation" returns this site
+ * first, with the generic globe where the logo should be.
+ *
+ * The cause was not the icon file. `public/favicon.ico` was served — a browser
+ * requests `/favicon.ico` by convention whether anything links to it or not —
+ * but **no `<link rel="icon">` reached the HTML**, because Next only emits one
+ * for an icon inside `app/`. Google's favicon crawler reads the page's `head`,
+ * so it found nothing and fell back to the globe.
+ *
+ * These assertions are about the declaration rather than the pixels. The pixels
+ * were the other half of the report ("there is white background") and are a
+ * property of the file, which no unit test can usefully read.
+ */
+describe('the site declares a favicon a crawler can find', () => {
+  const icons = SITE_ICONS.icon as Array<{ url: string; sizes?: string }>;
+
+  it('every public page carries the icons, not just the root layout', () => {
+    // Google reads the favicon from whichever page it crawled, and this site's
+    // entry points are /en and /bn — there is no single page it must see.
+    for (const locale of locales) {
+      for (const path of publicPagePaths) {
+        expect(
+          createLocalizedMetadata({ locale, path }).icons,
+          `icons on ${locale}${path}`,
+        ).toBe(SITE_ICONS);
+      }
+    }
+  });
+
+  it('offers a square that is a multiple of 48px', () => {
+    // Google's documented requirement. 48 is inside favicon.ico; 192 is 48x4.
+    const declared = icons.flatMap((icon) => (icon.sizes ?? '').split(/\s+/)).filter(Boolean);
+    const multiplesOf48 = declared.filter((size) => {
+      const [w, h] = size.split('x').map(Number);
+      return w === h && w % 48 === 0;
+    });
+    expect(multiplesOf48.length, `declared sizes: ${declared.join(', ')}`).toBeGreaterThan(0);
+  });
+
+  it('uses stable paths, not content-hashed ones', () => {
+    // Google caches the favicon against its URL. Next's `app/icon.png`
+    // convention appends a hash that moves whenever the file is edited, which
+    // is why these live in `public/` and are declared by hand.
+    for (const icon of [...icons, ...(SITE_ICONS.apple as Array<{ url: string }>)]) {
+      expect(icon.url, `${icon.url} must be a stable absolute path`).toMatch(/^\/[\w.-]+$/);
+    }
+  });
+});
+
+describe('the site is named the same everywhere a crawler looks', () => {
+  /**
+   * The `<title>` existed three times: the root layout's metadata call, that
+   * same layout's `title.default`, and the home page's own `generateMetadata`,
+   * which overrides both. They drifted — the layout said "Hasnahena Foundation"
+   * while the home page said "Hasnahena", and the home page is the one that
+   * wins. `siteTitle()` is the single copy; this refuses a fourth.
+   */
+  const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
+
+  function sourceFiles(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry === '.next') continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
+      }
+    };
+    for (const root of ['app', 'components', 'lib']) walk(join(WEB_ROOT, root));
+    return out;
+  }
+
+  it('the title names the foundation, not the bare word', () => {
+    for (const locale of locales) {
+      expect(siteTitle(locale).length, `${locale} title`).toBeGreaterThan(10);
+    }
+    // "Hasnahena" alone is a crowded name; "Foundation" is the half that ranks.
+    expect(siteTitle('en')).toContain(SITE_NAME);
+    expect(SITE_NAME).toBe('Hasnahena Foundation');
+  });
+
+  it('no page writes its own "Hasnahena — …" title string', () => {
+    // Title-shaped: a string that STARTS with the site name and carries a
+    // spaced separator. Two narrowings, both learned from false positives —
+    // a census that cries wolf gets deleted rather than obeyed:
+    //
+    //   - anchored at the opening quote, so body copy is out ("Learn about
+    //     Hasnahena's mission", "interest-free microfinance");
+    //   - not preceded by `=`, so a JSX attribute is out. The logo's `alt` is
+    //     the site's name with a dash in it and is not a page title.
+    const pattern = /(.?)(['"`])\s*(?:Hasnahena|হাসনাহেনা)[\w\s'’]*\s[-—]\s[^'"`\n]{6,}\2/g;
+    const hardcodesATitle = (text: string) =>
+      [...text.matchAll(pattern)].some((m) => m[1] !== '=');
+
+    const offenders = sourceFiles()
+      .filter((file) => !file.endsWith(join('lib', 'seo.ts')))
+      .filter((file) => hardcodesATitle(readFileSync(file, 'utf8')))
+      .map((file) => relative(WEB_ROOT, file));
+
+    expect(
+      offenders,
+      'these files hardcode a site title. Call siteTitle(locale) instead — the ' +
+        'home page overrides the layout, so a copy here silently becomes the ' +
+        'title every crawler reads.',
+    ).toEqual([]);
+  });
+});
+
+describe('the web app manifest', () => {
+  const m = manifest();
+
+  it('names the foundation, so it is one more crawlable statement of the name', () => {
+    expect(m.name).toBe(SITE_NAME);
+  });
+
+  it('stays in the browser rather than hiding the address bar', () => {
+    // This is a money application. A member typing a password should be able to
+    // see which origin they are typing it into.
+    expect(m.display).toBe('browser');
+  });
+
+  it('ships a maskable icon, or Android draws its own white plate behind it', () => {
+    const purposes = (m.icons ?? []).map((icon) => icon.purpose);
+    expect(purposes).toContain('maskable');
   });
 });

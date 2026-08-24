@@ -1,5 +1,5 @@
 import type { Locale } from '@/i18n';
-import { faqEntries } from '@/lib/faq';
+import { faqEntries, noticePeriodDaysFrom } from '@/lib/faq';
 import {
   pageLabel,
   publicPageGraph,
@@ -49,7 +49,9 @@ export function StructuredData({
     locale,
     path,
     label: pageLabel(locale, path),
-    faq: path === '/faq' ? faqEntries(locale) : undefined,
+    // From the same settings map the page renders from, so the rich
+    // result and the visible answer cannot disagree.
+    faq: path === '/faq' ? faqEntries(locale, noticePeriodDaysFrom(settings)) : undefined,
   });
 
   return (

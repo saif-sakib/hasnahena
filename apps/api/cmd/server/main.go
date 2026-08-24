@@ -403,7 +403,10 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
 			dashboard.Post("/member/requests/deposit", dashboardHandler.MemberCreateDepositRequest)
-			dashboard.Post("/member/requests/withdrawal", dashboardHandler.MemberCreateWithdrawalNotice)
+			// POST /member/requests/withdrawal removed 2026-08-24 (ADR-030). A
+			// member filed their own withdrawal notice here and the notice
+			// period gated the payout; both are gone. A member asks a field
+			// worker, and staff pay from the screens below.
 			dashboard.Post("/member/requests/loan-repayment", dashboardHandler.MemberCreateLoanRepaymentRequest)
 			dashboard.Get("/member/profile", dashboardHandler.MemberProfile)
 
@@ -414,6 +417,7 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.Post("/worker/members/{memberUserId}/deposit", dashboardHandler.WorkerAddDeposit)
 			dashboard.Post("/worker/members/{memberUserId}/withdrawal", dashboardHandler.WorkerAddWithdrawal)
 			dashboard.Post("/worker/members/{memberUserId}/loan", dashboardHandler.WorkerAddLoan)
+			dashboard.Post("/worker/members/{memberUserId}/loan-topup", dashboardHandler.WorkerAddLoanTopUp)
 			dashboard.Post("/worker/members/{memberUserId}/loan-payment", dashboardHandler.WorkerAddLoanPayment)
 			dashboard.Get("/worker/requests", dashboardHandler.WorkerRequests)
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)

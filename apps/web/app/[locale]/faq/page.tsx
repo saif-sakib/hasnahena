@@ -8,7 +8,7 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
-import { faqEntries } from '@/lib/faq';
+import { faqEntries, noticePeriodDaysFrom } from '@/lib/faq';
 import { StructuredData } from '@/components/seo/structured-data';
 
 /**
@@ -48,7 +48,7 @@ export default async function FaqPage({ params }: PageProps) {
   // One source for the questions: this list and the FAQPage structured data
   // must say the same thing, and a rich result whose answer differs from the
   // page is a policy violation rather than a typo. See lib/faq.ts.
-  const faqItems = faqEntries(normalizeLocale(locale));
+  const faqItems = faqEntries(normalizeLocale(locale), noticePeriodDaysFrom(settings));
 
   return (
     <>

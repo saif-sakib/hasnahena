@@ -1,30 +1,28 @@
 //go:build integration
 
-// The HTTP answers a withdrawal gives — reported as "admin member withdrawal is
-// not working".
+// The HTTP answers a withdrawal gives.
 //
-// It was working, in the sense that it refused correctly. What it did not do was
-// say so. `WorkerAddWithdrawal` classified the repository's errors by
-// `strings.Contains` over the message, and the two FR-08 refusals matched no
-// branch at all, so both arrived as:
+// This file was written for a defect reported as "admin member withdrawal is
+// not working". It was working, in the sense that it refused correctly — what
+// it did not do was say so. `WorkerAddWithdrawal` classified the repository's
+// errors by `strings.Contains` over the message, and the two FR-08 refusals
+// matched no branch at all, so both arrived as:
 //
 //	500  WITHDRAWAL_FAILED  "Failed to process withdrawal"
 //
-// The single most common outcome of that screen — the member has not given
-// notice, or the notice is not due yet — was indistinguishable from the server
-// having crashed. The same hole was in `ApproveWithdrawal`, which is the *other*
-// admin screen a withdrawal passes through, so both said the same nothing.
+// The single most common outcome of that screen was indistinguishable from the
+// server having crashed. The substring matching also mis-ordered two branches it
+// did match: "is guarantor for active loan" contains "active loan", and the
+// active-loan case was tested first, so a guarantor was told they had a loan of
+// their own.
 //
-// The substring matching also mis-ordered two branches it did match:
-// "is guarantor for active loan" contains "active loan", and the active-loan
-// case was tested first, so a guarantor was told they had a loan of their own.
-//
-// These assertions are about status codes and error codes rather than prose,
-// because those are what the browser branches on. The repository behaviour
-// underneath is already proved in
-// internal/repositories/policy_enforcement_integration_test.go — what was never
-// tested is the translation from an error to an answer, which is where the
-// defect lived.
+// ADR-030 has since deleted the two FR-08 refusals themselves: a payout needs
+// no notice and waits out no period. So the cases here changed shape — what
+// used to be "the refusal must be a 409 and not a 500" is now "there must be no
+// refusal at all" — but the reason the file exists did not. These assertions are
+// about status codes and error codes rather than prose, because those are what
+// the browser branches on, and the translation from an error to an answer is
+// where the defect lived.
 //
 // Every identifier is namespaced `wd*`: the Go suites truncate between tests and
 // a fixture that collides with another file's passes or fails on package order.
@@ -43,7 +41,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// withdrawalFixture is one member, funded, with whatever notice the case needs.
+// withdrawalFixture is one member, funded, with whatever the case needs.
 type withdrawalFixture struct {
 	memberID string
 	router   chi.Router
@@ -90,31 +88,34 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 	}
 }
 
-// giveNotice files a withdrawal notice backdated by monthsAgo, which is how a
-// test reaches a matured notice without waiting three months.
-func giveNotice(t *testing.T, memberID string, amount int64, monthsAgo int) string {
+// fileWithdrawalRequest inserts an outstanding PENDING withdrawal, backdated by
+// monthsAgo. Under FR-08 this was the member's notice and its age decided
+// whether a payout was allowed; it decides nothing now (ADR-030) and is here
+// only so a case can exercise the settlement path, or show that a request filed
+// today is paid today.
+func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAgo int) string {
 	t.Helper()
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
 		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "accountId", "userId")
-		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $2, 'notice', 'PENDING',
+		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $2, 'request', 'PENDING',
 		        NOW() - ($3 || ' months')::interval, 'acct_' || $1, $1)
 		RETURNING id::text
 	`, memberID, amount, monthsAgo).Scan(&id); err != nil {
-		t.Fatalf("give notice: %v", err)
+		t.Fatalf("file withdrawal request: %v", err)
 	}
 	return id
 }
 
-func setNoticePeriod(t *testing.T, months string) {
+// savingsOfWD reads the fixture member's balance.
+func savingsOfWD(t *testing.T, memberID string) int64 {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO system_config (id, key, value, "updatedAt")
-		VALUES ('cfg_notice', 'loan.noticePeriodMonths', $1, NOW())
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "updatedAt" = NOW()
-	`, months); err != nil {
-		t.Fatalf("set notice period: %v", err)
+	var balance int64
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT "savingsBalance"::bigint FROM accounts WHERE "userId" = $1`, memberID).Scan(&balance); err != nil {
+		t.Fatalf("read balance: %v", err)
 	}
+	return balance
 }
 
 // postJSON sends a real request through the real router and returns the
@@ -152,72 +153,97 @@ func withdrawalURL(memberID string) string {
 }
 
 // ---------------------------------------------------------------------------
-// FR-08 — the two refusals that used to be 500s
+// ADR-030 — the two refusals that used to be 500s, and are now not refusals
 // ---------------------------------------------------------------------------
 
-func TestWithdrawalWithNoNoticeIsRefusedNotFailed(t *testing.T) {
+// Was: 409 WITHDRAWAL_NOTICE_REQUIRED. Before that: 500.
+func TestWithdrawalWithNoRequestOnFileIsPaid(t *testing.T) {
 	fixture := newWithdrawalFixture(t, 20000)
-	setNoticePeriod(t, "3")
 
 	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
-		map[string]any{"amount": 5000, "notes": "no notice on file"})
-
-	if status == http.StatusInternalServerError {
-		t.Fatalf("a member with no withdrawal notice produced %d %s %q. "+
-			"That is the ordinary answer under FR-08, not a server fault, and reporting it as one "+
-			"is what made this screen look broken.", status, code, message)
-	}
-	if status != http.StatusConflict {
-		t.Errorf("status = %d, want 409", status)
-	}
-	if code != "WITHDRAWAL_NOTICE_REQUIRED" {
-		t.Errorf("error code = %q, want WITHDRAWAL_NOTICE_REQUIRED", code)
-	}
-	if message == "" || message == "Failed to process withdrawal" {
-		t.Errorf("message = %q; it has to say what is missing and who supplies it", message)
-	}
-}
-
-func TestWithdrawalBeforeTheNoticeMaturesReportsTheDate(t *testing.T) {
-	fixture := newWithdrawalFixture(t, 20000)
-	setNoticePeriod(t, "3")
-	giveNotice(t, fixture.memberID, 5000, 1) // one month into a three-month notice
-
-	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
-		map[string]any{"amount": 5000, "notes": "too early"})
-
-	if status != http.StatusConflict {
-		t.Fatalf("status = %d (%s: %q), want 409", status, code, message)
-	}
-	if code != "WITHDRAWAL_NOTICE_NOT_MATURED" {
-		t.Errorf("error code = %q, want WITHDRAWAL_NOTICE_NOT_MATURED", code)
-	}
-	// The repository builds this message with both dates. The handler used to
-	// discard it, which is the difference between an answer and a shrug.
-	if !containsAll(message, "notice given", "payable from") {
-		t.Errorf("message = %q; it must carry the date the notice was given and the date it is payable", message)
-	}
-}
-
-func TestAMaturedNoticeIsPaid(t *testing.T) {
-	fixture := newWithdrawalFixture(t, 20000)
-	setNoticePeriod(t, "3")
-	giveNotice(t, fixture.memberID, 5000, 6)
-
-	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
-		map[string]any{"amount": 5000, "notes": "matured"})
+		map[string]any{"amount": 5000, "notes": "no request on file"})
 
 	if status != http.StatusOK {
-		t.Fatalf("a matured notice was refused: %d %s %q", status, code, message)
+		t.Fatalf("a payout with no request behind it answered %d %s %q. "+
+			"ADR-030 removed the notice requirement: staff take the request in person "+
+			"and pay at the desk.", status, code, message)
+	}
+	if got := savingsOfWD(t, fixture.memberID); got != 15000 {
+		t.Errorf("savings = %d after a 5000 payout from 20000, want 15000", got)
+	}
+}
+
+// Was: 409 WITHDRAWAL_NOTICE_NOT_MATURED, carrying two dates.
+func TestWithdrawalOnTheDayTheRequestIsFiledIsPaid(t *testing.T) {
+	fixture := newWithdrawalFixture(t, 20000)
+	requestID := fileWithdrawalRequest(t, fixture.memberID, 5000, 0)
+
+	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
+		map[string]any{"amount": 5000, "notes": "same day"})
+
+	if status != http.StatusOK {
+		t.Fatalf("a payout on the day the request was filed answered %d %s %q, want 200", status, code, message)
+	}
+	if got := savingsOfWD(t, fixture.memberID); got != 15000 {
+		t.Errorf("savings = %d, want 15000", got)
 	}
 
-	var balance int64
+	// The request became the posting rather than being left behind beside it.
+	var rowStatus string
 	if err := testPool.QueryRow(context.Background(),
-		`SELECT "savingsBalance"::bigint FROM accounts WHERE "userId" = $1`, fixture.memberID).Scan(&balance); err != nil {
-		t.Fatalf("read balance: %v", err)
+		`SELECT status::text FROM transactions WHERE id = $1`, requestID).Scan(&rowStatus); err != nil {
+		t.Fatalf("read the settled request: %v", err)
 	}
-	if balance != 15000 {
-		t.Errorf("savings = %d after a 5000 payout from 20000, want 15000", balance)
+	if rowStatus != "CONFIRMED" {
+		t.Errorf("the request is %s after being paid, want CONFIRMED — the ledger now carries it twice", rowStatus)
+	}
+}
+
+// An old request still settles, which is what stops a pre-ADR-030 notice
+// sitting PENDING forever after the money has been handed over.
+func TestAnOldRequestIsSettledRatherThanDuplicated(t *testing.T) {
+	fixture := newWithdrawalFixture(t, 20000)
+	fileWithdrawalRequest(t, fixture.memberID, 5000, 6)
+
+	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
+		map[string]any{"amount": 5000, "notes": "settling an old request"})
+
+	if status != http.StatusOK {
+		t.Fatalf("an outstanding request was refused: %d %s %q", status, code, message)
+	}
+	if got := savingsOfWD(t, fixture.memberID); got != 15000 {
+		t.Errorf("savings = %d after a 5000 payout from 20000, want 15000", got)
+	}
+
+	var rows int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM transactions WHERE "userId" = $1 AND type = 'WITHDRAWAL'`,
+		fixture.memberID).Scan(&rows); err != nil {
+		t.Fatalf("count withdrawal rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("%d WITHDRAWAL rows after settling one request, want 1", rows)
+	}
+}
+
+// An overdraw is still a refusal, and still not a 500. This is the case that
+// proves the switch below the deleted branches still classifies rather than
+// falling through — with the FR-08 arms removed, an untested `default` would
+// swallow every remaining answer.
+func TestAWithdrawalOverTheBalanceIsRefusedNotFailed(t *testing.T) {
+	fixture := newWithdrawalFixture(t, 20000)
+
+	status, code, message := postJSON(t, fixture.router, withdrawalURL(fixture.memberID), fixture.token,
+		map[string]any{"amount": 25000, "notes": "more than the balance"})
+
+	if status == http.StatusInternalServerError {
+		t.Fatalf("an overdraw produced %d %s %q — that is an answer, not a fault (rule 2b)", status, code, message)
+	}
+	if status != http.StatusBadRequest || code != "INSUFFICIENT_BALANCE" {
+		t.Errorf("status = %d, code = %q, want 400 INSUFFICIENT_BALANCE (%q)", status, code, message)
+	}
+	if got := savingsOfWD(t, fixture.memberID); got != 20000 {
+		t.Errorf("savings = %d after a refused payout, want 20000 unchanged", got)
 	}
 }
 
@@ -227,8 +253,6 @@ func TestAMaturedNoticeIsPaid(t *testing.T) {
 
 func TestAGuarantorIsToldTheyAreAGuarantor(t *testing.T) {
 	fixture := newWithdrawalFixture(t, 20000)
-	setNoticePeriod(t, "0")
-	giveNotice(t, fixture.memberID, 5000, 0)
 
 	// Somebody else's active loan, guaranteed by our member. Our member has no
 	// loan of their own.

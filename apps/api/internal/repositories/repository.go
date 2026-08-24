@@ -157,18 +157,6 @@ func (r *UserRepository) getSystemConfigInt64Tx(ctx context.Context, tx pgx.Tx, 
 	return parsed
 }
 
-func (r *UserRepository) getSystemConfigNonNegativeInt64Tx(ctx context.Context, tx pgx.Tx, key string, defaultValue int64) int64 {
-	raw, ok := scanSystemConfigTx(ctx, tx, key)
-	if !ok {
-		return defaultValue
-	}
-	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	if err != nil || parsed < 0 {
-		return defaultValue
-	}
-	return parsed
-}
-
 func (r *UserRepository) getSystemConfigBoolTx(ctx context.Context, tx pgx.Tx, key string, defaultValue bool) bool {
 	raw, ok := scanSystemConfigTx(ctx, tx, key)
 	if !ok {
@@ -181,31 +169,13 @@ func (r *UserRepository) getSystemConfigBoolTx(ctx context.Context, tx pgx.Tx, k
 	return parsed
 }
 
-// getWithdrawalNoticePeriodMonthsTx is the FR-08 notice period, read inside the
-// caller's transaction. See getWithdrawalNoticePeriodMonths for what it means.
-func (r *UserRepository) getWithdrawalNoticePeriodMonthsTx(ctx context.Context, tx pgx.Tx) int {
-	return int(r.getSystemConfigNonNegativeInt64Tx(ctx, tx, "loan.noticePeriodMonths", 3))
-}
-
-// getWithdrawalNoticePeriodMonths is the same setting, read from the pool.
-//
-// Safe here and only here. ADR-017's deadlock is a *pool* read taken while the
-// caller is already holding a connection for an open transaction — the second
-// checkout waits for a connection the first will not release until it commits.
-// A read-only query that is not inside a transaction has no such partner, so it
-// may use the pool. Anything running inside `tx` must use the Tx reader above.
-func (r *UserRepository) getWithdrawalNoticePeriodMonths(ctx context.Context) int {
-	const fallback = 3
-	var raw string
-	if err := r.db.QueryRow(ctx, systemConfigQuery, "loan.noticePeriodMonths").Scan(&raw); err != nil {
-		return fallback
-	}
-	parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	if err != nil || parsed < 0 {
-		return fallback
-	}
-	return int(parsed)
-}
+// The withdrawal notice period used to be read here, twice — once through the
+// pool and once inside a transaction — because FR-08 gated both the admin's
+// approval and the worker's payout on it. It gates neither any more: staff pay
+// a withdrawal at the desk when the member asks, and `loan.noticePeriodDays` is
+// now the *courtesy* period a member is asked to give, published to them and
+// enforced by nobody. Nothing in this backend reads it; the member's savings
+// screen and the FAQ do. See ADR-030.
 
 // getMissedPaymentsForDefaultTx is the default threshold, read inside the
 // caller's transaction.

@@ -111,7 +111,7 @@ export function Footer({ settings }: FooterProps) {
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 shrink-0 text-primary" />
-                <span>{settings?.['org.email'] || 'contact@hasnahena.org'}</span>
+                <span>{settings?.['org.email'] || 'info@hasnahenafoundation.com'}</span>
               </li>
             </ul>
           </div>

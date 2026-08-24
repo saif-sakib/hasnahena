@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { locales, type Locale } from '@/i18n';
-import { publicPagePaths, siteOrigin } from '@/lib/seo';
+import { publicPagePaths, siteOrigin, SITE_NAME_VARIANTS } from '@/lib/seo';
 import { faqEntries } from '@/lib/faq';
 import { StructuredData } from '@/components/seo/structured-data';
 import {
@@ -107,7 +107,13 @@ describe('the organisation is described from settings, never hardcoded', () => {
     const org = organizationSchema(SETTINGS);
 
     expect(org.name).toBe('Hasnahena Foundation');
-    expect(org.alternateName).toBe('হাসনাহেনা ফাউন্ডেশন');
+    // The Bengali name comes from the settings; the Latin-script variants are
+    // SITE_NAME_VARIANTS, so a crawler attaches "hasna hena foundation" to this
+    // entity rather than to an organisation it has never heard of.
+    expect(org.alternateName).toContain('হাসনাহেনা ফাউন্ডেশন');
+    expect(org.alternateName).toEqual(expect.arrayContaining([...SITE_NAME_VARIANTS]));
+    // `alternateName` means "also called". Repeating `name` inside it is noise.
+    expect(org.alternateName).not.toContain(org.name);
     expect(org.description).toBe('An interest-free cooperative.');
     expect(org.identifier).toBe('JES-1234');
     expect((org.address as Record<string, string>).streetAddress).toBe('Jashore Sadar, Jashore');
@@ -120,7 +126,10 @@ describe('the organisation is described from settings, never hardcoded', () => {
     // holding nothing but its own @type is not an address.
     const org = organizationSchema({ 'org.nameEn': 'Hasnahena Foundation' });
 
-    expect(org).not.toHaveProperty('alternateName');
+    // `alternateName` survives with no settings at all — SITE_NAME_VARIANTS is
+    // a fact about how people search, not a value an admin supplies. What must
+    // not survive is the Bengali name nobody set.
+    expect(org.alternateName).toEqual([...SITE_NAME_VARIANTS]);
     expect(org).not.toHaveProperty('identifier');
     expect(org).not.toHaveProperty('contactPoint.telephone');
     expect(JSON.stringify(org)).not.toContain('undefined');

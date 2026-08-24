@@ -31,13 +31,16 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 > There is now a [runbook.md](runbook.md) for the night something breaks. Its one
 > unproven step is the restore rehearsal, which needs the Neon account.
 >
-> **Two owner-reported items closed 2026-08-19.** The admin withdrawal screen was
-> reporting both of FR-08's ordinary refusals as `500 Failed to process
-> withdrawal`; it answers 409 with the reason and the payable-from date now, and
-> the screen lists the notices it can actually settle. And the member identifier
-> is called **`accountNo`** everywhere — column, code, documents and both
-> languages ([ADR-029](decisions.md)); the value and its `ACC-KH-33001` format
-> are unchanged.
+> **Owner-directed, 2026-08-24 ([ADR-030](decisions.md)).** The withdrawal notice
+> period is **gone**: staff pay when the member asks, the member-side notice form
+> and its route are removed, and `loan.noticePeriodDays` is a figure the
+> foundation publishes rather than a gate. Staff can also **add principal to a
+> running loan** now, which is the answer to "one loan at a time" that does not
+> require settling and re-issuing.
+>
+> **The member identifier** is called **`accountNo`** everywhere — column, code,
+> documents and both languages ([ADR-029](decisions.md)); the value and its
+> `ACC-KH-33001` format are unchanged.
 >
 > **This page cannot quietly fall behind the code.** A requirement not marked
 > `[x]` must *still* be unimplemented in the source, or
@@ -60,7 +63,7 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
-| FR-08 | Withdrawal request with notice period | `[x]` | the member's request **is** the notice: `CreateMemberWithdrawalNotice` files a PENDING withdrawal, and both `ApproveWithdrawal` and `AddMemberWithdrawal` refuse until `loan.noticePeriodMonths` has elapsed. `policy_enforcement_integration_test.go` |
+| FR-08 | Member withdrawal, asked for in person and paid by staff | `[x]` | no notice, no notice period ([ADR-030](decisions.md)). `AddMemberWithdrawal` pays with or without an outstanding request and settles one when there is; `loan.noticePeriodDays` is published to members and enforced by nobody. `policy_enforcement_integration_test.go`, `cmd/server/withdrawal_status_integration_test.go` |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
 | FR-10 | Max loan from configured caps | `[~]` | members apply from the dashboard, personal cap enforced; **fairness and solvency caps still missing** |
 | FR-11 | Guarantor request + approval | `[x]` | required above `loan.guarantorThresholdAmount`, nominated by member ID, approve/decline on the member dashboard |

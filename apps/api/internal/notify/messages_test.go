@@ -102,15 +102,26 @@ type builderCase struct {
 	// rewrite that drops the loan number or the bKash reference fails here
 	// rather than in a member's inbox.
 	mustContain []string
+	// mustNotContain are fragments the message must NOT carry. Used where the
+	// wording could plausibly drift back to describing a rule that has been
+	// removed — a member told about a "notice period" would be told about
+	// ADR-030's deleted gate.
+	mustNotContain []string
 }
 
 const (
-	sampleMember    = "Rahima Khatun"
-	sampleLoanNo    = "LON-2026-000042"
-	sampleBkashRef  = "TRX7781AB"
-	sampleMemberID  = "hn-mem-0007"
-	sampleEligible  = "18 Nov 2026"
-	noticePeriodMos = 3
+	sampleMember   = "Rahima Khatun"
+	sampleLoanNo   = "LON-2026-000042"
+	sampleBkashRef = "TRX7781AB"
+	sampleMemberID = "hn-mem-0007"
+	sampleEligible = "18 Nov 2026"
+	// The figures a top-up message quotes: what is owed after it, and the
+	// re-spread instalment (money.TopUpPlan). Deliberately not members of
+	// `moneyAmounts`, and chosen so neither rendering *starts with* one of
+	// them either — checkMoneyMessage requires the amount under test to appear
+	// exactly once, and "BDT 1" is a substring of "BDT 12,250".
+	sampleOutstanding = int64(73500)
+	sampleInstallment = int64(8250)
 )
 
 func builderCases() []builderCase {
@@ -156,31 +167,34 @@ func builderCases() []builderCase {
 
 		// --- withdrawals ---
 		{
-			builder: "WithdrawalNoticeSubmitted",
-			invoke: func(a int64) (string, string) {
-				return WithdrawalNoticeSubmitted(a, noticePeriodMos, sampleEligible)
-			},
-			carriesMoney: true,
-			wantTitle:    "Withdrawal notice submitted",
-			// The maturity date is the whole point of the message: a member told
-			// only "recorded" has no idea when their money arrives.
-			mustContain: []string{sampleEligible, "3-month"},
-		},
-		{
-			builder: "WithdrawalNoticeForStaff",
-			invoke: func(a int64) (string, string) {
-				return WithdrawalNoticeForStaff(sampleMember, a, sampleEligible)
-			},
-			carriesMoney: true,
-			wantTitle:    "New withdrawal notice",
-			mustContain:  []string{sampleMember, sampleEligible},
-		},
-		{
-			builder:      "WithdrawalNoticeMatured",
-			invoke:       func(a int64) (string, string) { return WithdrawalNoticeMatured(a) },
+			builder:      "WithdrawalRequestReady",
+			invoke:       func(a int64) (string, string) { return WithdrawalRequestReady(a) },
 			carriesMoney: true,
 			wantTitle:    "Withdrawal ready",
-			mustContain:  []string{"available to withdraw"},
+			// It must NOT promise a notice period. ADR-030 removed the gate;
+			// telling a member their "notice period has elapsed" would describe
+			// a rule that no longer exists.
+			mustContain:    []string{"ready to be paid", "field worker"},
+			mustNotContain: []string{"notice"},
+		},
+		{
+			builder: "LoanToppedUp",
+			invoke: func(a int64) (string, string) {
+				return LoanToppedUp(sampleLoanNo, a, sampleOutstanding, sampleInstallment)
+			},
+			carriesMoney: true,
+			wantTitle:    "Loan increased",
+			// The new instalment is the part that changes what the borrower
+			// pays next month, so it has to be in the message rather than only
+			// on a screen they may not open.
+			mustContain: []string{sampleLoanNo, Money(sampleOutstanding), Money(sampleInstallment)},
+		},
+		{
+			builder:      "LoanToppedUpForStaff",
+			invoke:       func(int64) (string, string) { return LoanToppedUpForStaff(sampleLoanNo, sampleMemberID) },
+			carriesMoney: false,
+			wantTitle:    "Daily task update",
+			mustContain:  []string{sampleLoanNo, strings.ToUpper(sampleMemberID)},
 		},
 		{
 			builder:      "WithdrawalProcessed",
@@ -353,6 +367,11 @@ func checkCommon(t *testing.T, c builderCase, title, message string) {
 	for _, fragment := range c.mustContain {
 		if !strings.Contains(message, fragment) {
 			t.Errorf("%s message %q is missing %q", c.builder, message, fragment)
+		}
+	}
+	for _, fragment := range c.mustNotContain {
+		if strings.Contains(strings.ToLower(message), strings.ToLower(fragment)) {
+			t.Errorf("%s message %q still says %q", c.builder, message, fragment)
 		}
 	}
 	// %!s(MISSING), %!d(int64=...) — a Sprintf whose arguments stopped matching

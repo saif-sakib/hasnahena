@@ -291,7 +291,6 @@
     "active": "Active",
     "requestWithdrawal": "Request Withdrawal",
     "withdrawalAmount": "Withdrawal Amount",
-    "withdrawalNotice": "Note: Withdrawal requires 3 months advance notice",
     "insufficientBalance": "Insufficient Balance",
     "withdrawalBlocked": "Withdrawal blocked due to active loan or guarantee",
     "downloadStatement": "Download Statement",

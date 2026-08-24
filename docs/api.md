@@ -53,21 +53,15 @@ The SSE stream takes an `Authorization` header when the caller can set one. A br
 | POST | `/v1/dashboard/member/requests/loan-repayment` |
 | POST | `/v1/dashboard/member/requests/withdrawal` |
 
-`POST /requests/withdrawal` is the member's **notice of withdrawal** (FR-08). It
-moves no money: it files a `PENDING` withdrawal and answers with the date it
-becomes payable.
+`POST /requests/withdrawal` **no longer exists** ([ADR-030](decisions.md)). It
+was the member's notice of withdrawal: it filed a `PENDING` withdrawal, answered
+with the date it became payable, and neither payout path could move money before
+then. A member asks a field worker now, and staff post the withdrawal from
+`POST /worker/members/{memberUserId}/withdrawal`.
 
-```jsonc
-// → { "amount": 5000, "notes": "school fees" }
-// ← { "requestId": "…", "amount": 5000,
-//     "noticePeriodMonths": 3, "eligibleFrom": "2026-11-18T…Z" }
-```
-
-Refusals name the reason: `INSUFFICIENT_BALANCE` (which counts outstanding
-notices, not just the balance), `ACTIVE_LOAN`, `GUARANTOR_LOCK`.
-`eligibleFrom` is the server's, not the client's — the notice period is policy
-the API owns, and a date the screen worked out for itself would drift the moment
-an admin changed it.
+`loan.noticePeriodDays` is how much warning the foundation asks for. It is served
+in the public settings tier and rendered by the member's savings screen and the
+FAQ; no endpoint enforces it.
 
 ### Worker
 
@@ -77,7 +71,25 @@ an admin changed it.
 | GET | `/v1/dashboard/worker/{members,requests,loans,transactions,profile}` |
 | GET | `/v1/dashboard/worker/members/{memberUserId}` |
 | POST | `/v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal,loan,loan-payment}` |
+| POST | `/v1/dashboard/worker/members/{memberUserId}/loan-topup` — adds principal to a **running** loan |
 | PUT | `/v1/dashboard/worker/profile` |
+
+`loan-topup` takes `{ loanId, amount, notes }`. It raises the loan's principal
+and remaining amount together and re-spreads the balance over the instalments
+that are **left**, so the end date holds and each remaining payment goes up
+([ADR-030](decisions.md)). Zero interest, zero fees — the amount added and the
+amount owed are the same money.
+
+Its refusals are sentinels, so each has its own code: `LOAN_NOT_FOUND`,
+`LOAN_NOT_ACTIVE` (409 — a completed or defaulted loan needs a new application),
+`TOPUP_EXCEEDS_LIMIT` (409, and the message carries the ceiling, the savings it
+derives from, and what the member would owe), plus `MEMBER_NOT_FOUND` and
+`MEMBER_NOT_ACTIVE`.
+
+`withdrawal` needs no request behind it and waits out no notice period. It
+settles an outstanding `PENDING` withdrawal when the member has one — rewriting
+its amount to what was actually paid — and writes its own `CONFIRMED` row when
+they do not.
 
 ### Staff — `WORKER`, `ADMIN`, `SUPER_ADMIN`
 
@@ -88,7 +100,7 @@ the processing actions both of them make.
 | Method | Path |
 |---|---|
 | GET | `/v1/dashboard/admin/approvals` — registrations omitted for a `WORKER` |
-| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` — processes any pending posting (FR-07, FR-08) |
+| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` — processes any pending posting (FR-07). Approving a withdrawal marks it `PROCESSED` and moves no money; the debit happens when a worker pays it |
 | GET | `/v1/dashboard/admin/{members,loans,deposits}` |
 | GET | `/v1/dashboard/admin/reports/monthly?year=&month=` · `reports/yearly?year=` · `reports/loans` |
 | GET · POST | `/v1/dashboard/admin/donations` |

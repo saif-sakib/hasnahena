@@ -234,6 +234,15 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           JWT_SECRET: test-secret-at-least-thirty-two-characters
           NEXT_PUBLIC_API_URL: http://localhost:8099
+          # `next build` sets NODE_ENV=production, so resolveSiteOrigin's
+          # WO-80 guard applies here exactly as it does on Vercel: with no
+          # origin the build fails on /robots.txt before it renders a page.
+          # That guard is right — the fallback it replaced was a domain this
+          # project does not own — so the answer is to name an origin rather
+          # than to weaken it. localhost, deliberately: this output is never
+          # deployed, and a real domain here would let a canonical-URL
+          # regression pass CI by matching a string nobody set on purpose.
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
 
       - name: Marketing pages are prerendered, dashboards are not
         working-directory: apps/web

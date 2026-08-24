@@ -64,15 +64,19 @@ import { formatCurrency, getLoanRepaymentPresets, parseWholeTaka } from '@/lib/u
  * arithmetic, and every figure below is a subtraction.
  */
 
-export type MoneyAction = 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_PAYMENT' | 'LOAN_APPLICATION';
+export type MoneyAction =
+  | 'DEPOSIT'
+  | 'WITHDRAWAL'
+  | 'LOAN_PAYMENT'
+  | 'LOAN_APPLICATION'
+  | 'LOAN_TOPUP';
 
-interface WithdrawalNotice {
+/** An unpaid withdrawal request. Pre-ADR-030 rows; nothing creates new ones. */
+interface PendingWithdrawal {
   id: string;
   amount: number;
   status: string;
-  givenAt: string;
-  eligibleFrom: string;
-  matured: boolean;
+  requestedAt: string;
 }
 
 interface MemberFacts {
@@ -82,7 +86,7 @@ interface MemberFacts {
   phone: string;
   status: string;
   currentDeposit: number;
-  withdrawalNotices: WithdrawalNotice[];
+  pendingWithdrawals: PendingWithdrawal[];
   loanEligibility: { eligible: boolean; maxLoanAmount: number; reason?: string };
 }
 
@@ -121,6 +125,7 @@ const TITLES: Record<MoneyAction, { en: string; bn: string }> = {
   WITHDRAWAL: { en: 'Pay Withdrawal', bn: 'উত্তোলন পরিশোধ' },
   LOAN_PAYMENT: { en: 'Record Instalment', bn: 'কিস্তি রেকর্ড করুন' },
   LOAN_APPLICATION: { en: 'New Loan Application', bn: 'নতুন ঋণ আবেদন' },
+  LOAN_TOPUP: { en: 'Increase Loan', bn: 'ঋণ বৃদ্ধি' },
 };
 
 const SUBMIT_LABELS: Record<MoneyAction, { en: string; bn: string }> = {
@@ -128,6 +133,7 @@ const SUBMIT_LABELS: Record<MoneyAction, { en: string; bn: string }> = {
   WITHDRAWAL: { en: 'Pay Out', bn: 'পরিশোধ করুন' },
   LOAN_PAYMENT: { en: 'Record Payment', bn: 'পরিশোধ রেকর্ড' },
   LOAN_APPLICATION: { en: 'Submit Application', bn: 'আবেদন জমা দিন' },
+  LOAN_TOPUP: { en: 'Add to Loan', bn: 'ঋণে যোগ করুন' },
 };
 
 const SUCCESS: Record<MoneyAction, { en: string; bn: string }> = {
@@ -135,6 +141,7 @@ const SUCCESS: Record<MoneyAction, { en: string; bn: string }> = {
   WITHDRAWAL: { en: 'Withdrawal paid', bn: 'উত্তোলন সফল হয়েছে' },
   LOAN_PAYMENT: { en: 'Instalment recorded', bn: 'কিস্তি রেকর্ড হয়েছে' },
   LOAN_APPLICATION: { en: 'Application submitted', bn: 'আবেদন জমা হয়েছে' },
+  LOAN_TOPUP: { en: 'Loan increased', bn: 'ঋণ বৃদ্ধি হয়েছে' },
 };
 
 export function MoneyActionDialog({
@@ -221,14 +228,26 @@ export function MoneyActionDialog({
     return payableLoans.find((l) => l.id === wanted) ?? payableLoans[0] ?? null;
   }, [payableLoans, pickedLoanId, loanId]);
 
-  const maturedNotices = useMemo(
-    () => (member?.withdrawalNotices ?? []).filter((n) => n.matured),
+  // Outstanding requests are no longer a precondition of anything (ADR-030) —
+  // they are a note to the worker at the desk: this member already asked for
+  // ৳5,000, so settle that rather than pay it twice. The API consumes the
+  // largest one a payout covers.
+  const largestPendingWithdrawal = useMemo(
+    () => (member?.pendingWithdrawals ?? []).reduce((max, n) => Math.max(max, n.amount), 0),
     [member],
   );
-  const largestMaturedNotice = useMemo(
-    () => maturedNotices.reduce((max, n) => Math.max(max, n.amount), 0),
-    [maturedNotices],
-  );
+
+  // What the instalment becomes if this top-up is posted. The same arithmetic
+  // as money.TopUpPlan in the Go API — deliberately, so the figure shown before
+  // submitting is the figure the API writes. It is a preview only: the API's
+  // answer is the one that counts, and it recomputes from the row it locks.
+  const topUpInstalment = useMemo(() => {
+    if (action !== 'LOAN_TOPUP' || !selectedLoan) return null;
+    const added = parseWholeTaka(amount);
+    if (!added) return null;
+    const left = Math.max(1, selectedLoan.totalInstallments - selectedLoan.paidInstallments);
+    return Math.floor((selectedLoan.remainingAmount + added) / left);
+  }, [action, selectedLoan, amount]);
 
   const reset = () => {
     setAmount('');
@@ -266,13 +285,11 @@ export function MoneyActionDialog({
       if (value > member.currentDeposit) {
         return bn ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient balance';
       }
-      // FR-08. A withdrawal *settles* a notice the member gave; it never
-      // originates one (rule 4).
-      if (!maturedNotices.some((n) => n.amount >= value)) {
-        return bn
-          ? 'এই পরিমাণের জন্য কোনো পরিপক্ব উত্তোলন নোটিশ নেই। সদস্য নিজে নোটিশ দেবেন, তারপর তা পরিশোধ করা যাবে।'
-          : 'No matured withdrawal notice covers that amount. The member gives notice from their own dashboard; this screen settles it.';
-      }
+      // No notice check (ADR-030). This used to refuse unless a matured notice
+      // covered the amount, which was the single most common outcome of the
+      // screen. Staff pay when the member asks; the balance is the only
+      // client-side rule left, and the API still refuses a suspended member or
+      // one whose savings are locked by a guarantee.
     }
 
     if (action === 'LOAN_PAYMENT') {
@@ -281,6 +298,19 @@ export function MoneyActionDialog({
         return bn
           ? `সর্বোচ্চ পরিশোধযোগ্য: ${formatCurrency(selectedLoan.remainingAmount, locale)}`
           : `Maximum payable: ${formatCurrency(selectedLoan.remainingAmount, locale)}`;
+      }
+    }
+
+    if (action === 'LOAN_TOPUP') {
+      if (!selectedLoan) return bn ? 'কোনো সক্রিয় ঋণ নেই' : 'This member has no active loan';
+      // The ceiling is against what they will owe in TOTAL, which is the same
+      // arithmetic the API does. Checking the increment alone would let five
+      // small top-ups do what one large loan is refused.
+      const wouldOwe = selectedLoan.remainingAmount + value;
+      if (wouldOwe > member.loanEligibility.maxLoanAmount) {
+        return bn
+          ? `এতে মোট বকেয়া দাঁড়াবে ${formatCurrency(wouldOwe, locale)}, সর্বোচ্চ সীমা ${formatCurrency(member.loanEligibility.maxLoanAmount, locale)}`
+          : `That would take the total owed to ${formatCurrency(wouldOwe, locale)}, above the ${formatCurrency(member.loanEligibility.maxLoanAmount, locale)} limit`;
       }
     }
 
@@ -324,6 +354,12 @@ export function MoneyActionDialog({
         await apiPost(`${base}/withdrawal`, { amount: value, notes: notes.trim() });
       } else if (action === 'LOAN_PAYMENT') {
         await apiPost(`${base}/loan-payment`, {
+          loanId: selectedLoan?.id,
+          amount: value,
+          notes: notes.trim(),
+        });
+      } else if (action === 'LOAN_TOPUP') {
+        await apiPost(`${base}/loan-topup`, {
           loanId: selectedLoan?.id,
           amount: value,
           notes: notes.trim(),
@@ -437,21 +473,19 @@ export function MoneyActionDialog({
                   {formatCurrency(member.currentDeposit, locale)}
                 </span>
               </div>
-              {action === 'WITHDRAWAL' && (
+              {/* Shown only when there is one. It is no longer a precondition
+                  (ADR-030) — it is the reason to check before paying twice. */}
+              {action === 'WITHDRAWAL' && largestPendingWithdrawal > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">
-                    {bn ? 'পরিপক্ব নোটিশ' : 'Matured notice'}
+                    {bn ? 'অপরিশোধিত অনুরোধ' : 'Already requested'}
                   </span>
                   <span className="font-medium">
-                    {largestMaturedNotice > 0
-                      ? formatCurrency(largestMaturedNotice, locale)
-                      : bn
-                        ? 'নেই'
-                        : 'None'}
+                    {formatCurrency(largestPendingWithdrawal, locale)}
                   </span>
                 </div>
               )}
-              {action === 'LOAN_PAYMENT' && selectedLoan && (
+              {(action === 'LOAN_PAYMENT' || action === 'LOAN_TOPUP') && selectedLoan && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">{bn ? 'বাকি' : 'Remaining'}</span>
                   <span className="font-medium">
@@ -459,16 +493,39 @@ export function MoneyActionDialog({
                   </span>
                 </div>
               )}
-              {action === 'LOAN_APPLICATION' && (
+              {(action === 'LOAN_APPLICATION' || action === 'LOAN_TOPUP') && (
                 <div className="flex justify-between">
-                  <span className="text-gray-500">{bn ? 'সর্বোচ্চ ঋণ' : 'Maximum loan'}</span>
+                  <span className="text-gray-500">
+                    {action === 'LOAN_TOPUP'
+                      ? bn
+                        ? 'সর্বোচ্চ মোট বকেয়া'
+                        : 'Maximum total owed'
+                      : bn
+                        ? 'সর্বোচ্চ ঋণ'
+                        : 'Maximum loan'}
+                  </span>
                   <span className="font-medium">
                     {formatCurrency(member.loanEligibility.maxLoanAmount, locale)}
                   </span>
                 </div>
               )}
+              {/* What actually changes for the borrower: the schedule keeps its
+                  end date, so the instalment goes up. Shown before submitting
+                  rather than discovered at the next collection. */}
+              {action === 'LOAN_TOPUP' && selectedLoan && topUpInstalment !== null && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">{bn ? 'নতুন কিস্তি' : 'New instalment'}</span>
+                  <span className="font-medium">
+                    {formatCurrency(selectedLoan.installmentAmount, locale)} →{' '}
+                    {formatCurrency(topUpInstalment, locale)}
+                  </span>
+                </div>
+              )}
             </div>
 
+            {/* LOAN_APPLICATION only. `eligible` is false whenever the member
+                already holds a loan, which is the precondition of a top-up — so
+                showing it there would warn about the thing being done. */}
             {action === 'LOAN_APPLICATION' && !member.loanEligibility.eligible && (
               <p className="flex items-start gap-2 px-3 py-2 text-sm text-amber-800 bg-amber-50 border border-amber-200">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -477,7 +534,7 @@ export function MoneyActionDialog({
               </p>
             )}
 
-            {action === 'LOAN_PAYMENT' && payableLoans.length > 1 && (
+            {(action === 'LOAN_PAYMENT' || action === 'LOAN_TOPUP') && payableLoans.length > 1 && (
               <div className="space-y-1">
                 <Label htmlFor="money-action-loan">{bn ? 'ঋণ' : 'Loan'}</Label>
                 <select
@@ -537,16 +594,16 @@ export function MoneyActionDialog({
                   })()}
                 </div>
               )}
-              {action === 'WITHDRAWAL' && largestMaturedNotice > 0 && (
+              {action === 'WITHDRAWAL' && largestPendingWithdrawal > 0 && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs mt-1"
-                  onClick={() => setAmount(String(largestMaturedNotice))}
+                  onClick={() => setAmount(String(largestPendingWithdrawal))}
                 >
-                  {bn ? 'নোটিশের পরিমাণ' : 'Notice amount'} ·{' '}
-                  {formatCurrency(largestMaturedNotice, locale)}
+                  {bn ? 'অনুরোধের পরিমাণ' : 'Requested amount'} ·{' '}
+                  {formatCurrency(largestPendingWithdrawal, locale)}
                 </Button>
               )}
             </div>

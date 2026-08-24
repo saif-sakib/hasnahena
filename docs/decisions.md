@@ -25,7 +25,7 @@ still true.
 | [ADR-013](#adr-013--document-numbers-are-sequential-and-named) | Document numbers are sequential and named | accepted |
 | [ADR-014](#adr-014--prisma-migrate-supersedes-db-push) | Prisma migrate supersedes `db push` | accepted |
 | [ADR-015](#adr-015--a-balance-is-written-relatively-never-read-modify-written) | A balance is written relatively, never read-modify-written | accepted |
-| [ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout) | A withdrawal notice is the member's request, not a field on the payout | accepted |
+| [ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout) | A withdrawal notice is the member's request, not a field on the payout | superseded by [ADR-030](#adr-030--staff-pay-a-withdrawal-when-the-member-asks) |
 | [ADR-017](#adr-017--read-config-inside-the-transaction-never-from-the-pool) | Read config inside the transaction, never from the pool | accepted |
 | [ADR-018](#adr-018--the-official-infos-history-is-not-purged) | The `Official Infos/` history is not purged | accepted |
 | [ADR-019](#adr-019--one-function-decides-where-a-request-came-from) | One function decides where a request came from | accepted |
@@ -39,6 +39,7 @@ still true.
 | [ADR-027](#adr-027--the-reconciliation-job-reports-and-never-repairs) | The reconciliation job reports and never repairs | accepted |
 | [ADR-028](#adr-028--a-public-page-renders-without-a-database) | A public page renders without a database | accepted |
 | [ADR-029](#adr-029--the-identifier-is-called-an-account-number) | The identifier is called an account number | accepted |
+| [ADR-030](#adr-030--staff-pay-a-withdrawal-when-the-member-asks) | Staff pay a withdrawal when the member asks | accepted |
 
 ---
 
@@ -302,7 +303,17 @@ pre-fix code before they were allowed to pass.
 
 ### ADR-016 — A withdrawal notice is the member's request, not a field on the payout
 
-**Status:** accepted · 2026-08-18 · implements FR-08.
+**Status:** superseded 2026-08-24 by
+[ADR-030](#adr-030--staff-pay-a-withdrawal-when-the-member-asks) · accepted
+2026-08-18 · implemented FR-08.
+
+**Superseded in its conclusion, not in its findings.** The notice period is gone;
+the two facts this ADR discovered on the way to it are not, and both are load
+bearing. *A `transactions` row is not necessarily money that moved* is now
+CLAUDE.md rule 6a and the reason four aggregates filter on status. *A payout
+settles the member's row rather than inserting a second one beside it* is still
+exactly what `AddMemberWithdrawal` does with an outstanding request. Read the
+Consequences below for those; read ADR-030 for what replaced the gate.
 
 `loan.noticePeriodMonths` existed as a config key, was editable in the admin
 settings page, and **was read by nothing**. The screen said "3 months" and the
@@ -915,3 +926,73 @@ the *route parameter* and the handler locals on
 `/v1/dashboard/worker/members/{…}`, where it has always meant the member's row
 id — a cuid, not an account number. Those are `{memberUserId}` now. The URLs are
 unchanged; a chi pattern placeholder is not part of the path.
+
+---
+
+## ADR-030 — Staff pay a withdrawal when the member asks
+
+**Status:** accepted · 2026-08-24. Supersedes
+[ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout).
+Directed by the owner.
+
+[ADR-016](#adr-016--a-withdrawal-notice-is-the-members-request-not-a-field-on-the-payout)
+turned a dead config key into an enforced policy: a member filed a notice from
+their own dashboard, its `createdAt` started a clock, and neither the admin's
+approval nor the worker's payout could move money until it ran out. That was the
+right reading of FR-08 as written, and it was tested on both paths.
+
+It does not match how the foundation works. A member does not open a dashboard to
+give notice — they tell the field worker who visits them, usually while handing
+over that month's deposit. Requiring a self-service filing put a step in front of
+the money that no member was going to take, and the most common outcome of the
+staff withdrawal screen became a refusal explaining a form the member had never
+seen.
+
+**Decision.**
+
+1. **A payout needs no request behind it.** `AddMemberWithdrawal` writes its own
+   `CONFIRMED` row when there is nothing outstanding to settle. The rule-4
+   reading that a worker "never originates money movement" is satisfied by the
+   member asking in person; it was never satisfied by the notice row, which only
+   recorded that the asking had happened in a particular place.
+2. **There is no notice period.** `ApproveWithdrawal` and `AddMemberWithdrawal`
+   both lost their maturity gate, and `ErrNoWithdrawalNotice` and
+   `ErrNoticePeriodNotElapsed` went with them.
+3. **The member-side notice is gone.** `POST /v1/dashboard/member/requests/
+   withdrawal`, `CreateMemberWithdrawalNotice` and the form on the member's
+   savings screen were all removed.
+4. **`loan.noticePeriodMonths` becomes `loan.noticePeriodDays`, and is
+   informational.** Days because that is the unit the foundation quotes. It is
+   read by the member's savings screen and by the FAQ answer, and by nothing in
+   either backend.
+
+**What did not change, and is the reason the settlement code survives.** A
+member may still have an outstanding `PENDING` withdrawal — rows filed before
+this change, and any left over from the member request flow. Paying one at the
+desk *settles that row* rather than writing a second one, with `amount` rewritten
+to what was actually paid. Two rows for one withdrawal would double it in every
+total over `transactions`, which is ADR-016's own finding and still true.
+
+**A setting nothing enforces is normally a defect.** `UNIMPLEMENTED_CONFIG_KEYS`
+exists to name exactly that failure, and ADR-016 was written to fix an instance
+of it. The distinction that keeps `loan.noticePeriodDays` out of that list is
+that it is **read**: two screens render the number, so changing it changes what
+members are told. What it no longer does is block a payout, and the admin control
+says so in as many words — an admin who believes this gates money will not
+understand why a withdrawal went through.
+
+**Consequences.**
+
+- **FR-08 changed meaning.** `docs/product.md` and `docs/tasks.md` describe the
+  member's withdrawal as a request made in person and paid by staff.
+- **Two tests assert an absence**, which is the only way to pin a rule that has
+  been deleted: `TestWithdrawalWithNoRequestBehindItIsPaid` and
+  `TestAFreshRequestIsPaidImmediately`. Without them the gate could be
+  reintroduced and every remaining assertion would still pass.
+- The three notification builders that named a maturity date are gone;
+  `WithdrawalRequestReady` replaced the one that survives, and its test row
+  asserts the word "notice" is **not** in the message.
+- `loan.noticePeriodDays` moved into `PUBLIC_CONFIG_KEYS`, because `/faq` is a
+  prerendered marketing page and reads only that tier.
+- The guarantor lock and the active-loan rule are untouched. What was removed is
+  the notice period, not FR-09.

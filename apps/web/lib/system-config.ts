@@ -44,12 +44,21 @@ export const SYSTEM_CONFIG_KEYS = [
   // the application endpoint demanded a guarantor for every loan regardless.
   // Set to 0 to require a guarantor on every loan.
   'loan.guarantorThresholdAmount',
-  // FR-08, implemented 2026-08-18 (ADR-016). A member's withdrawal request is
-  // their notice; this is how long it must sit before the money can be paid.
-  // Enforced on BOTH paths that move it — the admin's ApproveWithdrawal and the
-  // worker's AddMemberWithdrawal. 0 means no notice period, and is a real
-  // setting rather than an unset one.
-  'loan.noticePeriodMonths',
+  // How much warning the foundation asks a member to give before withdrawing,
+  // in DAYS.
+  //
+  // Informational, deliberately (ADR-030). Until 2026-08-24 this was
+  // `loan.noticePeriodMonths` and it was a gate: a member filed a notice, and
+  // neither the admin's approval nor the worker's payout could move money until
+  // it matured. The owner removed that rule — staff take the request in person
+  // and pay at the desk — so nothing in either backend reads this now.
+  //
+  // It is still a setting rather than a note, because two screens render it:
+  // the member's own savings page and the public FAQ. Change it here and both
+  // change, which is exactly what UNIMPLEMENTED_CONFIG_KEYS below is for
+  // distinguishing — a control nothing reads is worse than no control, and this
+  // one is read.
+  'loan.noticePeriodDays',
 
   // Organisation identity. Used on generated documents (letterhead) and the
   // public site, so a wrong value here is visible to members on paper.
@@ -225,6 +234,12 @@ export const PUBLIC_CONFIG_KEYS = [
   'bank.accountName',
   'bank.accountNo',
   'bank.branch',
+
+  // Public because the FAQ answers "can I withdraw my deposits?" with it, and
+  // /faq is a prerendered marketing page reading `getPublicSettings()`. It is
+  // published policy — it was hardcoded into that answer as "3 months" long
+  // before it was a setting — so a stranger reading it is the point.
+  'loan.noticePeriodDays',
 ] as const;
 
 /**
@@ -258,7 +273,9 @@ export const MEMBER_CONFIG_KEYS = [
   'loan.maxInstallmentMonths',
   'loan.allowActiveLoanWithdrawal',
   'loan.guarantorThresholdAmount',
-  'loan.noticePeriodMonths',
+  // `loan.noticePeriodDays` is NOT repeated here — it arrives through the spread
+  // above. The tiers have to be a partition, and listing it twice is what
+  // `settings-keys-read.test.ts` calls an overlapping copy.
 ] as const;
 
 /**
@@ -325,7 +342,7 @@ export const SETTINGS_CONFIG_KEYS = [
   'loan.allowActiveLoanWithdrawal',
   'loan.missedPaymentsForDefault',
   'loan.guarantorThresholdAmount',
-  'loan.noticePeriodMonths',
+  'loan.noticePeriodDays',
 
   'donation.bkash',
   'donation.nagad',

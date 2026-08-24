@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
-import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { createLocalizedMetadata, normalizeLocale, siteTitle } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 
 import { getPublicGalleryItems } from '@/lib/public-content';
@@ -35,10 +35,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/',
-    title:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনা - সুদমুক্ত সমবায় অর্থায়ন'
-        : 'Hasnahena - Interest-Free Cooperative Finance',
+    // siteTitle(), not a fourth copy. This page's generateMetadata overrides
+    // the layout's, so whatever is written here is the site's most-crawled
+    // <title> — and the string it used to hold said "Hasnahena" while every
+    // other surface had been changed to "Hasnahena Foundation".
+    title: siteTitle(activeLocale),
     description:
       activeLocale === 'bn'
         ? 'কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায় অর্থায়ন প্ল্যাটফর্মে যোগ দিন।'
@@ -465,7 +466,7 @@ export default async function HomePage({ params }: PageProps) {
               {[
                 { icon: MapPin, title: tContact('address'), value: settings['org.address'] || tContact('officeAddress') },
                 { icon: Phone, title: tContact('phone'), value: settings['org.phone'] || '+880 1XXX-XXXXXX' },
-                { icon: Mail, title: tContact('email'), value: settings['org.email'] || 'contact@hasnahena.org' },
+                { icon: Mail, title: tContact('email'), value: settings['org.email'] || 'info@hasnahenafoundation.com' },
               ].map((item, index) => (
                 <Card key={index} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">

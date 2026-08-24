@@ -36,7 +36,7 @@ func TestMoneyLifecycleEndToEnd(t *testing.T) {
 
 	// FR-08: a payout settles a notice the member gave. Backdated so the test
 	// does not have to wait out the notice period.
-	giveMaturedWithdrawalNotice(t, member, 3000)
+	fileWithdrawalRequest(t, member, 3000, 12)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 3000, "withdrawal"); err != nil {
 		t.Fatalf("withdrawal: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestEveryBalanceChangeWritesAnAuditRow(t *testing.T) {
 	if _, err := repo.AddMemberDeposit(ctx, member, worker, 5000, ""); err != nil {
 		t.Fatalf("deposit: %v", err)
 	}
-	giveMaturedWithdrawalNotice(t, member, 1000)
+	fileWithdrawalRequest(t, member, 1000, 12)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, ""); err != nil {
 		t.Fatalf("withdrawal: %v", err)
 	}
@@ -152,9 +152,9 @@ func TestFailedPostingRollsBackCompletely(t *testing.T) {
 	member := seedMember(t, "m1", "ACC-KH-33001", 1000)
 	worker := seedStaff(t, "w1", "WORKER")
 
-	// A matured notice exists, so the refusal below is about the balance and
-	// not about FR-08 — otherwise this test would pass for the wrong reason.
-	giveMaturedWithdrawalNotice(t, member, 5000)
+	// An outstanding request exists, so the payout below takes the settlement
+	// path rather than writing a fresh row — the branch with more to roll back.
+	fileWithdrawalRequest(t, member, 5000, 12)
 
 	// More than the balance — must be refused.
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "too much"); err == nil {
@@ -167,9 +167,8 @@ func TestFailedPostingRollsBackCompletely(t *testing.T) {
 	if n := countAuditLogs(t, "", "WITHDRAWAL_POSTED"); n != 0 {
 		t.Errorf("failed withdrawal left %d audit rows", n)
 	}
-	// The notice row is expected to survive — a refused payout must not consume
-	// the member's notice, or they would have to start the period again through
-	// no fault of theirs. What must NOT exist is a posting.
+	// The request row is expected to survive — a refused payout must not consume
+	// what the member asked for. What must NOT exist is a posting.
 	var postings int
 	if err := testPool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM transactions WHERE status <> 'PENDING'`).Scan(&postings); err != nil {
@@ -179,13 +178,13 @@ func TestFailedPostingRollsBackCompletely(t *testing.T) {
 		t.Errorf("failed withdrawal left %d posted transaction rows", postings)
 	}
 
-	var noticeStatus string
+	var requestStatus string
 	if err := testPool.QueryRow(ctx,
-		`SELECT status::text FROM transactions WHERE type = 'WITHDRAWAL'`).Scan(&noticeStatus); err != nil {
-		t.Fatalf("read notice: %v", err)
+		`SELECT status::text FROM transactions WHERE type = 'WITHDRAWAL'`).Scan(&requestStatus); err != nil {
+		t.Fatalf("read request: %v", err)
 	}
-	if noticeStatus != "PENDING" {
-		t.Errorf("the withdrawal notice is %s after a failed payout, want PENDING — a refused payout consumed it", noticeStatus)
+	if requestStatus != "PENDING" {
+		t.Errorf("the withdrawal request is %s after a failed payout, want PENDING — a refused payout consumed it", requestStatus)
 	}
 }
 
@@ -445,7 +444,7 @@ func TestWithdrawalWithActiveLoanAllowedWhenPolicyPermits(t *testing.T) {
 	if _, err := repo.CreateMemberLoan(ctx, member, worker, 10000, "stock", 12); err != nil {
 		t.Fatalf("create loan: %v", err)
 	}
-	giveMaturedWithdrawalNotice(t, member, 1000)
+	fileWithdrawalRequest(t, member, 1000, 12)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, "policy allows"); err != nil {
 		t.Fatalf("withdrawal refused despite the policy allowing it: %v", err)
 	}
@@ -483,7 +482,7 @@ func TestWithdrawalBlockedBeyondBalance(t *testing.T) {
 	// One notice covering the larger figure: "covers the amount" means at least
 	// it, so the same notice serves both attempts and the refusal below is the
 	// balance check rather than a missing notice.
-	giveMaturedWithdrawalNotice(t, member, 5001)
+	fileWithdrawalRequest(t, member, 5001, 12)
 
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5001, "one taka too far"); err == nil {
 		t.Fatal("withdrawal beyond the balance was accepted")
@@ -520,7 +519,7 @@ func TestAuditTrailIsAppendOnlyAcrossACorrection(t *testing.T) {
 	}
 
 	// The correction is a second posting, not an edit of the first.
-	giveMaturedWithdrawalNotice(t, member, 5000)
+	fileWithdrawalRequest(t, member, 5000, 12)
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5000, "reversing the wrong deposit"); err != nil {
 		t.Fatalf("correcting withdrawal: %v", err)
 	}

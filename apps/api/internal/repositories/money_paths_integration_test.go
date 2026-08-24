@@ -26,11 +26,14 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
+
+	"hasnahena/apps/api/internal/money"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,6 +50,7 @@ var balanceWriters = map[string]bool{
 	"AddMemberDeposit":     true,
 	"AddMemberWithdrawal":  true,
 	"RecordDonation":       true,
+	"AddLoanTopUp":         true,
 }
 
 // TestBalanceWritersAreEnumerated reads the repository source and fails if any
@@ -158,12 +162,37 @@ func TestEveryPostingWritesExactlyOneAuditRow(t *testing.T) {
 		worker := seedStaff(t, "w1", "WORKER")
 
 		before := auditRowCount(t)
-		giveMaturedWithdrawalNotice(t, member, 1000)
+		fileWithdrawalRequest(t, member, 1000, 12)
 		if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 1000, "audit"); err != nil {
 			t.Fatalf("withdrawal: %v", err)
 		}
 		if got := auditRowsSince(t, before); got != 1 {
 			t.Fatalf("withdrawal wrote %d audit rows, want exactly 1", got)
+		}
+	})
+
+	t.Run("AddLoanTopUp", func(t *testing.T) {
+		repo := newTestRepo(t)
+		ctx := context.Background()
+		// Savings large enough that the 5x borrowing ceiling is not what this
+		// test is about — the top-up's own cap has its own case below.
+		borrower := seedMember(t, "m1", "ACC-AU-8", 20000)
+		worker := seedStaff(t, "w1", "WORKER")
+		loanID := seedLoanNoGuarantor(t, borrower, 3000)
+		if _, err := testPool.Exec(ctx,
+			`UPDATE accounts SET "loanBalance" = 3000 WHERE "userId" = $1`, borrower); err != nil {
+			t.Fatalf("set loan balance: %v", err)
+		}
+
+		before := auditRowCount(t)
+		if _, err := repo.AddLoanTopUp(ctx, borrower, worker, loanID, 2000, "audit"); err != nil {
+			t.Fatalf("top-up: %v", err)
+		}
+		if got := auditRowsSince(t, before); got != 1 {
+			t.Fatalf("top-up wrote %d audit rows, want exactly 1", got)
+		}
+		if n := countAuditLogs(t, loanID, "LOAN_TOPPED_UP"); n != 1 {
+			t.Errorf("LOAN_TOPPED_UP rows = %d, want 1", n)
 		}
 	})
 
@@ -234,6 +263,14 @@ func TestARefusedPostingWritesNoAuditRow(t *testing.T) {
 		}},
 		{"deposit for a member who does not exist", func(t *testing.T, repo *UserRepository, member, worker string) error {
 			_, err := repo.AddMemberDeposit(context.Background(), "nobody", worker, 100, "x")
+			return err
+		}},
+		{"top-up of a loan that does not exist", func(t *testing.T, repo *UserRepository, member, worker string) error {
+			_, err := repo.AddLoanTopUp(context.Background(), member, worker, "no-such-loan", 1000, "x")
+			return err
+		}},
+		{"negative top-up", func(t *testing.T, repo *UserRepository, member, worker string) error {
+			_, err := repo.AddLoanTopUp(context.Background(), member, worker, "no-such-loan", -1000, "x")
 			return err
 		}},
 	}
@@ -388,6 +425,161 @@ func TestConcurrentLoanPaymentsCannotOverpay(t *testing.T) {
 	}
 	if want := 5000 - int64(accepted)*each; remaining != want {
 		t.Fatalf("remaining = %d after %d accepted payments, want %d", remaining, accepted, want)
+	}
+}
+
+// TestConcurrentLoanTopUpsAllLand is LEDGER-01 in the newest place it could
+// happen.
+//
+// AddLoanTopUp writes three balances in one transaction — the loan's principal,
+// its remaining amount, and the account's loanBalance — and every one of them is
+// written relatively (ADR-015). Reading any of the three and writing back an
+// absolute total would lose one of two concurrent top-ups, and the loss would be
+// invisible: the loan would simply say it owed less than was lent, which looks
+// exactly like a repayment nobody can find.
+//
+// The three must also still agree with each other afterwards. That is the
+// assertion a per-column check would miss.
+func TestConcurrentLoanTopUpsAllLand(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	// 200,000 saved x the default multiplier of 5 = a 1,000,000 ceiling, well
+	// clear of the 3,000 + 20 x 1,000 this test reaches.
+	borrower := seedMember(t, "m1", "ACC-AU-12", 200000)
+	worker := seedStaff(t, "w1", "WORKER")
+	loanID := seedLoanNoGuarantor(t, borrower, 3000)
+	if _, err := testPool.Exec(ctx,
+		`UPDATE accounts SET "loanBalance" = 3000 WHERE "userId" = $1`, borrower); err != nil {
+		t.Fatalf("set loan balance: %v", err)
+	}
+
+	const topUps = 20
+	const each int64 = 1000
+
+	var wg sync.WaitGroup
+	errs := make([]error, topUps)
+	for i := range topUps {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = repo.AddLoanTopUp(ctx, borrower, worker, loanID, each, "concurrent")
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("top-up %d failed: %v", i, err)
+		}
+	}
+
+	var principal, remaining, accountLoanBalance int64
+	if err := testPool.QueryRow(ctx,
+		`SELECT "principalAmount"::bigint, "remainingAmount"::bigint FROM loans WHERE id = $1`,
+		loanID).Scan(&principal, &remaining); err != nil {
+		t.Fatalf("read loan: %v", err)
+	}
+	if err := testPool.QueryRow(ctx,
+		`SELECT "loanBalance"::bigint FROM accounts WHERE "userId" = $1`, borrower).Scan(&accountLoanBalance); err != nil {
+		t.Fatalf("read account loan balance: %v", err)
+	}
+
+	const want = 3000 + topUps*each
+	if remaining != want {
+		t.Errorf("remaining = %d after %d top-ups of %d against 3000, want %d — a top-up was lost",
+			remaining, topUps, each, want)
+	}
+	if principal != want {
+		t.Errorf("principal = %d, want %d", principal, want)
+	}
+	if accountLoanBalance != want {
+		t.Errorf("accounts.loanBalance = %d but the loan owes %d — the two disagree",
+			accountLoanBalance, remaining)
+	}
+}
+
+// The borrowing ceiling is measured against what the member will owe in TOTAL,
+// not against the increment. Checking the increment alone would let five
+// 10,000-taka top-ups do what one 50,000-taka loan is refused.
+func TestATopUpPastTheBorrowingCeilingIsRefused(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	// 2,000 saved x the default multiplier of 5 = a 10,000 ceiling.
+	borrower := seedMember(t, "m1", "ACC-AU-13", 2000)
+	worker := seedStaff(t, "w1", "WORKER")
+	loanID := seedLoanNoGuarantor(t, borrower, 8000)
+	if _, err := testPool.Exec(ctx,
+		`UPDATE accounts SET "loanBalance" = 8000 WHERE "userId" = $1`, borrower); err != nil {
+		t.Fatalf("set loan balance: %v", err)
+	}
+
+	// 8,000 + 3,000 = 11,000, past the ceiling.
+	_, err := repo.AddLoanTopUp(ctx, borrower, worker, loanID, 3000, "over")
+	if !errors.Is(err, ErrTopUpExceedsLimit) {
+		t.Fatalf("top-up past the ceiling: err = %v, want ErrTopUpExceedsLimit", err)
+	}
+	// The message has to carry the ceiling, or staff are told "no" with no
+	// number to act on.
+	if !strings.Contains(err.Error(), "10000") {
+		t.Errorf("refusal does not name the ceiling: %v", err)
+	}
+
+	// 8,000 + 2,000 = 10,000, exactly at it. A rule that only ever refuses is
+	// indistinguishable from a broken feature.
+	if _, err := repo.AddLoanTopUp(ctx, borrower, worker, loanID, 2000, "at the ceiling"); err != nil {
+		t.Fatalf("top-up to exactly the ceiling was refused: %v", err)
+	}
+}
+
+// A top-up re-spreads the outstanding balance over the payments that are LEFT,
+// and does not move the end date. Spreading it over the full original count
+// would quietly reduce what a borrower six payments in has to pay each month,
+// and the loan would outlive its own schedule.
+func TestATopUpRaisesTheInstalmentAndKeepsTheEndDate(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	borrower := seedMember(t, "m1", "ACC-AU-14", 200000)
+	worker := seedStaff(t, "w1", "WORKER")
+	loanID := seedLoanNoGuarantor(t, borrower, 3000)
+	if _, err := testPool.Exec(ctx, `
+		UPDATE loans SET "totalInstallments" = 10, "paidInstallments" = 6, "installmentAmount" = 750
+		WHERE id = $1
+	`, loanID); err != nil {
+		t.Fatalf("set schedule: %v", err)
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE accounts SET "loanBalance" = 3000 WHERE "userId" = $1`, borrower); err != nil {
+		t.Fatalf("set loan balance: %v", err)
+	}
+
+	if _, err := repo.AddLoanTopUp(ctx, borrower, worker, loanID, 5000, "top-up"); err != nil {
+		t.Fatalf("top-up: %v", err)
+	}
+
+	var total, paid int
+	var installment, remaining int64
+	if err := testPool.QueryRow(ctx, `
+		SELECT "totalInstallments", "paidInstallments", "installmentAmount"::bigint, "remainingAmount"::bigint
+		FROM loans WHERE id = $1
+	`, loanID).Scan(&total, &paid, &installment, &remaining); err != nil {
+		t.Fatalf("read loan: %v", err)
+	}
+
+	if total != 10 || paid != 6 {
+		t.Errorf("schedule = %d paid of %d, want 6 of 10 — a top-up must not rewrite the history", paid, total)
+	}
+	// 8,000 owed over the 4 payments that remain.
+	if want := int64(2000); installment != want {
+		t.Errorf("instalment = %d, want %d (%d over the %d payments left)", installment, want, remaining, total-paid)
+	}
+	// Zero interest: the payments still sum to exactly what is owed (rule 3).
+	perInstallment, final := money.TopUpPlan(remaining, total, paid)
+	if !money.InstallmentPlanIsExact(remaining, total-paid, perInstallment, final) {
+		t.Errorf("the schedule does not sum to the principal: %d x %d + %d != %d",
+			total-paid-1, perInstallment, final, remaining)
 	}
 }
 

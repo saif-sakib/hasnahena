@@ -248,19 +248,27 @@ token and silently gets the public subset. Both are enforced by
 
 **Every declared key is read by something.** That was not always true —
 `loan.noticePeriodMonths` and `loan.missedPaymentsForDefault` were editable and
-enforced by nothing, so the screen reported policy the system did not apply. Both
-are enforced now ([ADR-016](decisions.md)). If you add a key, search the
-*enforcement* surface to check it stays that way; matching the settings page
-proves only that the key exists.
+read by nothing, so the screen reported policy the system did not apply. If you
+add a key, search for the *reader* to check it stays that way; matching the
+settings page proves only that the key exists.
+
+Read by something is the bar, not *enforced* by something.
+`loan.missedPaymentsForDefault` gates `MarkLoanDefaulted`.
+`loan.noticePeriodDays` gates nothing at all — it is the notice the foundation
+asks a member to give, published on their savings screen and in the FAQ
+([ADR-030](decisions.md)). What makes it a setting rather than a note is that
+changing it changes what two screens say. A control whose number nobody ever sees
+belongs in `UNIMPLEMENTED_CONFIG_KEYS`, and a control that claims to block
+something it does not must say so on the control itself.
 
 ---
 
 ## "I want to add a way for staff to move money"
 
 You almost certainly do not want a new form. `components/dashboard/money-actions.tsx`
-is the one implementation of all four staff actions — deposit, withdrawal, loan
-instalment, loan application. Add a `MoneyAction` there and open it from
-wherever; do not build a second form beside it.
+is the one implementation of all five staff actions — deposit, withdrawal, loan
+instalment, loan application, and adding to a running loan. Add a `MoneyAction`
+there and open it from wherever; do not build a second form beside it.
 
 The reason is not tidiness. Each of those four existed twice before, and the
 copies disagreed about things that matter: one refused paisa and the other

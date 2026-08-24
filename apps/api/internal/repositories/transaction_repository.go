@@ -37,20 +37,21 @@ const DonationFundUserID = "system_donation_fund"
 var ErrDonationPoolMissing = errors.New(
 	"the donation pool account (owned by " + DonationFundUserID + ") is missing — run `pnpm db:seed` against this database")
 
-// FR-08. A member gives notice by requesting the withdrawal; the request row is
-// the notice, and its createdAt starts the clock. Nothing may pay out against a
-// notice that has not matured.
-var (
-	// ErrNoticePeriodNotElapsed means the notice exists but is not yet due.
-	// The message carries the date, because "not yet" without a date is the
-	// kind of answer that generates a support thread.
-	ErrNoticePeriodNotElapsed = errors.New("withdrawal notice period has not elapsed")
-	// ErrNoWithdrawalNotice means there is no matured notice to pay against.
-	// Under rule 4 a worker never initiates money movement, so a payout with no
-	// member request behind it is not a withdrawal — it is a transfer nobody
-	// asked for.
-	ErrNoWithdrawalNotice = errors.New("no matured withdrawal notice for this member")
-)
+// FR-08 used to make a member's withdrawal *request* a binding notice: a
+// PENDING row whose createdAt started a clock, and neither the admin's approval
+// nor the worker's payout could move money before it ran out.
+//
+// It does not any more (ADR-030). Staff pay a withdrawal at the desk when the
+// member asks for it, and `loan.noticePeriodDays` is the courtesy period the
+// foundation publishes to members rather than a gate this code enforces. The
+// two sentinels that named the refusals — ErrNoWithdrawalNotice and
+// ErrNoticePeriodNotElapsed — are gone with the refusals themselves, and both
+// handlers' `errors.Is` branches with them.
+//
+// What survives is the *settlement*: a member may still have an outstanding
+// PENDING withdrawal row from before the change, and a payout consumes it
+// rather than writing a second row for the same money. See
+// claimOutstandingWithdrawalNotice.
 
 // Why the reasons a withdrawal is refused are sentinels rather than strings.
 //
@@ -76,21 +77,9 @@ var (
 	ErrGuarantorBlocksWithdrawal  = errors.New("member is guarantor for an active loan")
 )
 
-// noticeMaturityDate is when a notice given at createdAt becomes payable.
-// Months rather than days: the policy is stated in months, and 3 months from
-// 31 January has to mean the end of April rather than a date that does not
-// exist. Go's AddDate normalises that (31 Jan + 3 months → 1 May), which is the
-// conservative direction — it never matures a notice early.
-func noticeMaturityDate(createdAt time.Time, noticePeriodMonths int) time.Time {
-	if noticePeriodMonths <= 0 {
-		return createdAt
-	}
-	return createdAt.AddDate(0, noticePeriodMonths, 0)
-}
-
-// formatNoticeDate is the one date format members see on a notice. It matches
-// the generated documents (lib/documents/format.ts uses en-GB), so a member
-// comparing a notification with a statement sees the same shape.
+// formatNoticeDate is the one date format members see on a withdrawal. It
+// matches the generated documents (lib/documents/format.ts uses en-GB), so a
+// member comparing a notification with a statement sees the same shape.
 func formatNoticeDate(t time.Time) string {
 	return t.Format("02 Jan 2006")
 }
@@ -163,17 +152,11 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			return fmt.Errorf("failed to notify member: %w", err)
 		}
 	case "WITHDRAWAL":
-		// FR-08. The request IS the notice, so approving it before the period
-		// has run would make the policy advisory. Read the row's own createdAt
-		// rather than trusting anything the caller passed.
-		notice := r.getWithdrawalNoticePeriodMonthsTx(ctx, tx)
-		eligibleFrom := noticeMaturityDate(createdAt, notice)
-		if time.Now().Before(eligibleFrom) {
-			return fmt.Errorf("%w: notice given %s, payable from %s",
-				ErrNoticePeriodNotElapsed,
-				formatNoticeDate(createdAt),
-				formatNoticeDate(eligibleFrom))
-		}
+		// No maturity gate (ADR-030). This used to refuse until
+		// `loan.noticePeriodMonths` had elapsed since `createdAt`; staff now
+		// decide when a withdrawal is paid, and this marks the request ready
+		// for the desk. The row still moves no money here — the debit happens
+		// in AddMemberWithdrawal, which settles this same row.
 		if _, err := tx.Exec(ctx, `
 			UPDATE transactions
 			SET status = 'PROCESSED', "processedAt" = NOW(), "processedBy" = $2
@@ -181,13 +164,13 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 		`, requestID, approverID); err != nil {
 			return err
 		}
-		maturedTitle, maturedMessage := notify.WithdrawalNoticeMatured(amount)
+		readyTitle, readyMessage := notify.WithdrawalRequestReady(amount)
 		if err := r.insertNotificationTx(
 			ctx,
 			tx,
 			"SYSTEM_ALERT",
-			maturedTitle,
-			maturedMessage,
+			readyTitle,
+			readyMessage,
 			&memberID,
 			nil,
 		); err != nil {
@@ -340,131 +323,6 @@ func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approv
 	`, requestID, approverID, reason)
 
 	return tx.Commit(ctx)
-}
-
-// WithdrawalNotice is what a member gets back when they give notice.
-type WithdrawalNotice struct {
-	RequestID          string    `json:"requestId"`
-	Amount             int64     `json:"amount"`
-	NoticePeriodMonths int       `json:"noticePeriodMonths"`
-	EligibleFrom       time.Time `json:"eligibleFrom"`
-}
-
-// CreateMemberWithdrawalNotice records a member's notice of withdrawal — FR-08.
-//
-// The notice IS the request: a PENDING WITHDRAWAL row whose createdAt starts
-// the notice period. Nothing is debited here, and nothing may be debited until
-// the period has run (ApproveWithdrawal and AddMemberWithdrawal both refuse).
-//
-// Every eligibility test a payout would make is made here as well, against the
-// row locked FOR UPDATE. Checking twice is deliberate: refusing at notice time
-// tells the member now rather than three months from now, and re-checking at
-// payout time is what actually protects the balance, because three months is
-// long enough for a guarantee, a loan or the balance itself to change.
-func (r *UserRepository) CreateMemberWithdrawalNotice(ctx context.Context, memberID string, amount int64, notes string) (*WithdrawalNotice, error) {
-	if amount <= 0 {
-		return nil, errors.New("amount must be positive")
-	}
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	var memberStatus, accountID, memberName string
-	var currentBalance, activeLoan, pendingNotices int64
-	var isGuarantor bool
-	if err := tx.QueryRow(ctx, `
-		SELECT
-			u.status::text,
-			a.id::text,
-			COALESCE(u."nameEn", ''),
-			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
-			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status = 'ACTIVE'),
-			COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t."userId" = u.id AND t.type = 'WITHDRAWAL' AND t.status IN ('PENDING','PROCESSED')), 0)::bigint
-		FROM users u
-		JOIN accounts a ON a."userId" = u.id
-		WHERE u.id = $1 AND u.role = 'MEMBER'
-		FOR UPDATE OF a
-	`, memberID).Scan(&memberStatus, &accountID, &memberName, &currentBalance, &activeLoan, &isGuarantor, &pendingNotices); err != nil {
-		return nil, ErrMemberNotFound
-	}
-	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
-		return nil, ErrMemberNotActive
-	}
-	// Outstanding notices count against the balance. Without this a member
-	// could give three separate notices for their whole balance and, once all
-	// three matured, present them one after another.
-	if amount+pendingNotices > currentBalance {
-		return nil, ErrInsufficientBalance
-	}
-	if activeLoan > 0 && !r.getSystemConfigBoolTx(ctx, tx, "loan.allowActiveLoanWithdrawal", false) {
-		return nil, ErrActiveLoanBlocksWithdrawal
-	}
-	if isGuarantor {
-		return nil, ErrGuarantorBlocksWithdrawal
-	}
-
-	description := strings.TrimSpace(notes)
-	if description == "" {
-		description = "Member-submitted withdrawal notice"
-	}
-
-	var requestID string
-	var createdAt time.Time
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO transactions (
-			id, type, amount, description, status, "createdAt", "accountId", "userId"
-		) VALUES (
-			gen_random_uuid()::text, 'WITHDRAWAL', $1, $2, 'PENDING', NOW(), $3, $4
-		)
-		RETURNING id::text, "createdAt"
-	`, amount, description, accountID, memberID).Scan(&requestID, &createdAt); err != nil {
-		return nil, err
-	}
-
-	noticePeriod := r.getWithdrawalNoticePeriodMonthsTx(ctx, tx)
-	eligibleFrom := noticeMaturityDate(createdAt, noticePeriod)
-	eligibleLabel := formatNoticeDate(eligibleFrom)
-
-	memberTitle, memberMessage := notify.WithdrawalNoticeSubmitted(amount, noticePeriod, eligibleLabel)
-	if err := r.insertNotificationTx(
-		ctx, tx, "SYSTEM_ALERT", memberTitle, memberMessage, &memberID, nil,
-	); err != nil {
-		return nil, fmt.Errorf("failed to notify member: %w", err)
-	}
-
-	staffTitle, staffMessage := notify.WithdrawalNoticeForStaff(memberName, amount, eligibleLabel)
-	if err := r.insertNotificationTx(
-		ctx, tx, "SYSTEM_ALERT", staffTitle, staffMessage, nil, normalizedRolePtr("ADMIN"),
-	); err != nil {
-		return nil, fmt.Errorf("failed to notify admins: %w", err)
-	}
-	if err := r.insertNotificationTx(
-		ctx, tx, "SYSTEM_ALERT", staffTitle, staffMessage, nil, normalizedRolePtr("WORKER"),
-	); err != nil {
-		return nil, fmt.Errorf("failed to notify staff: %w", err)
-	}
-
-	if err := r.insertAuditLogTx(ctx, tx, "WITHDRAWAL_NOTICE_GIVEN", "TRANSACTION", requestID, memberID,
-		fmt.Sprintf("Notice to withdraw %d BDT, %d month notice period, payable from %s",
-			amount, noticePeriod, eligibleLabel),
-	); err != nil {
-		return nil, fmt.Errorf("failed to write audit log: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-
-	return &WithdrawalNotice{
-		RequestID:          requestID,
-		Amount:             amount,
-		NoticePeriodMonths: noticePeriod,
-		EligibleFrom:       eligibleFrom,
-	}, nil
 }
 
 func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberID string, amount int64, bkashReference, notes string) (string, error) {
@@ -1038,24 +896,30 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 
 // AddMemberWithdrawal processes a withdrawal for a member (worker action)
 
-// AddMemberWithdrawal processes a withdrawal for a member (worker action)
-// claimMaturedWithdrawalNotice finds the notice a payout settles and locks it.
+// claimOutstandingWithdrawalNotice finds an unpaid withdrawal request this
+// payout can settle, and locks it. `found` is false when there is none, which
+// is the ordinary case now and not an error (ADR-030).
 //
-// "Covers the amount" rather than "equals" it: a member who gave notice for
-// ৳10,000 and then asks for ৳6,000 at the desk is withdrawing less than they
-// announced, which the notice period already covered. Asking for MORE than the
-// notice is a different withdrawal and needs its own notice.
+// Why look at all, when a member no longer files notices. Rows filed before the
+// change are still PENDING, and so are any a member submitted through the
+// member request flow that used to exist. Paying one of them at the desk must
+// *close* that row rather than write a second one beside it, or every total
+// over `transactions` counts the same withdrawal twice — once as a request and
+// once as the payment.
 //
-// Oldest first, so a member with several notices settles the one that has
-// waited longest.
-func (r *UserRepository) claimMaturedWithdrawalNotice(
+// "Covers the amount" rather than "equals" it: a member who asked for ৳10,000
+// and then takes ৳6,000 at the desk is withdrawing less than they asked for.
+// A payout larger than any outstanding request is simply a fresh withdrawal and
+// gets its own row.
+//
+// Oldest first, so a member with several settles the one that has waited
+// longest.
+func (r *UserRepository) claimOutstandingWithdrawalNotice(
 	ctx context.Context,
 	tx pgx.Tx,
 	memberID string,
 	amount int64,
-	noticePeriodMonths int,
-) (noticeID string, eligibleFrom time.Time, err error) {
-	var createdAt time.Time
+) (noticeID string, requestedAt time.Time, found bool, err error) {
 	err = tx.QueryRow(ctx, `
 		SELECT id::text, "createdAt"
 		FROM transactions
@@ -1066,24 +930,14 @@ func (r *UserRepository) claimMaturedWithdrawalNotice(
 		ORDER BY "createdAt" ASC
 		LIMIT 1
 		FOR UPDATE
-	`, memberID, amount).Scan(&noticeID, &createdAt)
+	`, memberID, amount).Scan(&noticeID, &requestedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", time.Time{}, fmt.Errorf(
-			"%w: the member must give notice before a withdrawal can be paid (FR-08)",
-			ErrNoWithdrawalNotice)
+		return "", time.Time{}, false, nil
 	}
 	if err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, false, err
 	}
-
-	eligibleFrom = noticeMaturityDate(createdAt, noticePeriodMonths)
-	if time.Now().Before(eligibleFrom) {
-		return "", time.Time{}, fmt.Errorf("%w: notice given %s, payable from %s",
-			ErrNoticePeriodNotElapsed,
-			formatNoticeDate(createdAt),
-			formatNoticeDate(eligibleFrom))
-	}
-	return noticeID, eligibleFrom, nil
+	return noticeID, requestedAt, true, nil
 }
 
 func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
@@ -1131,19 +985,16 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		return "", ErrGuarantorBlocksWithdrawal
 	}
 
-	// FR-08 — the payout gate.
+	// A payout no longer needs a member request behind it (ADR-030). This used
+	// to refuse outright unless the member had filed a notice and that notice
+	// had matured — which is the rule the owner asked to lift: staff take the
+	// request in person and pay at the desk, and the notice period is now the
+	// courtesy the foundation asks for rather than a gate in this code.
 	//
-	// A worker posting at the desk must be settling a notice the member gave,
-	// not originating a withdrawal (rule 4: workers never initiate money
-	// movement). So this consumes the oldest notice that covers the amount and
-	// has matured; with no such notice there is nothing to pay against.
-	//
-	// The gate lives HERE and not only in ApproveWithdrawal because this is the
-	// method that moves money. A check on the approval path alone would be
-	// bypassable by any caller that skips it, which is the shape of control the
-	// settings page already warns about.
-	noticePeriod := r.getWithdrawalNoticePeriodMonthsTx(ctx, tx)
-	noticeID, eligibleFrom, err := r.claimMaturedWithdrawalNotice(ctx, tx, memberID, amount, noticePeriod)
+	// An outstanding request is still *settled* rather than left behind, so the
+	// ledger carries one row for one withdrawal. With none, this writes a fresh
+	// row below.
+	noticeID, requestedAt, settlesRequest, err := r.claimOutstandingWithdrawalNotice(ctx, tx, memberID, amount)
 	if err != nil {
 		return "", err
 	}
@@ -1176,29 +1027,53 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	if notes != "" {
 		description = notes
 	}
-	// The notice row becomes the posting. A second row would leave the ledger
-	// carrying the same withdrawal twice — once as a request and once as a
-	// payment — and every total over `transactions` would double it.
+	// One posting per withdrawal, whichever path got here.
 	//
-	// **`amount` is rewritten to what was actually paid**, which is not always
-	// what the notice announced: a notice covers any amount up to itself, so a
-	// member who gave notice for ৳10,000 and took ৳6,000 settles it at ৳6,000.
+	// With an outstanding request, that row *becomes* the posting: a second row
+	// would leave the ledger carrying the same withdrawal twice — once as a
+	// request and once as a payment — and every total over `transactions` would
+	// double it. **`amount` is rewritten to what was actually paid**, which is
+	// not always what was asked for: a request covers any amount up to itself,
+	// so a member who asked for ৳10,000 and took ৳6,000 settles it at ৳6,000.
 	// Leaving the announced figure here would debit the account ৳6,000 and tell
 	// the ledger ৳10,000 — the balance and the passbook disagreeing by ৳4,000,
 	// which is the class of defect ADR-015 exists to prevent.
-	if _, err := tx.Exec(ctx, `
-		UPDATE transactions
-		SET status = 'CONFIRMED',
-			amount = $6,
-			"receiptNumber" = $2,
-			description = $3,
-			"savingsAfter" = $4,
-			"processedBy" = $5,
-			"processedAt" = NOW(),
-			"confirmedAt" = NOW()
-		WHERE id = $1
-	`, noticeID, receipt, description, newBalance, workerID, amount); err != nil {
-		return "", err
+	//
+	// With none, the posting is written here. It is CONFIRMED on insert because
+	// the money has already changed hands at the desk; a PENDING row would be a
+	// second withdrawal waiting to be paid (rule 6a).
+	auditNote := fmt.Sprintf("Withdrawal %d BDT for member %s, receipt %s, balance %d -> %d",
+		amount, memberID, receipt, currentBalance, newBalance)
+	if settlesRequest {
+		if _, err := tx.Exec(ctx, `
+			UPDATE transactions
+			SET status = 'CONFIRMED',
+				amount = $6,
+				"receiptNumber" = $2,
+				description = $3,
+				"savingsAfter" = $4,
+				"processedBy" = $5,
+				"processedAt" = NOW(),
+				"confirmedAt" = NOW()
+			WHERE id = $1
+		`, noticeID, receipt, description, newBalance, workerID, amount); err != nil {
+			return "", err
+		}
+		auditNote += fmt.Sprintf(", settling request %s made %s", noticeID, formatNoticeDate(requestedAt))
+	} else {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO transactions (
+				id, type, amount, "receiptNumber", description, status,
+				"accountId", "userId", "processedBy",
+				"savingsAfter", "processedAt", "confirmedAt", "createdAt"
+			) VALUES (
+				gen_random_uuid()::text, 'WITHDRAWAL', $1, $2, $3, 'CONFIRMED',
+				$4, $5, $6,
+				$7, NOW(), NOW(), NOW()
+			)
+		`, amount, receipt, description, accountID, memberID, workerID, newBalance); err != nil {
+			return "", err
+		}
 	}
 
 	memberTitle, memberMessage := notify.WithdrawalProcessed(amount)
@@ -1227,8 +1102,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	}
 
 	if err := r.insertAuditLogTx(ctx, tx, "WITHDRAWAL_POSTED", "ACCOUNT", accountID, workerID,
-		fmt.Sprintf("Withdrawal %d BDT for member %s, receipt %s, balance %d -> %d, settling notice %s given %s",
-			amount, memberID, receipt, currentBalance, newBalance, noticeID, formatNoticeDate(eligibleFrom)),
+		auditNote,
 	); err != nil {
 		return "", fmt.Errorf("failed to write audit log: %w", err)
 	}

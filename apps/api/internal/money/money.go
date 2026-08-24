@@ -50,6 +50,38 @@ func InstallmentPlanIsExact(principal int64, installments int, perInstallment, f
 	return perInstallment*int64(installments-1)+finalInstallment == principal
 }
 
+// RemainingInstallments is how many payments a loan still has to run.
+//
+// It never returns less than 1. A loan with money still owed always has at
+// least one payment left, whatever `paidInstallments` says — and the caller
+// divides by this, so a zero here is a panic on a money path. A count that has
+// run past the total (possible: `paidInstallments` is incremented per payment,
+// and a borrower may pay more often than the schedule) collapses to one final
+// payment rather than to a negative number of them.
+func RemainingInstallments(totalInstallments, paidInstallments int) int {
+	if paidInstallments < 0 {
+		paidInstallments = 0
+	}
+	remaining := totalInstallments - paidInstallments
+	if remaining < 1 {
+		return 1
+	}
+	return remaining
+}
+
+// TopUpPlan re-spreads a loan's outstanding balance over the payments it has
+// left, after staff have added to the principal.
+//
+// The end date does not move: `totalInstallments` is unchanged and each
+// remaining payment goes up. That is the whole of the arithmetic — no rate, no
+// markup, no fee (rule 3). The borrower repays the new principal and not one
+// taka more, which is the same invariant InstallmentPlan carries:
+//
+//	perInstallment*(remaining-1) + finalInstallment == outstanding
+func TopUpPlan(outstanding int64, totalInstallments, paidInstallments int) (perInstallment, finalInstallment int64) {
+	return InstallmentPlan(outstanding, RemainingInstallments(totalInstallments, paidInstallments))
+}
+
 // MaxLoanAmount is the ceiling a member may borrow: a multiple of what they
 // have saved. A non-positive multiplier or savings yields 0 — borrowing against
 // nothing is not a loan, it is a gift from the pool.

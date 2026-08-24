@@ -40,7 +40,10 @@ export function Logo({
   return (
     <Image
       src={source}
-      alt="হাসনাহেনা — Hasnahena"
+      // Named in full, in both scripts. This renders in the header of every
+      // public page, so it is one of the most-crawled strings on the site —
+      // "Hasnahena" alone is a crowded name and omits the word people search.
+      alt="হাসনাহেনা ফাউন্ডেশন / Hasnahena Foundation"
       width={width}
       height={height}
       className={cn(
