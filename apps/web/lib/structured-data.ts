@@ -32,6 +32,7 @@ import {
   SITE_NAME_VARIANTS,
 } from '@/lib/seo';
 import type { FaqEntry } from '@/lib/faq';
+import { orgAddress } from '@/lib/org-address';
 
 /** A JSON-LD node. Deliberately loose — the shape is schema.org's, not ours. */
 export type JsonLdNode = Record<string, unknown>;
@@ -79,7 +80,9 @@ const trimmed = (settings: Settings, key: string): string | undefined => {
  * letterhead on every generated document.
  */
 export function organizationSchema(settings: Settings): JsonLdNode {
-  const streetAddress = trimmed(settings, 'org.address');
+  // English, like `name` below and like every generated document: this node is
+  // read by crawlers and assistants worldwide, not by one locale's readers.
+  const streetAddress = orgAddress(settings, 'en') || undefined;
 
   // Every name this organisation is searched under, deduplicated and with the
   // primary name removed — `alternateName` means "also called", so repeating
@@ -114,7 +117,8 @@ export function organizationSchema(settings: Settings): JsonLdNode {
     // The locality, region and country are facts about where the foundation is
     // registered, not settings — there is no admin control for them and there
     // should not be, because moving would be a governance event rather than an
-    // edit. `streetAddress` is whatever the admin wrote in `org.address`.
+    // edit. `streetAddress` is the English half of the address pair, falling
+    // back to `org.address` when nobody has filled the English box in.
     address: {
       '@type': 'PostalAddress',
       streetAddress,

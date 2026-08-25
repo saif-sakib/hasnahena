@@ -84,10 +84,19 @@ const CONFIG_DEFAULTS = [
   },
   { key: 'org.name', value: 'হাসনাহেনা ফাউন্ডেশন', description: 'Organisation name (Bengali)' },
   { key: 'org.nameEn', value: 'Hasnahena Foundation', description: 'Organisation name (English)' },
+  // Two addresses, for the same reason there are two names: whichever script a
+  // single address box is filled in with is shown to both audiences, and the
+  // Bengali one under an English "Address" heading is what the public site
+  // shipped. `orgAddress()` in lib/system-config.ts picks between them.
   {
     key: 'org.address',
+    value: 'ভেকুটিয়া, সদর, যশোর',
+    description: 'Office address (Bengali) — shown on the Bengali site',
+  },
+  {
+    key: 'org.addressEn',
     value: 'Bhekutia, Sadar, Jashore, Bangladesh',
-    description: 'Address printed on generated documents',
+    description: 'Office address (English) — the English site and every generated document',
   },
   { key: 'org.phone', value: '+880 1712-345678', description: 'Public contact phone' },
   { key: 'org.email', value: 'info@hasnahenafoundation.com', description: 'Public contact email' },

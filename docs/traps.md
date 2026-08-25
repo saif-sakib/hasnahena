@@ -714,6 +714,44 @@ the identifier.
 
 ## Locale routing
 
+- **Changing the default locale does not change any code — it changes what
+  every untested assumption was hiding.** Bengali was the default for the
+  project's whole life, so a Bengali string written straight into a component
+  looked right on every page anyone opened, and a locale switch that only ever
+  ran with a prefix present was never asked to add one. Making English the
+  default (WO-94) did not break these; it *revealed* them, all at once, on the
+  live site. Budget for a sweep of rendered pages after any such flip, not a
+  sweep of the diff — the diff is where they are not.
+- **There is no correct way to swap a locale with `String.replace`.** Under
+  `as-needed` one of the two locales has no segment to replace, so the match
+  lands somewhere else: `localePath('en')` is `/`, and
+  `pathname.replace(localePath(locale), '/bn')` therefore rewrote the **first
+  slash** of `/dashboard/admin` and produced `/bndashboard/admin`. It
+  typechecks, it renders, and only a click reveals it — the language button on
+  every staff screen went to a 404. `switchLocalePath` is the only sanctioned
+  spelling, and `locale-routing.test.ts` bans the shape rather than the
+  instance.
+- **Playwright matches an accessible name by substring by default.**
+  `getByRole('link', { name: 'EN' })` matched the logo, whose alt text is
+  "Hasnah**en**a Foundation", so the first version of the language-toggle spec
+  clicked the logo and passed without ever touching the button it was written
+  for. Pass `exact: true` whenever the name is short enough to be a substring of
+  something else — which two-letter language codes always are.
+- **A `system_config` value that is prose needs one row per language.** There
+  was a single `org.address`, so whichever script the admin typed it in was
+  shown to both audiences: the Bengali address appeared under an English
+  "Address" heading on the home, contact and support pages and in the footer of
+  every public page, and on the letterhead of every generated document, which
+  [ADR-012](decisions.md) makes English only. `org.name`/`org.nameEn` had
+  already solved this; the address now has the same pair. Nothing over the
+  source can catch this class — the string is in the database, not the repo — so
+  the guard is a unit test on the pair plus an e2e test on the rendered page.
+- **An e2e test that reads rendered text must strip what an admin typed.** A
+  cooperative in Jashore legitimately has Bengali in its own settings, and a
+  test that goes red because someone edited a database row gets deleted rather
+  than read. `locale-content.spec.ts` fetches the public settings and removes
+  their values before asserting, so it only ever fails on copy the code owns.
+
 - **A redirect at the root is what makes `/` and `/bn` duplicates, not the
   choice of default locale.** Search Console reported *"Duplicate, Google chose
   different canonical than user"* on `/bn` with a Google-selected canonical of

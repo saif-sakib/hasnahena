@@ -114,7 +114,11 @@
     "totalMembers": "Total Members",
     "totalDeposits": "Total Deposits",
     "loansDistributed": "Loans Distributed",
-    "charitableFund": "Charitable Fund"
+    "charitableFund": "Charitable Fund",
+    "totalMembersValue": "125+",
+    "totalDepositsValue": "BDT 250,000+",
+    "loansDistributedValue": "BDT 180,000+",
+    "charitableFundValue": "BDT 25,000+"
   },
   "features": {
     "title": "Why Choose Hasnahena?",

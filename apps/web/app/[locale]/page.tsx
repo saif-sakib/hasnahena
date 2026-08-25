@@ -17,6 +17,7 @@ import { StructuredData } from '@/components/seo/structured-data';
 
 import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
+import { orgAddress } from '@/lib/org-address';
 import { localePath } from '@/lib/locale-path';
 
 /**
@@ -223,14 +224,23 @@ export default async function HomePage({ params }: PageProps) {
                 
                 <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
                   <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
+                    {/*
+                      The figures are translated, not just the labels. They were
+                      four Bengali literals — `১২৫+`, `৳১.৮ লক্ষ+` — rendered
+                      whatever the locale was, which nobody could see while
+                      Bengali was the default. Making English the default (WO-94)
+                      put Bengali numerals on the English home page above English
+                      captions. A number is copy: it has a script and a grouping
+                      convention, and both belong in the message files (rule 5).
+                    */}
                     <StatCard
-                      value="১২৫+"
+                      value={tStats('totalMembersValue')}
                       label={tStats('totalMembers')}
                       delay={0}
                       icon={<Users className="h-6 w-6 text-emerald-600" />}
                     />
                     <StatCard
-                      value="৳১.৮ লক্ষ+"
+                      value={tStats('loansDistributedValue')}
                       label={tStats('loansDistributed')}
                       delay={200}
                       icon={<HandHeart className="h-6 w-6 text-blue-600" />}
@@ -238,13 +248,13 @@ export default async function HomePage({ params }: PageProps) {
                   </div>
                   <div className="space-y-4 sm:space-y-6">
                     <StatCard
-                      value="৳২.৫ লক্ষ+"
+                      value={tStats('totalDepositsValue')}
                       label={tStats('totalDeposits')}
                       delay={100}
                       icon={<Wallet className="h-6 w-6 text-amber-600" />}
                     />
                     <StatCard
-                      value="৳২৫,০০০+"
+                      value={tStats('charitableFundValue')}
                       label={tStats('charitableFund')}
                       delay={300}
                       icon={<Heart className="h-6 w-6 text-rose-600" />}
@@ -465,7 +475,7 @@ export default async function HomePage({ params }: PageProps) {
 
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {[
-                { icon: MapPin, title: tContact('address'), value: settings['org.address'] || tContact('officeAddress') },
+                { icon: MapPin, title: tContact('address'), value: orgAddress(settings, locale) || tContact('officeAddress') },
                 { icon: Phone, title: tContact('phone'), value: settings['org.phone'] || '+880 1XXX-XXXXXX' },
                 { icon: Mail, title: tContact('email'), value: settings['org.email'] || 'info@hasnahenafoundation.com' },
               ].map((item, index) => (

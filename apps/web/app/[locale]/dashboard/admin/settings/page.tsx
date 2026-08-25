@@ -41,7 +41,8 @@ const DEFAULT_ORG_SETTINGS = {
   nameEn: 'Hasnahena',
   email: 'info@hasnahenafoundation.com',
   phone: '+880 1712-345678',
-  address: 'ভেকুটিয়া, যশোর, বাংলাদেশ',
+  address: 'ভেকুটিয়া, সদর, যশোর',
+  addressEn: 'Bhekutia, Sadar, Jashore, Bangladesh',
   website: 'https://hasnahenafoundation.com',
   description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
   regNumber: '',
@@ -144,6 +145,7 @@ export default function AdminSettingsPage() {
       email: pick('org.email', DEFAULT_ORG_SETTINGS.email),
       phone: pick('org.phone', DEFAULT_ORG_SETTINGS.phone),
       address: pick('org.address', DEFAULT_ORG_SETTINGS.address),
+      addressEn: pick('org.addressEn', DEFAULT_ORG_SETTINGS.addressEn),
       website: pick('org.website', DEFAULT_ORG_SETTINGS.website),
       description: pick('org.description', DEFAULT_ORG_SETTINGS.description),
       regNumber: pick('org.regNumber', DEFAULT_ORG_SETTINGS.regNumber),
@@ -244,6 +246,7 @@ export default function AdminSettingsPage() {
         'org.email': orgSettings.email,
         'org.phone': orgSettings.phone,
         'org.address': orgSettings.address,
+        'org.addressEn': orgSettings.addressEn,
         'org.website': orgSettings.website,
         'org.description': orgSettings.description,
         'org.regNumber': orgSettings.regNumber,
@@ -439,11 +442,30 @@ export default function AdminSettingsPage() {
                 <div className="space-y-2">
                   <Label htmlFor="org-address" className="flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
-                    {locale === 'bn' ? 'ঠিকানা' : 'Address'}
+                    {locale === 'bn' ? 'ঠিকানা (বাংলা)' : 'Address (Bengali)'}
                   </Label>
                   <Input id="org-address"
                     value={orgSettings.address}
                     onChange={(e) => setOrgSettings({ ...orgSettings, address: e.target.value })}
+                  />
+                </div>
+
+                {/*
+                  Two boxes, like the two name boxes above. One address box was
+                  shown to both audiences, so whichever script it was typed in
+                  appeared on the other language's site too — the Bengali
+                  address sat under an English "Address" heading on every public
+                  page. This one also prints on every generated document, which
+                  ADR-012 makes English only.
+                */}
+                <div className="space-y-2">
+                  <Label htmlFor="org-address-en" className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {locale === 'bn' ? 'ঠিকানা (ইংরেজি)' : 'Address (English)'}
+                  </Label>
+                  <Input id="org-address-en"
+                    value={orgSettings.addressEn}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, addressEn: e.target.value })}
                   />
                 </div>
 

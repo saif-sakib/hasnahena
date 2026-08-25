@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
+import { orgAddress } from '@/lib/org-address';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 import { localePath } from '@/lib/locale-path';
@@ -51,7 +52,8 @@ export default async function SupportPage({ params }: PageProps) {
   // generated document.
   const supportEmail = settings['org.email']?.trim() || '';
   const supportPhone = settings['org.phone']?.trim() || '';
-  const supportAddress = settings['org.address']?.trim() || '';
+  // Not `settings['org.address']`: one box, two audiences — see orgAddress().
+  const supportAddress = orgAddress(settings, locale);
 
   return (
     <>

@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Mail, Phone, MapPin, Send } from 'lucide-react';
 import { getPublicSettings } from '@/lib/system-config';
+import { orgAddress } from '@/lib/org-address';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
@@ -57,7 +58,8 @@ export default async function ContactPage({ params }: PageProps) {
   // equal by hand.
   const orgPhone = settings['org.phone']?.trim() || '';
   const orgEmail = settings['org.email']?.trim() || '';
-  const orgAddress = settings['org.address']?.trim() || '';
+  // Not `settings['org.address']`: one box, two audiences — see orgAddress().
+  const address = orgAddress(settings, locale);
 
   return (
     <>
@@ -105,7 +107,7 @@ export default async function ContactPage({ params }: PageProps) {
                   <MapPin className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{orgAddress}</p>
+                <p className="text-zinc-600 dark:text-zinc-400">{address}</p>
               </div>
             </div>
 

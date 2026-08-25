@@ -75,7 +75,7 @@ is not a column, it is `EXISTS` over an unused, unexpired one of them.
 ## `system_config` keys
 
 The complete allow-list lives in
-[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 40 keys —
+[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 41 keys —
 and is the single source of truth. `PUT /api/v1/settings` **rejects the whole
 request** on any key not declared there; it used to upsert anything, so a typo
 became a permanent row that looked like a real setting while the code read the
@@ -99,6 +99,19 @@ documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
 page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
 `auth.welcomeBack`, and `loan.guarantorThresholdAmount` — which is enforced in
 the Next loan-application route, not in Go.
+
+**A config value that is prose needs one row per language.** `org.name` and
+`org.nameEn` are a pair, and so are `org.address` and `org.addressEn`. One row
+is shown to both audiences, so whichever script an admin types it in appears on
+the other language's site too — the foundation's Bengali address rendered under
+an English "Address" heading on the home, contact and support pages, in the
+footer of every public page, and on the letterhead of every generated document,
+which [ADR-012](decisions.md) makes English only. `orgAddress(settings, locale)`
+in [`apps/web/lib/org-address.ts`](../apps/web/lib/org-address.ts) is the only
+place that chooses between them; each side falls back to the other, because a
+real address in the wrong script can still be posted to and an empty one cannot.
+The remaining `org.*` values — phone, email, website, registration number — are
+language-neutral and stay single.
 
 **Objects `prisma migrate diff` cannot see.** Three now, and the list matters
 because a `--from-empty` baseline would drop each one silently and

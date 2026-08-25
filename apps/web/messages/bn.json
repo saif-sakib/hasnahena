@@ -114,7 +114,11 @@
     "totalMembers": "মোট সদস্য",
     "totalDeposits": "মোট আমানত",
     "loansDistributed": "বিতরণকৃত ঋণ",
-    "charitableFund": "দান তহবিল"
+    "charitableFund": "দান তহবিল",
+    "totalMembersValue": "১২৫+",
+    "totalDepositsValue": "৳২.৫ লক্ষ+",
+    "loansDistributedValue": "৳১.৮ লক্ষ+",
+    "charitableFundValue": "৳২৫,০০০+"
   },
   "features": {
     "title": "কেন হাসনাহেনা বেছে নেবেন?",

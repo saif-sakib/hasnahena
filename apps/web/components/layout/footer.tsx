@@ -3,6 +3,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Facebook, Twitter, Mail, Phone, MapPin } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 import { localePath } from '@/lib/locale-path';
+import { orgAddress } from '@/lib/org-address';
 
 interface FooterProps {
   settings?: Record<string, string>;
@@ -104,7 +105,7 @@ export function Footer({ settings }: FooterProps) {
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
-                <span>{settings?.['org.address'] || 'Vekutia, Jashore, Bangladesh'}</span>
+                <span>{orgAddress(settings, locale) || 'Bhekutia, Sadar, Jashore, Bangladesh'}</span>
               </li>
               <li className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Phone className="h-4 w-4 shrink-0 text-primary" />

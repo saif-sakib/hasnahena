@@ -4,6 +4,7 @@ import { fetchSettings } from '@/lib/settings-client';
 
 import { DEFAULT_ORG } from './theme';
 import type { OrgSettings } from './types';
+import { orgAddress } from '@/lib/org-address';
 
 let cached: OrgSettings | null = null;
 
@@ -25,7 +26,10 @@ export async function fetchOrgSettings(options?: { refresh?: boolean }): Promise
       cached = {
         name: data['org.name'] || DEFAULT_ORG.name,
         nameEn: data['org.nameEn'] || DEFAULT_ORG.nameEn,
-        address: data['org.address'] || DEFAULT_ORG.address,
+        // English. Generated documents are English only (ADR-012), so the
+        // letterhead takes the English address and falls back to whatever the
+        // single old box holds.
+        address: orgAddress(data, 'en') || DEFAULT_ORG.address,
         phone: data['org.phone'] || DEFAULT_ORG.phone,
         email: data['org.email'] || DEFAULT_ORG.email,
         website: data['org.website'] || DEFAULT_ORG.website,

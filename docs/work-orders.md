@@ -393,7 +393,17 @@ row is not, and it is what the public pages render.
 Change it in **Admin → Settings → Organisation**. Until it is changed, a member
 replying to a foundation email sends it into someone else's domain.
 
-While that screen is open, `org.nameEn` is the other live row that is wrong: it
-reads "Hasnahena" rather than "Hasnahena Foundation", and the JSON-LD publishes
-whatever it holds — see the Search-discoverability row in
+While that screen is open, two more rows need attention.
+
+`org.nameEn` reads "Hasnahena" rather than "Hasnahena Foundation", and the
+JSON-LD publishes whatever it holds — see the Search-discoverability row in
 [production-readiness.md](production-readiness.md).
+
+**`org.addressEn` is new and empty on the live database.** The address box used
+to be single, and the live value is Bengali, which is why the English site
+showed a Bengali address under an English "Address" heading. The English box now
+exists beside it; until it is filled in, `orgAddress()` falls back to the
+Bengali row and the English pages keep showing it — deliberately, since a real
+address in the wrong script can still be posted to. It also prints on the
+letterhead of every generated document, which [ADR-012](decisions.md) makes
+English only.

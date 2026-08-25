@@ -73,6 +73,7 @@ left behind would pass or fail on package ordering.
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
 | a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
 | **a URL shape, a redirect, or a middleware header** | `apps/web/e2e/locale-negotiation.spec.ts` | the full stack — never a unit test, see traps.md "Locale routing" |
+| **what a reader in one language actually sees** | `apps/web/e2e/locale-content.spec.ts` | the rendered page. A source census cannot see copy that was never in a message file, and a database value is not the code's to assert — so this reads `document.body.innerText`, strips the public settings' own values, and fails on Bengali left on an English page. The language toggle is here too, because only a click distinguishes a working switch from one that builds a 404 |
 | **whether a rule still holds across the whole tree** | `apps/web/test/unit/*.test.ts` as a *census* that walks the source | nothing |
 
 ## The fixture contract

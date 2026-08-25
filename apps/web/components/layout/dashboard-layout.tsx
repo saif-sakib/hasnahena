@@ -32,7 +32,7 @@ import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { navFor, type DashboardNavItem } from '@/components/dashboard/nav';
 import { DashboardRoleProvider } from '@/components/dashboard/role';
-import { localePath } from '@/lib/locale-path';
+import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
 
 interface NotificationItem {
   id: string;
@@ -843,7 +843,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
           <div className="flex items-center gap-2">
             {/* Language Switcher */}
-            <Link href={pathname.replace(localePath(locale), locale === 'en' ? '/bn' : '/en')}>
+            {/*
+              `switchLocalePath`, not a `pathname.replace`. The replace was
+              `pathname.replace(localePath(locale), …)`, and for English
+              `localePath('en')` is `/` — so it rewrote the *first slash* of
+              `/dashboard/admin` and sent the admin to `/bndashboard/admin`,
+              which 404s. String surgery on a path cannot express "swap the
+              locale segment" when one of the two locales has no segment at all;
+              only the function that owns the rule can.
+            */}
+            <Link href={switchLocalePath(pathname, otherLocale(locale))}>
               <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900 rounded-md">
                 <Globe className="h-[14px] w-[14px] mr-1.5 opacity-70" strokeWidth={2} />
                 {locale === 'en' ? 'BN' : 'EN'}

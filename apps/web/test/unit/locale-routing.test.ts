@@ -157,4 +157,64 @@ describe('no page builds a locale URL by hand', () => {
         offenders.join('\n  '),
     ).toEqual([]);
   });
+
+  /**
+   * The other way a locale URL gets built by hand: string surgery on the
+   * current pathname.
+   *
+   * `pathname.replace(localePath(locale), otherPrefix)` reads like "swap the
+   * locale segment" and is not. For English `localePath('en')` is `/`, so on
+   * `/dashboard/admin` it replaced the **first slash** and produced
+   * `/bndashboard/admin` — a 404 reachable from the language button on every
+   * staff screen. `pathname.replace('/en', '/bn')` is the same family: it
+   * matches `/enrolment`, and it cannot add a prefix to a path that has none.
+   *
+   * There is no correct spelling of this with `replace`, because under
+   * `as-needed` one of the two locales has no segment to replace at all.
+   * Banning the shape is the fix; `switchLocalePath` is the only sanctioned way.
+   */
+  it('rewrites no locale with replace(), because there is no correct way to', () => {
+    // `router.replace(localePath(locale, '/login'))` is Next's navigation, and
+    // four files legitimately do it. The lookbehind is what keeps this census
+    // about string surgery on a path rather than about routing — without it the
+    // check fails on the correct code and gets deleted by the next person.
+    const NOT_A_ROUTER = String.raw`(?<!\brouter)`;
+    const BANNED: Array<{ pattern: string; what: string }> = [
+      { pattern: String.raw`pathname\s*\.replace\s*\(`, what: 'pathname.replace(…)' },
+      {
+        pattern: NOT_A_ROUTER + String.raw`\.replace\s*\(\s*localePath\s*\(`,
+        what: '.replace(localePath(…))',
+      },
+      {
+        pattern: NOT_A_ROUTER + String.raw`\.replace\s*\(\s*['"\`]/(en|bn)\b`,
+        what: ".replace('/en'…)",
+      },
+    ];
+
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      if (file.endsWith(join('lib', 'locale-path.ts'))) continue;
+      // Comments explain the banned shape in several places — including beside
+      // the fix for it. Matching those would fail this on its own documentation.
+      const code = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      for (const { pattern, what } of BANNED) {
+        if (new RegExp(pattern).test(code)) {
+          offenders.push(`${file.slice(WEB.length + 1)} — ${what}`);
+        }
+      }
+    }
+
+    expect(
+      offenders.sort(),
+      'These rewrite a path to change its locale. Under `as-needed` the ' +
+        'English pathname has no locale segment, so there is nothing to ' +
+        'replace and the match lands somewhere else — `localePath("en")` is ' +
+        '`/`, which is the first character of every path, which is how the ' +
+        'admin language button produced `/bndashboard/admin`. Use ' +
+        '`switchLocalePath(pathname, otherLocale(locale))`.\n  ' +
+        offenders.join('\n  '),
+    ).toEqual([]);
+  });
 });
