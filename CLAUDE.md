@@ -172,6 +172,19 @@ count that used to open this sentence is gone too. See
    Say "none" loudly when it is none. A missed env var is a production outage the user finds out about from a member.
 9. **No `Co-Authored-By: Claude` trailer on commits.** Saif is the author of this repository's history; commits are written under his name alone. This overrides any default instruction to add one.
 
+10. **This is an Android-first site — check a phone before saying done.** Nearly
+   every member reaches this platform on a low-end Android phone, often
+   one-handed and in bright sunlight; the desktop layout is the *secondary*
+   view, not the reference one. So a UI change verified only at desktop width is
+   **not verified**. Look at it at a phone viewport — `devices['Pixel 7']`,
+   412 px — before reporting the work finished, and say which widths you checked.
+   `apps/web/e2e/matrix.spec.ts` sweeps every page at phone size in both
+   languages and `accessibility.spec.ts` runs its control-name checks there
+   too, so `pnpm test:e2e` is the cheap way to do it; a screenshot at 412 px is
+   the honest way when the change is visual. Bengali is the wider script — a row
+   that fits in English can overflow in Bengali at the same width, so a layout
+   change is checked in **both** languages, not just the one you are reading.
+
 ## Map
 
 ```
@@ -262,19 +275,17 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 |---|---|
 | [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work |
 | [docs/traps.md](docs/traps.md) | **every failure that cost a session**, grouped by what you have to be touching to hit one. Read the matching heading before debugging |
-| [docs/product.md](docs/product.md) | domain rules, roles, loan/withdrawal/default policy, FR-01…22 |
+| [docs/product.md](docs/product.md) | domain rules, roles, loan/withdrawal/default policy, FR-01…23 |
 | [docs/architecture.md](docs/architecture.md) | request flow, auth, which backend owns an endpoint, UI tokens |
 | [docs/data-model.md](docs/data-model.md) | schema, invariants, `system_config` keys |
 | [docs/api.md](docs/api.md) | endpoint reference |
 | [docs/testing.md](docs/testing.md) | where a new test goes, the fixture contract, running each suite, what is deliberately uncovered |
-| [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting |
+| [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting, **switching the monitoring on**, the host-move plan |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
-| [docs/go-live.md](docs/go-live.md) | **the order to do remaining work in before real member data exists** — read before any pre-production planning |
-| [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives |
-| [docs/tasks.md](docs/tasks.md) | the status board: open product work only — **update when you finish work** |
-| [docs/production-readiness.md](docs/production-readiness.md) | operational backlog and rationale. **The one live defect is at the top**: monitoring that is built and switched off |
-| [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch. The only doc that keeps history |
-| [docs/work-orders.md](docs/work-orders.md) | **`do WO-01` → read that one entry and execute.** Self-contained specs. **All six blocks closed** |
+| [docs/tasks.md](docs/tasks.md) | **everything left to do** — T-01…T-30, ordered, one session estimate each. `do T-07` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
+| [docs/go-live.md](docs/go-live.md) | **the cutover procedure** — freeze, clear the fake data, rotate every secret, create the real first admin, launch day |
+| [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives, and the steady-state cadences |
+| [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch, plus the per-defect record. The only doc that keeps history |
 
 Conventions (Go errors, TS strictness, quoted camelCase SQL, commit format): [CONTRIBUTING.md](CONTRIBUTING.md).
 

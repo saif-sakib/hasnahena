@@ -3,8 +3,8 @@
 The sequence from where the platform is today — **deployed, working, holding fake
 data** — to real members' savings, with as little to fix afterwards as possible.
 
-[production-readiness.md](production-readiness.md) is the operational backlog;
-this file is the **order and the timing**, which is a different question.
+[tasks.md](tasks.md) is everything left to do; this file is the **cutover
+itself** — the order and the timing, which is a different question.
 
 ## The organising principle
 
@@ -20,162 +20,34 @@ later, and it decides whether launch is boring.
 | Deleting test data | `pnpm db:clear` | never again — the ledger is append-only and irreplaceable |
 | Fixing a money bug | a test and a commit | a correction entry, an audit trail, and a conversation with a member |
 
-Everything in Stage 1 is on the expensive-later list. Everything in Stage 4 is
-deliberately deferred *because* it stays the same price forever.
+That table is why [tasks.md](tasks.md) is ordered the way it is: Phases 0–4 are
+the expensive-later list, and the work deferred to Phases 6 and 8 is deferred
+*because* it stays the same price forever.
 
 ---
 
-## Stage 1 — Do while the data is still fake
+## Before the cutover
 
-**This is the whole point of the plan.** Each of these is cheap exactly once.
+**Everything that has to be true first is in [tasks.md](tasks.md), Phases 0–4.**
+That is where the work lives now — the monitoring switch, `TRUSTED_PROXIES`, the
+three wrong `system_config` rows, the retention window, the restore rehearsal and
+the last schema change that is cheap only while the donation table is empty.
 
-**Closed already:** the ledger defects (Batch L), the known-broken registration
-and settings paths, and the git-history question ([ADR-018](decisions.md) — the
-files are not live member data, so the purge is not warranted; the exemption
-covers those files only, and anything committed from here on is a different
-question with a different answer).
+This file is the cutover itself, and it starts once those are done.
 
 One thing from the ledger work still applies to the data: **balances written
 before 2026-08-17 may be wrong.** Any account that received overlapping postings
 under the old code can hold a figure that does not match its transaction rows.
-That does not matter if you clear the database at Stage 2.1 — which is the plan —
-but **no balance from the current data should be carried forward by hand.**
-
-### 1.1 Settle the data model — nothing here survives contact with real rows
-
-All schema changes. On an empty database they are a migration and nothing else;
-afterwards every one needs a backfill.
-
-| Change | Why now |
-|---|---|
-| **Collapse the legacy `LoanStatus` values** (`PENDING`, `APPROVED`) | Two vocabularies for one concept. With real loans in flight you cannot drop enum values without rewriting rows, and Postgres will not remove a label that is still referenced |
-| **Donation fund types** (FR-15/16) | Every donation posted before this exists becomes an untyped row somebody classifies by hand later. Zakat funds especially cannot be reconstructed after the fact |
-
-`pnpm db:migrate:check` runs in CI, so a schema edit without a generated
-migration fails the build rather than a production query.
-
-### 1.2 ~~Build the reconciliation job (OPS-07)~~ — done, WO-82
-
-Five invariants, summed hourly against the stored balances, reporting to
-`audit_logs`, `slog` and `hasnahena_ledger_drift_*`. It never corrects anything
-([ADR-027](decisions.md)).
-
-**It earned its place before it ever ran in production.** Writing the invariants
-down was enough to find two live defects in `waterfallRecoveryTx` that no existing
-test caught: recovery rows written `PENDING` while the savings had already been
-deducted, and `accounts."loanBalance"` never reduced, so a member whose savings
-were taken to settle a default kept seeing the whole debt. That is the argument
-for this item, restated as a fact.
-
-**What is left here is operational, not code:** alert on
-`hasnahena_ledger_drift_rows > 0`, and on
-`hasnahena_ledger_reconciled_timestamp_seconds` going stale — a drift gauge
-reading zero is indistinguishable from a job that has not run since the last
-deploy, and the second is the more likely failure. That needs the monitoring in
-1.4 switched on first. [runbook.md §2](runbook.md#2-a-disputed-or-wrong-transaction)
-is what to do when it fires.
-
-### 1.3 Prove the backup works, on data you can afford to lose
-
-The single most valuable thing you can do in this window. Run the full drill
-against the real production database while it holds nothing that matters:
-
-```bash
-# 1. Actions → Backup → Run workflow. Check the Diagnostics step prints
-#    majors: client=N server=M   with N >= M
-# 2. Download the artifact.
-# 3. Restore it into a Neon *branch*, never the primary.
-BACKUP_PASSPHRASE='…' scripts/restore-check.sh hasnahena-<stamp>.dump.gpg \
-  'postgresql://…neon.tech/…'   # needs ALLOW_NEON_TARGET=yes
-```
-
-If any step is awkward, fix the awkwardness now. The first time you do this for
-real will be the worst day, and it must be a procedure you have already executed
-rather than one you are reading.
-
-**Also confirm the restore is possible without you.** Write down where
-`BACKUP_PASSPHRASE` lives. A backup nobody else can decrypt is a backup that
-depends on one person being reachable.
-
-The procedure is now written out step by step in
-[runbook.md §4](runbook.md#4-restore-from-backup), together with what to do when
-restoring for real — suspend the API first, restore into a branch, verify, then
-repoint `DATABASE_URL` in **both** hosts. **It has never been rehearsed against a
-Neon branch**, and the runbook says so on its own line until somebody does it and
-dates it.
-
-### 1.4 Switch the monitoring on — it is built and it is off
-
-This belongs in Stage 1 for an unusual reason: it does not get more expensive
-later, it gets *less useful* later. The window where you most need to see an
-exception is the first week of real member traffic, and a monitoring stack
-switched on during that week is one you are also debugging during that week.
-
-The variables, the hosts, and what skipping each one means:
-[production-readiness.md](production-readiness.md#the-monitoring-is-built-and-switched-off).
-Then prove each end to end rather than assuming a set variable is a working one —
-Stage 3 below.
-
-### 1.5 Set `TRUSTED_PROXIES=1` on Render
-
-One variable, five minutes. At the default `0` the API attributes every member to
-Render's address: one rate-limit bucket and one login lockout for the whole
-membership. It logs a warning at boot when the value is `0` outside development —
-check the Render log after the next deploy. **Do not set it to 2** even though
-Vercel proxies the support routes ([ADR-021](decisions.md)).
-
-**This one now also decides whether a member can be locked out of their own
-savings.** The login lockout escalates on the identifier *and the address* and
-stays flat on the identifier alone, precisely so that an attack from somewhere
-else cannot hold a member out for an hour ([ADR-032](decisions.md)). At
-`TRUSTED_PROXIES=0` every caller has the same address, the two buckets collapse
-into one, and the escalation applies to the member as well as to the attacker.
-The mechanism is correct and the variable is what makes it true.
-
-### 1.6 Confirm the retention window before there is anything to retain
-
-`security.rejectedRetentionDays` defaults to **365** and is edited in
-Settings. It is what decides how long a refused applicant's NID number,
-photograph, addresses and both parents' names stay in the database
-([ADR-033](decisions.md)); the rejection decision and its audit row are kept for
-ever regardless. Set it to what the foundation actually intends *now*, because
-the sweep counts from each rejection and shortening it later applies to
-applications already stored.
-
-Two things to check on Render at the same time, both one line each:
-
-- `RETENTION_SWEEP_INTERVAL` is unset (24h) rather than `0`. At `0` the sweep
-  never runs, and the log says so once, at boot.
-- `JWT_EXPIRY_SECONDS` is at its default, or set to the **same** value on Vercel.
-  Only Render mints tokens, but Vercel sizes the revoke-all marker from it, and a
-  marker shorter than the tokens it revokes brings them back to life.
-
-### 1.7 Resubmit the sitemap, then leave Search Console alone
-
-WO-95 changed every English URL: `/` is a real page rather than a redirect, and
-`/en/*` 301s to its unprefixed form ([ADR-034](decisions.md)). That is the fix
-for the *"Duplicate, Google chose different canonical than user"* report on
-`/bn`, and it is the last SEO change that needs an action outside the code.
-
-1. Deploy.
-2. Spot-check over HTTP, not in a browser tab — a browser follows the redirect
-   and shows you the destination either way:
-   ```bash
-   curl -sI https://hasnahenafoundation.com/       | head -1   # 200
-   curl -sI https://hasnahenafoundation.com/en/faq | head -1   # 301
-   curl -s  https://hasnahenafoundation.com/sitemap.xml | grep -c '/en/'  # 0
-   ```
-3. Resubmit the sitemap in Search Console.
-4. **Expect one to three weeks, and do not re-inspect daily.** Repeatedly
-   requesting indexing does not make it faster and costs the quota.
+That does not matter if you clear the database at 1.1 — which is the plan — but
+**no balance from the current data may be carried forward by hand.**
 
 ---
 
-## Stage 2 — The cutover
+## Stage 1 — The cutover
 
 One deliberate session, not spread over a week.
 
-### 2.1 Freeze and clear
+### 1.1 Freeze and clear
 
 ```bash
 pnpm db:clear     # keeps admin + gallery + system_config + the donation pool
@@ -197,7 +69,7 @@ to members (`DEP-2026-000123`). Starting real operations at 000247 because of
 testing is harmless but looks like something is missing, and it generates a
 question you cannot answer later.
 
-### 2.2 Rotate every secret
+### 1.2 Rotate every secret
 
 Test credentials must not become production credentials. This is the step most
 likely to cause an outage.
@@ -213,7 +85,7 @@ likely to cause an outage.
 After rotating, log in as the seeded admin before announcing anything. A
 mismatched `JWT_SECRET` presents exactly as "the password is wrong".
 
-### 2.3 Create the real first admin
+### 1.3 Create the real first admin
 
 ```bash
 SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… pnpm db:seed
@@ -223,14 +95,14 @@ SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… pnpm db:seed
 so this is safe to run more than once. Use a password manager — this account can
 default loans.
 
-### 2.4 Take the first real backup by hand
+### 1.4 Take the first real backup by hand
 
 Before the first member is added, not after. It gives you a known-good empty state
 to restore to, and proves the pipeline works against the post-rotation credentials.
 
 ---
 
-## Stage 3 — Launch day
+## Stage 2 — Launch day
 
 Run the release checklist in [deployment.md](deployment.md), then:
 
@@ -255,15 +127,42 @@ Then stop and watch for a day before adding members in bulk.
 
 ---
 
-## Stage 4 — Deliberately after go-live
+## After the deploy — resubmit the sitemap, then leave Search Console alone
 
-These cost the same whenever they are done, so they should not delay launch.
+WO-95 changed every English URL: `/` is a real page rather than a redirect, and
+`/en/*` 301s to its unprefixed form ([ADR-034](decisions.md)). That is the fix
+for the *"Duplicate, Google chose different canonical than user"* report on
+`/bn`, and it is the last SEO change that needs an action outside the code.
 
-| Item | Why it can wait |
-|---|---|
-| Log aggregation, dashboard, audit viewer (OBS-05/07/08) | You have metrics and Sentry — *once switched on*. These make them nicer to read |
-| **Cloudinary asset backup (DATA-06)** | **The exception — do it as soon as real NID images exist.** Stage 1 work that simply cannot be done before there is anything to back up ([ADR-020](decisions.md)) |
-| Host move (INF-01 → INF-12) | Only once everything above is quiet |
+1. Deploy.
+2. Spot-check over HTTP, not in a browser tab — a browser follows the redirect
+   and shows you the destination either way:
+   ```bash
+   curl -sI https://hasnahenafoundation.com/       | head -1   # 200
+   curl -sI https://hasnahenafoundation.com/en/faq | head -1   # 301
+   curl -s  https://hasnahenafoundation.com/sitemap.xml | grep -c '/en/'  # 0
+   ```
+3. Resubmit the sitemap in Search Console.
+4. **Expect one to three weeks, and do not re-inspect daily.** Repeatedly
+   requesting indexing does not make it faster and costs the quota.
+
+---
+
+
+---
+
+## After go-live
+
+Log aggregation, the operations dashboard, the audit viewer and the host move
+cost the same whenever they are done, so they must not delay launch — they are
+Phases 6 and 8 in [tasks.md](tasks.md).
+
+**One exception.** Backing up the Cloudinary assets (T-26) is Stage-1 work that
+simply cannot be done before there is anything to back up ([ADR-020](decisions.md)).
+**Its trigger is the first real member document, not a date** — from that moment
+the NID images and member photographs are regulatory documents living in one
+third-party account with no export, and the nightly dump covers the database and
+nothing else.
 
 ---
 
@@ -271,16 +170,13 @@ These cost the same whenever they are done, so they should not delay launch.
 
 Four things, and none of them is a feature:
 
-1. **A ledger that is arithmetically correct under concurrency.** Fixed — but the
-   durable part is not the patches, it is OPS-07 above.
-2. **A restore you have performed**, not one you have written down. Stage 1.3.
-3. **A data model you are not going to change.** Stage 1.1 is the difference
-   between a migration and a migration plus a backfill plus an apology.
-4. **Somebody other than you being able to do it.** [runbook.md](runbook.md) is
-   now written for exactly that person. OPS-06 — where the secrets
-   live, which host owns which variable, how to restore. One person can currently
-   deploy this, and that person is also the one who would be unavailable in the
+1. **A ledger that is arithmetically correct under concurrency.** Done — and the
+   durable part is not the patches but the hourly reconciliation that would have
+   turned LEDGER-01 into an alert instead of an audit finding ([ADR-027](decisions.md)).
+2. **A restore you have performed**, not one you have written down. T-25.
+3. **A data model you are not going to change.** The difference between a
+   migration and a migration plus a backfill plus an apology.
+4. **Somebody other than you being able to run it.** [runbook.md](runbook.md) is
+   written for exactly that person. One person can currently reach every
+   credential, and that person is also the one who would be unavailable in the
    scenario where it matters.
-
-The security work, the tests, the CI, the backups and the containers are done.
-What is left before launch is small, and it is almost entirely Stage 1.

@@ -50,7 +50,7 @@ scripts/     test stack, backup, restore drill, PostgreSQL client resolution
 
 Role-based access control on every protected endpoint, bcrypt password hashing, JWT with server-side revocation checked by **both** backends, rate limiting and lockout keyed on one address resolver, audit logs made append-only by a database trigger, and single-transaction atomicity for all financial writes.
 
-Security review is continuous: CI runs `gitleaks` over full history, `golangci-lint`, the integration suite under `-race`, and a backup/restore drill on every push. Open defects are listed at the top of [docs/production-readiness.md](docs/production-readiness.md) rather than hidden.
+Security review is continuous: CI runs `gitleaks` over full history, `golangci-lint`, the integration suite under `-race`, and a backup/restore drill on every push. Everything still outstanding is listed in [docs/tasks.md](docs/tasks.md) rather than hidden.
 
 ## Contributing
 

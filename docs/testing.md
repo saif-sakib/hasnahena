@@ -177,3 +177,20 @@ number nobody trusts. Taken on the author's machine.
 | Next route contracts | ~3 s |
 | Browser suite | 153 passed + 1 skipped, 10.8 min, one worker, on an idle machine |
 | Largest client bundle | `/[locale]/dashboard/{worker,admin}/transactions`, ~1.41 MB uncompressed first-load JS — the same figure twice, because they are the same component. Recorded, not endorsed — see `bundle-budget.json` |
+
+---
+
+## The rule that makes a regression test worth writing
+
+**A regression test must be seen to fail against the pre-fix code before it is
+allowed to pass.** Put the defect back, watch the test go red, then restore the
+fix. A test written after the fix and never seen red proves only that it
+compiles — and this repository has caught two of those: a census whose regex
+matched its own documentation, and a language-toggle spec that clicked the logo
+instead of the button because Playwright matches an accessible name by
+substring. Both were green and both were checking nothing.
+
+When a test genuinely *cannot* be made to fail — a guard against something the
+type system already prevents, say — say so in the test itself, so the next
+reader does not go looking for the red run that never happened.
+

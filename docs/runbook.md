@@ -331,3 +331,24 @@ the owner has:
   record the date here. A restore you have not performed is a rumour.
 - **One person can still reach every credential.** [§6](#6-where-every-credential-lives)
   is a map of single points of failure, not a solution to them. OPS-01.
+
+---
+
+## Phase 7 — Steady-state operations
+
+What makes it *stay* production-ready after you stop looking at it daily.
+The open ones are tasks in [tasks.md](tasks.md); the rest are recurring.
+
+| ID | Task | Cadence |
+|---|---|---|
+| OPS-01 | Incident runbooks | `[x]` [runbook.md](runbook.md) — API down, database unreachable, bad deploy → rollback, a disputed transaction against an append-only log, credential rotation in the right order, restore from backup, and where every credential lives |
+| OPS-02 | Secret rotation | Every 6 months, and immediately after any exposure. `JWT_SECRET` must change in Vercel and Render **together** or every session breaks |
+| OPS-03 | Dependency updates | Monthly, on a branch, with CI green |
+| OPS-04 | Restore drill | Quarterly |
+| OPS-05 | Access review | Quarterly: who holds admin, Neon, Vercel, Render, Cloudinary and DNS credentials |
+| OPS-06 | Bus-factor documentation | `[~]` [runbook.md §6](runbook.md#6-where-every-credential-lives) maps every credential store and who can reach it. It is a map of single points of failure, not a fix for them — **one person can still reach all of them** |
+| OPS-07 | **Financial reconciliation job** | `[x]` WO-82. Five invariants summed hourly against the stored balances — savings, loan balance, loan remaining, every `savingsAfter` snapshot against the running total, and WO-72's owner pairs. On drift: an `audit_logs` row, a `slog` error and `hasnahena_ledger_drift_*`. **It never corrects anything** ([ADR-027](decisions.md)). It found two live defects in the default-recovery waterfall on its first run |
+| OPS-08 | 48-hour unconfirmed-transaction sweep | Product gap in [tasks.md](tasks.md); needs the scheduler this phase provides |
+| OPS-09 | Uptime/incident log | A dated file. Turns "it feels slow lately" into evidence |
+
+---

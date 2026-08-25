@@ -327,3 +327,82 @@ Thresholds are repository *variables*, changeable without editing the workflow:
 | `MONITOR_MAX_POOL_UTILISATION` | 80 | % of the pgx pool in use |
 
 **Uptime is deliberately not checked here.** A private repository gets 2,000 Actions minutes a month and every run bills a whole minute; a 5-minute uptime check is 8,640 runs — four times the free allowance, to do worse what UptimeRobot does free at 1-minute intervals.
+
+---
+
+## The monitoring is built and switched off
+
+This came from outside: Sentry emailed to say a Next.js project had been created
+and **no errors had ever arrived**. That is accurate, and it is not a Sentry
+setup problem.
+
+The integration is complete and correct on both surfaces, and every piece is
+deliberately inert without a credential — *a missing DSN must never fail a build,
+and a financial API must never refuse to boot because error reporting is
+misconfigured.* The cost of that design is exactly what happened here: **the
+system is silent in the same way whether it is healthy or unwatched.**
+
+| Piece | Where | With no credential |
+|---|---|---|
+| Sentry, Next server + edge + browser | `sentry.*.config.ts`, `instrumentation*.ts` | inert, no error |
+| Sentry, Go API | `internal/observability/sentry.go` | logs `error tracking disabled…`, no-op flush |
+| `/metrics` | `internal/metrics/handler.go` | logs `metrics endpoint disabled…` and 404s |
+| Business alerting | `.github/workflows/monitor.yml` | **exits 1** — fails twice a day rather than passing silently |
+
+**The code is done; the switch is not thrown** — it is T-01 in
+[tasks.md](tasks.md), and it is the one thing wrong operationally right now.
+
+| | To enable | Where |
+|---|---|---|
+| `[ ]` | `SENTRY_DSN` | **Render** (Go API) |
+| `[ ]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — `NEXT_PUBLIC_*` is baked at build time, so this needs a **redeploy**, not a restart |
+| `[ ]` | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | **Vercel** — optional; without them the build succeeds with minified stack traces |
+| `[ ]` | `METRICS_TOKEN`, same value in both places | **Render** *and* as a **GitHub secret** — the Monitor workflow scrapes `/metrics` with it |
+| `[ ]` | An UptimeRobot monitor on `/v1/ready` | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`) |
+
+**Deliberately staying off:** tracing (`tracesSampleRate: 0`) and session replay.
+Tracing burns the free-tier quota that should hold actual exceptions, and replay
+would record a member's dashboard — balance, loan, name — and ship it to a third
+party. PII scrubbing is on in both apps.
+
+**Then prove each one**, rather than assuming a DSN that is set is a DSN that
+works — the checklist is Stage 2, launch day, in [go-live.md](go-live.md).
+
+---
+
+---
+
+## Phase 6 — VPS or AWS
+
+T-30 in [tasks.md](tasks.md). Only start once everything else is quiet. Moving an unmonitored system onto
+infrastructure you now also have to patch makes things worse.
+
+**Recommended target: a single VPS** (Hetzner/DigitalOcean, 4 GB), not AWS. One
+machine, Docker Compose, Caddy for TLS, managed Postgres or a well-backed-up
+local one. Roughly $10–25/month, one thing to understand, no surprise bills. Full
+AWS (ECS/RDS/ALB) is 5–10× the cost and complexity for this workload — take it
+only if a funder or regulator requires it.
+
+| ID | Task | Notes |
+|---|---|---|
+| INF-01 | Choose the target and write it down as an ADR | Decide *with numbers* — cost, who administers it, what happens when that person is unavailable |
+| INF-02 | Provision as code | Terraform or a documented shell script. "I clicked around and it works" is not a recoverable state |
+| INF-03 | Base-image hardening | SSH keys only, no root login, `ufw` default-deny, `fail2ban`, unattended security upgrades |
+| INF-04 | Reverse proxy + TLS | Caddy (automatic Let's Encrypt) or nginx + certbot. Terminate TLS, forward to both containers, set HSTS |
+| INF-05 | Decide the database's home | Staying on Neon is legitimate and keeps DATA-01 simpler. Self-hosting means you own backups, tuning, upgrades and failover |
+| INF-06 | Deployment pipeline | CI already builds and pushes to GHCR → pull and restart on the host. Rollback = redeploy the previous SHA |
+| INF-07 | Zero-downtime deploys | Two containers behind the proxy, health-gated cutover |
+| INF-08 | Log shipping off the box | A dead disk must not take the audit trail with it |
+| INF-09 | Secrets management | Docker secrets or SOPS-encrypted files. Not a `.env` on the host with world-read permissions |
+| INF-10 | Staging environment | A second compose stack, separate database. First real use of the restore script |
+| INF-11 | Cutover runbook | Freeze window, final dump, DNS TTL lowered in advance, restore, verify, switch, **rollback plan**. Rehearse against staging |
+| INF-12 | Cost + capacity review | Set a monthly budget alarm before, not after, the first bill |
+
+**Cutover order.** DNS TTL to 300 s a day ahead → announce a maintenance window →
+stand up the new stack and restore a dump → run the release checklist in
+[deployment.md](deployment.md) against a temporary hostname → freeze writes →
+final dump and restore → switch DNS → watch for an hour → keep the old stack warm
+for 48 h.
+
+The environment contract the app needs from any host is in
+[changing-things.md](changing-things.md#i-want-to-move-off-vercel-and-render-onto-a-vps).

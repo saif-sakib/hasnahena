@@ -1,73 +1,203 @@
 # Task Board
 
-Live **product** status. Operational readiness lives in
-[production-readiness.md](production-readiness.md), execution specs in
-[work-orders.md](work-orders.md), proof in [testing.md](testing.md), and
-everything already finished in [changelog.md](changelog.md).
+**Everything that is left to do, in one place.** There is no second list: what
+used to be spread across `work-orders.md`, `production-readiness.md` and the top
+of this file is here, and those two files are gone — closed work is history and
+history lives in [changelog.md](changelog.md).
 
-**Nothing done is listed here** — a status board that keeps its own history stops
-being readable as a status board. Update this file in the same commit as the work.
+**Nothing finished is listed here.** A board that keeps its own history stops
+being readable as a board. Delete the row in the same commit as the work; the
+changelog is where it goes.
 
-Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
+## How to use this
 
-> **No requirement is broken.** One thing is wrong operationally: the
-> **monitoring is built and switched off**
-> ([how to fix](production-readiness.md#the-monitoring-is-built-and-switched-off)).
->
-> **Two work-order blocks are open** — Y and Z (WO-90 → 97), opened 2026-08-24
-> from an owner review. Specs are in [work-orders.md](work-orders.md); prompt
-> with an ID (`do WO-91`) or a block (`do block Y`).
->
-> **Block X — account security — is done** (WO-85 → 89, 2026-08-24). A
-> forgot-password reset now revokes every session the account has open, which is
-> the one flow a locked-out member can actually reach and the one that did not
-> ([ADR-031](decisions.md)); reset secrets are stored as SHA-256 with the purpose
-> in a `scope` column, so the table is no longer a set of working credentials;
-> a reset is scoped to one user id and checks its row count; `forgot-password`
-> answers identically for a member, a suspended member, a member with no email
-> address and a stranger; and the login lockout escalates on the
-> identifier+address pair while staying flat on the identifier alone, so an
-> attacker cannot lock a member out of their own savings
-> ([ADR-032](decisions.md)).
->
-> **Blocks R → W are done** (WO-67 → 84, 2026-08-19). The `/donate` and
-> `/contact` pages no longer show unchangeable placeholder details, every foreign
-> key is indexed, the database has CHECK constraints of its own, migrations are
-> the only definition of the schema, **20 marketing routes are prerendered
-> instead of hitting Neon on every visit**, an idle dashboard tab makes two
-> requests a minute instead of twenty-six and a hidden one makes none, the web
-> app has a **Content-Security-Policy** (report-only until `CSP_ENFORCE=1`), the
-> settings endpoint serves three tiers instead of one, the Go rate limiter keys
-> on the member rather than on Vercel's address, every public page carries
-> `NGO`/`WebSite`/`BreadcrumbList` structured data built from the `org.*`
-> settings, and **the ledger is summed and compared to the stored balances every
-> hour** (WO-82) — which found two live defects in the default-recovery waterfall
-> on its first run.
->
-> There is now a [runbook.md](runbook.md) for the night something breaks. Its one
-> unproven step is the restore rehearsal, which needs the Neon account.
->
-> **Owner-directed, 2026-08-24 ([ADR-030](decisions.md)).** The withdrawal notice
-> period is **gone**: staff pay when the member asks, the member-side notice form
-> and its route are removed, and `loan.noticePeriodDays` is a figure the
-> foundation publishes rather than a gate. Staff can also **add principal to a
-> running loan** now, which is the answer to "one loan at a time" that does not
-> require settling and re-issuing.
->
-> **The member identifier** is called **`accountNo`** everywhere — column, code,
-> documents and both languages ([ADR-029](decisions.md)); the value and its
-> `ACC-KH-33001` format are unchanged.
->
-> **This page cannot quietly fall behind the code.** A requirement not marked
-> `[x]` must *still* be unimplemented in the source, or
-> `apps/web/test/unit/requirements.test.ts` fails and names the file that
-> implements it. The same suite fails if `product.md` and this table disagree.
->
-> **Going to production?** [go-live.md](go-live.md) orders the remaining work by
-> *what gets more expensive once real member data exists*.
+Say **`do T-07`** and the task is executed from the description here plus the
+docs it points at — no re-reading of the codebase needed to know what is wanted.
+Tasks are ordered so that each is genuinely doable when you reach it.
+
+**Sessions** is how many working sessions the task needs end to end — including
+reading the code, writing the tests that keep it fixed, running the suites and
+updating the docs. A session is one focused stretch of work, not a calendar day.
+Where a range is given, the low end assumes nothing surprising is found; the
+high end is what it costs when the first honest look turns up more than the
+task description knew about, which on this codebase has been the common case.
+**`owner`** means it is not engineering at all — it needs an account, a
+credential, a paid plan, or a decision only the foundation can make, and I
+cannot do it.
+
+Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 
 ---
 
+## Where the platform stands
+
+No requirement is **broken**. The money paths, the security work, the tests, CI,
+backups and containers are done and hold. What is left is of three kinds: a
+handful of owner actions that take minutes and are blocking nothing but
+themselves; the quality of the two surfaces a member actually meets — the
+registration flow and the public site; and the long tail of product gaps in the
+FR table below.
+
+**One thing is wrong operationally right now:** the monitoring is built and
+switched off (T-01). Until it is on, everything else ships blind.
+
+## What it adds up to
+
+| Phase | What | Sessions |
+|---|---|---|
+| **0** | Owner actions — monitoring, `TRUSTED_PROXIES`, three wrong settings rows, the retention window, the late-fee decision | `owner`, about 1½ h total |
+| **1** | The entry point: registration → approval → first login | **5–6** |
+| **2** | The public face: eleven pages, and the admin editing that drives them | **4–7** |
+| **3** | The whole-site input/output sweep | **4–6** |
+| **4** | The last cheap schema change | **1–2** |
+| — | **Go live** — the cutover in [go-live.md](go-live.md) | 1 |
+| **5** | The product gaps in the FR table | **13–17** |
+| **6** | Operations: restore drill, asset backup, logs, dashboard | **4–5** |
+| **8** | Move hosts | **4–6** |
+
+**To a launch you would not be embarrassed by: Phases 0–4 plus the cutover — 15–22 sessions.**
+Phase 5 is real product work that a live foundation can absorb gradually; Phase 6
+follows the first real data; Phase 8 waits until everything is quiet.
+
+The high end of each range is not padding. On this codebase the first honest look
+at an area has repeatedly found more than the task description knew about — the
+English-first work was scoped as three orders and turned up five further defects,
+two of them live on the deployed site.
+
+---
+
+## Phase 0 — Owner actions
+
+None of these is engineering. All of them are quick, and three of them are
+wrong on the live site *today*.
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-01** | **Switch the monitoring on** | `owner` ~1 h | Four environment variables (Sentry DSN on both hosts, `METRICS_TOKEN`) and one UptimeRobot monitor against `/v1/ready`. The code is written and dormant. Until this is done every fix below ships blind and the Monitor workflow fails twice a day. [deployment.md](deployment.md) |
+| `[ ]` **T-02** | **`TRUSTED_PROXIES=1` on Render** | `owner` 5 min | At the default `0`, a process behind a proxy attributes every member to the proxy's address: one rate-limit bucket and one login lockout for the entire membership. The API already logs a warning at boot when it is `0` outside development ([ADR-019](decisions.md), [ADR-021](decisions.md)) |
+| `[ ]` **T-03** | **Fix three live `system_config` rows** | `owner` 10 min | Admin → Settings → Organisation. `org.email` reads `info@hasnahena.org`, a domain the foundation does not own, so a member replying to a foundation email sends it to a stranger. `org.nameEn` reads "Hasnahena" rather than "Hasnahena Foundation", and the JSON-LD publishes whatever it holds. `org.addressEn` is empty and new — until it is filled in, the English pages fall back to the Bengali address. None is fixable from code: the seeded defaults and the form are already correct |
+| `[ ]` **T-04** | **Confirm `security.rejectedRetentionDays`** | `owner` 5 min | Defaults to 365. The sweep counts from each rejection, so set it **before** real applications exist ([ADR-033](decisions.md)) |
+| `[ ]` **T-05** | **Answer the late-fee question** | `owner` | The loan agreement PDF prints *"Late payment may attract a fixed, interest-free late fee as set by foundation policy"*. Nothing implements one and no policy says who would keep the money. Pinned in both directions by `shariah_test.go`: implementing a fee fails the suite, and deleting the clause fails it too. Rule 3 says flag rather than choose — this is the flag. A penalty **retained by the lender** is riba on the mainstream reading; one **paid entirely to charity** is the form scholars permit. Needs authority over foundation policy, not code |
+
+---
+
+## Phase 1 — The entry point
+
+*Owner priority, 2026-08-25: "the entry point to this foundation is the
+registration process, so the whole entry point should be user friendly, zero
+bugs, and the arising of bugs in the future should be very minimum."*
+
+This is the first thing a prospective member touches and the only flow where a
+bad experience costs the foundation a member outright.
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-06** | **Audit the whole entry path and report** | 1 | Registration form → admin approval → rejection → the approval email → first login → forced password change → forgot-password. Produce a written list of every defect, every rough edge and every place the flow lies to the applicant, ranked, with the evidence for each. **No fixes in this session** — the point is a list you can approve before code changes, because several of the likely findings are product decisions rather than bugs (what a rejected applicant is told, whether a half-finished application can be resumed, what happens to an applicant whose email bounces) |
+| `[ ]` **T-07** | **Fix everything T-06 found** | 3–4 | Split across sessions by area — the form, the approval/rejection path, the credential handover — with the tests that keep each fixed. Expect this to be the larger half: the registration form is the biggest single component in the app (over 1,300 lines) and it owns eight steps, file uploads, a nominee, and a resumable draft in `localStorage` |
+| `[ ]` **T-08** | **Make the entry path hard to break again** | 1 | The guard rail, written once the shape of T-07's fixes is known: an end-to-end spec that walks a real applicant from an empty form to a working first login, at a **phone viewport in both languages** (rule 10), plus whichever censuses the findings show are missing. Registration currently has a spec that covers the form, not the journey through approval to first login |
+
+---
+
+## Phase 2 — The public face
+
+*Owner priority, 2026-08-25: "the main representation of our website and the
+whole foundation is the welcome page and the other pages including our logo that
+anyone can see without login — the design should be elegant, professional,
+classic (the current one is really nice), everything should be in the right
+place, everything there should work properly."*
+
+The design direction is **refine what is there**, not redesign it. The owner
+likes the current look; the job is to make it right, consistent and correct on a
+phone, not to replace it.
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-09** | **Audit every public page and report** | 1–2 | The eleven pages a stranger can reach, in both languages, at phone and desktop width: home, about, activities, contact, donate, faq, gallery, privacy, support, terms, plus the auth pages. Every broken link, every dead control, every placeholder that survived, every element that overflows at 412 px, every inconsistency in spacing, type scale and the logo's use. Report first, as with T-06 — taste is the owner's call, and a session spent changing things nobody asked to change is a session wasted |
+| `[ ]` **T-10** | **Fix and refine** | 2–3 | Execute the approved list. Elegant, professional, classic — and **Android-first**: verified at 412 px in Bengali as well as English before it is called done (rule 10) |
+| `[ ]` **T-11** | **Make the admin content editing actually drive the pages** | 1–2 | Every control on Admin → Content & Media and Admin → Settings must change what a visitor sees, and every value a public page renders must be reachable from one of those two screens. Both halves have failed before and neither is theoretical: WO-67 found four `bank.*` keys the donate page read that no screen could set, so its "fallback" account number was the only value it could ever show; the office address was one row shown to both languages until 2026-08-25. `settings-keys-read.test.ts` enforces the key lists, but **nothing yet proves the rendered page changes when the value does** — that proof is this task |
+
+---
+
+## Phase 3 — The pre-production sweep
+
+*Owner priority, 2026-08-25: "check all the input and expected output through
+all the pages of the whole website. There should be zero bug before go
+production."*
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-12** | **Input/expected-output sweep, page by page** | 4–6 | Every form field on every screen for all four roles: what it accepts, what it rejects, what it says when it rejects, and what the server does with it. Money fields against rule 1 (whole taka, `parseWholeTaka`), dates, phone and NID formats, file uploads, every empty state and every error state. Done in passes of roughly one dashboard per session so findings can be fixed while they are fresh, rather than accumulating into a list too long to act on. **This cannot honestly promise "zero bugs"** — no sweep can — but it is the difference between finding them here and a member finding them with their savings |
+
+> **On "zero bugs before production".** The suites already refuse a large class
+> of defect, and the ledger is summed hourly and compared to the stored balances.
+> What T-12 adds is the class no test currently reaches: a field that accepts
+> something it should not, an error message that says the wrong thing, an empty
+> state nobody has seen. Aim for zero *known* defects at cutover and a short path
+> from a member's report to a fix — [runbook.md](runbook.md) is that path.
+
+---
+
+## Phase 4 — The schema, while it is still cheap
+
+Everything here is a migration today, and a migration **plus a backfill plus a
+plan for rows written in between** once real members exist. Guarded by
+`pnpm db:migrate:check` in CI.
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-13** | **Donation fund types** (FR-15/16) | 1–2 | A donation posts as an untyped `DONATION` with no Operating/Lending/Zakat split and no per-fund accounting. **Zakat funds cannot be reconstructed after the fact** — the money is fungible once it is in the pool, so the type has to be recorded at the moment of the posting or it is gone. Cheap only while the donation table is empty |
+
+---
+
+## Phase 5 — The product gaps
+
+The FR table below is the specification; these are the rows that are not `[x]`.
+Ordered by what a member notices.
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-14** | **Worker-created loans skip the lifecycle** (FR-12) | 1 | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate` and `approvedAt` in one statement — no guarantor step, no approval step. The documented Request → Approve → Disburse lifecycle is reachable only through admin approval of a loan the worker UI cannot create |
+| `[ ]` **T-15** | **Fairness and solvency caps** (FR-10) | 1–2 | The personal cap is enforced; the fund-level ones are not. Nothing stops the fund lending itself empty |
+| `[ ]` **T-16** | **Guarantor-obligation withdrawal block** (FR-09) | 1 | A guarantor's savings back someone else's loan; today only the guarantor's *own* active loan blocks a withdrawal |
+| `[ ]` **T-17** | **Notifications in both languages** | 1–2 | Both surfaces hardcode English, against rule 5. The builders are already in one place each — `internal/notify/messages.go` and `lib/notify.ts` — with a census over both, so this is a translation job rather than a hunt |
+| `[ ]` **T-18** | **Member edits their nominee** (FR-06) | 1 | Captured at signup and never editable. A nominee is who receives the money if a member dies, so a stale one is the worst kind of stale record |
+| `[ ]` **T-19** | **Admin audit viewer** (FR-22, OBS-08) | 1–2 | The data is complete and `GET /api/v1/admin/audit-logs` exists and is called by nothing. Nobody can read the audit log without SQL, which makes it evidence nobody can produce |
+| `[ ]` **T-20** | **Admin correction flow for a disputed posting** (FR-18) | 1 | The freeze works; the correction is manual SQL today. Corrections append ([ADR-026](decisions.md), [runbook.md](runbook.md) §2) |
+| `[ ]` **T-21** | **Support SSE client** | 1 | The stream and its ticket endpoint are live and authenticated; the UI polls anyway. `EventSource` appears nowhere in `apps/web` |
+| `[ ]` **T-22** | **48-hour unconfirmed-transaction sweep** (OPS-08) | 1 | The Monitor workflow alerts on the backlog twice a day and nothing acts on it |
+| `[ ]` **T-23** | **Worker SLA colouring** (FR-21) | 1 | Queues are live; the green-under-24 h / red-over-48 h signal is missing |
+| `[ ]` **T-24** | **The 827 inline EN/BN strings** | 3–4 | `locale === 'bn' ? … : …` across 33 dashboard files instead of `messages/{en,bn}.json` (rule 5); the worst are `dashboard/admin/workers` (72), `member-detail-screen` (66) and `dashboard/member/loans` (57). They *are* translated, so this is a maintainability gap rather than a member-facing one — but it is also a **blind spot**: nothing in `messages.test.ts` can read a string that lives in a component, which is how the Terms of Service came to promise administrative fees in both languages while every guard passed. The `(auth)` pages were cleared by WO-96 and are held there by a census; widening that census is the same job as fixing the 827 |
+
+---
+
+## Phase 6 — Operations
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-25** | **Rehearse the restore** (OPS-04) | `owner` + 1 | The backup runs; nobody has restored one. Needs the Neon account: restore an artifact into a **branch**, never the primary. The one unproven step in [runbook.md](runbook.md) |
+| `[ ]` **T-26** | **Back up the Cloudinary assets** (DATA-06) | 1–2 | **The largest remaining data gap.** NID and member photographs are regulatory documents living in one third-party account with no export; the nightly dump covers the database and nothing else. Deliberately deferred until the first real member document exists ([ADR-020](decisions.md)) — there is nothing to lose yet and an export job written against an empty account cannot be tested. **The trigger is that first document, not a date** |
+| `[ ]` **T-27** | **Log aggregation** (OBS-05) | 1 | Grafana Cloud or Better Stack free tier. Required once there is more than one process to correlate |
+| `[ ]` **T-28** | **One operations dashboard** (OBS-07) | 1 | Uptime, error rate, p95 latency, money posted today, queue depths |
+| `[ ]` **T-29** | **Branch protection on `main`** (CI-09) | `owner` | Needs a paid plan on a private repo. `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |
+
+---
+
+## Phase 7 — Go live
+
+The cutover itself — freeze, clear the fake data, rotate every secret, create the
+real first admin, take the first backup by hand — is a procedure rather than a
+task list, and it lives in **[go-live.md](go-live.md)**. Do it once Phases 0–3
+are clear.
+
+---
+
+## Phase 8 — Move hosts
+
+| # | Task | Sessions | Detail |
+|---|---|---|---|
+| `[ ]` **T-30** | **VPS or AWS** (INF-01 → INF-12) | 4–6 | Only once everything above is quiet. The containers and the env contract are already built, which is most of the work; the risk is entirely in the cutover, not the packaging |
+
+---
 ## Requirements
 
 | ID | Requirement | Status | Where / what is missing |
@@ -97,99 +227,39 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-23 | Member erasure and rejected-application retention | `[x]` | admin erases from the member detail screen — anonymise if there are postings, delete if there are none; the Go sweep clears a rejected applicant's identity after `security.rejectedRetentionDays` |
 
 **13 complete · 8 partial · 2 not started · 0 broken.**
+**This page cannot quietly fall behind the code.** A requirement not marked
+`[x]` must *still* be unimplemented in the source, or
+`apps/web/test/unit/requirements.test.ts` fails and names the file that
+implements it. The same suite fails if [product.md](product.md) and this table
+disagree — so a task above that closes an FR has to update this row in the same
+commit.
 
 ---
 
-## Open product defects
+## Not doing
 
-| | Defect | Evidence |
-|---|---|---|
-| `[ ]` | **A worker-created loan skips the lifecycle** (FR-12) | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate`/`approvedAt` in the same statement. No guarantor step, no approval step |
-| `[ ]` | **Support chat has no SSE client** | `EventSource` appears nowhere in `apps/web`. The stream and its ticket endpoint are live and authenticated; the UI polls instead. One full browser run issued **288 requests to `/v1/dashboard/notifications` and 144 to `/v1/dashboard/support/threads`** — that is the polling, measured |
-| `[ ]` | **No 48-hour unconfirmed-transaction sweep** | Needs the scheduler — OPS-08. The Monitor workflow alerts on the backlog twice a day but nothing acts on it |
-| `[ ]` | **Notifications are English only** | Both surfaces hardcode the message text, against rule 5. The builders are now in one place each — `apps/api/internal/notify/messages.go` and `apps/web/lib/notify.ts` — so this is a translation job rather than a hunt |
+Recorded so they are not re-proposed as gaps.
 
-### The late-fee question — flagged, not decided
-
-The loan agreement PDF prints *"Late payment may attract a fixed, interest-free
-late fee as set by foundation policy"*. Nothing implements a late fee, no policy
-records who would keep the money, and FR-13 names one. Pinned in both directions
-by `apps/api/internal/money/shariah_test.go`: implementing a fee fails the suite,
-and removing the clause from the agreement fails it too. **Rule 3 says stop and
-flag rather than choose** — this is the flag. It needs someone with authority over
-foundation policy, not code: a penalty retained by the lender is riba on the
-mainstream reading, while one paid entirely to charity is the form scholars permit.
-
----
-
-## UI gaps
-
-Recorded rather than fixed, because each is a decision rather than a defect.
-
-- `[ ]` **The admin and worker screens keep their copy inline** —
-  `locale === 'bn' ? … : …` rather than `messages/{en,bn}.json` (rule 5).
-  **827 occurrences across 33 files**, counted 2026-08-25; the worst are
-  `dashboard/admin/workers` (72), `member-detail-screen` (66) and
-  `dashboard/member/loans` (57). They *are* translated (the `/bn` dashboards
-  measure 84–97% Bengali), so this is a maintainability gap, not a member-facing
-  one — but it is also a **blind spot**: nothing in `messages.test.ts` can read a
-  string that lives in a component, which is how the Terms of Service came to
-  promise administrative fees in both languages while every guard passed.
-  The `(auth)` pages were cleared by WO-96 (73 strings, three files) and are held
-  there by a census scoped to `app/[locale]/(auth)/`. Widening that census is the
-  same job as fixing the 827. New copy goes in the message files.
-
-## Data gaps
-
-- `[ ]` **Cloudinary assets have no backup** (`DATA-06`) — the largest remaining
-  data gap, and it cannot be built until there is something to back up
-  ([ADR-020](decisions.md)).
-- `[ ]` **No audit viewer UI** (`OBS-08`, FR-22) — the data is complete and the
-  endpoint exists; nobody can read it without SQL.
-
----
-
-## The order to work in
-
-Ordered by one question: *what is hurting a member, or will cost most to fix
-later?* Nothing here is a work order — when a row needs a spec someone can execute
-without re-reading the codebase, it becomes one in
-[work-orders.md](work-orders.md) first.
-
-### Now — neither of these is engineering
-
-| # | Do this | Why it is first |
-|---|---|---|
-| 1 | **Switch the monitoring on** — [how](production-readiness.md#the-monitoring-is-built-and-switched-off) | Four environment variables and an UptimeRobot monitor. Until it is done, every fix below ships blind and the Monitor workflow fails twice a day. ~1 h, yours |
-| 2 | **Set `TRUSTED_PROXIES=1` on Render** — [why](decisions.md) (ADR-019, ADR-021) | One variable. At the default `0` a process behind a proxy attributes every member to the proxy's address: one 60/min bucket and one login lockout for the whole membership. The API logs a warning at boot when it is `0` outside development. 5 min, yours |
-
-### Then — the schema, while it is still cheap
-
-Everything here is a migration today, and a migration **plus a backfill plus a
-plan for rows written in between** after go-live. [go-live.md](go-live.md) 1.2 is
-the authority. Guarded by `pnpm db:migrate:check` in CI, so a schema edit without
-a generated migration fails the build rather than a production query.
-
-| # | Do this | Why now |
-|---|---|---|
-| 3 | **Donation fund types** (FR-15/16) | Zakat funds cannot be reconstructed after the fact. Cheap only while the donation table is empty |
-
-The legacy `LoanStatus` values were the third item here and are gone
-([WO-71](work-orders.md)). So is DATA-07 — retention and erasure were decided by
-the owner on 2026-08-25 and built as FR-23, and the answer needed no column at
-all ([ADR-033](decisions.md)). What is left of it is a *setting*: confirm
-`security.rejectedRetentionDays` before real applications exist
-([go-live.md](go-live.md) §1.6).
-
-### Then — the rest of the product
-
-| # | Do this |
+| Not doing | Why |
 |---|---|
-| 6 | **OPS-07 reconciliation job** — sum of transactions vs account balances, alerting on drift. Had it existed, LEDGER-01 would have been a nightly alert rather than an audit finding. The ledger's smoke alarm |
-| 7 | **Fix FR-12's worker path** so a worker-created loan follows the same lifecycle a member-created one does |
-| 8 | **Fairness and solvency caps** (FR-10) |
-| 9 | **Answer the late-fee question** (FR-13) — needs foundation policy, not code |
-| 10 | **An SSE client** for support (the UI polls) |
-| 11 | **Admin audit viewer UI** (OBS-08, FR-22) and worker SLA colouring (FR-21) |
-| 12 | **DATA-06** — back up the Cloudinary assets, as soon as there is something to back up |
-| 13 | **Host move** (INF-01 → INF-12). Only once everything above is quiet |
+| Kubernetes | A cooperative in Jashore does not need an orchestrator. One VPS with Compose is operable by one person |
+| Microservices | Two services is already the right number |
+| Redis | Postgres handles the rate limits and the blacklist at this scale — and that choice is what makes the single-VPS target realistic |
+| Multi-region | No latency or availability requirement justifies it |
+| Blue/green on separate infrastructure | A health-gated container swap is sufficient |
+| Sentry tracing and session replay | Tracing burns the quota that should hold exceptions; replay would ship a member's balance and name to a third party |
+| `@axe-core/playwright` | A generic audit produces a long advisory list nobody actions. The four hand-written checks in `accessibility.spec.ts` are specific to members filling in financial forms on a cheap Android in sunlight |
+| A second status board | This file is the only one. Closed work goes to [changelog.md](changelog.md) and nowhere else |
+
+---
+
+## Where everything else lives
+
+| Looking for | Go to |
+|---|---|
+| What is already done | [changelog.md](changelog.md) — the only file that keeps history |
+| Why the code contradicts an older assumption | [decisions.md](decisions.md) — indexed; read the one row |
+| Every failure that has cost a session | [traps.md](traps.md) |
+| How to change a specific thing | [changing-things.md](changing-things.md) |
+| The night something breaks | [runbook.md](runbook.md) |
+| The cutover procedure | [go-live.md](go-live.md) |

@@ -30,8 +30,9 @@ import (
 // The tradeoff, stated plainly: with N API instances the effective limit is N
 // times the configured one, because each holds its own counters. Render runs one
 // instance today. If that changes and the limit matters exactly, this is the
-// thing to move — to the database or to a shared store — and the note in
-// docs/production-readiness.md under RUN-07 says so.
+// thing to move — to the database or to a shared store. Deliberate at one
+// instance: a shared store would be a second dependency on the hot path of
+// every request, to fix a limit nothing is currently straining.
 
 const (
 	// Buckets are dropped once idle for this long, so the map tracks active

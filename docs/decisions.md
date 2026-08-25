@@ -572,7 +572,7 @@ proxied traffic, so enough abusive members can still exhaust that bucket between
 them. The complete fix is a limiter keyed on the authenticated user rather than
 the address, which needs verified identity in middleware — the token cannot be
 trusted before it is checked, or an attacker mints a fresh bucket per request by
-sending garbage. Tracked in [production-readiness.md](production-readiness.md).
+sending garbage. Tracked in [tasks.md](tasks.md).
 
 **Also changed:** `fetch` now carries `signal: req.signal`, so a member closing
 their browser ends the upstream SSE stream instead of leaving it open for the
@@ -691,7 +691,7 @@ configuration mistake: Next stamps the nonce onto its script tags while
 page generated at build time has no request, so it has no nonce, and a strict
 `script-src` then blocks its own hydration bootstrap.
 
-That collides directly with [WO-73](work-orders.md), which had just made ten
+That collides directly with [WO-73](changelog.md), which had just made ten
 marketing routes static because reading `system_config` on every visit was the
 largest performance item in the repository.
 
@@ -865,7 +865,7 @@ argument for the whole order in one sentence.
 
 ## ADR-028 — A public page renders without a database
 
-**Context.** [WO-73](work-orders.md) moved the marketing pages' `system_config`
+**Context.** [WO-73](changelog.md) moved the marketing pages' `system_config`
 and `galleryItem` reads from request time to **build** time by prerendering them.
 The Docker image is built with `DATABASE_URL` pointing at a placeholder that does
 not exist — the Dockerfile says so, and says why — so the next image build failed

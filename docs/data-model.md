@@ -39,7 +39,7 @@
 | Model → table | Holds | Key relations |
 |---|---|---|
 | `User` → `users` | identity, bilingual name, NID, role, status, `accountNo` (`ACC-KH-33001`…), avatar, approval trail | self-relation `approvedBy`; 1-1 nominee, permanent/present address |
-| `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User`. **Both foreign keys live here**, on `userPermanentId` and `userPresentId`, and both cascade — the present one used to point the other way, from `users`, which meant deleting a user orphaned it ([WO-72](work-orders.md)) |
+| `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User`. **Both foreign keys live here**, on `userPermanentId` and `userPresentId`, and both cascade — the present one used to point the other way, from `users`, which meant deleting a user orphaned it ([WO-72](changelog.md)) |
 | `Nominee` → `nominees` | name, relationship, NID, phone, photo | 1-1 `User`, cascade delete |
 | `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | many-1 `User`, cascade |
 | `Account` → `accounts` | `savingsBalance`, `loanBalance`, `isLoanEligible`, `maxLoanAmount` | 1 per `User`, enforced — `userId` is unique. **No account number**: it held a copy of `users.memberId` ([ADR-023](decisions.md)) |
@@ -51,7 +51,7 @@
 | `SystemConfig` → `system_config` | key/value policy store | — |
 | `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
 | `GalleryItem` | public content | — |
-| `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `staff User[]` — a worker's assigned office. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](work-orders.md) |
+| `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `staff User[]` — a worker's assigned office. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 
 `PasswordResetToken` stores **no secrets**: `tokenHash` is `sha256(secret)` and
@@ -67,7 +67,7 @@ is not a column, it is `EXISTS` over an unused, unexpired one of them.
 - `UserStatus` PENDING · ACTIVE · SUSPENDED · INACTIVE
 - `TransactionType` DEPOSIT · WITHDRAWAL · LOAN_DISBURSEMENT · LOAN_REPAYMENT · DONATION · FEE
 - `TransactionStatus` PENDING · PROCESSED · CONFIRMED · REJECTED · DISPUTED · REVERSED
-- `LoanStatus` PENDING_GUARANTOR · PENDING_APPROVAL · ACTIVE · COMPLETED · SETTLED · DEFAULTED · REJECTED. The legacy `PENDING` and `APPROVED` labels are **gone** ([WO-71](work-orders.md)) — `PENDING` had been the column default, so every new loan was written into the legacy vocabulary, which is why the guarantor panel never showed a request and the admin dashboard always reported zero pending loans
+- `LoanStatus` PENDING_GUARANTOR · PENDING_APPROVAL · ACTIVE · COMPLETED · SETTLED · DEFAULTED · REJECTED. The legacy `PENDING` and `APPROVED` labels are **gone** ([WO-71](changelog.md)) — `PENDING` had been the column default, so every new loan was written into the legacy vocabulary, which is why the guarantor panel never showed a request and the admin dashboard always reported zero pending loans
 - `RequestStatus`, `MaritalStatus`, `Gender`, `NotificationType`
 
 `FEE` exists in `TransactionType` for late-fee policy that is not implemented; it must never carry interest.

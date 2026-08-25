@@ -114,7 +114,7 @@ internal/utils            response envelope, validation, id + document-number ge
 
 `pgx` runs in `QueryExecModeSimpleProtocol` because Neon's pgBouncer pooler conflicts with server-side prepared statements. Keep it.
 
-The Go side touches **no** DDL. It used to create the support-chat tables at boot with `CREATE TABLE IF NOT EXISTS`, alongside the migration that also creates them — two definitions that disagreed ([WO-70](work-orders.md)). Migrations are the only definition now, and `schema_ownership_test.go` fails if a repository issues DDL again.
+The Go side touches **no** DDL. It used to create the support-chat tables at boot with `CREATE TABLE IF NOT EXISTS`, alongside the migration that also creates them — two definitions that disagreed ([WO-70](changelog.md)). Migrations are the only definition now, and `schema_ownership_test.go` fails if a repository issues DDL again.
 
 ## Environments
 

@@ -353,8 +353,8 @@ after a password change is born revoked. And `pgx` runs in
 Postgres, so leave it.
 
 The staged plan with the cutover runbook is INF-01 → INF-12 in
-[`production-readiness.md`](production-readiness.md). Do it only once everything
-else is quiet.
+[`deployment.md`](deployment.md#phase-6--vps-or-aws); it is T-30 on the board.
+Do it only once everything else is quiet.
 
 ---
 
