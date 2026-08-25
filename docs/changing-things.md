@@ -154,7 +154,9 @@ inline in SQL.
 ## "I want to change the registration form"
 
 [`app/[locale]/(auth)/register/page.tsx`](../apps/web/app/[locale]/(auth)/register/page.tsx)
-is one file, four steps, and the only way a member ever joins. It is also the
+is one file, four steps, and the only way a member ever joins. It is the first
+half of the **entry path**; the second half — approval, rejection, the decision
+email, first login — is in `apps/api` and is covered below. It is also the
 page most likely to be filled in on a mid-range Android over a patchy
 connection, which is what most of its non-obvious code is for.
 
@@ -202,6 +204,45 @@ navigation or the error summary.
 ```bash
 pnpm dev
 cd apps/web && npx playwright test e2e/registration.spec.ts
+```
+
+---
+
+## "I want to change what happens after somebody applies"
+
+The form is the part everyone looks at. **Every defect Phase 1 found was
+somewhere else** — in the gaps between applying, being decided about, and being
+told — which is why `registration.spec.ts` stayed green throughout.
+
+| Change | Where | What breaks if you get it wrong |
+|---|---|---|
+| The rejection reasons | [`lib/rejection-reasons.ts`](../apps/web/lib/rejection-reasons.ts) **and** the Go allow-list in `dashboard_handler.go` **and** `rejectionReasonSentence` in `email_service.go` | `rejection-reasons.test.ts` fails. A code in one and not the others is a 400 on a working-looking button, or a rejection email with no reason |
+| Who owns an email, phone or NID | [`lib/rejected-application.ts`](../apps/web/lib/rejected-application.ts) and `RejectedApplicationSQL` — **and the migration's index predicates** | `rejected-application.test.ts` fails. The indexes are what enforce it; the constants are what queries agree with |
+| The age floor | It is a **setting**, `membership.minimumAgeYears`. [`lib/membership-eligibility.ts`](../apps/web/lib/membership-eligibility.ts) is the only place that reads or judges it | The form and the API disagreeing means an applicant gets past the browser and is refused by the server with different words |
+| What the applicant is told | The approval and rejection builders in `email_service.go`, and the confirmation screen in the register page | Nothing else tells them. There is no in-app channel: an applicant has no account to log into |
+
+**Four things that will bite you:**
+
+1. **A lookup by contact detail must exclude rejected applications.** Two rows
+   may hold one email now. A query that forgets returns the row whose password
+   hash nothing can match.
+2. **Do not destroy the applicant's contact details to free a constraint.**
+   That was the old design and it is why nobody could be told they had been
+   rejected. The partial indexes exist so nothing has to be erased early.
+3. **The applicant's language is on the row** (`preferredLocale`), not in the
+   admin's request. An admin working in English must not send a Bengali
+   applicant an English password.
+4. **Email failure is reported, never fatal.** The decision is committed; an
+   admin whose mail bounced has to telephone, and can only do that if the screen
+   says so.
+
+**Prove it:** [`e2e/entry-path.spec.ts`](../apps/web/e2e/entry-path.spec.ts)
+walks the whole journey at 412 px in both languages.
+
+```bash
+scripts/test-stack.sh up --serve && eval "$(scripts/test-stack.sh env)"
+export E2E_ADMIN_IDENTIFIER=admin@hasnahena.test E2E_ADMIN_PASSWORD=test-password-123456
+cd apps/web && npx playwright test e2e/entry-path.spec.ts
 ```
 
 ---

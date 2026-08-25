@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -23,6 +22,7 @@ import {
   MapPin,
   Users,
   FileText,
+  CheckCircle2,
   Globe,
   Loader2,
   AlertCircle,
@@ -36,6 +36,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { fetchSettings } from '@/lib/settings-client';
+import {
+  DEFAULT_MINIMUM_AGE_YEARS,
+  dateOfBirthMessage,
+  dateOfBirthProblem,
+  minimumAgeYears,
+} from '@/lib/membership-eligibility';
 import {
   bdPhoneRegex,
   getRegistrationFieldLabel,
@@ -255,7 +262,12 @@ export default function RegisterPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'finishing'>('idle');
+  const [submitStage, setSubmitStage] =
+    useState<'idle' | 'uploading' | 'finishing' | 'submitted'>('idle');
+  // The account number allocated at submission — the applicant's reference for
+  // the application, and the identifier the foundation will use for them
+  // afterwards (ADR-023). Shown on the confirmation screen.
+  const [submittedAccountNo, setSubmittedAccountNo] = useState('');
   const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
   const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
   const [documentFiles, setDocumentFiles] =
@@ -266,7 +278,43 @@ export default function RegisterPage() {
   const [processingDocument, setProcessingDocument] = useState<RequiredDocumentKey | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
 
-  const draftStorageKey = useMemo(() => `${REGISTRATION_DRAFT_KEY_PREFIX}:${locale}`, [locale]);
+  // The membership age floor, from Admin → Settings.
+  //
+  // The Zod schema deliberately does not know it: the schema is shared with the
+  // API and a rule the foundation can change does not belong in a constant. The
+  // *server* is what enforces it (`POST /registrations` reads the same setting);
+  // this copy exists so the applicant is told on step 1 rather than after
+  // filling in eight steps and uploading four photographs.
+  //
+  // Falls back to the same default the server uses, so a settings fetch that
+  // fails leaves the two agreeing rather than silently disabling the check here.
+  const [minimumAge, setMinimumAge] = useState<number>(DEFAULT_MINIMUM_AGE_YEARS);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSettings()
+      .then((settings) => {
+        if (!cancelled && settings) setMinimumAge(minimumAgeYears(settings));
+      })
+      .catch(() => {
+        // Silent by design: the applicant is mid-form and the server enforces
+        // this regardless. A banner about a settings fetch would be noise.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // **One key, not one per locale.**
+  //
+  // This was `${PREFIX}:${locale}`, and the language toggle sits in the header
+  // of this very page. An applicant six steps into the English form who tapped
+  // "বাংলা" — which is exactly what a Bengali reader who landed on the English
+  // form does — came back to an empty form and no explanation, because the
+  // draft was filed under the language they had just left.
+  //
+  // Nothing in the draft is language-specific: it holds names, an NID, an
+  // address and a nominee. The values are the same application whichever
+  // language the labels are in.
+  const draftStorageKey = REGISTRATION_DRAFT_KEY_PREFIX;
   const errorBannerRef = useRef<HTMLDivElement | null>(null);
   const formTopRef = useRef<HTMLDivElement | null>(null);
   const hasMountedRef = useRef(false);
@@ -772,6 +820,13 @@ export default function RegisterPage() {
 
       const formData = new FormData();
       formData.append('payload', JSON.stringify(registrationPayload));
+      // The language the applicant is reading, recorded on the row so the
+      // approval or rejection email arrives in it. It used to be the *admin's*
+      // dashboard language, so a Bengali applicant approved by an English-
+      // speaking admin got their temporary password in English. Sent outside
+      // `payload` because `registerApiSchema` is `.strict()` — and should stay
+      // so: the payload is the application, not facts about the request.
+      formData.append('locale', isBn ? 'bn' : 'en');
       for (const key of REQUIRED_DOCUMENT_KEYS) {
         const slot = documentFiles[key];
         if (slot) formData.append(key, slot.file);
@@ -789,6 +844,7 @@ export default function RegisterPage() {
           fieldErrors?: Record<string, string[] | undefined>;
           formErrors?: string[];
         };
+        user?: { accountNo?: string };
       } = {};
       try {
         json = responseText ? JSON.parse(responseText) : {};
@@ -882,14 +938,6 @@ export default function RegisterPage() {
         return;
       }
 
-      toast({
-        title: isBn ? 'নিবন্ধন সফল!' : 'Registration Successful!',
-        description: isBn
-          ? 'আপনার আবেদন জমা হয়েছে। অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।'
-          : 'Your application has been submitted. Please wait for admin approval.',
-        variant: 'success',
-      });
-
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(draftStorageKey);
       }
@@ -898,11 +946,20 @@ export default function RegisterPage() {
       }
       setDocumentFiles(EMPTY_DOCUMENTS);
       setDocumentErrors({});
-      setSubmitStage('finishing');
 
-      setTimeout(() => {
-        router.push(localePath(locale, '/login'));
-      }, 2000);
+      // A confirmation *screen*, not a toast and a redirect.
+      //
+      // What this replaces: a two-second toast, then `router.push('/login')` —
+      // so the applicant's receipt for twenty minutes of form-filling
+      // disappeared on its own, and they were left standing on a login page
+      // they cannot use, because an application has no password until an admin
+      // approves it. They were never shown the account number that had just
+      // been allocated to them, never told what happens next, and never told
+      // how long it takes.
+      setSubmittedAccountNo(
+        typeof json?.user?.accountNo === 'string' ? json.user.accountNo : '',
+      );
+      setSubmitStage('submitted');
     } catch {
       setSubmitStage('idle');
       setSubmitError(
@@ -1017,6 +1074,20 @@ export default function RegisterPage() {
     }
 
     if (currentStep === 0) {
+      // Age, against the foundation's configured floor. Not in the Zod schema
+      // because the schema is shared with the API and the floor is a setting;
+      // checked here so the applicant learns it on the step that holds the
+      // field, rather than after eight steps and four photographs.
+      const dobProblem = dateOfBirthProblem(getValues('dateOfBirth'), minimumAge);
+      if (dobProblem) {
+        const message = dateOfBirthMessage(dobProblem, minimumAge, isBn ? 'bn' : 'en');
+        setError('dateOfBirth', { type: 'manual', message });
+        setSubmitError(message);
+        revealErrorSummary();
+        window.setTimeout(() => focusField('dateOfBirth'), 350);
+        return;
+      }
+
       const availability = await checkContactAvailability(getValues('email'), getValues('phone'));
       if (availability === 'taken') {
         setSubmitError(
@@ -1030,6 +1101,24 @@ export default function RegisterPage() {
       // 'error' deliberately falls through: the check is advisory and the POST
       // is authoritative. Blocking here on a rate limit or a dropped packet
       // stranded people who had done nothing wrong.
+    }
+
+    // Step 2 is the nominee. A nominee is who receives the account if the member
+    // dies, so the member cannot be their own — nothing checked it, and the same
+    // NID in both boxes produced a nomination that can never be acted on.
+    if (currentStep === 2) {
+      const applicantNid = String(getValues('nidNumber') ?? '').trim();
+      const nomineeNid = String(getValues('nomineeNid') ?? '').trim();
+      if (applicantNid && nomineeNid && applicantNid === nomineeNid) {
+        const message = isBn
+          ? 'নমিনী আপনি নিজে হতে পারেন না। যিনি আপনার অবর্তমানে অ্যাকাউন্টটি পাবেন তাঁর এন.আই.ডি দিন।'
+          : 'The nominee cannot be you. Enter the NID of the person who should receive the account if you die.';
+        setError('nomineeNid', { type: 'manual', message });
+        setSubmitError(message);
+        revealErrorSummary();
+        window.setTimeout(() => focusField('nomineeNid'), 350);
+        return;
+      }
     }
 
     if (currentStep < steps.length - 1) {
@@ -1157,6 +1246,116 @@ export default function RegisterPage() {
   );
   const isLastStep = currentStep === steps.length - 1;
   const busy = isSubmitting || submitStage !== 'idle';
+
+  // The confirmation screen. It replaces the whole form rather than sitting
+  // above it, because the form's state has been cleared and going back to it
+  // would show eight empty steps and invite a second application.
+  if (submitStage === 'submitted') {
+    return (
+      <div className="min-h-dvh bg-muted/30">
+        <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-md safe-area-top">
+          <div className="container-wide flex h-14 items-center">
+            <Link href={localePath(locale)} aria-label={isBn ? 'হোম' : 'Home'}>
+              <Logo size="sm" />
+            </Link>
+          </div>
+        </header>
+
+        <main className="container-wide flex justify-center px-4 py-10">
+          <div className="w-full max-w-lg space-y-6 rounded-xl border bg-background p-6 shadow-sm">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="rounded-full bg-emerald-50 p-3 text-emerald-600">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+              <h1 className="text-xl font-semibold">
+                {isBn ? 'আবেদন জমা হয়েছে' : 'Application submitted'}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {isBn
+                  ? 'আপনার সদস্যপদ আবেদন ফাউন্ডেশনে পৌঁছেছে এবং পর্যালোচনার অপেক্ষায় আছে।'
+                  : 'Your membership application has reached the foundation and is waiting to be reviewed.'}
+              </p>
+            </div>
+
+            {/*
+              The account number, which the applicant had never been shown. It
+              is allocated the moment the application is stored, it is the one
+              identifier a member is ever given (ADR-023), and it is what the
+              office will ask them for on the telephone.
+            */}
+            {submittedAccountNo && (
+              <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-center">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {isBn ? 'আপনার আবেদন নম্বর' : 'Your application reference'}
+                </p>
+                <p className="mt-1 font-mono text-lg font-semibold">{submittedAccountNo}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {isBn
+                    ? 'নম্বরটি লিখে রাখুন। ফাউন্ডেশনে যোগাযোগ করলে এটি লাগবে।'
+                    : 'Write this down — the office will ask for it if you get in touch.'}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold">
+                {isBn ? 'এরপর কী হবে' : 'What happens next'}
+              </h2>
+              <ol className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex gap-2">
+                  <span aria-hidden className="font-semibold text-foreground">1.</span>
+                  <span>
+                    {isBn
+                      ? 'ফাউন্ডেশনের একজন অ্যাডমিন আপনার তথ্য ও কাগজপত্র যাচাই করবেন।'
+                      : 'An administrator at the foundation checks your details and documents.'}
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden className="font-semibold text-foreground">2.</span>
+                  <span>
+                    {isBn
+                      ? 'সিদ্ধান্ত যা-ই হোক, আপনাকে ই-মেইলে জানানো হবে — অনুমোদিত হলে সাথে একটি অস্থায়ী পাসওয়ার্ড থাকবে।'
+                      : 'You are emailed either way — with a temporary password if you are approved, or with the reason if you are not.'}
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden className="font-semibold text-foreground">3.</span>
+                  <span>
+                    {isBn
+                      ? 'প্রথমবার লগইন করার সময় আপনাকে নিজের পাসওয়ার্ড ঠিক করে নিতে হবে।'
+                      : 'The first time you log in, you choose your own password.'}
+                  </span>
+                </li>
+              </ol>
+              <p className="text-sm text-muted-foreground">
+                {isBn
+                  ? 'ই-মেইলটি না পেলে স্প্যাম ফোল্ডার দেখুন, অথবা ফাউন্ডেশনের কার্যালয়ে যোগাযোগ করুন।'
+                  : 'If the email does not arrive, check your spam folder or contact the foundation office.'}
+              </p>
+            </div>
+
+            {/*
+              No link to /login. An application has no password until it is
+              approved, so sending the applicant there — which is exactly what
+              this screen replaces — offers them a door that cannot open.
+            */}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Link href={localePath(locale)} className="flex-1">
+                <Button variant="outline" className="w-full">
+                  {isBn ? 'হোম পেজে ফিরুন' : 'Back to home'}
+                </Button>
+              </Link>
+              <Link href={localePath(locale, '/support')} className="flex-1">
+                <Button variant="ghost" className="w-full">
+                  {isBn ? 'সহায়তা' : 'Get help'}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-muted/30">

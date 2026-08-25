@@ -94,9 +94,9 @@ function payload() {
 }
 
 /** Four documents, as the form submits them. */
-function submission(): Request {
+function submission(overrides: Record<string, unknown> = {}): Request {
   const form = new FormData();
-  form.set('payload', JSON.stringify(payload()));
+  form.set('payload', JSON.stringify({ ...payload(), ...overrides }));
   for (const key of ['nidFrontImage', 'nidBackImage', 'memberPhotoImage', 'signatureImage']) {
     form.set(key, new File([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00])], `${key}.jpg`, { type: 'image/jpeg' }));
   }
@@ -115,6 +115,21 @@ async function removeApplicant() {
   }
 }
 
+/**
+ * Forget every registration attempt this address has made.
+ *
+ * `consumeRateLimit` keys on the action and the caller's address; the harness
+ * sends no forwarded-for header, so every request in this file shares one
+ * bucket.
+ */
+async function clearSubmissionRateLimit() {
+  // `rate_limits.id` is the composite key `action:identifier` — there is no
+  // separate action column.
+  await testPrisma().rateLimit.deleteMany({
+    where: { id: { startsWith: 'registration-submit:' } },
+  });
+}
+
 describe.skipIf(skip)('POST /api/v1/registrations', () => {
   beforeAll(async () => {
     await removeApplicant();
@@ -129,6 +144,11 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     cloudinary.reset();
     vi.clearAllMocks();
     await removeApplicant();
+    // The submission throttle added 2026-08-26 counts every POST from one
+    // address, and this suite makes far more than five. Cleared per test rather
+    // than raised, so the limit stays exactly what production uses — and so the
+    // test below, which asserts it actually fires, is testing the real number.
+    await clearSubmissionRateLimit();
   });
 
   it('creates the member, stores four documents, and tells the admins', async () => {
@@ -238,5 +258,134 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     );
     expect(res.status).toBe(400);
     expect(cloudinary.uploadImage).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // T-07, 2026-08-26 — what the entry-path audit found
+  // -------------------------------------------------------------------------
+
+  it('throttles submissions from one address', async () => {
+    // The GET beside this route has been throttled since SEC-08; the POST had
+    // no limit at all, while being the far more expensive of the two — a user
+    // row, four Cloudinary uploads, and a **global** advisory lock to allocate
+    // an account number. Unthrottled that is an approvals queue anybody can
+    // flood and, because the lock is global, a way to serialise every genuine
+    // registration behind a script.
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const res = await registrations.POST(submission({
+        phone: `019555091${String(attempt).padStart(2, '0')}`,
+        email: `throttle-${attempt}@routes.test`,
+        nidNumber: `55500000000${String(attempt).padStart(2, '0')}`,
+      }));
+      expect(res.status, `attempt ${attempt} should still be allowed`).toBe(201);
+    }
+
+    const blocked = await registrations.POST(submission({
+      phone: '01955509199',
+      email: 'throttle-6@routes.test',
+      nidNumber: '5550000009999',
+    }));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('Retry-After')).toBeTruthy();
+
+    // Cleaned up here rather than by removeApplicant, which only knows the one
+    // canonical applicant.
+    await testPrisma().user.deleteMany({ where: { email: { contains: 'throttle-' } } });
+  });
+
+  it('refuses an applicant below the minimum age, and says what the limit is', async () => {
+    // The rule this route had was "the date parses and is not in the future",
+    // so a date of birth of *yesterday* created a pending member. Members enter
+    // a financial contract and can borrow.
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const res = await registrations.POST(submission({
+      dateOfBirth: yesterday.toISOString().slice(0, 10),
+    }));
+    const body = (await res.json()) as { error: string; field?: string; code?: string; minimumAge?: number };
+
+    expect(res.status).toBe(400);
+    expect(body.field).toBe('dateOfBirth');
+    expect(body.code).toBe('DOB_TOO_YOUNG');
+    // The limit is stated. "Not eligible" leaves an applicant unable to tell a
+    // typo from a rule.
+    expect(body.minimumAge).toBeGreaterThan(0);
+    expect(body.error).toContain(String(body.minimumAge));
+
+    expect(cloudinary.uploadImage, 'nothing is uploaded for an ineligible applicant')
+      .not.toHaveBeenCalled();
+    expect(await testPrisma().user.findFirst({ where: { phone: APPLICANT.phone } })).toBeNull();
+  });
+
+  it('refuses an applicant who nominates themselves', async () => {
+    // A nominee is who receives the account if the member dies. The same NID in
+    // both boxes was accepted and produced a nomination that can never be acted
+    // on.
+    const res = await registrations.POST(submission({ nomineeNid: payload().nidNumber }));
+    const body = (await res.json()) as { field?: string; code?: string };
+
+    expect(res.status).toBe(400);
+    expect(body.field).toBe('nomineeNid');
+    expect(body.code).toBe('NOMINEE_IS_APPLICANT');
+    expect(await testPrisma().user.findFirst({ where: { phone: APPLICANT.phone } })).toBeNull();
+  });
+
+  it('refuses a second live member holding the same NID, and names that field', async () => {
+    // NID was not unique at all: the one document proving two applicants are
+    // different people. The old conflict branch compared phone and called
+    // everything else "email", so this would have told the applicant their
+    // email was taken.
+    expect((await registrations.POST(submission())).status).toBe(201);
+
+    const res = await registrations.POST(submission({
+      phone: '01955509077',
+      email: 'different-person@routes.test',
+    }));
+    const body = (await res.json()) as { error: string; field?: string };
+
+    expect(res.status).toBe(409);
+    expect(body.field).toBe('NID number');
+    expect(body.error).toContain('NID');
+
+    await testPrisma().user.deleteMany({ where: { email: 'different-person@routes.test' } });
+  });
+
+  it('lets a rejected applicant apply again with the same email, phone and NID', async () => {
+    // The owner's ruling, and the reason uniqueness is scoped to live rows.
+    // What this replaces: rejection overwrote the applicant's email and phone
+    // on the spot to free the unique constraint — which is precisely why
+    // nothing could tell them they had been rejected.
+    const first = await registrations.POST(submission());
+    expect(first.status).toBe(201);
+    const created = (await first.json()) as { user: { id: string } };
+
+    // Rejected, the way the Go handler does it: status only, contact details
+    // untouched.
+    await testPrisma().user.update({
+      where: { id: created.user.id },
+      data: {
+        status: 'INACTIVE',
+        rejectionReasonCode: 'INCOMPLETE_DOCUMENTS',
+        rejectedAt: new Date(),
+      },
+    });
+
+    const again = await registrations.POST(submission());
+    expect(
+      again.status,
+      'a rejected applicant must be able to reapply with the details they used before',
+    ).toBe(201);
+
+    // Both rows exist: the decision is kept, and the new application is live.
+    const rows = await testPrisma().user.findMany({
+      where: { phone: APPLICANT.phone },
+      select: { status: true, rejectionReasonCode: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].status).toBe('INACTIVE');
+    expect(rows[0].rejectionReasonCode).toBe('INCOMPLETE_DOCUMENTS');
+    expect(rows[1].status).toBe('PENDING');
   });
 });

@@ -106,12 +106,17 @@ export default function LoginPage() {
 
       const payload = await response.json();
       if (!response.ok || !payload?.success) {
-        // Handle pending user case with a more helpful message
+        // Branch on the **code**, not on the English message.
+        //
+        // This used to read `errorMessage.toLowerCase().includes('not active')`
+        // against the server's prose — so rewording "User is not active yet"
+        // would silently drop the member back to a raw error string, and the
+        // check could only ever work in English. `AUTH_USER_INACTIVE` was in the
+        // same payload the whole time.
+        const errorCode = typeof payload?.error?.code === 'string' ? payload.error.code : '';
         const errorMessage = payload?.error?.message || 'Login failed';
-        if (errorMessage.toLowerCase().includes('not active')) {
-          setSubmitError(
-            tp('accountNotActive')
-          );
+        if (errorCode === 'AUTH_USER_INACTIVE') {
+          setSubmitError(tp('accountNotActive'));
         } else {
           setSubmitError(errorMessage);
         }
@@ -477,6 +482,28 @@ export default function LoginPage() {
               {submitError && (
                 <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-xs shadow-xs animate-in fade-in zoom-in-95 duration-200">
                   <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
+                  {/*
+                    Shown on **every** failure, never only for a pending
+                    applicant — and that is the whole design.
+
+                    Someone whose application is still being reviewed cannot log
+                    in: they have no password until an admin approves them, so
+                    they get the same "invalid credentials" as a stranger and
+                    have no way to tell which they are. Answering that question
+                    properly is forbidden: telling this caller "your application
+                    is under review" would confirm that the identifier they typed
+                    belongs to an applicant, which is the membership oracle
+                    ADR-032 closed on `forgot-password`, on a busier endpoint.
+                    For a religious-finance cooperative in one town, membership
+                    itself is the sensitive fact (rule 7a).
+
+                    So the hint is unconditional. It discloses nothing, because
+                    it says the same thing to everybody, and the person it is
+                    written for recognises themselves in it.
+                  */}
+                  <p className="mt-2 text-[12px] text-red-700/80 leading-snug text-center">
+                    {tp('pendingApplicationHint')}
+                  </p>
                 </div>
               )}
 

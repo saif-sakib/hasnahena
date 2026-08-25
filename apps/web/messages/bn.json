@@ -221,7 +221,8 @@
       "backToLoginForm": "লগইন ফর্মে ফিরে যান",
       "identifierPlaceholder": "ইমেইল বা ফোন নম্বর",
       "authenticating": "অপেক্ষা করুন...",
-      "allRightsReserved": "সর্বসত্ব সংরক্ষিত"
+      "allRightsReserved": "সর্বসত্ব সংরক্ষিত",
+      "pendingApplicationHint": "সম্প্রতি আবেদন করেছেন? আবেদন অনুমোদিত না হওয়া পর্যন্ত লগইন করা যায় না — সিদ্ধান্ত যা-ই হোক, আপনাকে ই-মেইলে জানানো হবে।"
     },
     "forgot": {
       "errorTitle": "ত্রুটি",

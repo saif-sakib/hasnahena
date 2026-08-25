@@ -13,6 +13,23 @@ import {
   Eye,
   Download,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  REJECTION_REASON_CODES,
+  REJECTION_REASON_LABELS,
+  REJECTION_REASON_REQUIRING_NOTE,
+  REJECTION_NOTE_MAX_LENGTH,
+  type RejectionReasonCode,
+} from '@/lib/rejection-reasons';
 import { apiPost } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
@@ -448,7 +465,80 @@ export default function ApprovalsScreen() {
     deposit: depositRequests.length,
   };
 
-  const runRegistrationAction = async (id: string, action: 'approve' | 'reject') => {
+  // What the reject dialog is currently about. `null` means it is closed.
+  //
+  // Rejection used to fire straight off an icon-only button with no
+  // confirmation and no reason — `reason: ''` was hardcoded at the call site —
+  // and it is irreversible. On a 412 px screen those buttons are 28 px apart,
+  // which made a mis-tap enough to refuse somebody's membership.
+  const [rejectTarget, setRejectTarget] = useState<RegistrationRequest | null>(null);
+  const [rejectCode, setRejectCode] = useState<RejectionReasonCode | ''>('');
+  const [rejectNote, setRejectNote] = useState('');
+  const [rejectFieldError, setRejectFieldError] = useState<string | null>(null);
+
+  const openRejectDialog = (item: RegistrationRequest) => {
+    setRejectTarget(item);
+    setRejectCode('');
+    setRejectNote('');
+    setRejectFieldError(null);
+  };
+
+  const closeRejectDialog = () => {
+    setRejectTarget(null);
+    setRejectFieldError(null);
+  };
+
+  const submitRejection = async () => {
+    if (!rejectTarget) return;
+    if (!rejectCode) {
+      setRejectFieldError(locale === 'bn' ? 'একটি কারণ নির্বাচন করুন' : 'Choose a reason');
+      return;
+    }
+    // Mirrors the server rule rather than trusting it to be forgiving: "Other"
+    // with nothing after it tells the applicant exactly as much as no reason.
+    if (rejectCode === REJECTION_REASON_REQUIRING_NOTE && !rejectNote.trim()) {
+      setRejectFieldError(
+        locale === 'bn' ? 'কারণটি লিখুন' : 'Describe the reason',
+      );
+      return;
+    }
+
+    setIsActionLoading(true);
+    setActionError(null);
+    try {
+      const result = await apiPost<{ emailDelivered?: boolean; deliveryError?: string }>(
+        '/v1/dashboard/admin/approvals/registration/reject',
+        {
+          userId: rejectTarget.id,
+          reasonCode: rejectCode,
+          reasonNote: rejectNote.trim(),
+          locale,
+        },
+      );
+      closeRejectDialog();
+      // The rejection is committed either way. An admin whose email did not go
+      // out has to telephone instead, and needs to be told that rather than
+      // assuming the applicant has been informed.
+      if (result?.emailDelivered === false) {
+        const base = locale === 'bn'
+          ? 'আবেদন বাতিল করা হয়েছে, কিন্তু আবেদনকারীকে ইমেইল পাঠানো যায়নি। তাকে সরাসরি জানান।'
+          : 'The application was rejected, but the applicant could not be emailed. Tell them directly.';
+        const detail = result.deliveryError
+          ? ` ${locale === 'bn' ? 'কারণ:' : 'Reason:'} ${result.deliveryError}.`
+          : '';
+        setActionError(`${base}${detail}`);
+      }
+      await loadApprovals();
+    } catch (e: any) {
+      setActionError(e?.message ?? 'Action failed');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  // Approval only. Rejection goes through the dialog above, because it needs a
+  // reason and a confirmation before it can be sent.
+  const runRegistrationAction = async (id: string, action: 'approve') => {
     setIsActionLoading(true);
     setActionError(null);
     try {
@@ -470,8 +560,6 @@ export default function ApprovalsScreen() {
             : '';
           setActionError(`${fallbackMessage}${details}${passwordHint}`);
         }
-      } else {
-        await apiPost('/v1/dashboard/admin/approvals/registration/reject', { userId: id, reason: '' });
       }
       await loadApprovals();
     } catch (e: any) {
@@ -628,7 +716,7 @@ export default function ApprovalsScreen() {
                       locale={locale}
                       isActionLoading={isActionLoading}
                       onApprove={() => void runRegistrationAction(item.id, 'approve')}
-                      onReject={() => void runRegistrationAction(item.id, 'reject')}
+                      onReject={() => openRejectDialog(item)}
                     />
                   ))
                 )}
@@ -792,6 +880,106 @@ export default function ApprovalsScreen() {
           </div>
         </div>
       )}
+
+      {/*
+        Rejecting an application is irreversible and, since 2026-08-26, sends the
+        applicant an email. It used to happen on a single tap of a 28 px icon
+        with no reason attached and nothing sent. This dialog is the
+        confirmation *and* the reason, which is deliberate: a confirm step that
+        only asks "are you sure?" trains people to tap through it, while one that
+        asks for something makes them look at the row again.
+      */}
+      <Dialog open={rejectTarget !== null} onOpenChange={(open) => { if (!open) closeRejectDialog(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {locale === 'bn' ? 'আবেদন বাতিল করবেন?' : 'Reject this application?'}
+            </DialogTitle>
+            <DialogDescription>
+              {locale === 'bn'
+                ? `${rejectTarget?.name ?? ''} — আবেদনকারীকে ইমেইলে কারণসহ জানানো হবে। তিনি চাইলে আবার আবেদন করতে পারবেন।`
+                : `${rejectTarget?.name ?? ''} — the applicant is emailed with the reason, and may apply again.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reject-reason">
+                {locale === 'bn' ? 'কারণ' : 'Reason'}
+              </Label>
+              {/*
+                A native <select>. The applicant reads whichever of these the
+                admin picks, translated into *their* language on the server, so
+                the important property is that a reason is always chosen — not
+                that the control is elaborate. Native also means it works with
+                one thumb on a low-end Android, which is rule 10's whole point.
+              */}
+              <select
+                id="reject-reason"
+                value={rejectCode}
+                onChange={(e) => {
+                  setRejectCode(e.target.value as RejectionReasonCode | '');
+                  setRejectFieldError(null);
+                }}
+                className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">
+                  {locale === 'bn' ? 'কারণ নির্বাচন করুন…' : 'Choose a reason…'}
+                </option>
+                {REJECTION_REASON_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {REJECTION_REASON_LABELS[code][locale === 'bn' ? 'bn' : 'en']}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reject-note">
+                {locale === 'bn' ? 'বিস্তারিত' : 'Details'}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {rejectCode === REJECTION_REASON_REQUIRING_NOTE
+                    ? (locale === 'bn' ? '(আবশ্যক)' : '(required)')
+                    : (locale === 'bn' ? '(ঐচ্ছিক)' : '(optional)')}
+                </span>
+              </Label>
+              <Textarea
+                id="reject-note"
+                rows={3}
+                maxLength={REJECTION_NOTE_MAX_LENGTH}
+                value={rejectNote}
+                onChange={(e) => { setRejectNote(e.target.value); setRejectFieldError(null); }}
+                placeholder={locale === 'bn'
+                  ? 'যেমন: এন.আই.ডি-র পিছনের ছবিটি স্পষ্ট নয়।'
+                  : 'e.g. the back of the NID is not readable.'}
+              />
+              <p className="text-xs text-muted-foreground">
+                {locale === 'bn'
+                  ? 'এটি আবেদনকারীকে পাঠানো ইমেইলে যুক্ত হবে।'
+                  : 'This is included in the email sent to the applicant.'}
+              </p>
+            </div>
+
+            {rejectFieldError && (
+              <p role="alert" className="text-sm text-red-600">{rejectFieldError}</p>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={closeRejectDialog} disabled={isActionLoading}>
+              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => void submitRejection()}
+              disabled={isActionLoading}
+            >
+              {isActionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {locale === 'bn' ? 'আবেদন বাতিল করুন' : 'Reject application'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -220,7 +220,7 @@ func (s *EmailService) renderOfficialEmailText(locale, heading, body string) str
 	return strings.TrimSpace(heading) + "\n\n" + strings.TrimSpace(body) + "\n\n" + footer
 }
 
-func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, temporaryPassword string, locale string) (subject, textBody, htmlBody string, err error) {
+func (s *EmailService) buildMemberApprovalEmail(to, memberName, accountNo, phone, temporaryPassword, locale string) (subject, textBody, htmlBody string, err error) {
 	if !s.IsConfigured() {
 		return "", "", "", fmt.Errorf("email service not configured")
 	}
@@ -243,31 +243,55 @@ func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, te
 	escapedPassword := html.EscapeString(temporaryPassword)
 	escapedLoginURL := html.EscapeString(loginURL)
 
+	// **What to log in with**, which this email did not say until 2026-08-26.
+	// It gave a temporary password and a link and nothing else — so a member who
+	// had registered with both an email and a phone number had to guess which
+	// one the box wanted. The staff welcome email had always listed both. The
+	// account number goes in for a different reason: it is the one identifier a
+	// member is ever given (ADR-023), it is allocated when they apply, and this
+	// is the first time they see it.
+	identifier := strings.TrimSpace(to)
+	escapedIdentifier := html.EscapeString(identifier)
+	escapedAccountNo := html.EscapeString(strings.TrimSpace(accountNo))
+	escapedPhone := html.EscapeString(strings.TrimSpace(phone))
+
 	if locale == "bn" {
 		subject = "সদস্যপদ অনুমোদন নিশ্চিতকরণ | Hasnahena Foundation"
-		textBody = s.renderOfficialEmailText(locale, "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf("প্রিয় %s,\n\nআপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে।\n\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন লিংক: %s\n\nপ্রথম লগইনের পর অবশ্যই পাসওয়ার্ড পরিবর্তন করবেন।", memberName, temporaryPassword, loginURL))
+		textBody = s.renderOfficialEmailText(locale, "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf("প্রিয় %s,\n\nআপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে।\n\nগ্রাহক আই.ডি: %s\nলগইন করুন এই ইমেইল দিয়ে: %s\n(অথবা মোবাইল নম্বর: %s)\nঅস্থায়ী পাসওয়ার্ড: %s\nলগইন লিংক: %s\n\nপ্রথম লগইনের পর অবশ্যই পাসওয়ার্ড পরিবর্তন করবেন।", memberName, strings.TrimSpace(accountNo), identifier, strings.TrimSpace(phone), temporaryPassword, loginURL))
 		htmlBody = s.renderOfficialEmailHTML(locale, "সদস্যপদ অনুমোদন", "সদস্যপদ অনুমোদিত হয়েছে", fmt.Sprintf(
 			"<p style=\"margin:0 0 12px 0;\">প্রিয় %s,</p>"+
 				"<p style=\"margin:0 0 14px 0;\">আপনার সদস্যপদ আবেদন অনুমোদিত হয়েছে। নিচের তথ্য ব্যবহার করে লগইন করুন।</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>গ্রাহক আই.ডি:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>ইমেইল:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>মোবাইল:</strong> %s</p>"+
 				"<p style=\"margin:0 0 6px 0;\"><strong>অস্থায়ী পাসওয়ার্ড:</strong> %s</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><strong>মেয়াদ:</strong> প্রথম লগইন পর্যন্ত</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">লগইন করুন</a></p>"+
 				"<p style=\"margin:0;color:#334155;\"><strong>গুরুত্বপূর্ণ:</strong> প্রথম লগইনের পর সাথে সাথে পাসওয়ার্ড পরিবর্তন করুন।</p>",
 			escapedMemberName,
+			escapedAccountNo,
+			escapedIdentifier,
+			escapedPhone,
 			escapedPassword,
 			escapedLoginURL,
 		))
 	} else {
 		subject = "Membership Approval Confirmation | Hasnahena Foundation"
-		textBody = s.renderOfficialEmailText(locale, "Membership Approved", fmt.Sprintf("Dear %s,\n\nYour membership application has been approved.\n\nTemporary password: %s\nLogin URL: %s\n\nPlease change this password immediately after your first login.", memberName, temporaryPassword, loginURL))
+		textBody = s.renderOfficialEmailText(locale, "Membership Approved", fmt.Sprintf("Dear %s,\n\nYour membership application has been approved.\n\nAccount No: %s\nLog in with this email: %s\n(or your mobile number: %s)\nTemporary password: %s\nLogin URL: %s\n\nPlease change this password immediately after your first login.", memberName, strings.TrimSpace(accountNo), identifier, strings.TrimSpace(phone), temporaryPassword, loginURL))
 		htmlBody = s.renderOfficialEmailHTML(locale, "Membership approved", "Your Membership Has Been Approved", fmt.Sprintf(
 			"<p style=\"margin:0 0 12px 0;\">Dear %s,</p>"+
-				"<p style=\"margin:0 0 14px 0;\">Your membership application has been approved. Use the temporary password below to access your account.</p>"+
+				"<p style=\"margin:0 0 14px 0;\">Your membership application has been approved. Use the details below to log in.</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Account No:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Email:</strong> %s</p>"+
+				"<p style=\"margin:0 0 6px 0;\"><strong>Mobile:</strong> %s</p>"+
 				"<p style=\"margin:0 0 6px 0;\"><strong>Temporary password:</strong> %s</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><strong>Validity:</strong> until first login</p>"+
 				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Log in to your account</a></p>"+
 				"<p style=\"margin:0;color:#334155;\"><strong>Important:</strong> change this password immediately after first login.</p>",
 			escapedMemberName,
+			escapedAccountNo,
+			escapedIdentifier,
+			escapedPhone,
 			escapedPassword,
 			escapedLoginURL,
 		))
@@ -279,12 +303,173 @@ func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, te
 // SendMemberApprovalEmail renders the message and hands it to the transport. The
 // rendering is buildMemberApprovalEmail, which is pure and therefore testable — see
 // email_service_test.go (WO-52). Nothing here reaches the network.
-func (s *EmailService) SendMemberApprovalEmail(ctx context.Context, to string, memberName string, temporaryPassword string, locale string) error {
-	subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(to, memberName, temporaryPassword, locale)
+func (s *EmailService) SendMemberApprovalEmail(ctx context.Context, to, memberName, accountNo, phone, temporaryPassword, locale string) error {
+	subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(to, memberName, accountNo, phone, temporaryPassword, locale)
 	if err != nil {
 		return err
 	}
 	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
+}
+
+// rejectionReasonSentence renders a rejection reason code in the applicant's
+// language.
+//
+// **The code list must match `apps/web/lib/rejection-reasons.ts`**, which is
+// what the admin's picker offers. A code chosen there that is unknown here
+// renders as no reason at all, in the one message the applicant ever receives
+// about the decision — so `rejection-reasons.test.ts` reads both files and
+// fails on any divergence.
+//
+// The sentences are deliberately the reason itself rather than an apology
+// wrapped around one: the surrounding email already carries the courtesy, and a
+// reason a member has to parse out of a paragraph is a reason they will
+// telephone the office about.
+func rejectionReasonSentence(code, locale string) string {
+	bn := normalizeLocale(locale) == "bn"
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "INCOMPLETE_DOCUMENTS":
+		if bn {
+			return "প্রয়োজনীয় কাগজপত্র জমা দেওয়া হয়নি।"
+		}
+		return "Required documents were missing."
+	case "UNCLEAR_DOCUMENTS":
+		if bn {
+			return "জমা দেওয়া কাগজপত্র স্পষ্ট নয়।"
+		}
+		return "The documents provided were not readable."
+	case "IDENTITY_MISMATCH":
+		if bn {
+			return "দেওয়া তথ্য এন.আই.ডি-র সাথে মেলেনি।"
+		}
+		return "The details given did not match the NID provided."
+	case "DUPLICATE_APPLICATION":
+		if bn {
+			return "এই ব্যক্তির নামে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।"
+		}
+		return "An account already exists for this person."
+	case "OUTSIDE_SERVICE_AREA":
+		if bn {
+			return "ঠিকানাটি ফাউন্ডেশনের কার্যএলাকার বাইরে।"
+		}
+		return "The address given is outside the area the foundation serves."
+	case "BELOW_MINIMUM_AGE":
+		if bn {
+			return "আবেদনকারীর বয়স সদস্যপদের ন্যূনতম বয়সের কম।"
+		}
+		return "The applicant is below the minimum age for membership."
+	case "COULD_NOT_VERIFY":
+		if bn {
+			return "আবেদন যাচাইয়ের জন্য আবেদনকারীর সাথে যোগাযোগ করা যায়নি।"
+		}
+		return "We could not reach the applicant to verify the application."
+	case "OTHER":
+		// The note carries it. `OTHER` with no note is refused at the handler,
+		// because a rejection reading only "other reason" tells nobody anything.
+		return ""
+	}
+	return ""
+}
+
+// SendMemberRejectionEmail tells an applicant their application was not
+// approved, why, and that they may apply again.
+//
+// **Nothing sent this before 2026-08-26.** Rejection wrote a status, scrambled
+// the applicant's email and phone so the unique constraint would let them
+// reapply, and stopped. The applicant was never told — not by email, not in the
+// app, not anywhere — and the scramble meant they could not be told later
+// either. They waited for an answer that had already been decided and could
+// never arrive.
+//
+// A delivery failure is returned so the caller can surface it, exactly as the
+// approval mail does: the rejection itself has already been committed and must
+// not be rolled back because an SMTP host was briefly unavailable, but an admin
+// who now has to telephone the applicant needs to know that.
+func (s *EmailService) SendMemberRejectionEmail(ctx context.Context, to, memberName, reasonCode, reasonNote, locale string) error {
+	subject, textBody, htmlBody, err := s.buildMemberRejectionEmail(to, memberName, reasonCode, reasonNote, locale)
+	if err != nil {
+		return err
+	}
+	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
+}
+
+func (s *EmailService) buildMemberRejectionEmail(to, memberName, reasonCode, reasonNote, locale string) (subject, textBody, htmlBody string, err error) {
+	if !s.IsConfigured() {
+		return "", "", "", fmt.Errorf("email service not configured")
+	}
+
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return "", "", "", fmt.Errorf("recipient email is required")
+	}
+
+	memberName = strings.TrimSpace(memberName)
+	if memberName == "" {
+		memberName = "Applicant"
+	}
+
+	locale = normalizeLocale(locale)
+
+	// The preset sentence and the admin's note are joined rather than one
+	// replacing the other: an admin who picks "documents were not readable" and
+	// then writes *which* document has said two useful things, and dropping
+	// either loses half the answer.
+	reason := rejectionReasonSentence(reasonCode, locale)
+	if note := strings.TrimSpace(reasonNote); note != "" {
+		if reason != "" {
+			reason += " " + note
+		} else {
+			reason = note
+		}
+	}
+
+	registerURL := localeURL(s.appURL, locale, "/register")
+	escapedName := html.EscapeString(memberName)
+	escapedReason := html.EscapeString(reason)
+	escapedRegisterURL := html.EscapeString(registerURL)
+
+	if locale == "bn" {
+		subject = "সদস্যপদ আবেদনের সিদ্ধান্ত | Hasnahena Foundation"
+		reasonText := ""
+		if reason != "" {
+			reasonText = fmt.Sprintf("\n\nকারণ: %s", reason)
+		}
+		textBody = s.renderOfficialEmailText(locale, "আবেদন অনুমোদিত হয়নি", fmt.Sprintf(
+			"প্রিয় %s,\n\nআপনার সদস্যপদ আবেদনটি এবার অনুমোদিত হয়নি।%s\n\nআপনি চাইলে আবার আবেদন করতে পারেন: %s\n\nকোনো প্রশ্ন থাকলে ফাউন্ডেশনের কার্যালয়ে যোগাযোগ করুন।",
+			memberName, reasonText, registerURL))
+		reasonHTML := ""
+		if reason != "" {
+			reasonHTML = fmt.Sprintf("<p style=\"margin:0 0 14px 0;\"><strong>কারণ:</strong> %s</p>", escapedReason)
+		}
+		htmlBody = s.renderOfficialEmailHTML(locale, "আবেদনের সিদ্ধান্ত", "আবেদনটি অনুমোদিত হয়নি", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">প্রিয় %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">আপনার সদস্যপদ আবেদনটি এবার অনুমোদিত হয়নি।</p>"+
+				"%s"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">আবার আবেদন করুন</a></p>"+
+				"<p style=\"margin:0;color:#334155;\">কোনো প্রশ্ন থাকলে ফাউন্ডেশনের কার্যালয়ে যোগাযোগ করুন।</p>",
+			escapedName, reasonHTML, escapedRegisterURL))
+	} else {
+		subject = "Membership Application Decision | Hasnahena Foundation"
+		reasonText := ""
+		if reason != "" {
+			reasonText = fmt.Sprintf("\n\nReason: %s", reason)
+		}
+		textBody = s.renderOfficialEmailText(locale, "Application Not Approved", fmt.Sprintf(
+			"Dear %s,\n\nYour membership application was not approved on this occasion.%s\n\nYou are welcome to apply again: %s\n\nIf you have any questions, please contact the foundation office.",
+			memberName, reasonText, registerURL))
+		reasonHTML := ""
+		if reason != "" {
+			reasonHTML = fmt.Sprintf("<p style=\"margin:0 0 14px 0;\"><strong>Reason:</strong> %s</p>", escapedReason)
+		}
+		htmlBody = s.renderOfficialEmailHTML(locale, "Application decision", "Your Application Was Not Approved", fmt.Sprintf(
+			"<p style=\"margin:0 0 12px 0;\">Dear %s,</p>"+
+				"<p style=\"margin:0 0 14px 0;\">Your membership application was not approved on this occasion.</p>"+
+				"%s"+
+				"<p style=\"margin:0 0 18px 0;\"><a href=\"%s\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:11px 16px;border-radius:8px;text-decoration:none;font-weight:600;\">Apply again</a></p>"+
+				"<p style=\"margin:0;color:#334155;\">If you have any questions, please contact the foundation office.</p>",
+			escapedName, reasonHTML, escapedRegisterURL))
+	}
+
+	return subject, textBody, htmlBody, nil
 }
 
 func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role string, phone string, temporaryPassword string, locale string) (subject, textBody, htmlBody string, err error) {

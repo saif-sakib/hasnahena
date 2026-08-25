@@ -79,7 +79,7 @@ func TestMemberApprovalEmailEscapesTheName(t *testing.T) {
 	for _, locale := range []string{"en", "bn"} {
 		for _, c := range hostileNames {
 			_, textBody, htmlBody, err := s.buildMemberApprovalEmail(
-				"member@example.test", c.name, "Temp1234", locale)
+				"member@example.test", c.name, "ACC-KH-33001", "01700000000", "Temp1234", locale)
 			if err != nil {
 				t.Fatalf("%s/%s: %v", locale, c.label, err)
 			}
@@ -93,7 +93,7 @@ func TestMemberApprovalEmailEscapesTheTemporaryPassword(t *testing.T) {
 	// A generated password will not contain markup, but it is interpolated by
 	// the same path as the name and must not be the one that is forgotten.
 	password := `p<a>ss&"word'`
-	_, textBody, htmlBody, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", password, "en")
+	_, textBody, htmlBody, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "ACC-KH-33001", "01700000000", password, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestPasswordResetEmailEscapesTheToken(t *testing.T) {
 
 func TestBuildersRejectAnEmptyRecipient(t *testing.T) {
 	s := testEmailService()
-	if _, _, _, err := s.buildMemberApprovalEmail("   ", "Rahima", "Temp1234", "en"); err == nil {
+	if _, _, _, err := s.buildMemberApprovalEmail("   ", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", "en"); err == nil {
 		t.Error("member approval email accepted a blank recipient")
 	}
 	if _, _, _, err := s.buildStaffWelcomeEmail("", "Staff", "ADMIN", "017", "Temp1234", "en"); err == nil {
@@ -194,7 +194,7 @@ func TestUnknownLocaleFallsBackToEnglish(t *testing.T) {
 	s := testEmailService()
 	for _, locale := range []string{"", "fr", "EN-GB", "  ", "bn-BD"} {
 		subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(
-			"member@example.test", "Rahima", "Temp1234", locale)
+			"member@example.test", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", locale)
 		if err != nil {
 			t.Fatalf("locale %q: %v", locale, err)
 		}
@@ -210,11 +210,11 @@ func TestUnknownLocaleFallsBackToEnglish(t *testing.T) {
 // Both locales must actually differ, or the Bengali branch is decorative.
 func TestBengaliAndEnglishBodiesDiffer(t *testing.T) {
 	s := testEmailService()
-	_, enText, enHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "Temp1234", "en")
+	_, enText, enHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", "en")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, bnText, bnHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "Temp1234", "bn")
+	_, bnText, bnHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", "bn")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 		From:        "info@example.test",
 		AppURL:      "https://staging.example.test/",
 	})
-	_, textBody, htmlBody, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "Temp1234", "en")
+	_, textBody, htmlBody, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", "en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 	}
 
 	// And the Bengali half of the same email, which does still carry a prefix.
-	_, bnText, bnHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "Temp1234", "bn")
+	_, bnText, bnHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "ACC-KH-33001", "01700000000", "Temp1234", "bn")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,4 +346,133 @@ func withoutComments(source []byte) []byte {
 		out.WriteByte('\n')
 	}
 	return out.Bytes()
+}
+
+// ---------------------------------------------------------------------------
+// The rejection email (T-07, 2026-08-26)
+// ---------------------------------------------------------------------------
+//
+// Nothing sent this before. Rejecting an application wrote a status, scrambled
+// the applicant's email and phone so the unique constraint would let them
+// reapply, and stopped — so the applicant was never told, and after the scramble
+// could not be told. These tests hold the three properties that make the message
+// worth sending at all: it says why, it says it in the applicant's language, and
+// it cannot be turned into a way to inject markup into somebody's inbox.
+
+func TestRejectionEmailStatesTheReasonInBothLanguages(t *testing.T) {
+	s := testEmailService()
+
+	for _, code := range []string{
+		"INCOMPLETE_DOCUMENTS",
+		"UNCLEAR_DOCUMENTS",
+		"IDENTITY_MISMATCH",
+		"DUPLICATE_APPLICATION",
+		"OUTSIDE_SERVICE_AREA",
+		"BELOW_MINIMUM_AGE",
+		"COULD_NOT_VERIFY",
+	} {
+		for _, locale := range []string{"en", "bn"} {
+			sentence := rejectionReasonSentence(code, locale)
+			if sentence == "" {
+				t.Errorf("%s/%s: no sentence — the applicant would be told they were "+
+					"rejected and nothing else", code, locale)
+				continue
+			}
+			_, textBody, htmlBody, err := s.buildMemberRejectionEmail(
+				"applicant@example.test", "Rahima", code, "", locale)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", code, locale, err)
+			}
+			if !strings.Contains(textBody, sentence) || !strings.Contains(htmlBody, sentence) {
+				t.Errorf("%s/%s: the reason is not in the email body", code, locale)
+			}
+		}
+	}
+}
+
+// OTHER carries no sentence of its own, so the admin's note is the whole
+// reason. The handler refuses OTHER without one; this asserts the builder puts
+// the note in when it has one.
+func TestRejectionEmailCarriesTheAdminsNote(t *testing.T) {
+	s := testEmailService()
+	const note = "Please resubmit with the back of the NID."
+
+	_, textBody, htmlBody, err := s.buildMemberRejectionEmail(
+		"applicant@example.test", "Rahima", "OTHER", note, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(textBody, note) || !strings.Contains(htmlBody, note) {
+		t.Error("the admin's note is missing from the email — with OTHER it is the only reason there is")
+	}
+
+	// A preset reason and a note are joined rather than one replacing the
+	// other: "documents were not readable" plus *which* document is two useful
+	// facts, and dropping either loses half the answer.
+	_, bothText, _, err := s.buildMemberRejectionEmail(
+		"applicant@example.test", "Rahima", "UNCLEAR_DOCUMENTS", note, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(bothText, rejectionReasonSentence("UNCLEAR_DOCUMENTS", "en")) {
+		t.Error("the preset reason was dropped when a note was supplied")
+	}
+	if !strings.Contains(bothText, note) {
+		t.Error("the note was dropped when a preset reason was supplied")
+	}
+}
+
+func TestRejectionEmailEscapesEverythingInterpolated(t *testing.T) {
+	s := testEmailService()
+	for _, locale := range []string{"en", "bn"} {
+		for _, c := range hostileNames {
+			_, textBody, htmlBody, err := s.buildMemberRejectionEmail(
+				"applicant@example.test", c.name, "OTHER", c.name, locale)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", locale, c.label, err)
+			}
+			// The name and the note are both attacker-influenced: the name comes
+			// from the registration form and the note is typed by an admin who
+			// may have pasted it.
+			assertEscapedInHTML(t, locale+"/"+c.label, c.name, textBody, htmlBody)
+		}
+	}
+}
+
+func TestRejectionEmailTellsThemTheyMayApplyAgain(t *testing.T) {
+	// The whole point of scoping uniqueness to live rows is that a rejected
+	// applicant can apply again. If the email does not say so, they will not.
+	s := testEmailService()
+	for _, locale := range []string{"en", "bn"} {
+		_, textBody, htmlBody, err := s.buildMemberRejectionEmail(
+			"applicant@example.test", "Rahima", "INCOMPLETE_DOCUMENTS", "", locale)
+		if err != nil {
+			t.Fatalf("locale %q: %v", locale, err)
+		}
+		if !strings.Contains(textBody, "/register") || !strings.Contains(htmlBody, "/register") {
+			t.Errorf("locale %q: no link back to the registration form", locale)
+		}
+	}
+}
+
+func TestRejectionEmailBodiesDifferByLocale(t *testing.T) {
+	s := testEmailService()
+	_, enText, _, err := s.buildMemberRejectionEmail("a@example.test", "Rahima", "IDENTITY_MISMATCH", "", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bnText, _, err := s.buildMemberRejectionEmail("a@example.test", "Rahima", "IDENTITY_MISMATCH", "", "bn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enText == bnText {
+		t.Error("the Bengali rejection email is identical to the English one")
+	}
+}
+
+func TestRejectionEmailRefusesAnEmptyRecipient(t *testing.T) {
+	s := testEmailService()
+	if _, _, _, err := s.buildMemberRejectionEmail("   ", "Rahima", "OTHER", "note", "en"); err == nil {
+		t.Error("an empty recipient was accepted")
+	}
 }

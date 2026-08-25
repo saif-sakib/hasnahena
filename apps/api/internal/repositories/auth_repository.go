@@ -19,6 +19,35 @@ import (
 	"hasnahena/apps/api/internal/models"
 )
 
+// PendingApprovalPasswordHash is the password hash written at registration and
+// left in place until an admin approves. bcrypt can never produce this string,
+// so a pending or rejected applicant cannot log in whatever they type.
+//
+// It is also the flag that tells a **rejected application** apart from a
+// **deactivated member**: both are INACTIVE, but the member has a real hash and
+// an approvedAt, and keeps their identifiers reserved.
+const PendingApprovalPasswordHash = "__PENDING_APPROVAL_NO_LOGIN__"
+
+// RejectedApplicationSQL matches a registration an admin turned down.
+//
+// Such a row owns nothing: its email, phone and NID are all free for somebody
+// else — or for the same applicant reapplying, which is the owner's ruling of
+// 2026-08-26 and the reason this predicate exists. Uniqueness is enforced by
+// three *partial* indexes carrying exactly this condition
+// (`users_email_live_key`, `users_phone_live_key`, `users_nid_live_key`, added
+// by 20260826120000_live_identity_uniqueness).
+//
+// **Every lookup by email or phone must exclude these rows.** Two rows may now
+// hold the same address, and the one that is not a member has a password hash
+// nothing can match — so a login that found it would refuse a real member's
+// correct password, and the availability check would tell a genuine applicant
+// their own email was taken.
+//
+// The identical string lives in `apps/web/lib/rejected-application.ts` and in
+// the migration. `apps/web/test/unit/rejected-application.test.ts` reads all
+// three and fails when one drifts.
+const RejectedApplicationSQL = `role = 'MEMBER' AND status = 'INACTIVE' AND "approvedAt" IS NULL AND "passwordHash" = '` + PendingApprovalPasswordHash + `'`
+
 func (r *UserRepository) FindByIdentifier(ctx context.Context, identifier string) (*models.User, error) {
 	identifier = strings.TrimSpace(identifier)
 
@@ -37,10 +66,10 @@ func (r *UserRepository) FindByIdentifier(ctx context.Context, identifier string
 				WHERE (prt.email = users.email OR prt.phone = users.phone)
 				  AND prt.scope = 'first-login'
 				  AND prt."usedAt" IS NULL
-				  AND prt."expiresAt" > NOW()
 			) AS must_change_password
 		FROM users
-		WHERE lower(COALESCE(email, '')) = lower($1) OR phone = $1
+		WHERE (lower(COALESCE(email, '')) = lower($1) OR phone = $1)
+		  AND NOT (` + RejectedApplicationSQL + `)
 		LIMIT 1
 	`
 
@@ -259,6 +288,19 @@ const (
 	// ResetScopeForgotPassword is the link emailed by "forgot password".
 	ResetScopeForgotPassword = "reset"
 
+	// **The first-login marker is deliberately read without its expiry**, unlike
+	// every other scope. The row carried `expiresAt = NOW() + 365 days` and
+	// FindByIdentifier's EXISTS used to require `expiresAt > NOW()` — so a member
+	// who was approved and did not log in for a year silently stopped being
+	// forced to change their password, and the temporary password emailed to
+	// them became their permanent one, with nothing anywhere saying so.
+	//
+	// That contradicted this package's own description of the marker: its
+	// *existence* is the flag. A forced password change is not a deadline the
+	// member can run out, it is a state they leave by changing the password —
+	// which is what sets `usedAt`. The approval email says as much: "Validity:
+	// until first login".
+	//
 	// ResetScopeFirstLogin marks an account that still has the temporary
 	// password it was created with. Nothing ever presents one of these: its
 	// existence *is* `mustChangePassword` (see the EXISTS in FindByIdentifier).

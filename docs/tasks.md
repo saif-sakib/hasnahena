@@ -11,7 +11,7 @@ changelog is where it goes.
 
 ## How to use this
 
-Say **`do T-07`** and the task is executed from the description here plus the
+Say **`do T-09`** and the task is executed from the description here plus the
 docs it points at — no re-reading of the codebase needed to know what is wanted.
 Tasks are ordered so that each is genuinely doable when you reach it.
 
@@ -32,11 +32,13 @@ Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 ## Where the platform stands
 
 No requirement is **broken**. The money paths, the security work, the tests, CI,
-backups and containers are done and hold. What is left is of three kinds: a
-handful of owner actions that take minutes and are blocking nothing but
-themselves; the quality of the two surfaces a member actually meets — the
-registration flow and the public site; and the long tail of product gaps in the
-FR table below.
+backups and containers are done and hold. **The entry point is done too** —
+Phase 1 closed on 2026-08-26; the registration → approval → first-login journey
+now has an end-to-end spec at phone width in both languages. What is left is of
+three kinds: a handful of owner actions that take minutes and are blocking
+nothing but themselves; the quality of the surface a member meets before they
+apply — the public site; and the long tail of product gaps in the FR table
+below.
 
 **The monitoring is now mostly on** — `METRICS_TOKEN` on Render and Sentry on
 Vercel are both confirmed live. What remains of T-01 is the Go API's own Sentry
@@ -49,7 +51,6 @@ fails twice a day.
 | Phase | What | Sessions |
 |---|---|---|
 | **0** | Owner actions — finish the monitoring, `TRUSTED_PROXIES`, two settings confirmations | `owner`, about 30 min total |
-| **1** | The entry point: registration → approval → first login | **5–6** |
 | **2** | The public face: eleven pages, and the admin editing that drives them | **4–7** |
 | **3** | The whole-site input/output sweep | **4–6** |
 | **4** | The last cheap schema change | **1–2** |
@@ -58,7 +59,7 @@ fails twice a day.
 | **6** | Operations: restore drill, asset backup, logs, dashboard | **4–5** |
 | **8** | Move hosts | **4–6** |
 
-**To a launch you would not be embarrassed by: Phases 0–4 plus the cutover — 15–22 sessions.**
+**To a launch you would not be embarrassed by: Phases 0, 2, 3, 4 plus the cutover — 10–16 sessions.**
 Phase 5 is real product work that a live foundation can absorb gradually; Phase 6
 follows the first real data; Phase 8 waits until everything is quiet.
 
@@ -93,23 +94,6 @@ guarded by `org-defaults.test.ts`.
 
 ---
 
-## Phase 1 — The entry point
-
-*Owner priority, 2026-08-25: "the entry point to this foundation is the
-registration process, so the whole entry point should be user friendly, zero
-bugs, and the arising of bugs in the future should be very minimum."*
-
-This is the first thing a prospective member touches and the only flow where a
-bad experience costs the foundation a member outright.
-
-| # | Task | Sessions | Detail |
-|---|---|---|---|
-| `[ ]` **T-06** | **Audit the whole entry path and report** | 1 | Registration form → admin approval → rejection → the approval email → first login → forced password change → forgot-password. Produce a written list of every defect, every rough edge and every place the flow lies to the applicant, ranked, with the evidence for each. **No fixes in this session** — the point is a list you can approve before code changes, because several of the likely findings are product decisions rather than bugs (what a rejected applicant is told, whether a half-finished application can be resumed, what happens to an applicant whose email bounces) |
-| `[ ]` **T-07** | **Fix everything T-06 found** | 3–4 | Split across sessions by area — the form, the approval/rejection path, the credential handover — with the tests that keep each fixed. Expect this to be the larger half: the registration form is the biggest single component in the app (over 1,300 lines) and it owns eight steps, file uploads, a nominee, and a resumable draft in `localStorage` |
-| `[ ]` **T-08** | **Make the entry path hard to break again** | 1 | The guard rail, written once the shape of T-07's fixes is known: an end-to-end spec that walks a real applicant from an empty form to a working first login, at a **phone viewport in both languages** (rule 10), plus whichever censuses the findings show are missing. Registration currently has a spec that covers the form, not the journey through approval to first login |
-
----
-
 ## Phase 2 — The public face
 
 *Owner priority, 2026-08-25: "the main representation of our website and the
@@ -124,7 +108,7 @@ phone, not to replace it.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-09** | **Audit every public page and report** | 1–2 | The eleven pages a stranger can reach, in both languages, at phone and desktop width: home, about, activities, contact, donate, faq, gallery, privacy, support, terms, plus the auth pages. Every broken link, every dead control, every placeholder that survived, every element that overflows at 412 px, every inconsistency in spacing, type scale and the logo's use. Report first, as with T-06 — taste is the owner's call, and a session spent changing things nobody asked to change is a session wasted |
+| `[ ]` **T-09** | **Audit every public page and report** | 1–2 | The eleven pages a stranger can reach, in both languages, at phone and desktop width: home, about, activities, contact, donate, faq, gallery, privacy, support, terms, plus the auth pages. Every broken link, every dead control, every placeholder that survived, every element that overflows at 412 px, every inconsistency in spacing, type scale and the logo's use. Report first, as the entry-path audit did — taste is the owner's call, and a session spent changing things nobody asked to change is a session wasted |
 | `[ ]` **T-10** | **Fix and refine** | 2–3 | Execute the approved list. Elegant, professional, classic — and **Android-first**: verified at 412 px in Bengali as well as English before it is called done (rule 10) |
 | `[ ]` **T-11** | **Make the admin content editing actually drive the pages** | 1–2 | Every control on Admin → Content & Media and Admin → Settings must change what a visitor sees, and every value a public page renders must be reachable from one of those two screens. Both halves have failed before and neither is theoretical: WO-67 found four `bank.*` keys the donate page read that no screen could set, so its "fallback" account number was the only value it could ever show; the office address was one row shown to both languages until 2026-08-25. `settings-keys-read.test.ts` enforces the key lists, but **nothing yet proves the rendered page changes when the value does** — that proof is this task |
 
@@ -217,8 +201,8 @@ are clear.
 | FR-01 | Login by phone or email | `[x]` | Go `/v1/auth/login` |
 | FR-02 | Forced password change on first login | `[x]` | `mustChangePassword` + first-login token |
 | FR-03 | RBAC on sensitive actions | `[x]` | Go handlers + `lib/server-auth.ts`; `/admin` routes also gated at the router (SEC-02) |
-| FR-04 | Registration captures biodata, NID, address, nominee | `[x]` | `/api/v1/registrations` |
-| FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI |
+| FR-04 | Registration captures biodata, NID, address, nominee | `[x]` | `/api/v1/registrations`, throttled, with the age floor from `membership.minimumAgeYears`, a live-scoped NID/email/phone uniqueness check, and a nominee who cannot be the applicant. `test/routes/registration.test.ts`, `e2e/entry-path.spec.ts` |
+| FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI. **The reject side only became true on 2026-08-26** — the screen posted a hardcoded `reason: ''` and the only record was an audit row whose `details` was the empty string. A reason is now chosen from `lib/rejection-reasons.ts`, stored on the row where a screen can read it, and quoted in the email to the applicant; the API refuses a rejection without one |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
 | FR-08 | Member withdrawal, asked for in person and paid by staff | `[x]` | no notice, no notice period ([ADR-030](decisions.md)). `AddMemberWithdrawal` pays with or without an outstanding request and settles one when there is; `loan.noticePeriodDays` is published to members and enforced by nobody. `policy_enforcement_integration_test.go`, `cmd/server/withdrawal_status_integration_test.go` |

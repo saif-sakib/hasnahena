@@ -221,7 +221,8 @@
       "backToLoginForm": "Back to login form",
       "identifierPlaceholder": "name@example.com",
       "authenticating": "Authenticating...",
-      "allRightsReserved": "All rights reserved."
+      "allRightsReserved": "All rights reserved.",
+      "pendingApplicationHint": "Applied recently? An application has to be approved before you can log in — you will be emailed either way."
     },
     "forgot": {
       "errorTitle": "Error",

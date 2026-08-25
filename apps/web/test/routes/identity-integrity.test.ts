@@ -468,7 +468,11 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           nameBn: 'ব্লক ওয়াই',
           fatherName: 'Father Name',
           motherName: 'Mother Name',
-          nidNumber: '1990123456789',
+          // Distinct per member. Shared until 2026-08-26, when `users_nid_live_key`
+          // made two live members holding one NID impossible — this fixture
+          // seeds two members in the guarantor case and was the first thing the
+          // new constraint caught, which is the constraint doing its job.
+          nidNumber: `19901${String(n).padStart(8, '0')}`,
           bloodGroup: 'B+',
           profession: 'Farmer',
           approvedAt: new Date(),

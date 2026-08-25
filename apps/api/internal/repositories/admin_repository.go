@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"hasnahena/apps/api/internal/notify"
 )
 
@@ -22,6 +24,14 @@ type RegistrationApprovalCandidate struct {
 	Role      string
 	Status    string
 	AccountNo string
+	// The language the applicant filled the form in. The approval email used to
+	// be sent in the *admin's* dashboard language, so a Bengali applicant
+	// approved by an admin working in English received the one email carrying
+	// their temporary password in a language they may not read.
+	//
+	// Empty for anyone who registered before 2026-08-26, who fall back to the
+	// admin's locale as before rather than being guessed at.
+	PreferredLocale string
 }
 
 // GetMembersList returns either the members or the field workers.
@@ -538,7 +548,8 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 			COALESCE(u."nameEn", ''),
 			u.role::text,
 			u.status::text,
-			COALESCE(u."accountNo", '')
+			COALESCE(u."accountNo", ''),
+			COALESCE(u."preferredLocale", '')
 		FROM users u
 		WHERE u.id = $1
 		LIMIT 1
@@ -553,6 +564,7 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 		&candidate.Role,
 		&candidate.Status,
 		&candidate.AccountNo,
+		&candidate.PreferredLocale,
 	)
 	if err != nil {
 		return nil, err
@@ -695,59 +707,110 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-
+	// Inside the transaction, and checked.
+	//
+	// This used to run after the commit as `_, _ = r.db.Exec(...)`, so an
+	// approval could succeed with no record of who granted it. Admitting a
+	// member is exactly the kind of material action FR-19 exists for, and the
+	// audit row is what an investigation starts from. Written here, the
+	// approval and its record commit together or neither does.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
-	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, notes)
+	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, notes); err != nil {
+		return err
+	}
 
-	return nil
+	return tx.Commit(ctx)
 }
 
-func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reason string) error {
+// ErrRegistrationNotPending is returned when the row named is not a pending
+// application — already decided, already a member, or not there at all.
+//
+// A sentinel rather than a message the handler greps for. This used to return
+// errors.New("registration not found") and the handler matched it with
+// strings.Contains(err.Error(), "not found"), which is the classification rule
+// 2b bans: every future error whose text happens to contain those words becomes
+// a 404, and rewording this one makes it a 500.
+var ErrRegistrationNotPending = errors.New("registration is not pending")
+
+// RejectedApplicant is what the caller needs in order to tell the applicant.
+//
+// Returned *because* the rejection no longer destroys it. Until 2026-08-26 this
+// function overwrote the email and phone in the same statement that recorded the
+// decision, to free the unique constraint for a re-application — so the
+// foundation held an application it had turned down and no address to explain it
+// to, and nothing else in the entry path told the applicant either. Uniqueness
+// is scoped to live rows now, so the details can simply stay.
+type RejectedApplicant struct {
+	Email  string
+	NameEn string
+	Locale string
+}
+
+// RejectRegistration turns down a pending application, recording why.
+//
+// The reason is stored on the row as well as in the audit log. `audit_logs` is
+// append-only and no screen can read it, so a reason written only there is one
+// nobody can show the applicant or the next admin to open the application —
+// which is what "reject with reason" (FR-05) has to mean to be worth anything.
+func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reasonCode, reasonNote string) (*RejectedApplicant, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	// Mark registration as rejected and archive unique contact fields so the applicant can re-register.
+	// The contact details are read back, not overwritten. RETURNING rather than
+	// a second SELECT, so the row is read by the statement that changes it.
 	const updateQuery = `
 		UPDATE users
 		SET
 			status = 'INACTIVE',
-			email = CASE
-				WHEN email IS NULL OR btrim(email) = '' THEN NULL
-				ELSE CONCAT('rejected+', id, '@hasnahena.local')
-			END,
-			phone = CONCAT('rejected-', id),
+			"rejectionReasonCode" = $2,
+			"rejectionReasonNote" = NULLIF(btrim($3), ''),
+			"rejectedAt" = NOW(),
+			"approvedBy" = $4,
 			"updatedAt" = NOW()
 		WHERE id = $1 AND role = 'MEMBER' AND status = 'PENDING'
+		RETURNING COALESCE(email, ''), "nameEn", COALESCE("preferredLocale", '')
 	`
-	updateResult, err := tx.Exec(ctx, updateQuery, userID)
+
+	var applicant RejectedApplicant
+	err = tx.QueryRow(ctx, updateQuery, userID, reasonCode, reasonNote, approverID).
+		Scan(&applicant.Email, &applicant.NameEn, &applicant.Locale)
 	if err != nil {
-		return err
-	}
-	if updateResult.RowsAffected() == 0 {
-		return errors.New("registration not found")
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrRegistrationNotPending
+		}
+		return nil, err
 	}
 
-	// Write audit log after commit so audit failures never poison the rejection transaction.
+	// Inside the transaction, unlike the version this replaces.
+	//
+	// The audit row used to be written after the commit with its error
+	// discarded (`_, _ = r.db.Exec(...)`), so a rejection could commit leaving
+	// no record of who made it or why. FR-19 asks for an append-only log of
+	// every material action, and refusing somebody membership is material.
+	// Written here, the decision and its record commit together or neither does.
 	const auditQuery = `
 		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES (gen_random_uuid()::text, 'REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
-	_, _ = r.db.Exec(ctx, auditQuery, userID, approverID, reason)
+	auditDetails := strings.TrimSpace(reasonCode)
+	if note := strings.TrimSpace(reasonNote); note != "" {
+		auditDetails = strings.TrimSpace(auditDetails + " — " + note)
+	}
+	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, auditDetails); err != nil {
+		return nil, err
+	}
 
-	return nil
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &applicant, nil
 }
 
 func (r *UserRepository) GetAdminProfile(ctx context.Context, userID string) (map[string]interface{}, error) {

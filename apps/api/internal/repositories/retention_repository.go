@@ -83,26 +83,46 @@ func (r *UserRepository) GetRejectedRetentionDays(ctx context.Context) int {
 //     excluded by `approvedAt IS NULL` AND by the tombstoned phone — deliberately
 //     by both, because that member is somebody whose savings this foundation
 //     still holds, and one clause deleted by mistake should not be enough. It is
-//     the same predicate `rejectedRegistrationFilter` uses in
-//     `apps/web/app/api/v1/registrations/route.ts`, which is what lets a rejected
-//     applicant re-apply.
+//     `RejectedApplicationSQL` — the same predicate the partial unique indexes
+//     carry and the same one the Next registration route and the Go login lookup
+//     use, so "who may re-apply", "who owns an email" and "whose data expires"
+//     cannot answer differently.
+//
+//     **This clause used to be `u.phone LIKE 'rejected-%'`**, matching the
+//     tombstone that rejection wrote over the applicant's phone number. When
+//     that scramble was removed on 2026-08-26 — it was what made telling the
+//     applicant impossible — this predicate would have matched nothing ever
+//     again, and the sweep would have gone on reporting success while retaining
+//     every rejected applicant's NID for ever. Nothing about it would have
+//     looked wrong: the job runs, the query is valid, the count is zero.
+//
 //   - the age is measured from the REJECT_REGISTRATION audit row rather than
 //     from `updatedAt`, because `updatedAt` moves whenever anything writes the
 //     row — including this sweep. Anchoring retention to a mutable timestamp is
 //     how a retention window silently becomes "a year after we last touched it".
+//
 //   - something must still be left to clear, so a second pass over an
 //     already-swept row is not an UPDATE that does nothing and an audit row that
 //     says it did.
-const rejectedApplicantsSQL = `
+//
+// rejectedApplicationPrefixed is RejectedApplicationSQL with the `u.` alias the
+// query below joins under. Derived rather than written out a second time: two
+// spellings of one predicate is the drift `rejected-application.test.ts` exists
+// to refuse.
+var rejectedApplicationPrefixed = strings.NewReplacer(
+	"role =", "u.role =",
+	"status =", "u.status =",
+	`"approvedAt"`, `u."approvedAt"`,
+	`"passwordHash"`, `u."passwordHash"`,
+).Replace(RejectedApplicationSQL)
+
+var rejectedApplicantsSQL = `
 	SELECT
 		u.id,
 		u."accountNo",
 		u."avatarUrl" IS NOT NULL
 	FROM users u
-	WHERE u.role = 'MEMBER'
-	  AND u.status = 'INACTIVE'
-	  AND u."approvedAt" IS NULL
-	  AND u.phone LIKE 'rejected-%'
+	WHERE (` + rejectedApplicationPrefixed + `)
 	  AND COALESCE((
 	        SELECT MIN(a."createdAt")
 	        FROM audit_logs a
@@ -120,6 +140,9 @@ const rejectedApplicantsSQL = `
 	     OR u."nameBn" IS NOT NULL
 	     OR u."fatherName" <> ''
 	     OR u."motherName" <> ''
+	     OR u."rejectionReasonNote" IS NOT NULL
+	     OR u.email IS NOT NULL
+	     OR u.phone NOT LIKE 'expired-%'
 	     OR EXISTS (SELECT 1 FROM addresses ad WHERE ad."userPermanentId" = u.id OR ad."userPresentId" = u.id)
 	     OR EXISTS (SELECT 1 FROM nominees n WHERE n."userId" = u.id)
 	  )
@@ -132,6 +155,13 @@ const rejectedApplicantsSQL = `
 // than nulled; `nameEn` is left alone because it is what the rejection decision
 // is *about*, and the audit row that justifies the refusal would name nobody
 // without it.
+//
+// The applicant's **email and phone are also left**, and that is new as of
+// 2026-08-26. They used to be destroyed at the moment of rejection, to free the
+// unique constraint for a re-application — which is why nothing could tell the
+// applicant they had been rejected. Uniqueness is scoped to live rows now, so
+// the details survive long enough for the rejection email to be sent, and are
+// erased on this schedule with everything else rather than on the spot.
 const clearRejectedIdentitySQL = `
 	UPDATE users
 	SET "nidNumber"   = NULL,
@@ -143,6 +173,22 @@ const clearRejectedIdentitySQL = `
 	    "nameBn"      = NULL,
 	    "fatherName"  = '',
 	    "motherName"  = '',
+	    -- The admin's free-text rejection note, which may name the applicant or
+	    -- describe their documents. The *code* and the date are the decision
+	    -- itself and are kept for ever (ADR-033); the prose an admin typed
+	    -- around it is identity data like the rest of this list.
+	    "rejectionReasonNote" = NULL,
+	    -- The contact details, erased **here** rather than at the moment of
+	    -- rejection. They used to be overwritten on the spot, which is what left
+	    -- the foundation unable to tell the applicant anything; they now live
+	    -- exactly as long as the rest of the identity data and go with it.
+	    --
+	    -- The phone column is NOT NULL, so it is tombstoned rather than nulled,
+	    -- and the tombstone stays unique because a later application by somebody
+	    -- else could otherwise collide with it. The email column can simply go.
+	    -- (No backticks in this comment: it lives inside a Go raw string.)
+	    email         = NULL,
+	    phone         = 'expired-' || id,
 	    "updatedAt"   = NOW()
 	WHERE id = $1
 `

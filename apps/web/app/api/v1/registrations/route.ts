@@ -16,6 +16,13 @@ import {
   NEXT_ACCOUNT_NO_SQL,
 } from '@/lib/account-no';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
+import { liveIdentityFilter, PENDING_APPROVAL_PASSWORD_HASH } from '@/lib/rejected-application';
+import { getPublicSettings } from '@/lib/system-config';
+import {
+  dateOfBirthMessage,
+  dateOfBirthProblem,
+  minimumAgeYears,
+} from '@/lib/membership-eligibility';
 
 function normalizeOptionalString(v: string | undefined): string | null {
   if (!v) return null;
@@ -56,13 +63,10 @@ const REQUIRED_DOCUMENT_FIELDS = [
   },
 ] as const;
 
-const REJECTED_REGISTRATION_PASSWORD_HASH = '__PENDING_APPROVAL_NO_LOGIN__';
-const rejectedRegistrationFilter: Prisma.UserWhereInput = {
-  role: UserRole.MEMBER,
-  status: UserStatus.INACTIVE,
-  approvedAt: null,
-  passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
-};
+// The sentinel and the rejected-application predicate live in
+// `lib/rejected-application.ts` now, because the database's partial unique
+// indexes and the Go API's login lookup have to agree with them. They were
+// declared here when this route was their only consumer.
 
 function isFileEntry(value: FormDataEntryValue | null): value is File {
   if (!value || typeof value === 'string') return false;
@@ -86,6 +90,20 @@ function isFileEntry(value: FormDataEntryValue | null): value is File {
 // range: Bangladeshi mobile numbers are an 8-digit space behind a known prefix,
 // which at this rate takes centuries instead of an afternoon.
 const AVAILABILITY_RATE_LIMIT = { limit: 20, windowSeconds: 600 };
+
+// The POST had **no throttle at all** until 2026-08-26, while the GET beside it
+// has had one since SEC-08. It is by far the more expensive of the two: each
+// call writes a `users` row with three related records, uploads four images to
+// Cloudinary, and takes a *global* advisory lock to allocate an account number.
+// Unthrottled that is an approvals queue anybody can flood, a third-party
+// storage quota anybody can spend, and — because the lock is global — a way to
+// serialise every genuine registration behind a script.
+//
+// Five in fifteen minutes per address. A household filling in forms on one
+// phone connection is nowhere near it; the same family reapplying after a
+// rejection is not either. The limit is per address rather than per email
+// because the email is chosen by the caller.
+const SUBMISSION_RATE_LIMIT = { limit: 5, windowSeconds: 900 };
 
 export async function GET(req: Request) {
   try {
@@ -137,7 +155,7 @@ export async function GET(req: Request) {
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: clauses,
-        NOT: rejectedRegistrationFilter,
+        ...liveIdentityFilter,
       },
       select: {
         email: true,
@@ -176,6 +194,23 @@ export async function POST(req: Request) {
   };
 
   try {
+    // Before the body is read. `req.formData()` buffers four images, so a
+    // throttle applied after it has already paid the cost it exists to prevent.
+    const submissionLimit = await consumeRateLimit(
+      'registration-submit',
+      callerAddress(req),
+      SUBMISSION_RATE_LIMIT,
+    );
+    if (!submissionLimit.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Too many registration attempts from this connection. Please try again shortly.',
+        },
+        { status: 429, headers: { 'Retry-After': String(submissionLimit.retryAfterSeconds) } },
+      );
+    }
+
     const contentType = req.headers.get('content-type')?.toLowerCase() || '';
     if (!contentType.includes('multipart/form-data')) {
       return NextResponse.json(
@@ -192,6 +227,13 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
+
+    // Sent as its own form field rather than inside `payload`, because
+    // `registerApiSchema` is `.strict()` and rejects unknown keys — and it
+    // should stay that way: the payload is the application, and the language
+    // the applicant is reading is a fact about the request.
+    const localeRaw = formData.get('locale');
+    const applicantLocale = localeRaw === 'bn' ? 'bn' : 'en';
 
     let payloadInput: unknown;
     try {
@@ -215,38 +257,85 @@ export async function POST(req: Request) {
     const payload = parsed.data;
     const normalizedEmail = payload.email.trim().toLowerCase();
 
-    await prisma.$executeRaw`
-      UPDATE users
-      SET
-        email = CASE
-          WHEN email IS NULL OR btrim(email) = '' THEN NULL
-          ELSE CONCAT('rejected+', id, '@hasnahena.local')
-        END,
-        phone = CONCAT('rejected-', id),
-        "updatedAt" = NOW()
-      WHERE role = 'MEMBER'
-        AND status = 'INACTIVE'
-        AND "approvedAt" IS NULL
-        AND "passwordHash" = ${REJECTED_REGISTRATION_PASSWORD_HASH}
-        AND (email = ${normalizedEmail} OR phone = ${payload.phone})
-    `;
+    // Age, against the foundation's own setting rather than a number compiled
+    // in here. The schema checks only that the date parses and is not in the
+    // future — deliberately, because the floor is policy and this route is
+    // where policy is read. Until 2026-08-26 there was no floor at all and a
+    // date of birth of yesterday created a pending member.
+    //
+    // The form checks this too. This check is the one that counts: the form is
+    // a convenience and the caller need not use it.
+    const publicSettings = await getPublicSettings();
+    const minimumAge = minimumAgeYears(publicSettings);
+    const dobProblem = dateOfBirthProblem(payload.dateOfBirth, minimumAge);
+    if (dobProblem) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: dateOfBirthMessage(dobProblem, minimumAge, 'en'),
+          field: 'dateOfBirth',
+          // So the form can render the refusal in the applicant's language
+          // rather than echoing this English string back at a Bengali reader.
+          code: `DOB_${dobProblem.toUpperCase().replace('-', '_')}`,
+          minimumAge,
+        },
+        { status: 400 },
+      );
+    }
 
+    // A nominee is who receives the money if the member dies, so the member
+    // cannot be their own. Nothing checked this: the same NID in both boxes was
+    // accepted and produced a nomination that can never be acted on.
+    if (payload.nomineeNid.trim() === payload.nidNumber.trim()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'The nominee cannot be the applicant. Enter the NID of the person who should receive the account if you die.',
+          field: 'nomineeNid',
+          code: 'NOMINEE_IS_APPLICANT',
+        },
+        { status: 400 },
+      );
+    }
+
+    // A rejected applicant's email and phone used to be scrambled here, before
+    // this submission had been validated, so that the unique constraint would
+    // let them reapply. Two things were wrong with it. It ran *first*, so a
+    // submission that then failed on a missing document left somebody else's
+    // record permanently renamed and returned a 400 — repeatable by anyone who
+    // knew a rejected applicant's email. And it was the second half of the same
+    // erasure that made a rejection impossible to communicate.
+    //
+    // Uniqueness is scoped to live rows now
+    // (`20260826120000_live_identity_uniqueness`), so the constraint is already
+    // out of the way and nothing has to be destroyed to move it.
+
+    // Check if a LIVE user already holds these details. A rejected application
+    // holding the same email is not a conflict — that is the point.
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { phone: payload.phone },
           { email: normalizedEmail },
+          { nidNumber: payload.nidNumber },
         ],
-        NOT: rejectedRegistrationFilter,
+        ...liveIdentityFilter,
       },
-      select: { phone: true, email: true },
+      select: { phone: true, email: true, nidNumber: true },
     });
 
     if (existingUser) {
-      const field = existingUser.phone === payload.phone ? 'phone number' : 'email';
+      // Name the field that actually collided. The old version compared phone
+      // and called everything else "email", so an NID clash — which this now
+      // also checks — would have told the applicant their email was taken.
+      const field = existingUser.phone === payload.phone
+        ? 'phone number'
+        : existingUser.email === normalizedEmail
+          ? 'email'
+          : 'NID number';
       return NextResponse.json(
-        { ok: false, error: `A user with this ${field} already exists` },
+        { ok: false, error: `A member with this ${field} already exists`, field },
         { status: 409 },
       );
     }
@@ -326,7 +415,8 @@ export async function POST(req: Request) {
         data: {
           email: normalizedEmail,
           phone: payload.phone,
-          passwordHash: REJECTED_REGISTRATION_PASSWORD_HASH,
+          passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
+          preferredLocale: applicantLocale,
           role: UserRole.MEMBER,
           status: UserStatus.PENDING,
 
@@ -396,6 +486,11 @@ export async function POST(req: Request) {
           status: true,
           nameEn: true,
         },
+        // `accountNo` is what the confirmation page shows the applicant. It is
+        // allocated here, at submission, and until 2026-08-26 the applicant was
+        // never told it — they got a two-second toast and a redirect to a login
+        // page they cannot use, with no reference for the thing they had just
+        // spent twenty minutes filling in.
       });
     });
 

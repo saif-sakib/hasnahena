@@ -95,25 +95,70 @@ enum RequestStatus {
 
 model User {
   id           String     @id @default(cuid())
-  /// WO-90. There is a **second** unique index on this column that Prisma
-  /// cannot express and this file therefore does not show:
-  /// `users_email_lower_key` on `lower(email)`, added by
-  /// `20260825120000_block_y_identity_integrity`. Without it `Saif@x.com` and
-  /// `saif@x.com` are two rows, and only the convention that every write path
-  /// lowercases first was keeping them from both existing. A convention is not
-  /// a constraint: a seed script, a hand-applied support fix, or the next
-  /// creation path someone adds re-opens it, and the duplicate is permanent and
-  /// invisible.
+  /// **`email`, `phone` and `nidNumber` are unique, and this file cannot say
+  /// so.** All three carry *partial* unique indexes that Prisma can express
+  /// neither the predicate nor (for email) the expression of, so they are
+  /// invisible here and to `prisma migrate diff` — the same blind spot as the
+  /// CHECK constraints and the `audit_logs` trigger, and the reason a
+  /// `--from-empty` baseline would drop them silently. The full list is in
+  /// docs/data-model.md.
   ///
-  /// Like the CHECK constraints and the `audit_logs` trigger it is invisible to
-  /// `prisma migrate diff`, so a future `--from-empty` baseline would drop it
-  /// silently. It is also what makes login's `lower(email) = lower($1)` lookup
-  /// an index scan rather than a sequential one.
-  email        String?    @unique
-  phone        String     @unique
+  ///   `users_email_live_key`  UNIQUE (lower(email))  WHERE not rejected
+  ///   `users_phone_live_key`  UNIQUE (phone)         WHERE not rejected
+  ///   `users_nid_live_key`    UNIQUE ("nidNumber")   WHERE not rejected
+  ///
+  /// Added by `20260826120000_live_identity_uniqueness`, replacing the
+  /// unconditional `@unique` attributes and WO-90's `users_email_lower_key`.
+  /// Case-insensitivity is kept from WO-90: `Saif@x.com` and `saif@x.com` are
+  /// one person, and a convention that every write path lowercases first is not
+  /// a constraint.
+  ///
+  /// **Only live rows are constrained**, because a rejected applicant must be
+  /// able to apply again with the same details (owner's ruling, 2026-08-26).
+  /// The alternative, which this replaced, was overwriting their email and
+  /// phone at the moment of rejection — which freed the constraint by
+  /// destroying the only way to tell them they had been rejected. The predicate
+  /// is defined once per language in `lib/rejected-application.ts` and in the
+  /// Go API's `RejectedApplicationSQL`, and pinned by
+  /// `rejected-application.test.ts`.
+  ///
+  /// The consequence for every lookup: **two rows may now share an email**, so
+  /// a query by email or phone that does not exclude rejected applications can
+  /// return one.
+  email        String?
+  phone        String
   passwordHash String
   role         UserRole   @default(MEMBER)
   status       UserStatus @default(PENDING)
+
+  /// Why an application was turned down, and when.
+  ///
+  /// The reason used to exist only in `audit_logs.details`, which no screen can
+  /// read — and the admin UI posted an empty string, so FR-05's "with reason"
+  /// was not met on the reject side. `rejectionReasonCode` is one of the preset
+  /// codes in `lib/rejection-reasons.ts`; `rejectionReasonNote` is the admin's
+  /// optional free text.
+  ///
+  /// The note is cleared by the retention sweep with the rest of the identity
+  /// data (ADR-033) — an admin may have typed identifying detail into it. The
+  /// code and the date are the decision itself and are kept for ever.
+  rejectionReasonCode String?
+  rejectionReasonNote String?
+  rejectedAt          DateTime?
+
+  /// The language the applicant filled the form in, so the foundation writes to
+  /// them in it.
+  ///
+  /// Before this the approval email's language came from the **admin's**
+  /// dashboard locale, passed up from the approvals screen — so a Bengali
+  /// applicant approved by an admin working in English received the single most
+  /// important email the foundation sends, carrying their temporary password,
+  /// in a language they may not read. The applicant's own language was known at
+  /// the moment they applied and was thrown away.
+  ///
+  /// Nullable because every member who registered before 2026-08-26 has no
+  /// recorded preference; those fall back to the admin's locale as before.
+  preferredLocale String?
 
   // Profile
   //
@@ -183,6 +228,18 @@ model User {
   assignedBranch   Branch? @relation("AssignedBranch", fields: [assignedBranchId], references: [id], onDelete: SetNull)
   assignedBranchId String?
 
+  /// Lookup by phone, non-unique.
+  ///
+  /// `phone` used to be `@unique`, which served both purposes at once. Now that
+  /// uniqueness is a *partial* index Prisma cannot model
+  /// (`users_phone_live_key`), the lookup needs its own declaration — login and
+  /// the availability check both search by phone and must find rejected rows
+  /// too, which the partial index by definition does not cover.
+  ///
+  /// Declared here rather than left in the migration alone because Prisma *can*
+  /// express this one, so an undeclared version is reported as drift by
+  /// `pnpm db:migrate:check` on every run.
+  @@index([phone])
   @@index([status, createdAt])
   @@index([role, status])
   @@index([approvedBy, approvedAt])

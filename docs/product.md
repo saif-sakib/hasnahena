@@ -161,13 +161,29 @@ happens is decided by counting references, not by asking the operator: the
 database refuses the delete anyway (`ON DELETE RESTRICT` from `transactions` and
 `loans`), so the count is what turns a constraint violation into an answer.
 
-**2. A rejected application keeps its decision and loses its identity after one
-year.** The rejection itself, its reason and its `audit_logs` row are kept
-permanently — a refusal is a decision the foundation may have to justify, and the
-contact tombstone is what lets the applicant re-apply. The identity documents are
-not part of that justification a year later, so NID number, addresses, parents'
-names, date of birth, blood group, profession and photograph are cleared by a
-scheduled sweep 365 days after rejection.
+**2. A rejected applicant is told why, may apply again, and loses their identity
+data after one year.** The rejection, its reason code and its `audit_logs` row
+are kept permanently — a refusal is a decision the foundation may have to
+justify. The applicant is **emailed** the outcome with the reason, from a list
+the admin picks from and may add free text to (owner's ruling, 2026-08-26); a
+rejection with no reason is refused by the API.
+
+They may apply again with the same email, phone and NID. Uniqueness covers only
+**live** rows, so a rejected application reserves nothing — which is also what
+makes the email possible. Until 2026-08-26 rejection *overwrote* the applicant's
+contact details on the spot to free the unique constraint, so nobody could be
+told anything, and the entry point's most common bad outcome was silence.
+
+The identity documents are not part of the justification a year later, so NID
+number, addresses, parents' names, date of birth, blood group, profession,
+photograph, the free-text rejection note **and the contact details** are cleared
+by a scheduled sweep 365 days after rejection. The reason *code* and the date
+survive, because they are the decision rather than the person.
+
+**Minimum age.** An applicant must be at least `membership.minimumAgeYears` old
+— a Settings value, defaulting to 18, the age of majority in Bangladesh and the
+ordinary threshold for a binding contract. Enforced by the API as well as the
+form.
 
 **3. A member may ask to be erased; an admin decides.** The request goes through
 the existing support thread — there is no self-service button, because erasure
@@ -194,7 +210,7 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 | FR-02 | Forced password reset on first login after approval | High |
 | FR-03 | RBAC on every sensitive action | Critical |
 | FR-04 | Capture biodata, NID, address, nominee at registration | High |
-| FR-05 | Admin approves/rejects registration with stored reason | High |
+| FR-05 | Admin approves/rejects registration with a stored reason, and the applicant is told | High |
 | FR-06 | Member updates nominee, audit-logged | Medium |
 | FR-07 | Deposit: member requests → worker processes → member confirms | Critical |
 | FR-08 | Member withdrawal: asked for in person, paid and posted by staff | High |

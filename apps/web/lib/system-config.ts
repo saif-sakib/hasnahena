@@ -131,6 +131,15 @@ export const SYSTEM_CONFIG_KEYS = [
   // Support.
   'support.chatRetentionDays',
 
+  // Membership eligibility. Read by the registration form *and* by the
+  // registration API, which must not trust the form.
+  //
+  // Added 2026-08-26 (T-07). Date of birth was validated only as "not in the
+  // future", so an infant passed. Members enter a financial contract and can
+  // borrow, so the floor is a policy the foundation sets rather than a number
+  // in the source — the owner asked for it to live in Settings.
+  'membership.minimumAgeYears',
+
   // Retention. How long a REJECTED application keeps its identity data — the
   // NID number, both parents' names, the date of birth and the two addresses.
   // The decision and its audit row are permanent; these are not (WO-93,
@@ -252,6 +261,12 @@ export const PUBLIC_CONFIG_KEYS = [
   // published policy — it was hardcoded into that answer as "3 months" long
   // before it was a setting — so a stranger reading it is the point.
   'loan.noticePeriodDays',
+
+  // Public for the same reason, and for one more: the **registration form**
+  // reads it, and `/register` is reached before anyone has an account. A form
+  // that refuses a date of birth without being able to say what the limit is
+  // gives the applicant nothing to act on.
+  'membership.minimumAgeYears',
 ] as const;
 
 /**
@@ -369,6 +384,7 @@ export const SETTINGS_CONFIG_KEYS = [
 
   'support.chatRetentionDays',
   'security.rejectedRetentionDays',
+  'membership.minimumAgeYears',
 ] as const;
 
 export type SystemConfigKey = (typeof SYSTEM_CONFIG_KEYS)[number];

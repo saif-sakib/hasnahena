@@ -5,7 +5,7 @@ another's.
 
 | Document | For |
 |---|---|
-| [tasks.md](tasks.md) | **Everything left to do**, numbered, ordered, with a session estimate each. Say `do T-07`. The only board — no history |
+| [tasks.md](tasks.md) | **Everything left to do**, numbered, ordered, with a session estimate each. Say `do T-09`. The only board — no history |
 | [changing-things.md](changing-things.md) | **"I want to change ___"** — the homepage, a money rule, the schema, the host. Blast radius, files to touch, how to prove nothing broke. **Start here for routine work** |
 | [traps.md](traps.md) | **Every failure that cost a session**, grouped by what you have to be touching to hit one. Skim the heading that matches your task |
 | [product.md](product.md) | What the platform is: roles, money rules, loan and default policy, registration data, FR-01…23 |

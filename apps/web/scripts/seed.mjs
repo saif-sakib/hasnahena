@@ -82,6 +82,17 @@ const CONFIG_DEFAULTS = [
     value: '365',
     description: "Days a rejected application keeps its identity data before the sweep clears it",
   },
+
+  // Membership eligibility (T-07, 2026-08-26). Date of birth used to be checked
+  // only for "not in the future", so an infant passed validation and created a
+  // pending member. 18 is the age of majority in Bangladesh and the ordinary
+  // threshold for a binding contract; the owner asked for it to be editable in
+  // Settings rather than fixed in the source.
+  {
+    key: 'membership.minimumAgeYears',
+    value: '18',
+    description: 'Minimum age in whole years to register as a member',
+  },
   { key: 'org.name', value: 'হাসনাহেনা ফাউন্ডেশন', description: 'Organisation name (Bengali)' },
   { key: 'org.nameEn', value: 'Hasnahena Foundation', description: 'Organisation name (English)' },
   // Two addresses, for the same reason there are two names: whichever script a

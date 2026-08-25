@@ -35,12 +35,12 @@ func seedRejectedApplicant(t *testing.T, id string, daysAgo int) string {
 			"nameEn", "nameBn", "fatherName", "motherName", gender, "maritalStatus",
 			"childrenCount", "nidNumber", "dateOfBirth", "bloodGroup", profession,
 			"formNumber", "createdAt", "updatedAt")
-		VALUES ($1, 'rejected+' || $1 || '@hasnahena.local', 'rejected-' || $1, 'x',
+		VALUES ($1, $1 || '@applicant.test', '0195' || $4, '__PENDING_APPROVAL_NO_LOGIN__',
 			'MEMBER', 'INACTIVE', $2,
 			'Applicant ' || $1, 'আবেদনকারী', 'Applicant Father', 'Applicant Mother',
 			'MALE', 'UNMARRIED', 0, $3, '1990-01-01', 'B+', 'Farmer',
 			'FORM-' || $1, NOW(), NOW())
-	`, id, "ACC-KH-"+phoneSuffix(id)[:5], retentionNID)
+	`, id, "ACC-KH-"+phoneSuffix(id)[:5], retentionNID+phoneSuffix(id)[:4], phoneSuffix(id))
 	if err != nil {
 		t.Fatalf("seed rejected applicant %s: %v", id, err)
 	}
@@ -82,6 +82,7 @@ type identitySnapshot struct {
 	profession *string
 	formNumber *string
 	avatarURL  *string
+	email      *string
 	nameEn     string
 	fatherName string
 	motherName string
@@ -96,13 +97,13 @@ func identityOf(t *testing.T, userID string) identitySnapshot {
 	var s identitySnapshot
 	err := testPool.QueryRow(context.Background(), `
 		SELECT u."nidNumber", u."nameBn", u."dateOfBirth"::text, u."bloodGroup", u.profession,
-		       u."formNumber", u."avatarUrl", u."nameEn", u."fatherName", u."motherName",
+		       u."formNumber", u."avatarUrl", u.email, u."nameEn", u."fatherName", u."motherName",
 		       u.phone, u.status::text,
 		       (SELECT COUNT(*) FROM addresses a WHERE a."userPermanentId" = u.id OR a."userPresentId" = u.id),
 		       (SELECT COUNT(*) FROM nominees n WHERE n."userId" = u.id)
 		FROM users u WHERE u.id = $1
 	`, userID).Scan(&s.nid, &s.nameBn, &s.dob, &s.bloodGroup, &s.profession, &s.formNumber,
-		&s.avatarURL, &s.nameEn, &s.fatherName, &s.motherName, &s.phone, &s.status,
+		&s.avatarURL, &s.email, &s.nameEn, &s.fatherName, &s.motherName, &s.phone, &s.status,
 		&s.addresses, &s.nominees)
 	if err != nil {
 		t.Fatalf("read identity for %s: %v", userID, err)
@@ -168,11 +169,16 @@ func TestARejectedApplicationLosesItsIdentityAfterTheWindow(t *testing.T) {
 		t.Errorf("%d addresses and %d nominees survived the sweep", after.addresses, after.nominees)
 	}
 
-	// What must NOT change: the decision is kept. The name is what the rejection
-	// was about, the tombstoned phone is what lets the applicant re-apply, and
-	// the status is the decision itself.
-	if !strings.HasPrefix(after.phone, "rejected-") {
-		t.Errorf("phone is %q — the tombstone is what lets a rejected applicant re-apply", after.phone)
+	// The contact details go WITH the rest of the identity data, at the deadline
+	// — not at the moment of rejection, which is where they used to be destroyed
+	// and is why nothing could tell the applicant they had been refused. The
+	// phone column is NOT NULL, so it is tombstoned; the tombstone must be
+	// unique, or a later applicant collides with it.
+	if !strings.HasPrefix(after.phone, "expired-") {
+		t.Errorf("phone is %q — the applicant's real number survived the retention window", after.phone)
+	}
+	if after.email != nil {
+		t.Errorf("email %q survived the retention window", *after.email)
 	}
 	if after.status != "INACTIVE" || after.nameEn == "" {
 		t.Errorf("the decision itself was altered: status %q, nameEn %q", after.status, after.nameEn)
@@ -202,30 +208,31 @@ func TestTheSweepLeavesEveryAccountThatIsNotARejectedApplication(t *testing.T) {
 	member := seedMember(t, "retention-member", "ACC-KH-40001", 5000)
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE users SET "nidNumber" = $2, "updatedAt" = NOW() - make_interval(days => 900) WHERE id = $1
-	`, member, retentionNID); err != nil {
+	`, member, retentionNID+"0001"); err != nil {
 		t.Fatalf("backdate member: %v", err)
 	}
 
-	// A worker an admin deactivated years ago. Same role-free INACTIVE shape as
-	// a rejection; the tombstoned phone is the only thing telling them apart,
+	// A worker an admin deactivated years ago. Same INACTIVE status as a
+	// rejection; the role and the real password hash are what tell them apart,
 	// and a sweep that got this wrong would erase a staff record.
 	worker := seedStaff(t, "retention-worker", "WORKER")
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE users SET status = 'INACTIVE', "nidNumber" = $2,
 		    "updatedAt" = NOW() - make_interval(days => 900) WHERE id = $1
-	`, worker, retentionNID); err != nil {
+	`, worker, retentionNID+"0002"); err != nil {
 		t.Fatalf("deactivate worker: %v", err)
 	}
 
 	// And the one that is a single clause away from a rejected application: a
 	// member who WAS approved and was later deactivated. Same role, same status,
 	// and this foundation is still holding their savings. `approvedAt` and the
-	// contact tombstone are what separate them.
+	// real password hash are what separate them — which is exactly why the
+	// predicate carries all four conjuncts.
 	suspended := seedMember(t, "retention-suspended", "ACC-KH-40002", 12000)
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE users SET status = 'INACTIVE', "nidNumber" = $2, "approvedAt" = NOW() - make_interval(days => 900),
 		    "updatedAt" = NOW() - make_interval(days => 900) WHERE id = $1
-	`, suspended, retentionNID); err != nil {
+	`, suspended, retentionNID+"0003"); err != nil {
 		t.Fatalf("suspend member: %v", err)
 	}
 

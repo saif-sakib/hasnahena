@@ -138,7 +138,7 @@ settlement, administering staff, reading the audit trail.
 | GET | `/v1/dashboard/admin/{workers,profile}` |
 | POST | `/v1/dashboard/admin/members/status` |
 | POST | `/v1/dashboard/admin/workers/welcome-email` |
-| POST | `/v1/dashboard/admin/approvals/registration` · `/registration/reject` |
+| POST | `/v1/dashboard/admin/approvals/registration` · `/registration/reject` — reject takes `reasonCode` (from `lib/rejection-reasons.ts`) plus an optional `reasonNote`, and **refuses without one**; both answer `emailDelivered` / `deliveryError`, because the decision is committed either way and an admin whose mail did not go out has to telephone instead |
 | POST | `/v1/dashboard/admin/approvals/loan` · `/loan/reject` |
 | GET | `/v1/dashboard/admin/loans/detail?id=` |
 | POST | `/v1/dashboard/admin/loans/default` — triggers the settlement waterfall |
@@ -157,7 +157,7 @@ exercised, so treat it as untested.
 
 | Methods | Path | Purpose | Called by |
 |---|---|---|---|
-| GET·POST | `/api/v1/registrations` | public registration submit + admin listing | register page |
+| GET·POST | `/api/v1/registrations` | public registration submit + availability check | register page. **Both throttled**: the GET at 20/10 min (SEC-08), the POST at 5/15 min per address — it writes a user row, uploads four images and takes a global advisory lock |
 | POST | `/api/v1/auth/login` | legacy login path, kept for older clients | login page |
 | GET·PUT | `/api/v1/settings` | `system_config` read / upsert | login, member loans, admin settings/members, `lib/documents/org-settings.ts`. **GET takes no token and answers anyway, in four tiers** — public / member / worker (+`CONTENT_CONFIG_KEYS`) / admin ([ADR-024 is the CSP one; see ADR-021's neighbours and `lib/system-config.ts`](decisions.md)). **PUT is gated by key, not only by role**: an admin writes anything declared, a worker writes `CONTENT_CONFIG_KEYS` and is refused 403 for anything else, all-or-nothing per request. The browser must call GET through `lib/settings-client.ts`, which attaches the token; a bare `fetch` silently gets the public subset |
 | GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | admin gallery + settings |

@@ -17,6 +17,12 @@ import { useDraft } from '@/lib/use-api';
 // Aliased: `fetchSettings` is already taken in this file by the SWR mutator below.
 import { fetchSettings as readSettings } from '@/lib/settings-client';
 import { SETTINGS_CONFIG_KEYS } from '@/lib/system-config';
+import {
+  DEFAULT_MINIMUM_AGE_YEARS,
+  MINIMUM_AGE_LOWER_BOUND,
+  MINIMUM_AGE_UPPER_BOUND,
+  minimumAgeYears,
+} from '@/lib/membership-eligibility';
 
 /**
  * Settings is the money-and-identity screen.
@@ -219,6 +225,9 @@ export default function AdminSettingsPage() {
   const [loanSettings, setLoanSettings, resetLoanDraft] = useDraft(serverLoanSettings);
   const [supportRetentionDays, setSupportRetentionDays, resetSupportDraft] =
     useDraft(serverSupportRetentionDays);
+  const [minimumAge, setMinimumAge, resetMinimumAgeDraft] = useDraft(
+    minimumAgeYears(settingsData ?? undefined),
+  );
   const [rejectedRetentionDays, setRejectedRetentionDays, resetRejectedRetentionDraft] =
     useDraft(serverRejectedRetentionDays);
   const [paymentSettings, setPaymentSettings, resetPaymentDraft] = useDraft(serverPaymentSettings);
@@ -253,6 +262,13 @@ export default function AdminSettingsPage() {
       };
       const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
       const normalizedRejectedRetentionDays = Math.max(1, Math.trunc(rejectedRetentionDays));
+      // Clamped rather than merely trimmed. A value outside the bounds makes
+      // `minimumAgeYears()` fall back on read, so saving one would show the
+      // admin a number the system is not using.
+      const normalizedMinimumAge = Math.min(
+        MINIMUM_AGE_UPPER_BOUND,
+        Math.max(MINIMUM_AGE_LOWER_BOUND, Math.trunc(minimumAge)),
+      );
 
       // Flatten settings for saving. Only SETTINGS_CONFIG_KEYS — Content & Media
       // owns the rest, and the two lists are a partition, so neither screen can
@@ -278,6 +294,7 @@ export default function AdminSettingsPage() {
         'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
         'support.chatRetentionDays': String(normalizedSupportRetentionDays),
         'security.rejectedRetentionDays': String(normalizedRejectedRetentionDays),
+        'membership.minimumAgeYears': String(normalizedMinimumAge),
 
         // The notification.*, security.* and appearance.* keys are deliberately
         // NOT posted. Nothing in either backend reads them, and because this
@@ -336,6 +353,7 @@ export default function AdminSettingsPage() {
       resetLoanDraft();
       resetSupportDraft();
       resetRejectedRetentionDraft();
+      resetMinimumAgeDraft();
       resetPaymentDraft();
 
       toast({
@@ -720,8 +738,37 @@ export default function AdminSettingsPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {locale === 'bn'
-                      ? 'এই দিন পর বাতিল আবেদনের এন.আই.ডি, ঠিকানা ও পিতা-মাতার নাম মুছে যাবে; সিদ্ধান্ত ও অডিট রেকর্ড থেকে যাবে'
-                      : "After this many days a rejected application's NID number, addresses and parents' names are cleared. The decision and its audit record are kept."}
+                      ? 'এই দিন পর বাতিল আবেদনের এন.আই.ডি, ঠিকানা, ই-মেইল ও পিতা-মাতার নাম মুছে যাবে; সিদ্ধান্ত ও অডিট রেকর্ড থেকে যাবে'
+                      : "After this many days a rejected application's NID number, addresses, contact details and parents' names are cleared. The decision and its audit record are kept."}
+                  </p>
+                </div>
+
+                {/*
+                  T-07 / 2026-08-26. Date of birth was validated only as "not in
+                  the future", so an infant passed and became a pending member.
+                  A setting rather than a constant at the owner's direction: it
+                  is foundation policy, and both the registration form and the
+                  API read it — the form so the applicant is told on step 1, the
+                  API because it must not trust the form.
+                */}
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="minimum-age" className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4" />
+                    {locale === 'bn' ? 'সদস্যপদের ন্যূনতম বয়স' : 'Minimum Age For Membership'}
+                  </Label>
+                  <Input
+                    id="minimum-age"
+                    type="number"
+                    min={MINIMUM_AGE_LOWER_BOUND}
+                    max={MINIMUM_AGE_UPPER_BOUND}
+                    step={1}
+                    value={minimumAge}
+                    onChange={(e) => setMinimumAge(parseIntegerInput(e.target.value, minimumAge))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'bn'
+                      ? `এর কম বয়সে নিবন্ধন করা যাবে না। ${MINIMUM_AGE_LOWER_BOUND}–${MINIMUM_AGE_UPPER_BOUND} বছরের মধ্যে রাখুন; এর বাইরে হলে ${DEFAULT_MINIMUM_AGE_YEARS} ধরা হবে।`
+                      : `Applications from anyone younger are refused. Keep it between ${MINIMUM_AGE_LOWER_BOUND} and ${MINIMUM_AGE_UPPER_BOUND} — outside that range the system falls back to ${DEFAULT_MINIMUM_AGE_YEARS} rather than refusing everybody.`}
                   </p>
                 </div>
               </CardContent>

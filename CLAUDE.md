@@ -85,6 +85,9 @@ count that used to open this sentence is gone too. See
 | an import to a shared component | `apps/web/scripts/assert-bundle-budget.mjs` after `pnpm build` — first-load JS per route against `bundle-budget.json`, >10% growth fails. Accept a real cost with `pnpm test:bundle:update` |
 | a `system_config` key | `apps/web/test/unit/settings-keys-read.test.ts` — put it in **exactly one** of `CONTENT_CONFIG_KEYS` (Content & Media) or `SETTINGS_CONFIG_KEYS` (Settings). In neither, no admin can change it; in both, whichever form saves last reverts the other |
 | a form that posts a money `amount` | `apps/web/lib/utils.test.ts` — it walks `app/`, `components/` and `lib/` for anything posting one and demands `parseWholeTaka`. And ask first whether `components/dashboard/money-actions.tsx` should own it: staff deposits, withdrawals, instalments and loan applications each existed twice and the copies disagreed about paisa and about FR-08 |
+| a lookup by **email, phone or NID** | `apps/web/test/unit/rejected-application.test.ts` — exclude rejected applications. Uniqueness is scoped to *live* rows so a rejected applicant can apply again with the same details (owner's ruling, 2026-08-26), which means **two rows may share an email**. A lookup that forgets it authenticates against a row whose password hash nothing can match, or tells a genuine applicant their own address is taken |
+| a **second spelling of "rejected application"** | the same test — derive it from `RejectedApplicationSQL` / `lib/rejected-application.ts`. The retention sweep selected on `phone LIKE 'rejected-%'`, the tombstone rejection used to write; removing that scramble would have left the sweep matching **nothing, for ever**, running on schedule and reporting zero cleared — which is what a correct sweep reports on a quiet week |
+| a **rejection reason** | `apps/web/test/unit/rejection-reasons.test.ts` — the code list exists in the picker, the Go handler's allow-list and the email's sentence table. A code the picker offers that the handler refuses is a 400 on a button that looks like it works; one the handler accepts with no sentence is a rejection email that gives no reason, which is the state this replaced |
 | a **default value on the admin Settings screen** | `apps/web/test/unit/org-defaults.test.ts` — it must equal the seeded default in `scripts/seed.mjs`. That screen POSTS every field on save, so its "fallback" is a **writer**: the two disagreed about the foundation's own name, and any admin pressing Save renamed the organisation in the JSON-LD, on every document's letterhead and in the browser tab |
 | a page title, or the site's own name | `apps/web/test/unit/seo.test.ts` — call `siteTitle(locale)`. The `<title>` existed three times and had already drifted: the layout said "Hasnahena Foundation" while the home page said "Hasnahena", and the home page's `generateMetadata` overrides the layout's, so the most-crawled title on the site was the one missing the word people search for |
 | **member-facing copy about a loan** | `apps/web/test/unit/messages.test.ts` — it reads the prose for a promise of a charge. The Terms of Service told every member, in both languages, that loans "are interest-free but may include administrative fees"; `applicationFee = 0`, the CHECK constraint and the "markup" source search all passed, because none of them reads a string in a page |
@@ -250,6 +253,13 @@ apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and
                                   runs, because next-intl's own as-needed redirect is a 307 (ADR-034)
 apps/web/lib/locale-path.ts       every internal URL. English is unprefixed and Bengali is not, so
                                   `/faq` and `/bn/faq` — localePath() is the only place that knows
+apps/web/lib/rejected-application.ts  who counts as a REJECTED application, and therefore who owns an email,
+                                  a phone number and an NID. Uniqueness is scoped to live rows so a rejected
+                                  applicant can re-apply — every lookup by contact detail must exclude them
+apps/web/lib/rejection-reasons.ts the codes an admin picks from when refusing an application. The Go twin is
+                                  the allow-list in dashboard_handler.go and the sentences in email_service.go
+apps/web/lib/membership-eligibility.ts  the age floor, from `membership.minimumAgeYears`. Pure, so the form,
+                                  the API and the Settings screen share one answer
 apps/web/lib/org-address.ts       the organisation's PROSE settings in the reader's language — the address and
                                   the description. Its own module, not part of
                                   system-config.ts, because the footer is a client component and that file
@@ -284,7 +294,7 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 | [docs/testing.md](docs/testing.md) | where a new test goes, the fixture contract, running each suite, what is deliberately uncovered |
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting, **switching the monitoring on**, the host-move plan |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
-| [docs/tasks.md](docs/tasks.md) | **everything left to do** — T-01…T-30, ordered, one session estimate each. `do T-07` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
+| [docs/tasks.md](docs/tasks.md) | **everything left to do**, ordered, one session estimate each. Closed rows are deleted, so the numbering has gaps — that is the board working, not a missing task. `do T-09` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
 | [docs/go-live.md](docs/go-live.md) | **the cutover procedure** — freeze, clear the fake data, rotate every secret, create the real first admin, launch day |
 | [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives, and the steady-state cadences |
 | [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch, plus the per-defect record. The only doc that keeps history |

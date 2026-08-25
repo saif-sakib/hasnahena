@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -720,6 +721,17 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// The applicant's own language, falling back to the admin's only for
+	// applications filed before it was recorded. `req.Locale` is the *admin's*
+	// dashboard locale, and using it alone meant a Bengali applicant approved by
+	// an English-speaking admin received the single most important email the
+	// foundation sends — the one carrying their temporary password — in a
+	// language they may not read.
+	emailLocale := strings.TrimSpace(candidate.PreferredLocale)
+	if emailLocale == "" {
+		emailLocale = req.Locale
+	}
+
 	emailDelivered := false
 	deliveryError := ""
 	emailAddress := strings.TrimSpace(candidate.Email)
@@ -727,7 +739,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		deliveryError = "Email service is not configured"
 	} else if emailAddress == "" {
 		deliveryError = "Member email is not available"
-	} else if err := h.emailService.SendMemberApprovalEmail(r.Context(), emailAddress, candidate.NameEn, tempPassword, req.Locale); err != nil {
+	} else if err := h.emailService.SendMemberApprovalEmail(r.Context(), emailAddress, candidate.NameEn, candidate.AccountNo, candidate.Phone, tempPassword, emailLocale); err != nil {
 		slog.Error("member approval email failed", "userId", req.UserID, "error", err)
 		deliveryError = summarizeEmailDeliveryError(err)
 	} else {
@@ -750,8 +762,10 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 	userID := auth.UserID
 
 	var req struct {
-		UserID string `json:"userId"`
-		Reason string `json:"reason"`
+		UserID     string `json:"userId"`
+		ReasonCode string `json:"reasonCode"`
+		ReasonNote string `json:"reasonNote"`
+		Locale     string `json:"locale"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
@@ -762,17 +776,104 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.userRepo.RejectRegistration(r.Context(), req.UserID, userID, req.Reason); err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
-		if strings.Contains(errMsg, "not found") {
-			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
+	// A reason is now required, and it has to be one of the codes the admin's
+	// picker offers. The screen used to post `reason: ''` — hardcoded, with no
+	// control to change it — so FR-05's "reject with reason" was never met: the
+	// audit row's details column was the empty string and nobody, including the
+	// applicant, could ever learn why.
+	reasonCode := strings.ToUpper(strings.TrimSpace(req.ReasonCode))
+	if !isRejectionReasonCode(reasonCode) {
+		utils.Error(w, http.StatusBadRequest, "INVALID_REJECTION_REASON",
+			"A rejection reason is required")
+		return
+	}
+
+	reasonNote := strings.TrimSpace(req.ReasonNote)
+	if len([]rune(reasonNote)) > rejectionNoteMaxLength {
+		utils.Error(w, http.StatusBadRequest, "REJECTION_NOTE_TOO_LONG",
+			fmt.Sprintf("The note must be %d characters or fewer", rejectionNoteMaxLength))
+		return
+	}
+	// "Other" carries no sentence of its own, so a rejection reading only
+	// "other reason" would tell the applicant nothing at all.
+	if reasonCode == rejectionReasonOther && reasonNote == "" {
+		utils.Error(w, http.StatusBadRequest, "REJECTION_NOTE_REQUIRED",
+			"Describe the reason when choosing Other")
+		return
+	}
+
+	applicant, err := h.userRepo.RejectRegistration(r.Context(), req.UserID, userID, reasonCode, reasonNote)
+	if err != nil {
+		// errors.Is against a sentinel, not strings.Contains over the message
+		// (rule 2b). An application somebody else has already decided is an
+		// answer, not a fault.
+		if errors.Is(err, repositories.ErrRegistrationNotPending) {
+			utils.Error(w, http.StatusConflict, "REGISTRATION_NOT_PENDING",
+				"This application is no longer pending — it may already have been decided")
 			return
 		}
+		slog.Error("reject registration failed", "userId", req.UserID, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "REJECT_FAILED", "Failed to reject registration")
 		return
 	}
 
-	utils.Success(w, http.StatusOK, map[string]string{"message": "Registration rejected successfully"})
+	// The applicant's own language, falling back to the admin's only for
+	// applications filed before it was recorded. The approval mail had the same
+	// defect: a Bengali applicant approved by an admin working in English was
+	// sent their temporary password in English.
+	locale := strings.TrimSpace(applicant.Locale)
+	if locale == "" {
+		locale = req.Locale
+	}
+
+	// Delivery is reported, never fatal. The rejection is committed; an admin
+	// whose email did not go out needs to know they must telephone instead.
+	emailDelivered := false
+	deliveryError := ""
+	switch {
+	case h.emailService == nil || !h.emailService.IsConfigured():
+		deliveryError = "Email service is not configured"
+	case strings.TrimSpace(applicant.Email) == "":
+		deliveryError = "Applicant has no email address on file"
+	default:
+		if err := h.emailService.SendMemberRejectionEmail(
+			r.Context(), applicant.Email, applicant.NameEn, reasonCode, reasonNote, locale,
+		); err != nil {
+			slog.Error("member rejection email failed", "userId", req.UserID, "error", err)
+			deliveryError = summarizeEmailDeliveryError(err)
+		} else {
+			emailDelivered = true
+		}
+	}
+
+	utils.Success(w, http.StatusOK, map[string]interface{}{
+		"message":        "Registration rejected successfully",
+		"emailDelivered": emailDelivered,
+		"deliveryError":  deliveryError,
+	})
+}
+
+// The rejection reason vocabulary, matching apps/web/lib/rejection-reasons.ts.
+// `rejection-reasons.test.ts` reads both files and fails when they drift: a code
+// the admin's picker offers that this list rejects is a 400 on a button that
+// looks like it should work.
+const rejectionReasonOther = "OTHER"
+
+const rejectionNoteMaxLength = 400
+
+var rejectionReasonCodes = map[string]bool{
+	"INCOMPLETE_DOCUMENTS":  true,
+	"UNCLEAR_DOCUMENTS":     true,
+	"IDENTITY_MISMATCH":     true,
+	"DUPLICATE_APPLICATION": true,
+	"OUTSIDE_SERVICE_AREA":  true,
+	"BELOW_MINIMUM_AGE":     true,
+	"COULD_NOT_VERIFY":      true,
+	rejectionReasonOther:    true,
+}
+
+func isRejectionReasonCode(code string) bool {
+	return rejectionReasonCodes[code]
 }
 
 func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {

@@ -530,6 +530,28 @@ answered 500.
 
 ## Interface
 
+- **A workaround can be the thing that makes the defect unfixable.** Rejecting a
+  registration overwrote the applicant's email and phone
+  (`rejected+<id>@hasnahena.local`) so the unique constraint would let them
+  apply again. It worked, and it was the reason nothing could tell the applicant
+  they had been rejected: the address was destroyed by the statement that
+  recorded the decision. Six months of "why does nobody hear back?" had its
+  cause in a line written to solve an unrelated constraint problem. **Before
+  adding a notification to a flow, check whether an earlier step has already
+  thrown away what the notification needs.** The fix was not to send the email
+  sooner — it was to scope uniqueness to live rows so nothing had to be
+  destroyed at all.
+
+- **Removing a workaround silently breaks whatever was reading its
+  side-effects.** That same tombstone was how `retention_repository.go`
+  identified a rejected application: `phone LIKE 'rejected-%'`. Deleting the
+  scramble would have left the daily sweep matching **nothing, ever again** —
+  running on schedule, logging success, reporting zero cleared, and retaining
+  every rejected applicant's NID and addresses indefinitely. Zero cleared is
+  also what a correct sweep reports on a quiet week, so nothing would have
+  looked wrong. Grep for the *value* a workaround writes, not just for the code
+  that writes it, and give the concept one definition all its readers share.
+
 - **A form's "default" is a writer, not a fallback, when the form posts every
   field.** The admin Settings screen held its own `DEFAULT_ORG_SETTINGS` for any
   `org.*` row the database lacked, and submitted the whole object on save. It

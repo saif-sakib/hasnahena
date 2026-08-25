@@ -126,14 +126,34 @@ enumerate the prose keys and check each**; the guard that caught the address
 The remaining `org.*` values — phone, email, website, registration number — are
 language-neutral and stay single.
 
-**Objects `prisma migrate diff` cannot see.** Three now, and the list matters
+**Objects `prisma migrate diff` cannot see.** The list matters
 because a `--from-empty` baseline would drop each one silently and
 `pnpm db:migrate:check` will not report them as drift: the `audit_logs`
-immutability trigger, the CHECK constraints from WO-69, and
-`users_email_lower_key`, the unique index on `lower(email)` from WO-90. A
+immutability trigger, the CHECK constraints from WO-69, and the three partial
+unique indexes described below (`users_email_lower_key` from WO-90 was replaced
+by the first of them on 2026-08-26). A
 covering index on `support_messages` was a fourth candidate and was deliberately
 not added — it had never actually existed in any environment, and a marginal gain
 on the smallest hot path does not justify another invisible object.
+
+Added 2026-08-26: the three **partial** unique indexes on `users` —
+`users_email_live_key` on `lower(email)`, `users_phone_live_key` on `phone` and
+`users_nid_live_key` on `nidNumber`, each `WHERE NOT (rejected application)`.
+Prisma can model neither the predicate nor the expression, so `@unique` is gone
+from those fields and the constraint exists only in the migration. **This is
+what makes email, phone and NID unique**, and a `--from-empty` baseline would
+drop all three in silence.
+
+The predicate is `role = 'MEMBER' AND status = 'INACTIVE' AND "approvedAt" IS
+NULL AND "passwordHash" = '__PENDING_APPROVAL_NO_LOGIN__'`, and all four
+conjuncts are load-bearing: `INACTIVE` alone also matches a **deactivated
+member**, who has a real hash and an `approvedAt` and must keep their
+identifiers reserved. It is defined once per language — `lib/rejected-application.ts`
+and `RejectedApplicationSQL` — and pinned by `rejected-application.test.ts`.
+
+**Consequence for every query**: two rows may now hold the same email, so any
+lookup by email or phone must exclude rejected applications or it can return
+one.
 
 **Read config inside the transaction.** The Go readers come in pairs —
 `getSystemConfigInt64` for callers outside a transaction and
