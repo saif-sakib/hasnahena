@@ -21,7 +21,7 @@ test.use({ ...devices['Pixel 7'] });
 
 test.describe('login form', () => {
   test('whitespace-only input is refused, not submitted as a credential', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
 
     await page.fill('#identifier', '   ');
@@ -37,7 +37,7 @@ test.describe('login form', () => {
   });
 
   test('an empty submit says which field is missing', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
     await page.click('button[type="submit"]');
 
@@ -51,7 +51,7 @@ test.describe('login form', () => {
     // Members paste from a note or an SMS. A field that only reacts to keypress
     // events silently ignores that, and the form then reports the field as
     // empty while the value is visibly in it.
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
 
     await page.evaluate(() => navigator.clipboard?.writeText?.('01966600001')).catch(() => {});
@@ -77,7 +77,7 @@ test.describe('login form', () => {
   });
 
   test('an over-long value is bounded rather than sent whole', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
 
     const huge = 'a'.repeat(5_000);
@@ -107,7 +107,7 @@ test.describe('double submit', () => {
       if (r.url().includes('/auth/login')) logins.push(r.status());
     });
 
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
     await page.fill('#identifier', ACCOUNTS.MEMBER.phone);
     await page.fill('#password', E2E_PASSWORD);
@@ -127,7 +127,7 @@ test.describe('double submit', () => {
   });
 
   test('the submit button disables itself while a login is in flight', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
     await page.fill('#identifier', ACCOUNTS.MEMBER.phone);
     await page.fill('#password', E2E_PASSWORD);
@@ -148,12 +148,12 @@ test.describe('back button', () => {
   test('leaving and returning to the login form does not carry the password back', async ({ page }) => {
     // A shared phone is normal here. A password restored by the browser's
     // back-forward cache is a credential left on screen for the next person.
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
     await page.fill('#identifier', '01966600001');
     await page.fill('#password', 'secret-value-typed-by-a-member');
 
-    await page.goto('/en/about');
+    await page.goto('/about');
     await waitForContent(page);
     await page.goBack();
     await waitForContent(page);

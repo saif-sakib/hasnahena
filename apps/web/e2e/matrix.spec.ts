@@ -32,6 +32,21 @@ const VIEWPORTS = [
 const LOCALES = ['en', 'bn'] as const;
 
 /**
+ * The public URL for a locale — WO-95 / [ADR-034](../../../docs/decisions.md).
+ * English has no prefix, Bengali does. Written out here rather than imported
+ * from `lib/locale-path.ts` because a Playwright spec is the one place that
+ * should be describing the URLs a *visitor* types, not sharing the application's
+ * idea of them.
+ */
+const url = (locale: string, path: string) => {
+  const prefix = locale === 'en' ? '' : `/${locale}`;
+  // No trailing slash on the home page of a locale: Next 308s `/bn/` to `/bn`,
+  // so building one would have this suite navigating through a redirect on the
+  // two most-visited URLs it covers.
+  return path ? `${prefix}/${path}` : prefix || '/';
+};
+
+/**
  * A message key that reached the screen instead of its translation.
  *
  * next-intl renders the key itself when a lookup misses, so `dashboard.member.title`
@@ -97,22 +112,22 @@ for (const viewport of VIEWPORTS) {
       test.use({ viewport: viewport.size });
 
       for (const path of PAGES.public) {
-        test(`/${locale}/${path || '(home)'} renders without breaking its layout`, async ({ page }) => {
-          const response = await page.goto(`/${locale}/${path}`);
-          expect(response?.status(), `/${locale}/${path} returned ${response?.status()}`).toBeLessThan(400);
+        test(`${url(locale, path) || '/'} renders without breaking its layout`, async ({ page }) => {
+          const response = await page.goto(url(locale, path));
+          expect(response?.status(), `${url(locale, path)} returned ${response?.status()}`).toBeLessThan(400);
           await waitForContent(page);
 
           const overflow = await horizontalOverflow(page);
           expect(
             overflow,
-            `/${locale}/${path} at ${viewport.size.width}px scrolls ${overflow}px sideways`,
+            `${url(locale, path)} at ${viewport.size.width}px scrolls ${overflow}px sideways`,
           ).toBeLessThanOrEqual(1);
 
           const keys = await untranslatedKeys(page);
-          expect(keys, `/${locale}/${path} shows untranslated keys: ${keys.join(', ')}`).toEqual([]);
+          expect(keys, `${url(locale, path)} shows untranslated keys: ${keys.join(', ')}`).toEqual([]);
 
           const clipped = await clippedElements(page);
-          expect(clipped, `/${locale}/${path} clips text:\n  ${clipped.join('\n  ')}`).toEqual([]);
+          expect(clipped, `${url(locale, path)} clips text:\n  ${clipped.join('\n  ')}`).toEqual([]);
         });
       }
     });

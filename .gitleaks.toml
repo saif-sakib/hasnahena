@@ -55,3 +55,19 @@ paths = [
 description = "Fake JWT in auth_gate_integration_test.go: payload is {} and the signature is the word 'sig'"
 regexTarget = "line"
 regexes = ['''\{"token with no scheme", "eyJhbGciOiJIUzI1NiJ9\.e30\.sig"\},''']
+
+# A 64-character hex fixture in a Go test, committed in 0c08ca8. The source no
+# longer contains it — the case composes the value with `strings.Repeat` now,
+# for exactly this reason — but `gitleaks git` scans every commit, so history
+# keeps reporting it. Entropy 4.0, which is what a real key scores too; the
+# scanner is not wrong about the shape, only about what the value is.
+#
+# Scoped to the exact source line, like the entry above and for the same reason:
+# allowlisting the file, the commit, or "64 hex characters" would blind the
+# scanner to a genuine credential pasted into the same test tomorrow. This entry
+# stopped matching the working tree the moment the line changed, which is the
+# property that makes it safe to leave in place.
+[[allowlists]]
+description = "Hex fixture in auth_security_integration_test.go, replaced in the working tree by strings.Repeat"
+regexTarget = "line"
+regexes = ['''const secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"''']

@@ -50,7 +50,6 @@ afterwards every one needs a backfill.
 |---|---|
 | **Collapse the legacy `LoanStatus` values** (`PENDING`, `APPROVED`) | Two vocabularies for one concept. With real loans in flight you cannot drop enum values without rewriting rows, and Postgres will not remove a label that is still referenced |
 | **Donation fund types** (FR-15/16) | Every donation posted before this exists becomes an untyped row somebody classifies by hand later. Zakat funds especially cannot be reconstructed after the fact |
-| ~~**Decide DATA-07** (retention and erasure)~~ | **Decided 2026-08-25, [ADR-033](decisions.md), and built (FR-23).** No `deletedAt` column was needed: a member with postings is anonymised in place and one without is deleted, and a rejected application expires on the sweep's clock. What is left here is a *setting*, not a schema change — confirm `security.rejectedRetentionDays` in Settings before real applications exist, because the sweep starts counting from the rejection |
 
 `pnpm db:migrate:check` runs in CI, so a schema edit without a generated
 migration fails the build rather than a production query.
@@ -150,6 +149,25 @@ Two things to check on Render at the same time, both one line each:
 - `JWT_EXPIRY_SECONDS` is at its default, or set to the **same** value on Vercel.
   Only Render mints tokens, but Vercel sizes the revoke-all marker from it, and a
   marker shorter than the tokens it revokes brings them back to life.
+
+### 1.7 Resubmit the sitemap, then leave Search Console alone
+
+WO-95 changed every English URL: `/` is a real page rather than a redirect, and
+`/en/*` 301s to its unprefixed form ([ADR-034](decisions.md)). That is the fix
+for the *"Duplicate, Google chose different canonical than user"* report on
+`/bn`, and it is the last SEO change that needs an action outside the code.
+
+1. Deploy.
+2. Spot-check over HTTP, not in a browser tab — a browser follows the redirect
+   and shows you the destination either way:
+   ```bash
+   curl -sI https://hasnahenafoundation.com/       | head -1   # 200
+   curl -sI https://hasnahenafoundation.com/en/faq | head -1   # 301
+   curl -s  https://hasnahenafoundation.com/sitemap.xml | grep -c '/en/'  # 0
+   ```
+3. Resubmit the sitemap in Search Console.
+4. **Expect one to three weeks, and do not re-inspect daily.** Repeatedly
+   requesting indexing does not make it faster and costs the quota.
 
 ---
 

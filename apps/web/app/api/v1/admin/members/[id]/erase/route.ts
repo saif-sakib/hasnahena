@@ -8,7 +8,7 @@ import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-e
 import { LoanStatus, UserRole, UserStatus } from '@prisma/client';
 
 /**
- * Erase a member — WO-93, FR-23, [ADR-033](../../../../../../../docs/decisions.md).
+ * Erase a member — WO-93, FR-23, [ADR-033](../../../../../../../../../docs/decisions.md).
  *
  * Workers could be deleted; members could not. There was no endpoint, no screen
  * and no repository method, so the only answer the foundation had to "please

@@ -16,7 +16,7 @@ test.describe('admin login', () => {
   );
 
   test('an admin can sign in and land on the admin dashboard', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
 
     await page.fill('input[name="identifier"]', ADMIN_IDENTIFIER!);
     await page.fill('input[name="password"]', ADMIN_PASSWORD!);

@@ -44,7 +44,7 @@ Response envelope (Go): `{ success, data }` or `{ success: false, error: { messa
 ## Auth
 
 - Login posts to Go `/v1/auth/login`; on success the JWT is stored in the `hn_access_token` cookie and read client-side by `lib/client-auth.ts`.
-- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/{en,bn}/dashboard/**`: missing or expired token → redirect to `/{locale}/login`, and a role asking for a section it does not own → redirect to the one it does (`MEMBER`→member, `WORKER`→worker, `ADMIN`/`SUPER_ADMIN`→admin or worker, since an admin may cover a round). That second redirect is UX, not authorisation — it stops a worker being handed an admin shell whose every fetch 403s, which became worth preventing once both dashboards started rendering from the same components. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
+- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/dashboard/**` and `/bn/dashboard/**` — English has no prefix since [ADR-034](decisions.md), so the locale segment is optional and the section index is derived rather than counted. Missing or expired token → redirect to that locale's `/login`, and a role asking for a section it does not own → redirect to the one it does (`MEMBER`→member, `WORKER`→worker, `ADMIN`/`SUPER_ADMIN`→admin or worker, since an admin may cover a round). That second redirect is UX, not authorisation — it stops a worker being handed an admin shell whose every fetch 403s, which became worth preventing once both dashboards started rendering from the same components. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
 - Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
 - Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
 - **Revocation is platform-wide.** Both surfaces consult `token_blacklist` on every authenticated request — Go directly, Next through `lib/auth-revocation.ts`, which **fails closed**: if the lookup errors, the request is refused. Both truncate `iat` to whole seconds, without which a first-login token is born revoked.
@@ -69,7 +69,11 @@ components/dashboard       screens/  ONE component per staff screen, shared by w
                            money-actions.tsx  the ONE deposit/withdrawal/instalment/loan form
                            profile-editor, loan-application-form, guarantor-requests
 lib/                       api client, auth, prisma, validation, receipt PDF, cloudinary, seo
-messages/{en,bn}.json      all copy — next-intl, locale prefix always present
+messages/{en,bn}.json      all copy — next-intl. **English has no URL prefix** and Bengali does:
+                           `/faq` and `/bn/faq`. `/` is a real English page that neither
+                           negotiates nor redirects, and `/en/*` 301s to the unprefixed form
+                           (ADR-034). Every internal URL is built by lib/locale-path.ts —
+                           a hand-written `/${locale}/…` produces a link that redirects
 ```
 
 ### Documents

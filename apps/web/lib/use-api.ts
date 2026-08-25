@@ -5,6 +5,7 @@ import { useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import useSWR, { type SWRConfiguration } from 'swr';
 import { apiGet } from '@/lib/api';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * Data loading for dashboard screens — WO-27.
@@ -143,7 +144,7 @@ export function useRedirectOnUnauthorized(error: string | null): void {
 
   useEffect(() => {
     if (error === 'Unauthorized') {
-      router.replace(`/${locale}/login`);
+      router.replace(localePath(locale, '/login'));
     }
   }, [error, locale, router]);
 }

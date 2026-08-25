@@ -32,6 +32,7 @@ import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { navFor, type DashboardNavItem } from '@/components/dashboard/nav';
 import { DashboardRoleProvider } from '@/components/dashboard/role';
+import { localePath } from '@/lib/locale-path';
 
 interface NotificationItem {
   id: string;
@@ -262,7 +263,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const primaryNav = navFor(role, 'primary');
   const managementNav = navFor(role, 'management');
-  const basePath = `/${locale}/dashboard/${role}`;
+  const basePath = localePath(locale, `/dashboard/${role}`);
 
   const roleLabels = {
     member: locale === 'bn' ? 'সদস্য' : 'Member',
@@ -319,7 +320,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       const token = getValidatedClientToken();
       if (!token) {
         clearCachedUserInfo();
-        router.replace(`/${locale}/login`);
+        router.replace(localePath(locale, '/login'));
         return null;
       }
 
@@ -344,7 +345,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       } catch (error) {
         console.error('Failed to load user info:', error);
         clearAuthState();
-        router.replace(`/${locale}/login`);
+        router.replace(localePath(locale, '/login'));
         return null;
       }
     },
@@ -355,7 +356,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     const message = error instanceof Error ? error.message : '';
     if (message.toLowerCase().includes('unauthorized')) {
       clearAuthState();
-      router.replace(`/${locale}/login`);
+      router.replace(localePath(locale, '/login'));
       return true;
     }
     return false;
@@ -725,7 +726,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       variant: 'success',
     });
     // Use replace for faster navigation and prevent going back to dashboard
-    router.replace(`/${locale}`);
+    router.replace(localePath(locale));
   };
 
   return (
@@ -747,7 +748,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         <div className="flex flex-col h-full">
           {/* Logo Section - Compact */}
           <div className="flex items-center justify-between h-14 px-5 border-b border-[#E5E7EB]/60">
-            <Link href={`/${locale}`} className="flex items-center gap-2">
+            <Link href={localePath(locale)} className="flex items-center gap-2">
               <Logo size="sm" />
             </Link>
             <Button
@@ -771,7 +772,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 </span>
               </div>
               <Link 
-                href={`/${locale}`}
+                href={localePath(locale)}
                 className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center p-1.5 rounded-md hover:bg-zinc-200/50 tooltip-trigger"
                 title={locale === 'bn' ? 'হোম' : 'Home'}
               >
@@ -842,7 +843,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
           <div className="flex items-center gap-2">
             {/* Language Switcher */}
-            <Link href={pathname.replace(`/${locale}`, locale === 'en' ? '/bn' : '/en')}>
+            <Link href={pathname.replace(localePath(locale), locale === 'en' ? '/bn' : '/en')}>
               <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900 rounded-md">
                 <Globe className="h-[14px] w-[14px] mr-1.5 opacity-70" strokeWidth={2} />
                 {locale === 'en' ? 'BN' : 'EN'}

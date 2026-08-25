@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Menu, X, Globe, LogOut, LayoutDashboard, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
+import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
 import { cn } from '@/lib/utils'; // Assuming this utility exists, otherwise check utils
 import {
   clearClientAuthState,
@@ -33,6 +34,7 @@ export function Header({ settings }: HeaderProps) {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -72,11 +74,27 @@ export function Header({ settings }: HeaderProps) {
   const handleLogout = () => {
     clearClientAuthState();
     setIsLoggedIn(false);
-    window.location.href = `/${locale}`;
+    // `router.replace`, not `window.location.href`. The hard navigation was here
+    // to guarantee that nothing kept a stale token in memory, and it does not
+    // need to: `clearClientAuthState` dispatches `auth-change`, which is what
+    // every component listening for a session actually reacts to. `replace`
+    // rather than `push` for the same reason a dead session uses it elsewhere —
+    // the back button should not return to a signed-in page.
+    //
+    // It is also the form the `no-location-assign-relative-destination` lint
+    // rule asks for. Worth saying plainly: passing `localePath(locale)` to
+    // `window.location.href` silenced that rule by making the destination
+    // unanalysable, which is the rule being defeated rather than satisfied.
+    router.replace(localePath(locale));
   };
 
-  const otherLocale = locale === 'en' ? 'bn' : 'en';
-  const localePath = pathname.replace(`/${locale}`, `/${otherLocale}`);
+  const other = otherLocale(locale);
+  // WO-95. This was `pathname.replace('/en', '/bn')`, which had two problems and
+  // now has three: it matched `/enrolment` as readily as the locale segment, it
+  // could not add a prefix to a path that has none, and under `as-needed` the
+  // English pathname *has* none. `switchLocalePath` strips a known locale
+  // segment and re-applies the rule, so the reader stays exactly where they are.
+  const languageHref = switchLocalePath(pathname, other);
 
   return (
     <header 
@@ -90,7 +108,7 @@ export function Header({ settings }: HeaderProps) {
     >
       <nav className="container-wide flex h-16 items-center justify-between">
         {/* Logo */}
-        <Link href={`/${locale}`} className="flex items-center z-50 relative">
+        <Link href={localePath(locale)} className="flex items-center z-50 relative">
           <Logo
             size="md"
             priority
@@ -104,7 +122,7 @@ export function Header({ settings }: HeaderProps) {
           {navigation.map((item) => (
             <Link
               key={item.name}
-              href={`/${locale}${item.href === '/' ? '' : item.href}`}
+              href={localePath(locale, item.href)}
               className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:bg-slate-100 dark:hover:bg-slate-800 ${
                 isScrolled ? 'text-slate-600 dark:text-slate-300 hover:text-primary' : 'text-slate-700 dark:text-slate-200 hover:text-primary'
               }`}
@@ -119,7 +137,7 @@ export function Header({ settings }: HeaderProps) {
         {/* Right side actions */}
         <div className="flex items-center gap-x-2 sm:gap-x-3 z-50">
           {/* Language Switcher */}
-          <Link href={localePath}>
+          <Link href={languageHref}>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -140,7 +158,7 @@ export function Header({ settings }: HeaderProps) {
           <div className="hidden md:flex md:items-center md:gap-x-2">
             {isLoggedIn ? (
               <>
-                <Link href={`/${locale}/dashboard/${userRole}`}>
+                <Link href={localePath(locale, `/dashboard/${userRole}`)}>
                   <Button variant="ghost" size="sm" className="gap-2 font-medium">
                     <LayoutDashboard className="h-4 w-4" />
                     {t('dashboard')}
@@ -152,12 +170,12 @@ export function Header({ settings }: HeaderProps) {
               </>
             ) : (
               <>
-                <Link href={`/${locale}/login`}>
+                <Link href={localePath(locale, '/login')}>
                   <Button variant="ghost" size="sm" className={isScrolled ? "text-slate-700 dark:text-slate-200" : "text-slate-800 dark:text-white hover:bg-white/20"}>
                     {t('login')}
                   </Button>
                 </Link>
-                <Link href={`/${locale}/register`}>
+                <Link href={localePath(locale, '/register')}>
                   <Button size="sm" className="shadow-none font-medium bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in zoom-in duration-300">
                     {t('register')}
                   </Button>
@@ -193,12 +211,12 @@ export function Header({ settings }: HeaderProps) {
         <div className="flex flex-col h-full px-6 pb-24 overflow-y-auto">
           {!isLoggedIn && (
             <div className="grid grid-cols-1 gap-4 mb-6">
-              <Link href={`/${locale}/login`} onClick={() => setMobileMenuOpen(false)}>
+              <Link href={localePath(locale, '/login')} onClick={() => setMobileMenuOpen(false)}>
                 <Button size="lg" className="w-full text-base h-12 shadow-none font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
                   {t('login')}
                 </Button>
               </Link>
-              <Link href={`/${locale}/register`} onClick={() => setMobileMenuOpen(false)}>
+              <Link href={localePath(locale, '/register')} onClick={() => setMobileMenuOpen(false)}>
                 <Button variant="outline" size="lg" className="w-full text-base h-12 border-emerald-600 text-white hover:bg-emerald-800 font-semibold bg-transparent">
                   {t('register')}
                 </Button>
@@ -210,7 +228,7 @@ export function Header({ settings }: HeaderProps) {
             {navigation.map((item, index) => (
               <Link
                 key={item.name}
-                href={`/${locale}${item.href === '/' ? '' : item.href}`}
+                href={localePath(locale, item.href)}
                 className="group flex items-center justify-between py-4 text-lg font-medium border-b border-emerald-700/30 text-emerald-100 hover:text-white transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
                 style={{ transitionDelay: `${index * 50}ms` }}
@@ -228,7 +246,7 @@ export function Header({ settings }: HeaderProps) {
           <div className="mt-auto mb-8 space-y-4">
             {isLoggedIn ? (
               <div className="grid gap-3">
-                <Link href={`/${locale}/dashboard/${userRole}`} onClick={() => setMobileMenuOpen(false)}>
+                <Link href={localePath(locale, `/dashboard/${userRole}`)} onClick={() => setMobileMenuOpen(false)}>
                   <Button size="lg" className="w-full gap-2 text-base bg-white text-emerald-900 hover:bg-emerald-50">
                     <LayoutDashboard className="h-5 w-5" />
                     {t('dashboard')}

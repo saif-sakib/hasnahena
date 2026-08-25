@@ -65,11 +65,20 @@
  * comment.
  */
 
-/** Routes whose CSP carries a nonce. They must be dynamically rendered. */
+/**
+ * Routes whose CSP carries a nonce. They must be dynamically rendered.
+ *
+ * The locale segment is **optional**, and that is WO-95 rather than
+ * permissiveness: English lost its prefix, so `/login` and `/dashboard/admin`
+ * are now the English forms. The old `/^\/(en|bn)\//` shape matched neither, and
+ * the failure would have been silent in both directions — every English session
+ * page served the marketing policy, with `'unsafe-inline'` on the two surfaces
+ * that hold a token, and no nonce stamped onto the scripts that need one.
+ */
 export function isSessionRoute(pathname: string): boolean {
   return (
-    /^\/(en|bn)\/dashboard(\/|$)/.test(pathname) ||
-    /^\/(en|bn)\/(login|register|forgot-password|reset-password)(\/|$)/.test(pathname)
+    /^(\/(en|bn))?\/dashboard(\/|$)/.test(pathname) ||
+    /^(\/(en|bn))?\/(login|register|forgot-password|reset-password)(\/|$)/.test(pathname)
   );
 }
 

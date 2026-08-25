@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Mail, Phone, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
+import { localePath } from '@/lib/locale-path';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
   .replace(/\/$/, '')
@@ -17,6 +18,7 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'
 
 export default function ForgotPasswordPage() {
   const locale = useLocale();
+  const t = useTranslations('auth.forgot');
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [inputType, setInputType] = useState<'email' | 'phone'>('email');
@@ -27,8 +29,8 @@ export default function ForgotPasswordPage() {
 
     if (!inputValue.trim()) {
       toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
-        description: locale === 'bn' ? 'ইমেইল বা ফোন নম্বর দিন' : 'Please enter email or phone',
+        title: t('errorTitle'),
+        description: t('identifierRequired'),
         variant: 'destructive',
       });
       return;
@@ -54,12 +56,10 @@ export default function ForgotPasswordPage() {
       if (isSuccess) {
         setEmailSent(true);
         toast({
-          title: locale === 'bn' ? 'সফল' : 'Success',
+          title: t('successTitle'),
           description:
             successMessage ||
-            (locale === 'bn'
-              ? 'আপনার অ্যাকাউন্ট থাকলে রিসেট লিঙ্ক পাঠানো হয়েছে'
-              : 'If an account exists, a reset link has been sent'),
+            (t('successToast')),
           variant: 'success',
         });
       } else {
@@ -67,7 +67,7 @@ export default function ForgotPasswordPage() {
       }
     } catch (error) {
       toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        title: t('errorTitle'),
         description: error instanceof Error ? error.message : 'Something went wrong',
         variant: 'destructive',
       });
@@ -89,19 +89,15 @@ export default function ForgotPasswordPage() {
                 that says "sent!" hands back the fact the endpoint just stopped
                 disclosing. */}
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'ইমেইল চেক করুন' : 'Check your email'}
+              {t('sentTitle')}
             </CardTitle>
             <CardDescription className="text-base">
-              {locale === 'bn'
-                ? 'এই ইমেইল বা ফোন নম্বরে কোনো অ্যাকাউন্ট থাকলে পাসওয়ার্ড রিসেট লিঙ্ক পাঠানো হয়েছে। আপনার ইনবক্স চেক করুন।'
-                : 'If an account exists for that email or phone, a password reset link has been sent. Please check your inbox.'}
+              {t('sentBody')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-sm text-amber-800">
-              {locale === 'bn'
-                ? '💡 টিপস: স্প্যাম ফোল্ডারও চেক করুন। লিঙ্কটি ৩০ মিনিটের মধ্যে মেয়াদ উত্তীর্ণ হবে।'
-                : '💡 Tip: Check your spam folder too. The link expires in 30 minutes.'}
+              {t('sentTip')}
             </div>
             <div className="flex flex-col gap-2">
               <Button
@@ -112,12 +108,12 @@ export default function ForgotPasswordPage() {
                 }}
                 className="w-full"
               >
-                {locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try Again'}
+                {t('tryAgain')}
               </Button>
-              <Link href={`/${locale}/login`}>
+              <Link href={localePath(locale, '/login')}>
                 <Button className="w-full bg-emerald-600 hover:bg-emerald-700">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  {locale === 'bn' ? 'লগইন পেজে ফিরুন' : 'Back to Login'}
+                  {t('backToLogin')}
                 </Button>
               </Link>
             </div>
@@ -136,12 +132,10 @@ export default function ForgotPasswordPage() {
           </div>
           <div>
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'পাসওয়ার্ড ভুলে গেছেন?' : 'Forgot Password?'}
+              {t('title')}
             </CardTitle>
             <CardDescription className="mt-2">
-              {locale === 'bn'
-                ? 'আপনার ইমেইল বা ফোন নম্বর দিন। আমরা আপনাকে রিসেট লিঙ্ক পাঠাব।'
-                : 'Enter your email or phone number. We\'ll send you a reset link.'}
+              {t('subtitle')}
             </CardDescription>
           </div>
         </CardHeader>
@@ -163,7 +157,7 @@ export default function ForgotPasswordPage() {
                 }`}
               >
                 <Mail className="h-4 w-4 inline mr-2" />
-                {locale === 'bn' ? 'ইমেইল' : 'Email'}
+                {t('emailTab')}
               </button>
               <button
                 type="button"
@@ -178,7 +172,7 @@ export default function ForgotPasswordPage() {
                 }`}
               >
                 <Phone className="h-4 w-4 inline mr-2" />
-                {locale === 'bn' ? 'ফোন' : 'Phone'}
+                {t('phoneTab')}
               </button>
             </div>
 
@@ -186,8 +180,8 @@ export default function ForgotPasswordPage() {
             <div className="space-y-2">
               <Label htmlFor="input">
                 {inputType === 'email'
-                  ? (locale === 'bn' ? 'ইমেইল ঠিকানা' : 'Email Address')
-                  : (locale === 'bn' ? 'ফোন নম্বর' : 'Phone Number')}
+                  ? (t('emailLabel'))
+                  : (t('phoneLabel'))}
               </Label>
               <Input
                 id="input"
@@ -213,10 +207,10 @@ export default function ForgotPasswordPage() {
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {locale === 'bn' ? 'পাঠানো হচ্ছে...' : 'Sending...'}
+                  {t('sending')}
                 </>
               ) : (
-                locale === 'bn' ? 'রিসেট লিঙ্ক পাঠান' : 'Send Reset Link'
+                t('submit')
               )}
             </Button>
           </form>
@@ -224,11 +218,11 @@ export default function ForgotPasswordPage() {
           {/* Back to Login */}
           <div className="mt-6 text-center">
             <Link
-              href={`/${locale}/login`}
+              href={localePath(locale, '/login')}
               className="text-sm text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              {locale === 'bn' ? 'লগইন পেজে ফিরুন' : 'Back to Login'}
+              {t('backToLogin')}
             </Link>
           </div>
         </CardContent>

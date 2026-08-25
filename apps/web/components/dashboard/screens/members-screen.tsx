@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { apiGet } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useDashboardRole } from '@/components/dashboard/role';
+import { localePath } from '@/lib/locale-path';
 
 type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
@@ -174,7 +175,7 @@ export default function MembersScreen() {
               displayedMembers.map((member) => (
                 <tr key={member.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <Link href={`/${locale}/dashboard/${roleSegment}/members/${member.id}`} className="block hover:text-blue-600">
+                    <Link href={localePath(locale, `/dashboard/${roleSegment}/members/${member.id}`)} className="block hover:text-blue-600">
                       <div className="font-medium text-gray-900">{member.name}</div>
                       <div className="text-xs text-gray-500 font-mono">{member.accountNo || '-'}</div>
                     </Link>

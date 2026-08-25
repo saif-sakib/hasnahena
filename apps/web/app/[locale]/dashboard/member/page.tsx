@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { localePath } from '@/lib/locale-path';
 
 interface DashboardStats {
   currentBalance: number;
@@ -235,7 +236,7 @@ export default function MemberDashboard() {
                 <span className="text-xs text-emerald-600/80 font-medium">#{data.activeLoan.loanNumber}</span>
               </div>
             </div>
-            <Link href={`/${locale}/dashboard/member/loans`}>
+            <Link href={localePath(locale, '/dashboard/member/loans')}>
               <Button size="sm" variant="ghost" className="h-8 text-xs font-medium text-emerald-700 hover:bg-emerald-100/50 hover:text-emerald-800 gap-1 rounded-full">
                 {locale === 'bn' ? 'বিস্তারিত' : 'Details'}
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -276,7 +277,7 @@ export default function MemberDashboard() {
 
       {/* Quick Links - Clean Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link href={`/${locale}/dashboard/member/deposits`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+        <Link href={localePath(locale, '/dashboard/member/deposits')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <Wallet className="h-4.5 w-4.5 text-emerald-600" />
           </div>
@@ -285,7 +286,7 @@ export default function MemberDashboard() {
             <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'ইতিহাস দেখুন' : 'View history'}</p>
           </div>
         </Link>
-        <Link href={`/${locale}/dashboard/member/loans`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+        <Link href={localePath(locale, '/dashboard/member/loans')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-amber-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <HandCoins className="h-4.5 w-4.5 text-amber-600" />
           </div>
@@ -294,7 +295,7 @@ export default function MemberDashboard() {
             <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'স্থিতি দেখুন' : 'View status'}</p>
           </div>
         </Link>
-        <Link href={`/${locale}/dashboard/member/transactions`} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
+        <Link href={localePath(locale, '/dashboard/member/transactions')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
           <div className="h-10 w-10 min-w-[40px] bg-blue-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
             <ArrowUpRight className="h-4.5 w-4.5 text-blue-600" />
           </div>
@@ -309,7 +310,7 @@ export default function MemberDashboard() {
       <div className="bg-white border border-neutral-200/60 rounded-xl shadow-xs shadow-neutral-100/50 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-100">
           <h2 className="text-base font-medium text-neutral-900">{t('recentTransactions')}</h2>
-          <Link href={`/${locale}/dashboard/member/transactions`}>
+          <Link href={localePath(locale, '/dashboard/member/transactions')}>
             <Button variant="ghost" size="sm" className="h-8 text-xs font-medium text-neutral-500 hover:text-neutral-900 rounded-full px-3 gap-1">
               {t('viewAll')}
             </Button>

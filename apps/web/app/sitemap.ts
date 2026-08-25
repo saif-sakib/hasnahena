@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { locales } from '@/i18n';
-import { publicPagePaths, siteOrigin } from '@/lib/seo';
+import { getLocalizedPath, publicPagePaths, siteOrigin } from '@/lib/seo';
 
 function getPathPriority(path: string): number {
   if (path === '/') return 1;
@@ -31,7 +31,11 @@ function getPathChangeFrequency(path: string): MetadataRoute.Sitemap[number]['ch
 export default function sitemap(): MetadataRoute.Sitemap {
   return publicPagePaths.flatMap((path) =>
     locales.map((locale) => ({
-      url: `${siteOrigin}/${locale}${path === '/' ? '' : path}`,
+      // WO-95: English is unprefixed, so `/` and `/faq` rather than `/en` and
+      // `/en/faq`. Built through the same function the canonical tags use — a
+      // sitemap listing URLs that 301 elsewhere is a sitemap asking to be
+      // ignored.
+      url: `${siteOrigin}${getLocalizedPath(locale, path)}`,
       changeFrequency: getPathChangeFrequency(path),
       priority: getPathPriority(path),
     }))

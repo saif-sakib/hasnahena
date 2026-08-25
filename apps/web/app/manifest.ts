@@ -19,8 +19,10 @@ import { SITE_DESCRIPTION, SITE_NAME } from '@/lib/seo';
  * and this is a money application where a member should be able to see the
  * origin they are typing a password into.
  *
- * No `start_url` locale: `/` redirects to the member's language through
- * `proxy.ts`, and hardcoding one here would send every installer to Bengali.
+ * No `start_url` locale, and since WO-95 that is the *canonical* URL rather than
+ * a redirect: `/` is the English home page ([ADR-034](../../../docs/decisions.md)).
+ * A Bengali reader installs from `/bn` and gets `/bn` in their own manifest
+ * scope; hardcoding either here would decide for everybody.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

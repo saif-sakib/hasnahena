@@ -83,13 +83,13 @@ test.describe('every control on a public page has an accessible name', () => {
   test.use({ viewport: devices['Pixel 7'].viewport });
 
   for (const path of PAGES.public) {
-    test(`/en/${path || '(home)'}`, async ({ page }) => {
-      await page.goto(`/en/${path}`);
+    test(`/${path || '(home)'}`, async ({ page }) => {
+      await page.goto(`/${path}`);
       await waitForContent(page);
       const problems = await unlabelledControls(page);
       expect(
         problems,
-        `/en/${path} has controls a screen reader cannot name:\n  ${problems.join('\n  ')}`,
+        `/${path} has controls a screen reader cannot name:\n  ${problems.join('\n  ')}`,
       ).toEqual([]);
     });
   }
@@ -108,16 +108,16 @@ test.describe('signed-in pages', () => {
 
   for (const role of ['MEMBER', 'WORKER', 'ADMIN'] as const) {
     for (const path of PAGES[role]) {
-      test(`${role} · /en/${path} names every control`, async ({ page }) => {
+      test(`${role} · /${path} names every control`, async ({ page }) => {
         // Login plus a first-visit compile under `next dev`.
         test.setTimeout(90_000);
         await loginAs(page, role);
-        await page.goto(`/en/${path}`);
+        await page.goto(`/${path}`);
         await waitForContent(page);
         const problems = await unlabelledControls(page);
         expect(
           problems,
-          `/en/${path} has controls a screen reader cannot name:\n  ${problems.join('\n  ')}`,
+          `/${path} has controls a screen reader cannot name:\n  ${problems.join('\n  ')}`,
         ).toEqual([]);
       });
     }
@@ -128,7 +128,7 @@ test.describe('keyboard and focus', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test('the login form is completable with the keyboard alone', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
 
     // Tab until focus lands in the identifier field, then type through the form.
@@ -163,7 +163,7 @@ test.describe('keyboard and focus', () => {
   });
 
   test('focus is visible on every control the keyboard can reach', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
     await page.locator('#identifier').focus();
 
@@ -197,7 +197,7 @@ test.describe('error announcement', () => {
     // The registration bug that started all of this was an error that existed
     // and could not be seen. A screen-reader user has the same problem for a
     // different reason: a message rendered as ordinary text is never announced.
-    await page.goto('/en/register');
+    await page.goto('/register');
     await waitForContent(page);
 
     await page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -210,7 +210,7 @@ test.describe('error announcement', () => {
   });
 
   test('a failed login announces why, rather than only colouring the field', async ({ page }) => {
-    await page.goto('/en/login');
+    await page.goto('/login');
     await waitForContent(page);
 
     await page.fill('#identifier', '01900000000');

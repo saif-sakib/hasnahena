@@ -616,12 +616,15 @@ answered 500.
   rendered text width against column width found it immediately — and found a
   second overflowing column on its first run.
 
-**`x-default` is not the default locale.** This project's `defaultLocale` is
-`bn`, because its members are Bengali. `x-default` answers the opposite question
-— what to serve a reader the site was *not* built for — and there the answer is
-`/en`. Writing `getLocalizedUrl(defaultLocale, path)` reads as the tidier version
-of the same line and sends every unmatched reader in the world to a page they
-cannot read. It compiled, and a test caught it.
+**`x-default` is not the default locale, even when the two hold the same value.**
+It was written out as `'en'` when `defaultLocale` was `bn`, because they answer
+different questions: *what this site is primarily in* versus *what to serve a
+reader the site was not built for*. WO-94 made the site's default English, so the
+two now agree — and the line is still written out, because collapsing it would
+make a future change to one silently change the other, and the failure it
+produces (every unmatched reader in the world sent to a page they cannot read) is
+invisible from inside Bangladesh. A constant that happens to equal another
+constant is not the same constant.
 
 **JSON-LD cannot be a text child.** React HTML-escapes text children, and HTML
 entities are **not** decoded inside a `<script>` element, so every `"` in the
@@ -710,6 +713,57 @@ the identifier.
 ---
 
 ## Locale routing
+
+- **A redirect at the root is what makes `/` and `/bn` duplicates, not the
+  choice of default locale.** Search Console reported *"Duplicate, Google chose
+  different canonical than user"* on `/bn` with a Google-selected canonical of
+  `/`. `/` was 307ing to a negotiated locale; Google merges a redirecting root
+  with whatever it lands on and keeps the shorter URL. Flipping `defaultLocale`
+  from `bn` to `en` would have moved the report to `/en` and changed nothing
+  else. The fix is that `/` renders (WO-95, [ADR-034](decisions.md)).
+- **next-intl's `as-needed` redirect is a 307, and a 307 is not a canonical
+  signal.** Google treats a temporary redirect as reversible and may keep
+  indexing the old URL. Every `/en/*` URL that is already out in the world has
+  to answer **301**, which means doing it in `proxy.ts` before next-intl runs.
+- **`localePrefix` is a routing rule, not a directory rule.** `app/[locale]/`
+  is unchanged, `generateStaticParams` still yields both locales, and the
+  prerender manifest keys are still `/en/...` — next-intl *rewrites* `/faq` to
+  `/en/faq` internally. `assert-static-routes.mjs` reads the manifest, so it
+  needed no change; rewriting it to match the public URLs would have made it
+  report every English page as missing.
+- **Switching to `as-needed` turns every hand-built `/${locale}/…` into a
+  redirect.** Twenty-two files did it, and under the old `always` scheme it was
+  merely repetitive. Afterwards each one produces `/en/faq`, which 301s — so a
+  member tapping a header link pays a round trip and a crawler is told the href
+  it was given is not the real URL. One `localePath()`, and a census on the next
+  one.
+- **`pathname.replace('/en', '/bn')` was never a language switch.** It matches
+  `/enrolment`, and under `as-needed` the English pathname has no segment to
+  replace at all. Split on `/`, check the first segment against the locale list,
+  and rebuild.
+- **A `Vary` that is not true is not free.** `Vary: Accept-Language` was the
+  correct fix for a cacheable, negotiating root. Once nothing negotiates it is a
+  CDN cache entry per distinct header value on the busiest pages the site has,
+  bought for a property nothing needs. Deleting it is part of the change, not a
+  loose end.
+- **A URL in an email is not a URL in a page.** A link that 301s is fine in a
+  header and wrong in an approval email: emails outlive the deploy that wrote
+  them, they are forwarded, and some clients and corporate link scanners resolve
+  a redirect before a person ever clicks. When a URL shape changes, the email
+  templates are a separate surface from the pages — and in this repository they
+  are in the *other language*, which is why a sweep of `apps/web` found none of
+  them.
+- **A guard's coverage can shrink as the code improves.** The fee-promise census
+  walked `app/` and was complete only because almost all the copy lived there.
+  Moving 73 strings into `messages/{en,bn}.json` — the *correct* change, rule 5 —
+  moved them out of its reach, silently. When copy, config or logic migrates out
+  of a directory a census walks, the census moves with it or it quietly becomes
+  a check on a shrinking subset.
+- **A lint rule can be silenced by making its input unanalysable.**
+  `window.location.href = '/en'` warns; `window.location.href = localePath(locale)`
+  does not, because the rule cannot see a literal any more. The warning count
+  went down and the code was no better. If a rule stops firing after a refactor,
+  check whether it was satisfied or merely blinded.
 
 **A response whose target depends on a request header must send `Vary`.**
 next-intl's middleware reads `Accept-Language` to decide whether `/` sends a

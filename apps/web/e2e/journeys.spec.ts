@@ -67,7 +67,7 @@ test.describe('journeys', () => {
     await loginAs(page, 'MEMBER');
 
     for (const path of ['deposits', 'loans', 'transactions', 'profile']) {
-      const response = await page.goto(`/en/dashboard/member/${path}`);
+      const response = await page.goto(`/dashboard/member/${path}`);
       expect(response?.status(), `member/${path} answered ${response?.status()}`).toBeLessThan(400);
       await waitForContent(page);
       // A page that renders its shell and then throws leaves an empty main.
@@ -90,7 +90,7 @@ test.describe('journeys', () => {
     await loginAs(page, 'MEMBER');
 
     for (const forbidden of ['dashboard/worker', 'dashboard/worker/members', 'dashboard/admin/members']) {
-      await page.goto(`/en/${forbidden}`);
+      await page.goto(`/${forbidden}`);
       await waitForContent(page);
       await page.waitForTimeout(2_000);
       const body = await page.locator('body').innerText();
@@ -105,7 +105,7 @@ test.describe('journeys', () => {
 
   test("the member's profile shows their own identity", async ({ page }) => {
     await loginAs(page, 'MEMBER');
-    await page.goto('/en/dashboard/member/profile');
+    await page.goto('/dashboard/member/profile');
     await waitForContent(page);
 
     await expect(page.locator('body'), 'the profile does not show the signed-in member')
@@ -120,7 +120,7 @@ test.describe('journeys', () => {
 
   test('a worker sees the member list, and the seeded member is in it', async ({ page }) => {
     await loginAs(page, 'WORKER');
-    await page.goto('/en/dashboard/worker/members');
+    await page.goto('/dashboard/worker/members');
     await waitForContent(page);
 
     await expect(page.locator('body'), 'the seeded member is missing from the worker member list')
@@ -134,7 +134,7 @@ test.describe('journeys', () => {
     // live in this file went stale the day a screen was renamed, and it failed
     // as a 404 in a sweep rather than as "the inventory is out of date".
     for (const path of PAGES.WORKER) {
-      const response = await page.goto(`/en/${path}`);
+      const response = await page.goto(`/${path}`);
       expect(response?.status(), `${path} answered ${response?.status()}`).toBeLessThan(400);
       await waitForContent(page);
       const text = await page.locator('body').innerText();
@@ -167,7 +167,7 @@ test.describe('journeys', () => {
     test.setTimeout(180_000);
     await loginAs(page, 'ADMIN');
     for (const path of PAGES.ADMIN) {
-      const response = await page.goto(`/en/${path}`);
+      const response = await page.goto(`/${path}`);
       expect(response?.status(), `${path} answered ${response?.status()}`).toBeLessThan(400);
       await waitForContent(page);
       const text = await page.locator('body').innerText();
@@ -177,7 +177,7 @@ test.describe('journeys', () => {
 
   test('the admin member list shows the seeded member and links to them', async ({ page }) => {
     await loginAs(page, 'ADMIN');
-    await page.goto('/en/dashboard/admin/members');
+    await page.goto('/dashboard/admin/members');
     await waitForContent(page);
 
     await expect(page.locator('body'), 'the seeded member is missing from the admin member list')
@@ -189,7 +189,7 @@ test.describe('journeys', () => {
     // the failure was invisible: it reported success. So the assertion is that
     // a value from `system_config` actually reaches the field.
     await loginAs(page, 'ADMIN');
-    await page.goto('/en/dashboard/admin/settings');
+    await page.goto('/dashboard/admin/settings');
     await waitForContent(page);
 
     const nameEn = page.locator('#org-name-en');

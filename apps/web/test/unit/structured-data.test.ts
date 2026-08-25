@@ -80,7 +80,10 @@ describe('every public page emits parseable JSON-LD', () => {
     const about = parse('en', '/about').json['@graph'].find((n) => n['@type'] === 'BreadcrumbList');
     const items = about?.itemListElement as { name: string; item: string }[];
     expect(items).toHaveLength(2);
-    expect(items[1].item).toBe(`${siteOrigin}/en/about`);
+    // `/about`, not `/en/about` — English lost its prefix in WO-95, and a
+    // breadcrumb pointing at a URL that 301s elsewhere is a breadcrumb a
+    // crawler discards.
+    expect(items[1].item).toBe(`${siteOrigin}/about`);
     expect(items[1].name).toBe('About');
   });
 

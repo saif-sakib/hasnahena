@@ -200,6 +200,19 @@ describe('which routes get which policy', () => {
    * every route named here must actually be dynamic in the build output.
    */
   it.each([
+    // The unprefixed forms are English since WO-95, and they are the ones a
+    // real request now carries. A regex that still required a locale segment
+    // would serve the *marketing* policy — `'unsafe-inline'`, no nonce — to
+    // every English dashboard and login page, and nothing would say so until
+    // CSP_ENFORCE was switched on and the pages stopped hydrating.
+    ['/dashboard/member', true],
+    ['/dashboard', true],
+    ['/login', true],
+    ['/register', true],
+    ['/forgot-password', true],
+    ['/reset-password', true],
+    // The prefixed forms still resolve, because the proxy runs this on the
+    // pathname it was given — including the one it is about to 301 away.
     ['/en/dashboard/member', true],
     ['/bn/dashboard/admin/settings', true],
     ['/en/dashboard', true],
@@ -207,16 +220,18 @@ describe('which routes get which policy', () => {
     ['/bn/register', true],
     ['/en/forgot-password', true],
     ['/en/reset-password', true],
+    ['/about', false],
     ['/en/about', false],
     ['/bn/gallery', false],
     ['/en', false],
     ['/', false],
     // Not a locale prefix, so not a route this app serves — and it must not be
-    // mistaken for one by a regex anchored loosely.
+    // mistaken for one by a regex whose locale group is now optional.
     ['/fr/dashboard/member', false],
-    ['/dashboard/member', false],
+    ['/fr/login', false],
     // The prefix appearing later in the path is not the dashboard.
     ['/en/about/dashboard', false],
+    ['/about/dashboard', false],
   ])('%s → session policy: %s', (pathname, expected) => {
     expect(isSessionRoute(pathname)).toBe(expected);
   });

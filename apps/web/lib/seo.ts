@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { defaultLocale, locales, type Locale } from '@/i18n';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * Where this site lives, according to the environment it is being built for.
@@ -168,14 +169,16 @@ export function normalizeLocale(locale: string): Locale {
   return locales.includes(locale as Locale) ? (locale as Locale) : defaultLocale;
 }
 
-function normalizePath(path: string): string {
-  if (!path || path === '/') return '/';
-  return path.startsWith('/') ? path : `/${path}`;
-}
-
+/**
+ * The canonical path for a locale — WO-95.
+ *
+ * One line, and it delegates: `localePath` in `lib/locale-path.ts` is the same
+ * answer the header's links, the login redirect and the language toggle need,
+ * and two implementations of "where does this page live" is how a canonical URL
+ * comes to disagree with the link that points at it.
+ */
 export function getLocalizedPath(locale: Locale, path = '/'): string {
-  const normalizedPath = normalizePath(path);
-  return `/${locale}${normalizedPath === '/' ? '' : normalizedPath}`;
+  return localePath(locale, path);
 }
 
 export function getLocalizedUrl(locale: Locale, path = '/'): string {
@@ -187,15 +190,20 @@ export function getLocalizedUrl(locale: Locale, path = '/'): string {
  *
  * WO-80. Without `x-default` a reader whose browser asks for neither English
  * nor Bengali — which is most of the crawl traffic that is not from Bangladesh —
- * has no declared entry point, and Google picks one. Pointing it at `/en` makes
- * that choice ours.
+ * has no declared entry point, and Google picks one. Pointing it at English
+ * makes that choice ours — and since WO-95 that URL is `/`, not `/en`, which is
+ * also the canonical of the home page. The three agree, which is the point:
+ * `x-default`, the English `hreflang` and the canonical all naming the same URL
+ * is what tells a crawler there is one home page rather than three.
  *
- * `/en` and **not** `defaultLocale`, which is `bn`. The site's default is
- * Bengali because its members are; `x-default` is the opposite question — what
- * to serve someone the site was not built for — and for that English is the
- * answer. Writing `defaultLocale` here reads as the tidier version of the same
- * line and sends every unmatched reader in the world to a page they cannot
- * read, so it is spelled out.
+ * It is still written out rather than as `defaultLocale`, and the reason has
+ * survived the two of them becoming equal (WO-94). They answer different
+ * questions: `defaultLocale` is *what this site is primarily in*, `x-default` is
+ * *what to serve someone the site was not built for*. They agree today because
+ * both answers are English. Collapsing the line would make a future change to
+ * one silently change the other, and the failure mode — every unmatched reader
+ * in the world sent to a page they cannot read — is invisible from inside
+ * Bangladesh.
  */
 const X_DEFAULT_LOCALE: Locale = 'en';
 

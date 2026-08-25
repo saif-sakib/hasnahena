@@ -126,19 +126,24 @@ mainstream reading, while one paid entirely to charity is the form scholars perm
 
 Recorded rather than fixed, because each is a decision rather than a defect.
 
-- `[ ]` **Admin, worker and `(auth)` screens keep their copy inline** —
-  `locale === 'bn' ? … : …` rather than `messages/{en,bn}.json` (rule 5). They
-  *are* translated (the `/bn` dashboards measure 84–97% Bengali), so this is a
-  maintainability gap, not a member-facing one. New copy goes in the message files.
+- `[ ]` **The admin and worker screens keep their copy inline** —
+  `locale === 'bn' ? … : …` rather than `messages/{en,bn}.json` (rule 5).
+  **827 occurrences across 33 files**, counted 2026-08-25; the worst are
+  `dashboard/admin/workers` (72), `member-detail-screen` (66) and
+  `dashboard/member/loans` (57). They *are* translated (the `/bn` dashboards
+  measure 84–97% Bengali), so this is a maintainability gap, not a member-facing
+  one — but it is also a **blind spot**: nothing in `messages.test.ts` can read a
+  string that lives in a component, which is how the Terms of Service came to
+  promise administrative fees in both languages while every guard passed.
+  The `(auth)` pages were cleared by WO-96 (73 strings, three files) and are held
+  there by a census scoped to `app/[locale]/(auth)/`. Widening that census is the
+  same job as fixing the 827. New copy goes in the message files.
 
 ## Data gaps
 
 - `[ ]` **Cloudinary assets have no backup** (`DATA-06`) — the largest remaining
   data gap, and it cannot be built until there is something to back up
   ([ADR-020](decisions.md)).
-- `[ ]` **No data retention or erasure policy** (`DATA-07`) — decide now what a
-  member's erasure request means when the audit log is append-only by design. It
-  is a schema question, so deciding it late means discovering you needed a column.
 - `[ ]` **No audit viewer UI** (`OBS-08`, FR-22) — the data is complete and the
   endpoint exists; nobody can read it without SQL.
 
@@ -168,10 +173,13 @@ a generated migration fails the build rather than a production query.
 | # | Do this | Why now |
 |---|---|---|
 | 3 | **Donation fund types** (FR-15/16) | Zakat funds cannot be reconstructed after the fact. Cheap only while the donation table is empty |
-| 4 | **Decide DATA-07** (retention and erasure) | It decides whether you need a `deletedAt` or an anonymisation path — a schema question |
 
 The legacy `LoanStatus` values were the third item here and are gone
-([WO-71](work-orders.md)).
+([WO-71](work-orders.md)). So is DATA-07 — retention and erasure were decided by
+the owner on 2026-08-25 and built as FR-23, and the answer needed no column at
+all ([ADR-033](decisions.md)). What is left of it is a *setting*: confirm
+`security.rejectedRetentionDays` before real applications exist
+([go-live.md](go-live.md) §1.6).
 
 ### Then — the rest of the product
 

@@ -20,6 +20,7 @@ import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
 import { buildStatement, buildReceipt, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
+import { localePath } from '@/lib/locale-path';
 
 type KnownTransactionType =
   | 'DEPOSIT'
@@ -282,7 +283,7 @@ export default function TransactionsPage() {
       setDisputeError(null);
       const token = getValidatedClientToken();
       if (!token) {
-        router.push(`/${locale}/login`);
+        router.push(localePath(locale, '/login'));
         return;
       }
       if (!selectedTransaction) return;

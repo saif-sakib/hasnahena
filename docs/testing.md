@@ -72,6 +72,8 @@ left behind would pass or fail on package ordering.
 | **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` | Postgres |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
 | a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
+| **a URL shape, a redirect, or a middleware header** | `apps/web/e2e/locale-negotiation.spec.ts` | the full stack — never a unit test, see traps.md "Locale routing" |
+| **whether a rule still holds across the whole tree** | `apps/web/test/unit/*.test.ts` as a *census* that walks the source | nothing |
 
 ## The fixture contract
 

@@ -139,6 +139,29 @@ func normalizeLocale(locale string) string {
 	return "en"
 }
 
+// localeURL builds a link into the web app for a locale.
+//
+// English has **no prefix** since WO-95 ([ADR-034](../../../../docs/decisions.md)):
+// `/login` is English and `/bn/login` is Bengali. This used to be
+// `fmt.Sprintf("%s/%s/login", appURL, locale)` at three call sites, which now
+// produces `https://…/en/login` — a URL the proxy answers with a **301**.
+//
+// It works, and it is still wrong to send. These are the links in an approval
+// email and a password-reset email: they outlive the deploy that wrote them,
+// they are forwarded, and some mail clients and link scanners resolve a
+// redirect before a person ever sees it. The canonical URL is what belongs in
+// an email that may be opened in a year.
+//
+// The rule is the same one `apps/web/lib/locale-path.ts` implements, and it is
+// duplicated here rather than shared because the two runtimes cannot share a
+// module. `TestEmailLinksUseTheCanonicalLocalePath` is what keeps them equal.
+func localeURL(appURL, locale, path string) string {
+	if normalizeLocale(locale) == "bn" {
+		return fmt.Sprintf("%s/bn%s", appURL, path)
+	}
+	return appURL + path
+}
+
 func (s *EmailService) renderOfficialEmailHTML(locale, preheader, heading, bodyHTML string) string {
 	headerTag := "Accounts and Security Notification"
 	footerPrimary := "Hasnahena Foundation Member Support"
@@ -214,7 +237,7 @@ func (s *EmailService) buildMemberApprovalEmail(to string, memberName string, te
 
 	locale = normalizeLocale(locale)
 
-	loginURL := fmt.Sprintf("%s/%s/login", s.appURL, locale)
+	loginURL := localeURL(s.appURL, locale, "/login")
 
 	escapedMemberName := html.EscapeString(memberName)
 	escapedPassword := html.EscapeString(temporaryPassword)
@@ -286,7 +309,7 @@ func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role 
 
 	locale = normalizeLocale(locale)
 
-	loginURL := fmt.Sprintf("%s/%s/login", s.appURL, locale)
+	loginURL := localeURL(s.appURL, locale, "/login")
 	escapedStaffName := html.EscapeString(staffName)
 	escapedEmail := html.EscapeString(to)
 	escapedPhone := html.EscapeString(strings.TrimSpace(phone))
@@ -556,7 +579,7 @@ func (s *EmailService) buildPasswordResetEmail(to string, token string, locale s
 
 	locale = normalizeLocale(locale)
 
-	resetURL := fmt.Sprintf("%s/%s/reset-password?token=%s", s.appURL, locale, token)
+	resetURL := localeURL(s.appURL, locale, "/reset-password?token="+token)
 	escapedResetURL := html.EscapeString(resetURL)
 
 	if locale == "bn" {

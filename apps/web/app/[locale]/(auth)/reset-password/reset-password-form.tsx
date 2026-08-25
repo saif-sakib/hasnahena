@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Lock, Eye, EyeOff, Loader2, CheckCircle2, XCircle, ArrowLeft } from 'lucide-react';
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
+import { localePath } from '@/lib/locale-path';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
   .replace(/\/$/, '')
@@ -18,6 +19,7 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'
 
 export function ResetPasswordForm() {
   const locale = useLocale();
+  const t = useTranslations('auth.reset');
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
@@ -37,7 +39,7 @@ export function ResetPasswordForm() {
   useEffect(() => {
     const validateToken = async () => {
       if (!token) {
-        setError(locale === 'bn' ? 'টোকেন পাওয়া যায়নি' : 'Token not found');
+        setError(t('tokenMissing'));
         setIsValidating(false);
         return;
       }
@@ -50,7 +52,7 @@ export function ResetPasswordForm() {
         const errorMessage =
           result?.error?.message ||
           result?.error ||
-          (locale === 'bn' ? 'অবৈধ বা মেয়াদোত্তীর্ণ টোকেন' : 'Invalid or expired token');
+          (t('tokenInvalid'));
 
         if (isSuccess && valid) {
           setIsValid(true);
@@ -58,22 +60,26 @@ export function ResetPasswordForm() {
           setError(errorMessage);
         }
       } catch {
-        setError(locale === 'bn' ? 'টোকেন যাচাই করতে ব্যর্থ' : 'Failed to validate token');
+        setError(t('tokenCheckFailed'));
       } finally {
         setIsValidating(false);
       }
     };
 
     validateToken();
-  }, [token, locale]);
+    // `t` rather than `locale`: the copy is what this effect actually reads, and
+    // next-intl returns one memoised `t` per namespace per locale — so the
+    // dependency is stable *and* honest, where `locale` was a stand-in for it
+    // that the exhaustive-deps rule could not verify.
+  }, [token, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (password.length < 6) {
       toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
-        description: locale === 'bn' ? 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে' : 'Password must be at least 6 characters',
+        title: t('errorTitle'),
+        description: t('passwordTooShort'),
         variant: 'destructive',
       });
       return;
@@ -81,8 +87,8 @@ export function ResetPasswordForm() {
 
     if (password !== confirmPassword) {
       toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
-        description: locale === 'bn' ? 'পাসওয়ার্ড মিলছে না' : 'Passwords do not match',
+        title: t('errorTitle'),
+        description: t('passwordMismatch'),
         variant: 'destructive',
       });
       return;
@@ -104,8 +110,8 @@ export function ResetPasswordForm() {
       if (isSuccess) {
         setIsSuccess(true);
         toast({
-          title: locale === 'bn' ? 'সফল' : 'Success',
-          description: locale === 'bn' ? 'পাসওয়ার্ড সফলভাবে রিসেট হয়েছে' : 'Password reset successfully',
+          title: t('successTitle'),
+          description: t('successToast'),
           variant: 'success',
         });
       } else {
@@ -113,7 +119,7 @@ export function ResetPasswordForm() {
       }
     } catch (err) {
       toast({
-        title: locale === 'bn' ? 'ত্রুটি' : 'Error',
+        title: t('errorTitle'),
         description: err instanceof Error ? err.message : 'Something went wrong',
         variant: 'destructive',
       });
@@ -130,7 +136,7 @@ export function ResetPasswordForm() {
           <CardContent className="py-12 text-center">
             <Loader2 className="h-12 w-12 animate-spin mx-auto text-emerald-600" />
             <p className="mt-4 text-muted-foreground">
-              {locale === 'bn' ? 'টোকেন যাচাই করা হচ্ছে...' : 'Validating token...'}
+              {t('validating')}
             </p>
           </CardContent>
         </Card>
@@ -148,22 +154,22 @@ export function ResetPasswordForm() {
               <XCircle className="h-10 w-10 text-red-600" />
             </div>
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'অবৈধ লিঙ্ক' : 'Invalid Link'}
+              {t('invalidTitle')}
             </CardTitle>
             <CardDescription className="text-base">
-              {error || (locale === 'bn' ? 'এই রিসেট লিঙ্কটি অবৈধ বা মেয়াদোত্তীর্ণ।' : 'This reset link is invalid or has expired.')}
+              {error || (t('invalidBody'))}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Link href={`/${locale}/forgot-password`}>
+            <Link href={localePath(locale, '/forgot-password')}>
               <Button className="w-full bg-emerald-600 hover:bg-emerald-700">
-                {locale === 'bn' ? 'নতুন লিঙ্ক অনুরোধ করুন' : 'Request New Link'}
+                {t('requestNewLink')}
               </Button>
             </Link>
-            <Link href={`/${locale}/login`}>
+            <Link href={localePath(locale, '/login')}>
               <Button variant="outline" className="w-full">
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                {locale === 'bn' ? 'লগইন পেজে ফিরুন' : 'Back to Login'}
+                {t('backToLogin')}
               </Button>
             </Link>
           </CardContent>
@@ -182,18 +188,16 @@ export function ResetPasswordForm() {
               <CheckCircle2 className="h-10 w-10 text-emerald-600" />
             </div>
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'পাসওয়ার্ড রিসেট সফল!' : 'Password Reset Successful!'}
+              {t('doneTitle')}
             </CardTitle>
             <CardDescription className="text-base">
-              {locale === 'bn'
-                ? 'আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে। এখন আপনি নতুন পাসওয়ার্ড দিয়ে লগইন করতে পারবেন।'
-                : 'Your password has been changed successfully. You can now log in with your new password.'}
+              {t('doneBody')}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href={`/${locale}/login`}>
+            <Link href={localePath(locale, '/login')}>
               <Button className="w-full h-12 bg-emerald-600 hover:bg-emerald-700">
-                {locale === 'bn' ? 'লগইন করুন' : 'Go to Login'}
+                {t('goToLogin')}
               </Button>
             </Link>
           </CardContent>
@@ -212,12 +216,10 @@ export function ResetPasswordForm() {
           </div>
           <div>
             <CardTitle className="text-2xl">
-              {locale === 'bn' ? 'নতুন পাসওয়ার্ড সেট করুন' : 'Set New Password'}
+              {t('title')}
             </CardTitle>
             <CardDescription className="mt-2">
-              {locale === 'bn'
-                ? 'আপনার নতুন পাসওয়ার্ড লিখুন'
-                : 'Enter your new password'}
+              {t('subtitle')}
             </CardDescription>
           </div>
         </CardHeader>
@@ -227,7 +229,7 @@ export function ResetPasswordForm() {
             {/* New Password */}
             <div className="space-y-2">
               <Label htmlFor="password">
-                {locale === 'bn' ? 'নতুন পাসওয়ার্ড' : 'New Password'}
+                {t('newPassword')}
               </Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -252,14 +254,14 @@ export function ResetPasswordForm() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {locale === 'bn' ? 'কমপক্ষে ৬ অক্ষর' : 'At least 6 characters'}
+                {t('newPasswordPlaceholder')}
               </p>
             </div>
 
             {/* Confirm Password */}
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">
-                {locale === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm Password'}
+                {t('confirmPassword')}
               </Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -294,10 +296,10 @@ export function ResetPasswordForm() {
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {locale === 'bn' ? 'রিসেট হচ্ছে...' : 'Resetting...'}
+                  {t('resetting')}
                 </>
               ) : (
-                locale === 'bn' ? 'পাসওয়ার্ড রিসেট করুন' : 'Reset Password'
+                t('submit')
               )}
             </Button>
           </form>
@@ -305,11 +307,11 @@ export function ResetPasswordForm() {
           {/* Back to Login */}
           <div className="mt-6 text-center">
             <Link
-              href={`/${locale}/login`}
+              href={localePath(locale, '/login')}
               className="text-sm text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              {locale === 'bn' ? 'লগইন পেজে ফিরুন' : 'Back to Login'}
+              {t('backToLogin')}
             </Link>
           </div>
         </CardContent>

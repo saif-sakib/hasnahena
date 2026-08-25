@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { Facebook, Twitter, Mail, Phone, MapPin } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
+import { localePath } from '@/lib/locale-path';
 
 interface FooterProps {
   settings?: Record<string, string>;
@@ -19,7 +20,7 @@ export function Footer({ settings }: FooterProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
           {/* Brand Section */}
           <div className="space-y-4 lg:col-span-1">
-            <Link href={`/${locale}`} className="inline-block">
+            <Link href={localePath(locale)} className="inline-block">
               <Logo
                 size="md"
                 src={settings?.['branding.logo'] || undefined}
@@ -54,10 +55,10 @@ export function Footer({ settings }: FooterProps) {
             </h3>
             <ul className="space-y-2.5">
               {[
-                { href: `/${locale}`, label: tNav('home') },
-                { href: `/${locale}/#about`, label: tNav('about') },
-                { href: `/${locale}/#how-it-works`, label: tNav('howItWorks') },
-                { href: `/${locale}/#contact`, label: tNav('contact') },
+                { href: localePath(locale), label: tNav('home') },
+                { href: localePath(locale, '/#about'), label: tNav('about') },
+                { href: localePath(locale, '/#how-it-works'), label: tNav('howItWorks') },
+                { href: localePath(locale, '/#contact'), label: tNav('contact') },
               ].map((item) => (
                 <li key={item.href}>
                   <Link
@@ -78,10 +79,10 @@ export function Footer({ settings }: FooterProps) {
             </h3>
             <ul className="space-y-2.5">
               {[
-                { href: `/${locale}/faq`, label: t('faq') },
-                { href: `/${locale}/support`, label: t('support') },
-                { href: `/${locale}/privacy`, label: t('privacyPolicy') },
-                { href: `/${locale}/terms`, label: t('termsOfService') },
+                { href: localePath(locale, '/faq'), label: t('faq') },
+                { href: localePath(locale, '/support'), label: t('support') },
+                { href: localePath(locale, '/privacy'), label: t('privacyPolicy') },
+                { href: localePath(locale, '/terms'), label: t('termsOfService') },
               ].map((item) => (
                 <li key={item.href}>
                   <Link

@@ -18,6 +18,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useApi } from '@/lib/use-api';
 import { navFor } from '@/components/dashboard/nav';
 import { useDashboardRole } from '@/components/dashboard/role';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * The staff overview — one screen for both dashboards.
@@ -126,7 +127,7 @@ export default function OverviewScreen() {
   const locale = useLocale();
   const role = useDashboardRole();
   const isAdmin = role === 'admin';
-  const basePath = `/${locale}/dashboard/${role}`;
+  const basePath = localePath(locale, `/dashboard/${role}`);
 
   // WO-27 — SWR, not an effect. See lib/use-api.ts.
   const { data: dashboardData, isLoading } = useApi<AdminPayload & WorkerPayload>(

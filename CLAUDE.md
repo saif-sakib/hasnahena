@@ -21,7 +21,7 @@ pnpm test:bundle        # first-load JS per route vs bundle-budget.json; needs a
 cd apps/api && go build ./...                  # Go check
 ```
 
-`pnpm lint` exits 0 with **2 warnings** — do not let the count grow.
+`pnpm lint` exits 0 with **1 warning** — do not let the count grow.
 
 `pnpm typecheck` must exit **clean, zero errors**. Any error is yours. If it reports a missing `app/api/**/route.js`, delete `apps/web/.next` first — those are stale generated route types, not your bug.
 
@@ -94,6 +94,8 @@ count that used to open this sentence is gone too. See
 | a **branch that deactivates or deletes a staff or member account** | `apps/web/test/unit/revocation-contract.test.ts` — write the revoke-all marker **inside that transaction**. `status` is read at login and nowhere else, on purpose, so the marker is the *only* thing that takes a dismissed worker's staff token away; the census counts revocations against endings and fails when a fourth ending appears without one |
 | a second writer of `token_blacklist`, in **either** language | the same test — it reads `auth_repository.go` and `lib/auth-revocation.ts` and demands the same key, the same upsert and the same derived TTL. A marker written differently on one backend is a token revoked on one surface and live on the other, which is worse than neither checking |
 | **anything that erases or expires personal data** | `apps/web/test/routes/identity-integrity.test.ts` and `apps/api/internal/repositories/retention_integration_test.go` — and the audit row must name the **account number and nothing it erased**. `audit_logs` cannot be deleted from ([ADR-033](docs/decisions.md)), so an `oldValue` the way `WORKER_UPDATED` writes one is erasure that preserves what it erased |
+| an internal **URL** anywhere in `app/`, `components/` or `lib/` | `apps/web/test/unit/locale-routing.test.ts` — build it with `localePath(locale, path)`. English has no prefix ([ADR-034](docs/decisions.md)), so a hand-written `` `/${locale}/faq` `` produces `/en/faq`, which 301s: a redirect on every internal navigation, and a crawler told the href is not the real URL |
+| **copy to a page under `app/[locale]/(auth)/`** | `apps/web/test/unit/messages.test.ts` — put it in `messages/{en,bn}.json`. A `locale === 'bn' ? … : …` in a component is invisible to the parity census, the placeholder check *and* the fee-promise search, which is how the Terms of Service promised administrative fees in both languages with every guard green |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -226,7 +228,11 @@ apps/web/lib/system-config.ts     every system_config key, split into public / m
                                   plus the cached getPublicSettings() every marketing page renders from
 apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
                                   token, and without one the caller silently gets the public subset
-apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce
+apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce.
+                                  Also the 301 from `/en/*` to the unprefixed form — before next-intl
+                                  runs, because next-intl's own as-needed redirect is a 307 (ADR-034)
+apps/web/lib/locale-path.ts       every internal URL. English is unprefixed and Bengali is not, so
+                                  `/faq` and `/bn/faq` — localePath() is the only place that knows
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
 apps/web/lib/reset-tokens.ts      the password_reset_tokens contract for the half Next writes: the

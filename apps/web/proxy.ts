@@ -2,14 +2,25 @@
 // unrelated to Next 16 renaming the file convention to proxy.ts.
 import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
-import { locales, defaultLocale } from './i18n';
+import { locales, defaultLocale, localePrefix } from './i18n';
+import { localePath, localeFromPath, pathWithoutLocale } from './lib/locale-path';
 import { buildCsp, isSessionRoute } from './lib/csp';
 import { isJwtExpired, parseJwtPayload } from './lib/utils';
 
 const intlMiddleware = createMiddleware({
   locales,
   defaultLocale,
-  localePrefix: 'always',
+  localePrefix,
+  // WO-95. `/` is a real English page now, not a negotiated redirect, so there
+  // is nothing at the root for `Accept-Language` to decide. Leaving detection on
+  // would put the old behaviour back through a different door: a visitor whose
+  // browser prefers Bengali would be redirected off `/` to `/bn`, and Google
+  // would merge the two again exactly as Search Console reported.
+  //
+  // A reader who wants Bengali chooses it — from the header toggle, or from a
+  // `/bn/...` link — and next-intl remembers that in `NEXT_LOCALE`, which is a
+  // choice rather than a guess.
+  localeDetection: false,
 });
 
 /**
@@ -67,17 +78,46 @@ const HOME_SECTION: Record<string, string> = {
   SUPER_ADMIN: 'admin',
 };
 
+/**
+ * The prefix the default locale no longer has, permanently — WO-95.
+ *
+ * Every `/en/...` URL that is already indexed, bookmarked or linked from
+ * elsewhere has to keep working, and has to *tell a crawler* that the
+ * unprefixed form is the real one. next-intl's own `as-needed` redirect is a
+ * **307**: correct for a browser, useless as a canonical signal, and reversible
+ * in Google's model. So this runs first and answers **301**.
+ *
+ * 301 rather than 308 deliberately. These are GET pages; 308's method
+ * preservation buys nothing here, and 301 is the status every crawler, cache and
+ * ops tool understands without a second thought.
+ */
+function redirectDefaultLocalePrefix(request: NextRequest, pathname: string): Response | null {
+  if (pathname !== `/${defaultLocale}` && !pathname.startsWith(`/${defaultLocale}/`)) {
+    return null;
+  }
+  const url = new URL(request.url);
+  url.pathname = pathWithoutLocale(pathname);
+  return NextResponse.redirect(url, 301);
+}
+
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const dashboardPrefix = /^\/(en|bn)\/dashboard(\/|$)/;
-  if (dashboardPrefix.test(pathname)) {
+  const permanent = redirectDefaultLocalePrefix(request, pathname);
+  if (permanent) return withCsp(request, permanent, pathname);
+
+  // `/dashboard/...` (English, unprefixed) or `/bn/dashboard/...`. The old
+  // `/^\/(en|bn)\/dashboard/` no longer matches the English form at all, which
+  // would have left the whole gate off for every English visitor — the section
+  // index moves with the prefix, so both are derived rather than counted.
+  const withoutLocale = pathWithoutLocale(pathname);
+  if (/^\/dashboard(\/|$)/.test(withoutLocale)) {
+    const locale = localeFromPath(pathname);
     const token = request.cookies.get('hn_access_token')?.value;
     const isExpired = !token || isJwtExpired(token);
 
     if (isExpired) {
-      const locale = pathname.split('/')[1] || defaultLocale;
-      const response = NextResponse.redirect(new URL(`/${locale}/login`, request.url));
+      const response = NextResponse.redirect(new URL(localePath(locale, '/login'), request.url));
       if (token) {
         response.cookies.set('hn_access_token', '', {
           path: '/',
@@ -87,15 +127,16 @@ export default function proxy(request: NextRequest) {
       return withCsp(request, response, pathname);
     }
 
-    const locale = pathname.split('/')[1] || defaultLocale;
-    const section = pathname.split('/')[3];
+    const section = withoutLocale.split('/')[2];
     const role = (parseJwtPayload<{ role?: string }>(token)?.role || '').toUpperCase();
     const allowed = SECTIONS_BY_ROLE[role];
     // An unrecognised role is left alone rather than redirected in a loop: the
     // API will refuse it anyway, and guessing a home for it would be a guess.
     if (allowed && section && !allowed.includes(section)) {
       const home = HOME_SECTION[role];
-      const response = NextResponse.redirect(new URL(`/${locale}/dashboard/${home}`, request.url));
+      const response = NextResponse.redirect(
+        new URL(localePath(locale, `/dashboard/${home}`), request.url),
+      );
       return withCsp(request, response, pathname);
     }
   }
@@ -120,40 +161,37 @@ export default function proxy(request: NextRequest) {
  * drop the locale cookie and the rewrite it just decided on.
  */
 /**
- * Declare that a locale-negotiated response depends on `Accept-Language`.
+ * There is no `Vary: Accept-Language` here any more, and its absence is the
+ * point — WO-95.
  *
- * next-intl's middleware reads `Accept-Language` to decide where `/` sends a
- * visitor — `/bn` for a Bengali browser, `/en` for an English one — and emits a
- * 307 with `cache-control: public` and **no `Vary`**. That combination is a
- * cache-poisoning bug in the ordinary sense of the word: a shared cache is
- * entitled to serve the redirect it stored for one visitor to the next, so a
- * Bengali speaker can be sent to `/en` because an English speaker asked first.
- * Cloudflare sits in front of this site, which makes the shared cache real
- * rather than theoretical.
+ * It was added because next-intl read `Accept-Language` at `/` and emitted a
+ * 307 with `cache-control: public` and no `Vary`, which let a shared cache hand
+ * one visitor's language to the next. That was a real defect and the header was
+ * the right fix *for that design*.
  *
- * `must-revalidate` limits the blast radius today; it does not make the header
- * correct, and the response is `public`.
+ * The design is gone. `localeDetection: false` means neither the header nor the
+ * `NEXT_LOCALE` cookie is consulted: the locale comes from the path prefix, and
+ * from nothing else. `/` is English for everybody, `/bn` is Bengali for
+ * everybody, and no response on this site varies with a request header.
  *
- * It is also what tells a crawler that `/` is a negotiated entry point rather
- * than a fixed alias of whichever locale it happened to receive. That is the
- * honest description of what `/` is, and it is the reverse of the claim an
- * un-Varied redirect makes.
- *
- * Applied to every response rather than only to redirects: next-intl also
- * *rewrites* on the locale it detected, and a rewritten page body depends on
- * the same header.
+ * Declaring a `Vary` that is not true is not free. It splits the CDN cache on
+ * the most-trafficked pages the site has — every distinct `Accept-Language`
+ * string is its own cache entry — in exchange for a correctness property
+ * nothing needs. The e2e spec asserts the negotiation is really gone, over
+ * HTTP, because that is the only place a middleware header can be trusted.
  */
-function varyOnLanguage(response: Response): void {
-  const existing = response.headers.get('vary');
-  if (existing?.toLowerCase().split(',').some((part) => part.trim() === 'accept-language')) {
-    return;
-  }
-  response.headers.set('vary', existing ? `${existing}, Accept-Language` : 'Accept-Language');
-}
 
 function withCsp(request: NextRequest, response: Response, pathname: string): Response {
   const isDev = process.env.NODE_ENV === 'development';
-  const session = isSessionRoute(pathname);
+  // A redirect renders nothing, so there is no script tag for a nonce to be
+  // stamped onto and no reason to mint one. It is also the only way to keep the
+  // **status**: the nonce path re-issues the response through
+  // `NextResponse.redirect(location)`, which defaults to 307 — so WO-95's
+  // permanent redirect came back as temporary on exactly the session routes,
+  // `/en/login` and `/en/register`. Those are the URLs most likely to be sitting
+  // in somebody's bookmarks or in an old email.
+  const isRedirect = response.headers.has('location');
+  const session = !isRedirect && isSessionRoute(pathname);
   const nonce = session ? newNonce() : undefined;
 
   const policy = buildCsp({
@@ -169,7 +207,6 @@ function withCsp(request: NextRequest, response: Response, pathname: string): Re
 
   if (!nonce) {
     response.headers.set(headerName, policy);
-    varyOnLanguage(response);
     return response;
   }
 
@@ -190,7 +227,6 @@ function withCsp(request: NextRequest, response: Response, pathname: string): Re
     next.headers.set(key, value);
   });
   next.headers.set(headerName, policy);
-  varyOnLanguage(next);
   return next;
 }
 

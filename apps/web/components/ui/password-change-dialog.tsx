@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
+import { localePath } from '@/lib/locale-path';
 
 type VerificationStep = 'current' | 'verify' | 'new';
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081').replace(/\/$/, '').replace(/\/api$/, '');
@@ -286,7 +287,7 @@ export function PasswordChangeDialog({
       // token in this tab is dead the moment the request succeeds — staying on
       // the page would just 401 on the next call. Send the user to login.
       clearClientAuthState();
-      router.replace(`/${locale}/login`);
+      router.replace(localePath(locale, '/login'));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to change password';
       toast({

@@ -17,6 +17,7 @@ import { StructuredData } from '@/components/seo/structured-data';
 
 import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -402,7 +403,7 @@ export default async function HomePage({ params }: PageProps) {
                   {tGallery('subtitle')}
                 </p>
               </div>
-              <Link href={`/${locale}/gallery`}>
+              <Link href={localePath(locale, '/gallery')}>
                 <Button variant="outline" className="hidden md:flex gap-2">
                     {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -412,7 +413,7 @@ export default async function HomePage({ params }: PageProps) {
             <Gallery items={galleryItems} locale={locale} />
             
             <div className="mt-12 text-center md:hidden">
-              <Link href={`/${locale}/gallery`}>
+              <Link href={localePath(locale, '/gallery')}>
                 <Button variant="outline" className="w-full gap-2">
                     {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
                 </Button>

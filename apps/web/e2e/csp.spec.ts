@@ -64,14 +64,14 @@ test.describe('Content-Security-Policy', () => {
     test.setTimeout(180_000);
     for (const path of PAGES.public) {
       const violations = await violationsDuring(page, async () => {
-        const response = await page.goto(`/en/${path}`);
-        expect(response, `no response for /en/${path}`).not.toBeNull();
+        const response = await page.goto(`/${path}`);
+        expect(response, `no response for /${path}`).not.toBeNull();
 
         const headers = response!.headers();
         const policy =
           headers['content-security-policy'] ??
           headers['content-security-policy-report-only'];
-        expect(policy, `/en/${path} was served with no CSP at all`).toBeTruthy();
+        expect(policy, `/${path} was served with no CSP at all`).toBeTruthy();
         expect(policy, 'the modern half of X-Frame-Options: DENY').toContain(
           "frame-ancestors 'none'",
         );
@@ -84,19 +84,19 @@ test.describe('Content-Security-Policy', () => {
         await waitForContent(page);
       });
 
-      expect(violations, `CSP violations on /en/${path}:\n${violations.join('\n')}`).toEqual([]);
+      expect(violations, `CSP violations on /${path}:\n${violations.join('\n')}`).toEqual([]);
     }
   });
 
   test('the auth pages get the strict, nonce-carrying policy', async ({ page }) => {
     for (const path of ['login', 'register', 'forgot-password']) {
-      const response = await page.goto(`/en/${path}`);
+      const response = await page.goto(`/${path}`);
       const headers = response!.headers();
       const policy =
         headers['content-security-policy'] ?? headers['content-security-policy-report-only'];
 
-      expect(policy, `/en/${path} carries no CSP`).toBeTruthy();
-      expect(policy, `/en/${path} must carry a nonce — it is where a password is typed`).toMatch(
+      expect(policy, `/${path} carries no CSP`).toBeTruthy();
+      expect(policy, `/${path} must carry a nonce — it is where a password is typed`).toMatch(
         /script-src [^;]*'nonce-/,
       );
       const scriptSrc = /script-src ([^;]*)/.exec(policy!)?.[1] ?? '';
@@ -112,7 +112,7 @@ test.describe('Content-Security-Policy', () => {
     const violations = await violationsDuring(page, async () => {
       await loginAs(page, 'MEMBER');
       for (const path of PAGES.MEMBER) {
-        await page.goto(`/en/${path}`);
+        await page.goto(`/${path}`);
         await waitForContent(page);
       }
     });
@@ -130,7 +130,7 @@ test.describe('Content-Security-Policy', () => {
     const violations = await violationsDuring(page, async () => {
       await loginAs(page, 'ADMIN');
       for (const path of PAGES.ADMIN) {
-        await page.goto(`/en/${path}`);
+        await page.goto(`/${path}`);
         await waitForContent(page);
       }
     });
@@ -147,7 +147,7 @@ test.describe('Content-Security-Policy', () => {
     // it is asserted rather than assumed.
     const nonces = new Set<string>();
     for (let i = 0; i < 3; i++) {
-      const response = await page.goto('/en/login');
+      const response = await page.goto('/login');
       const policy =
         response!.headers()['content-security-policy'] ??
         response!.headers()['content-security-policy-report-only'];

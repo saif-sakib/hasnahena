@@ -18,7 +18,10 @@ export const DASHBOARD: Record<SeededRole, string> = {
  * screen every member sees untested while making every other spec look covered.
  */
 export async function loginAs(page: Page, role: SeededRole, locale: 'en' | 'bn' = 'en'): Promise<void> {
-  await page.goto(`/${locale}/login`);
+  // English has no prefix since WO-95 — `/en/login` 301s to `/login`, so a
+  // literal here would work and cost a redirect on every signed-in spec in the
+  // suite.
+  await page.goto(locale === 'en' ? '/login' : `/${locale}/login`);
   await page.fill('#identifier', ACCOUNTS[role].phone);
   await page.fill('#password', E2E_PASSWORD);
   await page.click('button[type="submit"]');

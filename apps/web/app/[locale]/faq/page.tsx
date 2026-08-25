@@ -10,6 +10,7 @@ import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { faqEntries, noticePeriodDaysFrom } from '@/lib/faq';
 import { StructuredData } from '@/components/seo/structured-data';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -61,7 +62,7 @@ export default async function FaqPage({ params }: PageProps) {
               <HelpCircle className="h-7 w-7 text-emerald-600" />
               {isBn ? 'সাধারণ প্রশ্নাবলী' : 'Frequently Asked Questions'}
             </h1>
-            <Link href={`/${locale}`}>
+            <Link href={localePath(locale)}>
               <Button variant="outline" size="sm" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 {isBn ? 'হোমে ফিরুন' : 'Back to Home'}

@@ -88,7 +88,7 @@ async function waitForHydration(page: Page) {
 
 /** Open a clean registration form with no leftover draft, fully hydrated. */
 async function gotoRegister(page: Page) {
-  await page.goto('/en/register');
+  await page.goto('/register');
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
   await waitForHydration(page);

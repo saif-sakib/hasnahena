@@ -49,6 +49,7 @@ import {
   validateImageFile,
   UPLOAD_TYPES,
 } from '@/lib/image-utils';
+import { localePath, otherLocale } from '@/lib/locale-path';
 
 const steps = [
   { id: 'personal', icon: User },
@@ -900,7 +901,7 @@ export default function RegisterPage() {
       setSubmitStage('finishing');
 
       setTimeout(() => {
-        router.push(`/${locale}/login`);
+        router.push(localePath(locale, '/login'));
       }, 2000);
     } catch {
       setSubmitStage('idle');
@@ -1162,25 +1163,25 @@ export default function RegisterPage() {
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-md safe-area-top">
         <div className="container-wide flex h-14 items-center justify-between gap-2">
           <div className="flex items-center gap-6">
-            <Link href={`/${locale}`} aria-label={isBn ? 'হোম' : 'Home'}>
+            <Link href={localePath(locale)} aria-label={isBn ? 'হোম' : 'Home'}>
               <Logo size="sm" />
             </Link>
             <Link
-              href={`/${locale}`}
+              href={localePath(locale)}
               className="hidden items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground sm:flex"
             >
               ← {isBn ? 'হোম' : 'Home'}
             </Link>
           </div>
           <div className="flex items-center gap-1 sm:gap-4">
-            <Link href={`/${locale === 'en' ? 'bn' : 'en'}/register`}>
+            <Link href={localePath(otherLocale(locale), '/register')}>
               <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
                 <Globe className="h-4 w-4" />
                 <span className="text-sm">{locale === 'en' ? 'বাংলা' : 'English'}</span>
               </Button>
             </Link>
             <Link
-              href={`/${locale}/login`}
+              href={localePath(locale, '/login')}
               className="px-2 text-sm font-medium text-primary transition-colors hover:text-primary/80"
             >
               {isBn ? 'লগইন' : 'Login'}
@@ -2041,7 +2042,7 @@ export default function RegisterPage() {
                 <span className="text-muted-foreground">
                   {isBn ? 'ইতিমধ্যে অ্যাকাউন্ট আছে?' : 'Already have an account?'}{' '}
                 </span>
-                <Link href={`/${locale}/login`} className="font-medium text-primary hover:underline">
+                <Link href={localePath(locale, '/login')} className="font-medium text-primary hover:underline">
                   {isBn ? 'সাইন ইন' : 'Sign In'}
                 </Link>
               </div>
@@ -2050,7 +2051,7 @@ export default function RegisterPage() {
 
           <p className="mt-8 text-center">
             <Link
-              href={`/${locale}`}
+              href={localePath(locale)}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               ← {isBn ? 'হোম পেজে ফিরে যান' : 'Back to home'}

@@ -15,6 +15,7 @@ import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { setClientAuthToken } from '@/lib/client-auth';
 import { fetchSettings } from '@/lib/settings-client';
+import { localePath, otherLocale } from '@/lib/locale-path';
 
 const loginSchema = z.object({
   identifier: z.string().min(3, 'Email or phone is required'),
@@ -36,14 +37,17 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'
 
 function getRolePath(role: string | undefined, locale: string) {
   return role === 'ADMIN' || role === 'SUPER_ADMIN'
-    ? `/${locale}/dashboard/admin`
+    ? localePath(locale, '/dashboard/admin')
     : role === 'WORKER'
-      ? `/${locale}/dashboard/worker`
-      : `/${locale}/dashboard/member`;
+      ? localePath(locale, '/dashboard/worker')
+      : localePath(locale, '/dashboard/member');
 }
 
 export default function LoginPage() {
   const t = useTranslations('auth');
+  // The page's own copy — WO-96. `auth` holds the shared labels; everything
+  // that belongs to this screen alone lives under `auth.login`.
+  const tp = useTranslations('auth.login');
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
   const router = useRouter();
@@ -71,7 +75,7 @@ export default function LoginPage() {
       .catch(() => {}); // Silently fail
   }, []);
 
-  const otherLocale = locale === 'en' ? 'bn' : 'en';
+  const other = otherLocale(locale);
 
   const {
     register,
@@ -106,9 +110,7 @@ export default function LoginPage() {
         const errorMessage = payload?.error?.message || 'Login failed';
         if (errorMessage.toLowerCase().includes('not active')) {
           setSubmitError(
-            locale === 'bn'
-              ? 'আপনার অ্যাকাউন্ট এখনও সক্রিয় হয়নি। অনুগ্রহ করে অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।'
-              : 'Your account is not active yet. Please wait for admin approval.'
+            tp('accountNotActive')
           );
         } else {
           setSubmitError(errorMessage);
@@ -124,9 +126,7 @@ export default function LoginPage() {
       if (mustChangePassword) {
         if (!token) {
           setSubmitError(
-            locale === 'bn'
-              ? 'পাসওয়ার্ড আপডেটের জন্য সেশন তৈরি করা যায়নি। আবার লগইন করুন।'
-              : 'Unable to initialize first-login password update. Please sign in again.'
+            tp('firstLoginSessionFailed')
           );
           return;
         }
@@ -142,11 +142,9 @@ export default function LoginPage() {
         setSubmitError(null);
 
         toast({
-          title: locale === 'bn' ? 'নতুন পাসওয়ার্ড সেট করুন' : 'Set a new password',
+          title: tp('firstLoginTitle'),
           description:
-            locale === 'bn'
-              ? 'প্রথম লগইনের জন্য একটি নতুন পাসওয়ার্ড দিন এবং এটি পরবর্তী লগইনের জন্য মনে রাখুন।'
-              : 'For your first login, set a new password and remember it for your next login.',
+            tp('firstLoginSubtitle'),
           variant: 'success',
         });
         return;
@@ -158,8 +156,8 @@ export default function LoginPage() {
       }
 
       toast({
-        title: locale === 'bn' ? 'সফলভাবে লগইন হয়েছে' : 'Login Successful',
-        description: locale === 'bn' ? 'আপনাকে স্বাগতম!' : 'Welcome back!',
+        title: tp('successTitle'),
+        description: tp('successBody'),
         variant: 'success',
       });
 
@@ -167,16 +165,12 @@ export default function LoginPage() {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setSubmitError(
-          locale === 'bn'
-            ? 'লগইন সার্ভার সাড়া দিতে দেরি করছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
-            : 'Login server is taking too long. Please try again.'
+          tp('serverSlow')
         );
         return;
       }
       setSubmitError(
-        locale === 'bn'
-          ? 'লগইন আপাতত সম্ভব হচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।'
-          : 'Login is temporarily unavailable. Please try again shortly.'
+        tp('serverUnavailable')
       );
     }
   };
@@ -189,26 +183,22 @@ export default function LoginPage() {
     setSubmitError(null);
 
     if (newPassword.length < 8) {
-      setSubmitError(locale === 'bn' ? 'নতুন পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।' : 'New password must be at least 8 characters long.');
+      setSubmitError(tp('passwordTooShort'));
       return;
     }
     if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
       setSubmitError(
-        locale === 'bn'
-          ? 'নতুন পাসওয়ার্ডে অন্তত একটি বড় হাতের অক্ষর, একটি ছোট হাতের অক্ষর এবং একটি সংখ্যা থাকতে হবে।'
-          : 'New password must include at least one uppercase letter, one lowercase letter, and one number.'
+        tp('passwordTooSimple')
       );
       return;
     }
     if (newPassword !== confirmPassword) {
-      setSubmitError(locale === 'bn' ? 'নতুন পাসওয়ার্ড এবং নিশ্চিতকরণ মিলেনি।' : 'New password and confirmation do not match.');
+      setSubmitError(tp('passwordMismatch'));
       return;
     }
     if (newPassword === pendingFirstLogin.currentPassword) {
       setSubmitError(
-        locale === 'bn'
-          ? 'নতুন পাসওয়ার্ড অস্থায়ী পাসওয়ার্ডের মতো হতে পারবে না।'
-          : 'New password cannot be the same as the temporary password.'
+        tp('passwordUnchanged')
       );
       return;
     }
@@ -229,7 +219,7 @@ export default function LoginPage() {
 
       const changePayload = await changeResponse.json().catch(() => ({}));
       if (!changeResponse.ok || !changePayload?.success) {
-        setSubmitError(changePayload?.error?.message || (locale === 'bn' ? 'পাসওয়ার্ড পরিবর্তন করা যায়নি।' : 'Failed to update password.'));
+        setSubmitError(changePayload?.error?.message || (tp('passwordUpdateFailed')));
         return;
       }
 
@@ -245,9 +235,7 @@ export default function LoginPage() {
       const loginPayload = await loginResponse.json().catch(() => ({}));
       if (!loginResponse.ok || !loginPayload?.success) {
         setSubmitError(
-          locale === 'bn'
-            ? 'পাসওয়ার্ড পরিবর্তন হয়েছে, কিন্তু স্বয়ংক্রিয় লগইন ব্যর্থ হয়েছে। নতুন পাসওয়ার্ড দিয়ে আবার লগইন করুন।'
-            : 'Password updated, but automatic sign-in failed. Please sign in again with your new password.'
+          tp('passwordUpdatedSignInFailed')
         );
         setPendingFirstLogin(null);
         return;
@@ -262,20 +250,16 @@ export default function LoginPage() {
       localStorage.removeItem('hn_force_password_change');
 
       toast({
-        title: locale === 'bn' ? 'পাসওয়ার্ড আপডেট সম্পন্ন' : 'Password updated',
+        title: tp('passwordUpdatedTitle'),
         description:
-          locale === 'bn'
-            ? 'নতুন পাসওয়ার্ড সেট হয়েছে। পরবর্তী লগইনে এই পাসওয়ার্ড ব্যবহার করুন।'
-            : 'Your new password is set. Use this password for your next login.',
+          tp('passwordUpdatedBody'),
         variant: 'success',
       });
 
       router.replace(getRolePath(role, locale));
     } catch {
       setSubmitError(
-        locale === 'bn'
-          ? 'পাসওয়ার্ড পরিবর্তনের সময় সমস্যা হয়েছে। আবার চেষ্টা করুন।'
-          : 'Something went wrong while updating password. Please try again.'
+        tp('passwordUpdateError')
       );
     } finally {
       setIsChangingPassword(false);
@@ -293,21 +277,21 @@ export default function LoginPage() {
 
       {/* Top Navigation Bar - Floating & Glassy */}
       <header className="absolute top-0 left-0 right-0 z-50 p-4 sm:p-6 w-full flex justify-between items-center">
-        <Link href={`/${locale}`} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors group px-3 py-2 rounded-full hover:bg-slate-200/50 ">
+        <Link href={localePath(locale)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors group px-3 py-2 rounded-full hover:bg-slate-200/50 ">
           <Home className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
-          <span className="text-[13px] font-semibold tracking-wide">{locale === 'bn' ? 'হোম' : 'Home'}</span>
+          <span className="text-[13px] font-semibold tracking-wide">{tp('home')}</span>
         </Link>
         <div className="flex items-center gap-2">
-          <Link href={`/${otherLocale}/login`}>
+          <Link href={localePath(other, '/login')}>
             <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4  h-9">
               <Globe className="h-[14px] w-[14px] opacity-80" strokeWidth={2.5} />
               <span className="text-[13px] font-semibold">{locale === 'en' ? 'বাংলা' : 'English'}</span>
             </Button>
           </Link>
-          <Link href={`/${locale}/#contact`} className="hidden sm:block">
+          <Link href={localePath(locale, '/#contact')} className="hidden sm:block">
             <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4 h-9">
               <HelpCircle className="h-[14px] w-[14px]" />
-              <span className="text-[13px] font-semibold">{locale === 'bn' ? 'সাহায্য' : 'Help'}</span>
+              <span className="text-[13px] font-semibold">{tp('help')}</span>
             </Button>
           </Link>
         </div>
@@ -325,13 +309,13 @@ export default function LoginPage() {
           <div className="p-6 sm:p-10">
             {/* Form Header */}
             <div className="text-center mb-4 flex flex-col items-center">
-              <Link href={`/${locale}`} className="inline-flex items-center justify-center mb-2">
+              <Link href={localePath(locale)} className="inline-flex items-center justify-center mb-2">
                 <span className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 shadow-xs ring-1 ring-black/5">
                   <Logo size="lg" priority />
                 </span>
               </Link>
               <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
-                {welcomeMessage || t('welcomeBack')}
+                {welcomeMessage || tp('successBody')}
               </h2>
               <p className="text-[14px] text-slate-500 font-medium">
                 {t('loginSubtitle')}
@@ -348,14 +332,12 @@ export default function LoginPage() {
                 className="space-y-4"
               >
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800">
-                  {locale === 'bn'
-                    ? 'প্রথম লগইনের জন্য একটি নতুন পাসওয়ার্ড সেট করুন। দয়া করে এটি মনে রাখুন, পরবর্তী লগইনে এই পাসওয়ার্ডই লাগবে।'
-                    : 'Set a new password for your first login. Please remember it, as this password will be required for your next login.'}
+                  {tp('firstLoginHelp')}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="newPassword" className="text-[13px] font-semibold text-slate-700 ml-1">
-                    {locale === 'bn' ? 'নতুন পাসওয়ার্ড' : 'New Password'}
+                    {tp('newPassword')}
                   </Label>
                   <div className="relative">
                     <Input
@@ -379,7 +361,7 @@ export default function LoginPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword" className="text-[13px] font-semibold text-slate-700 ml-1">
-                    {locale === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm Password'}
+                    {tp('confirmPassword')}
                   </Label>
                   <div className="relative">
                     <Input
@@ -415,11 +397,11 @@ export default function LoginPage() {
                   {isChangingPassword ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                      {locale === 'bn' ? 'আপডেট হচ্ছে...' : 'Updating...'}
+                      {tp('updating')}
                     </span>
                   ) : (
                     <span className="flex items-center justify-center gap-2 w-full">
-                      {locale === 'bn' ? 'পাসওয়ার্ড সেট করে লগইন করুন' : 'Set Password and Continue'}
+                      {tp('setPasswordAndContinue')}
                       <ArrowRight className="h-[18px] w-[18px] opacity-80" />
                     </span>
                   )}
@@ -436,7 +418,7 @@ export default function LoginPage() {
                     setSubmitError(null);
                   }}
                 >
-                  {locale === 'bn' ? 'লগইন ফর্মে ফিরে যান' : 'Back to login form'}
+                  {tp('backToLoginForm')}
                 </Button>
               </form>
             ) : (
@@ -449,7 +431,7 @@ export default function LoginPage() {
                   id="identifier"
                   type="text"
                   className="h-12 bg-white/60 border-slate-200/60 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl transition-all text-slate-900 px-4 placeholder:text-slate-400 shadow-xs"
-                  placeholder={locale === 'bn' ? 'ইমেইল বা ফোন নম্বর' : 'name@example.com'}
+                  placeholder={tp('identifierPlaceholder')}
                   {...register('identifier')}
                 />
                 {errors.identifier && (
@@ -463,7 +445,7 @@ export default function LoginPage() {
                     {t('password')}
                   </Label>
                   <Link
-                    href={`/${locale}/forgot-password`}
+                    href={localePath(locale, '/forgot-password')}
                     className="text-[12px] font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
                   >
                     {t('forgotPassword')}
@@ -506,7 +488,7 @@ export default function LoginPage() {
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    {locale === 'bn' ? 'অপেক্ষা করুন...' : 'Authenticating...'}
+                    {tp('authenticating')}
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2 w-full">
@@ -522,7 +504,7 @@ export default function LoginPage() {
               <p className="text-[13px] text-slate-500 font-medium">
                 {t('noAccount')}{' '}
                 <Link
-                  href={`/${locale}/register`}
+                  href={localePath(locale, '/register')}
                   className="font-bold text-emerald-600 hover:text-emerald-700 transition-colors underline decoration-emerald-600/30 underline-offset-4 hover:decoration-emerald-600"
                 >
                   {t('signUp')}
@@ -534,7 +516,7 @@ export default function LoginPage() {
         
         {/* Footer Credit Layer */}
         <div className="mt-8 text-center text-slate-500/80 text-[12px] font-medium">
-          &copy; {new Date().getFullYear()} Hasnahena. {locale === 'bn' ? 'সর্বসত্ব সংরক্ষিত' : 'All rights reserved.'}
+          &copy; {new Date().getFullYear()} Hasnahena. {tp('allRightsReserved')}
         </div>
       </main>
     </div>

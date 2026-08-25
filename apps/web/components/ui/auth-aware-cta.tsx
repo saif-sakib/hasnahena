@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getClientRoleFromToken, getValidatedClientToken } from '@/lib/client-auth';
+import { localePath } from '@/lib/locale-path';
 
 interface AuthAwareCTAProps {
   locale: string;
@@ -54,7 +55,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     if (isLoggedIn) {
       return (
         <div className="flex flex-col sm:flex-row gap-4 pt-2">
-          <Link href={`/${locale}/dashboard/${userRole}`}>
+          <Link href={localePath(locale, `/dashboard/${userRole}`)}>
             <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
               <LayoutDashboard className="h-5 w-5" />
               {locale === 'bn' ? 'ড্যাশবোর্ডে যান' : 'Go to Dashboard'}
@@ -71,7 +72,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
 
     return (
       <div className="flex flex-col sm:flex-row gap-4 pt-2">
-        <Link href={`/${locale}/register`}>
+        <Link href={localePath(locale, '/register')}>
           <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
             {ctaText}
             <ArrowRight className="h-5 w-5" />
@@ -104,7 +105,7 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
             ? 'হাসনাহেনার সদস্য হয়ে সুদমুক্ত ঋণের সুবিধা নিন'
             : 'Become a member of Hasnahena and enjoy interest-free loans'}
         </p>
-        <Link href={`/${locale}/register`}>
+        <Link href={localePath(locale, '/register')}>
           <Button
             size="xl"
             variant="secondary"

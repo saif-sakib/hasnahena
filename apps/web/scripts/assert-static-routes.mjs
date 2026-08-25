@@ -51,6 +51,17 @@ const MUST_BE_STATIC = [
   '/terms',
 ];
 
+/**
+ * Both locales, both **prefixed** — and that is correct even though English URLs
+ * lost their prefix in WO-95.
+ *
+ * `localePrefix: 'as-needed'` is a routing rule, not a file-system one: the app
+ * still lives under `app/[locale]/`, `generateStaticParams` still yields `en`
+ * and `bn`, and next-intl *rewrites* `/faq` to `/en/faq` in the middleware. So
+ * the prerender manifest keys are unchanged, and rewriting this list to match
+ * the public URLs would make it look for routes the build never emits — every
+ * English page would be reported missing.
+ */
 const LOCALES = ['en', 'bn'];
 
 /**

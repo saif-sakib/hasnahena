@@ -170,9 +170,27 @@ describe('no member-facing page promises a fee', () => {
     /চার্জ\s+প্রযোজ্য/,
   ];
 
+  /**
+   * The pages **and the message files** — WO-96 made the second half necessary.
+   *
+   * This census used to walk `app/` alone, which was complete only because
+   * almost all the copy lived there. Moving 73 auth strings into
+   * `messages/{en,bn}.json` moved them out of its reach, and the remaining 827
+   * inline strings in the dashboard will move the same way. A rule-3 promise is
+   * exactly as dangerous in a message file as in a component; the difference is
+   * that a member reads it either way.
+   */
+  function copySources(): string[] {
+    return [
+      ...pageFiles(PAGES),
+      join(WEB_ROOT, 'messages', 'en.json'),
+      join(WEB_ROOT, 'messages', 'bn.json'),
+    ];
+  }
+
   it('says nothing that commits the foundation to charging one', () => {
     const offenders: string[] = [];
-    for (const file of pageFiles(PAGES)) {
+    for (const file of copySources()) {
       const text = readFileSync(file, 'utf8');
       for (const pattern of PROMISES_A_CHARGE) {
         const hit = text.match(pattern);
@@ -184,7 +202,9 @@ describe('no member-facing page promises a fee', () => {
       'Rule 3 is a Shariah requirement, not a pricing decision. A page that ' +
         'tells a member a fee may apply describes a charge the platform cannot ' +
         'make: applicationFee is BigInt(0) everywhere and the database rejects ' +
-        'anything else.\n  ' + offenders.join('\n  '),
+        'anything else. This reads the message files as well as the pages — ' +
+        'moving the sentence into messages/{en,bn}.json is not a fix.\n  ' +
+        offenders.join('\n  '),
     ).toEqual([]);
   });
 
@@ -195,5 +215,83 @@ describe('no member-facing page promises a fee', () => {
     const terms = readFileSync(join(PAGES, '[locale]', 'terms', 'page.tsx'), 'utf8');
     expect(terms).toMatch(/no\s+(?:administrative|processing)/i);
     expect(terms).toContain('সুদমুক্ত');
+  });
+});
+
+/**
+ * WO-96 — the auth pages stop hiding their copy from every check in this file.
+ *
+ * CLAUDE.md rule 5: *"UI copy lives in `apps/web/messages/{en,bn}.json` — both
+ * files, never hardcoded in a component."* Counted 2026-08-24, the two worst
+ * offenders were the login page (28 inline ternaries) and forgot-password (19);
+ * the work order recorded `reset-password/page.tsx` as already correct and
+ * offered it as the model, which it is — the copy was in
+ * `reset-password-form.tsx` beside it, and there were 26 more. 73 strings on
+ * three files, and **not one of them was reachable by anything above**: not the
+ * parity census, not the placeholder check, not the fee-promise search.
+ *
+ * That is the reason this is a rule rather than a preference. The Terms of
+ * Service told every member, in both languages, that loans "may include
+ * administrative fees" — and survived a CHECK constraint, a source-wide search
+ * for "markup", and `applicationFee = 0`, because a string in a page is
+ * invisible to every guard this repository has. (The fee census above now reads
+ * the message files too — moving a sentence into `messages/` is not a way
+ * around it either.)
+ *
+ * The census is scoped to `(auth)/` deliberately. The same shape appears ~827
+ * times across the dashboard, which is a separate and much larger piece of work
+ * ([tasks.md](../../../../docs/tasks.md)); a census that failed on all of them
+ * would be switched off within the day, and a census that is switched off is
+ * worse than none.
+ */
+describe('the auth pages read their copy from the message files', () => {
+  const AUTH_DIR = join(WEB_ROOT, 'app', '[locale]', '(auth)');
+
+  function authSources(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry)) out.push(full);
+      }
+    };
+    walk(AUTH_DIR);
+    return out;
+  }
+
+  /**
+   * A language toggle names the *other* language, in that language: `বাংলা` on
+   * the English page and `English` on the Bengali one. Translating those would
+   * render "English" to a reader who is looking for the way out of English.
+   * They are the one legitimate inline pair, and exempting them by their exact
+   * shape is narrower than exempting the file.
+   */
+  const LANGUAGE_TOGGLE = /locale === 'en' \? '(বাংলা|English|EN)' : '(বাংলা|English|EN)'/g;
+
+  /** `locale === 'bn' ? 'x' : 'y'` — prose chosen in a component. */
+  const INLINE_COPY = /locale === '(bn|en)'\s*\n?\s*\?\s*(['"])(?:\\.|(?!\2).)*\2\s*\n?\s*:\s*(['"])(?:\\.|(?!\3).)*\3/g;
+
+  it('can read the auth pages at all', () => {
+    expect(authSources().length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('has no inline EN/BN string pair outside the language toggle', () => {
+    const offenders: string[] = [];
+    for (const file of authSources()) {
+      const source = readFileSync(file, 'utf8').replace(LANGUAGE_TOGGLE, '');
+      const found = source.match(INLINE_COPY) ?? [];
+      for (const hit of found) {
+        offenders.push(`${relative(WEB_ROOT, file)} — ${hit.replace(/\s+/g, ' ').slice(0, 90)}`);
+      }
+    }
+    expect(
+      offenders.sort(),
+      'Copy written into a component is invisible to every check in this file: ' +
+        'the parity census, the placeholder check and the fee-promise search all ' +
+        'read straight past it. Move it into messages/{en,bn}.json and read it ' +
+        'with useTranslations.\n  ' +
+        offenders.join('\n  '),
+    ).toEqual([]);
   });
 });

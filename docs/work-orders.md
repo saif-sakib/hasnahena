@@ -13,8 +13,8 @@ compressed in [changelog.md](changelog.md).
 
 ## The plan, in the order to do it
 
-Six blocks. **The order is not arbitrary** — each is ordered by what it costs to
-do later, the same principle as [go-live.md](go-live.md).
+Nine blocks, all closed. **The order was not arbitrary** — each was ordered by
+what it costs to do later, the same principle as [go-live.md](go-live.md).
 
 | Block | What | Orders | Why here |
 |---|---|---|---|
@@ -26,28 +26,28 @@ do later, the same principle as [go-live.md](go-live.md).
 | ~~**W**~~ | ~~Future-proof~~ | WO-82 → 84 | **Done 2026-08-19** |
 | ~~**X**~~ | ~~Account security — the live ones~~ | WO-85 → 89 | **Done 2026-08-24** |
 | ~~**Y**~~ | ~~Identity and deletion integrity~~ | WO-90 → 93 | **Done 2026-08-25** |
-| **Z** | **English first** | WO-94 → 97 | **Open.** Locale defaults and the URL shape. Last because nothing here can lose money — but WO-95 gets dearer with every link and every indexed URL |
+| ~~**Z**~~ | ~~English first~~ | WO-94 → 97 | **Done 2026-08-25** |
 
-Blocks R → Y are closed. **Z is open**; it was opened 2026-08-24 from an owner
-review, along with X and Y, which are done. Everything else is in
-[production-readiness.md](production-readiness.md) and
-[go-live.md](go-live.md) — and one item in this file's last section that needs a
-credential rather than a session.
+**Every block is closed.** R → Z; X, Y and Z came out of the 2026-08-24 owner
+review and are done. What remains is one owner action at the end of Block Z
+(WO-97), which needs a database value rather than a session. Everything else is
+in [production-readiness.md](production-readiness.md) and
+[go-live.md](go-live.md).
 
 ### Doing these in order
 
-Within a block the orders are independent unless an order says otherwise, so
-`do WO-95` on its own is a valid instruction. One dependency is left: WO-95
-supersedes WO-94's URL shape.
+There is nothing left to order. The three dependencies that existed are all
+resolved: WO-91 used WO-85's revocation helper, WO-95 superseded WO-94's URL
+shape, and WO-93's owner decision is [ADR-033](decisions.md).
 
 ### Standing rules for every order
 
 - `pnpm typecheck` exits clean, zero errors.
-- `pnpm lint` exits 0 with **2 warnings**. **Do not let the count grow.**
-  (Was 6 until WO-75 converted the last four raw `<img>` tags. The two left are
-  the React compiler skipping the registration form — `watch` from
-  react-hook-form is not analysable — and one `window.location.href` in
-  `header.tsx`.)
+- `pnpm lint` exits 0 with **1 warning**. **Do not let the count grow.**
+  (Was 6 until WO-75 converted the last four raw `<img>` tags, then 2 until
+  WO-95 replaced `header.tsx`'s `window.location.href` with `router.replace`.
+  The one left is the React compiler skipping the registration form — `watch`
+  from react-hook-form is not analysable.)
 - A regression test must be seen to **fail against the pre-fix code** before it
   is allowed to pass. When a test *cannot* be made to fail, say so in the test.
 - Money changes stay in the Go API, one transaction, with an `audit_logs` row.
@@ -143,11 +143,11 @@ rather than specified by it:
   swallowed it. Assert that the mock was *used*, not only that the result was
   right.
 
-- **`x-default` is not `defaultLocale`.** This project's default locale is `bn`,
-  because its members are Bengali. `x-default` answers the opposite question —
-  what to serve someone the site was *not* built for — and the answer there is
-  `/en`. Writing `defaultLocale` reads as the tidier version of the same line and
-  sends every unmatched reader in the world to a page they cannot read.
+- **`x-default` is not `defaultLocale`.** At the time the default was `bn` and
+  `x-default` was `/en`, because they answer different questions — *what this
+  site is primarily in* versus *what to serve someone the site was not built
+  for*. WO-94 made them agree; the line is still written out, for the reason in
+  [traps.md](traps.md).
 
 - **The reconciliation job found two live defects before it ever ran in
   production.** `waterfallRecoveryTx` inserted its three recovery rows with **no
@@ -312,150 +312,88 @@ by the work rather than specified by it.
 
 ---
 
-# Block Z — English first
+# Block Z — closed 2026-08-25
 
-Owner review, 2026-08-24: *"You can keep the en as default. Anyone can use bn if
-he wants. Also the primary language should be en… do which one is the best
-practice."*
+WO-94 → WO-96 are done; **WO-97 is an owner action and is restated at the end of
+this file rather than closed here.** The reasoning is
+[ADR-034](decisions.md); what the block *taught* is in [traps.md](traps.md).
+Eight things are worth repeating, because all eight were found by the work
+rather than specified by it.
 
-**What is already correct — leave it alone.** `x-default` already points at
-English and `lib/seo.ts:194` already argues why. Generated documents are already
-English-only (ADR-012). Both locales are in the sitemap with full `hreflang`.
-The `Vary: Accept-Language` fix shipped 2026-08-24 and is live.
+- **Flipping `defaultLocale` would not have fixed the Search Console report, and
+  the order said so.** WO-94 is cheap and WO-95 is the actual fix; doing WO-94
+  alone would have moved *"Duplicate, Google chose different canonical than
+  user"* from `/bn` to `/en`. The cause is a **redirect at the root**, not which
+  locale it redirects to.
 
-What is wrong is that `defaultLocale` is `'bn'`, which is what sends the site's
-single most valuable URL — the root — to Bengali.
+- **`Vary: Accept-Language` had to be deleted, not kept.** It was the right fix
+  for a negotiating root and it is dead weight for a root that does not
+  negotiate — a `Vary` that is not true costs a CDN cache entry per distinct
+  header value on the busiest pages the site has. The e2e spec that used to
+  assert its *presence* now asserts its absence, and the comment explaining the
+  reversal is longer than the assertion.
 
----
+- **next-intl's own `as-needed` redirect is a 307.** Correct for a browser,
+  useless as a canonical signal, and the whole point of the block. `proxy.ts`
+  answers **301** before next-intl runs. Verified over HTTP, because that is the
+  only place a middleware header can be trusted (traps.md, "Locale routing").
 
-## WO-94 — Make English the default locale
+- **Twenty-two files built locale URLs with a template literal, and under the
+  old scheme that was harmless.** Under `as-needed` every one produces `/en/...`,
+  which then 301s — so a member tapping a header link pays a redirect and a
+  crawler following one is told the href it was given is not the real URL. They
+  all go through `localePath()` now, and a census fails on the next one.
 
-**Cheap, self-contained, and most of the benefit of this block. Do this first.**
+- **WO-96 undercounted by 26, and named the wrong file as the model.** It
+  recorded `reset-password/page.tsx` as already correct — it is, because the copy
+  is in `reset-password-form.tsx` beside it, where there were 26 more ternaries.
+  73 strings on three files, none of them reachable by the parity census, the
+  placeholder check or the **fee-promise search**. The repo-wide figure is
+  **827 across 33 files**; the new census is scoped to `(auth)/` deliberately,
+  because a census that failed on all 827 would be switched off within the day.
+  The rest is a tracked item in [tasks.md](tasks.md).
 
-**Change.** `apps/web/i18n.ts:4` — `defaultLocale = 'bn'` → `'en'`. That one line
-moves: what `/` negotiates to for anyone not asking for Bengali, the
-`NEXT_LOCALE` cookie's default, `proxy.ts`'s fallback when a path has no locale
-segment (`proxy.ts:79`, `:90`), and next-intl's server fallback.
+- **The 301 came back as a 307 on exactly the routes that matter most.**
+  `withCsp` re-issues a response through `NextResponse.redirect(location)` to
+  attach the nonce, and that helper defaults to 307 — so `/en/login` and
+  `/en/register`, the two URLs most likely to be in a bookmark or an old email,
+  were downgraded while `/en/faq` was fine. The first spec covered marketing
+  paths only and passed. A redirect renders nothing, so it now skips the nonce
+  branch entirely, which fixes the status and removes a pointless nonce at once.
 
-Then sweep the places that hardcode the same decision rather than reading it:
+- **Three links in the emails still carried `/en/`.**
+  `email_service.go` built `fmt.Sprintf("%s/%s/login", appURL, locale)` for the
+  approval email, the staff welcome email and the password reset. They still
+  work — a 301 is followed — but an email is the last place a redirect belongs:
+  these outlive the deploy that wrote them, they get forwarded, and some clients
+  and corporate link scanners resolve a redirect before a person ever clicks.
+  The Go side now has its own `localeURL`, duplicated deliberately because the
+  two runtimes cannot share a module, and a census over the source keeps the
+  copies equal.
 
-```
-apps/web/lib/seo.ts:133          siteTitle — confirm the en branch is the fallback
-apps/web/lib/structured-data.ts:158
-apps/web/lib/faq.ts:41
-apps/api/internal/handlers/auth_handler.go:127   req.Locale = "en"   ← already correct
-apps/api/internal/services/email_service.go:136  normalizes to "bn"  ← check the fallback arm
-```
-
-**Do not change** `lib/utils.ts:10,19` — those select a *number and date format*
-from an explicit locale, not a default.
-
-**Test.** `apps/web/e2e/locale-negotiation.spec.ts` exists and already asserts
-the negotiation both ways; update it so a request with no `Accept-Language`
-lands on `/en`, and keep the `bn` case. It must be seen red.
-
-**Verify.** `pnpm test:unit && pnpm build && pnpm test:e2e`
-
----
-
-## WO-95 — Serve English at `/` with no redirect
-
-**This is the actual fix for the Search Console report, and it supersedes
-WO-94's URL shape. Bigger — read the cost before starting.**
-
-**The problem it solves.** `/` 307s to a locale, so Google merges `/` with
-whichever locale it lands on and keeps the shorter URL. That is the
-*"Duplicate, Google chose different canonical than user"* on `/bn`, and
-Google-selected canonical `https://hasnahenafoundation.com/`. Flipping the
-default (WO-94) moves that report from `/bn` to `/en`; it does not end it.
-**A redirect at the root is the cause.** Google's own guidance discourages
-automatic language redirects for exactly this reason.
-
-**The end state.** next-intl `localePrefix: 'as-needed'`:
-
-| URL | Serves |
-|---|---|
-| `/` | English home — a real page, self-canonical, no redirect |
-| `/about`, `/faq`, … | English |
-| `/bn`, `/bn/about`, … | Bengali, self-canonical |
-
-`hreflang`: `en → /`, `bn → /bn`, `x-default → /`. No negotiation at the root, so
-`Vary: Accept-Language` is no longer needed there — but **leave `varyOnLanguage`
-in place** for any response that still negotiates, and read the "Locale routing"
-section of [traps.md](traps.md) first: middleware headers must be asserted over
-HTTP, never in a unit test.
-
-**The cost, honestly.** Every `/en/*` URL currently indexed and linked must
-**301** to its unprefixed form — permanent, not 307, and it must survive. Touched:
-`i18n.ts`, `proxy.ts` (including the dashboard cookie gate, which splits on the
-first path segment), `lib/seo.ts` `getLocalizedPath` / `getLocalizedUrl`,
-`app/sitemap.ts:34`, every `Link` built from a locale, and
-`scripts/assert-static-routes.mjs`, which classifies routes by path shape.
-
-**Decide before starting:** whether the dashboard also loses its prefix. It has
-no SEO value and `proxy.ts` pins the URL segment to the role. Keeping
-`/en/dashboard/...` prefixed while marketing pages are unprefixed is defensible
-and much smaller; say which was chosen in the ADR.
-
-**Test.** `e2e/locale-negotiation.spec.ts` and a new spec asserting `/en/faq`
-→ 301 → `/faq`, and that `/` returns 200 with `lang="en"` rather than a redirect.
-Seen red.
-
-**Verify.** `pnpm build && pnpm test:e2e && node apps/web/scripts/assert-static-routes.mjs`
-
-**Then:** write the ADR, resubmit the sitemap, and expect Search Console to take
-one to three weeks. Do not re-inspect daily.
-
----
-
-## WO-96 — The auth pages hardcode both languages, against rule 5
-
-**Found while auditing locale defaults; it is a rule violation, not a
-preference.**
-
-CLAUDE.md rule 5: *"UI copy lives in `apps/web/messages/{en,bn}.json` — both
-files, never hardcoded in a component."* Counted 2026-08-24, occurrences of
-`locale === 'bn'` under `app/[locale]/(auth)/`:
-
-| Page | Ternaries |
-|---|---|
-| `login/page.tsx` | **28** |
-| `forgot-password/page.tsx` | **19** |
-| `register/page.tsx` | 1 |
-| `reset-password/page.tsx` | 0 — already correct, use it as the model |
-
-Every label, every toast, every button on the two worst pages. `reset-password`
-shows the shape they should have.
-
-This is why the block matters rather than being tidiness: none of that copy is
-reachable by `messages.test.ts`, so the parity census, the placeholder check and
-the **fee-promise census** all read straight past it. The Terms of Service fee
-promise survived every guard for the same reason — a string in a page is
-invisible to every check this repo has.
-
-**Change.** Move the strings into both message files under an `auth.forgotPassword`
-namespace and read them with `useTranslations`. Keep the keys parallel; the
-parity suite will enforce the rest.
-
-**Test.** `apps/web/test/unit/messages.test.ts` picks these up automatically once
-the keys exist. Consider extending it with a census that fails on
-`locale === 'bn' ?` inside `app/` — that is the check which would have caught
-this, and the one that stops it recurring.
-
-**Verify.** `pnpm test:unit`
+- **Moving copy into the message files moved it *out* of the fee-promise
+  census.** That check walked `app/` alone, which was complete only while almost
+  all the copy lived there. WO-96 moved 73 strings out of its reach and the
+  remaining 827 will follow, so it reads `messages/{en,bn}.json` too now —
+  verified by planting the Terms of Service's old sentence in `en.json` and
+  watching it fail. A guard whose coverage shrinks as the codebase improves is
+  the worst kind.
 
 ---
 
 ## WO-97 — Point the remaining copy at the domain that is owned
 
-**Small, do it with any of the above.**
+**Still open. It is an owner action, not a session's.**
 
 `org.email` in the production database reads `info@hasnahena.org` — a domain the
 foundation does not own (WO-80 established this and fixed the code fallbacks).
 The seeded default and the admin Settings screen are already correct; the live
 row is not, and it is what the public pages render.
 
-This is an **owner action, not a session's** — it is a database value, changed in
-Admin → Settings. Listed here so it is not lost: a member replying to a
-foundation email currently sends it into someone else's domain.
+Change it in **Admin → Settings → Organisation**. Until it is changed, a member
+replying to a foundation email sends it into someone else's domain.
 
+While that screen is open, `org.nameEn` is the other live row that is wrong: it
+reads "Hasnahena" rather than "Hasnahena Foundation", and the JSON-LD publishes
+whatever it holds — see the Search-discoverability row in
+[production-readiness.md](production-readiness.md).

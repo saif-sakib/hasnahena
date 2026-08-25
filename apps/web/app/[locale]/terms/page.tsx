@@ -8,6 +8,7 @@ import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { getPublicSettings } from '@/lib/system-config';
 import { StructuredData } from '@/components/seo/structured-data';
+import { localePath } from '@/lib/locale-path';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -138,10 +139,10 @@ export default async function TermsPage({ params }: PageProps) {
       <StructuredData locale={normalizeLocale(locale)} path="/terms" settings={settings} />
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-4">
         <div className="container mx-auto px-4 flex items-center justify-between">
-          <Link href={`/${locale}`}>
+          <Link href={localePath(locale)}>
             <Logo size="sm" />
           </Link>
-          <Link href={`/${locale}`}>
+          <Link href={localePath(locale)}>
             <Button variant="ghost" size="sm" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               {t.backToHome}

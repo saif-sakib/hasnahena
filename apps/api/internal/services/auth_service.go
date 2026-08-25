@@ -265,7 +265,11 @@ func (s *AuthService) recordLoginFailure(
 	userIP string,
 	userAgent string,
 ) error {
-	var answer error = ErrInvalidCredentials
+	// `error`, not `*errors.errorString`: `errors.New` returns the interface, so
+	// the inferred type is already wide enough for the `*ErrRateLimited` this may
+	// be upgraded to below. Spelling the type out is what staticcheck's ST1023
+	// rejects, and adding it back would fail the lint job rather than help.
+	answer := ErrInvalidCredentials
 
 	for _, bucket := range []struct{ action, key string }{
 		{RateLimitActionLogin, identifierKey},

@@ -1,7 +1,9 @@
 package services
 
 import (
+	"bytes"
 	"html"
+	"os"
 	"strings"
 	"testing"
 )
@@ -239,15 +241,109 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "https://staging.example.test/en/login"
+	// `/login`, not `/en/login`: English has no prefix since WO-95, and an email
+	// is the last place a link that 301s belongs — these outlive the deploy that
+	// wrote them and some clients resolve redirects before a person ever clicks.
+	const want = "https://staging.example.test/login"
 	if !strings.Contains(textBody, want) {
 		t.Errorf("text body does not link to %s", want)
 	}
 	if !strings.Contains(htmlBody, want) {
 		t.Errorf("HTML body does not link to %s", want)
 	}
-	// The trailing slash on AppURL must not survive into a doubled one.
+	// The trailing slash on AppURL must not survive into a doubled one. This
+	// matters more than it did: `localeURL` concatenates rather than formatting
+	// with a separator, so a constructor that stopped trimming would produce
+	// `https://…//login` with nothing else complaining.
 	if strings.Contains(htmlBody, "example.test//") {
 		t.Error("a trailing slash on APP_URL produced a doubled slash in the link")
 	}
+
+	// And the Bengali half of the same email, which does still carry a prefix.
+	_, bnText, bnHTML, err := s.buildMemberApprovalEmail("member@example.test", "Rahima", "Temp1234", "bn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantBn = "https://staging.example.test/bn/login"
+	if !strings.Contains(bnText, wantBn) || !strings.Contains(bnHTML, wantBn) {
+		t.Errorf("the Bengali bodies do not link to %s", wantBn)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WO-95 — the links in an email are the canonical URLs, not redirects
+// ---------------------------------------------------------------------------
+
+// English lost its URL prefix (ADR-034), so `https://…/en/login` is a URL the
+// web app answers with a 301. It still works; it is still the wrong thing to
+// put in an email.
+//
+// These links outlive the deploy that wrote them. A member is emailed a
+// password-reset link and may open it an hour later or forward it; approval
+// emails sit in an inbox for years. Some clients and corporate link scanners
+// resolve a redirect before a person ever clicks, and a chain is one more thing
+// that can break between here and the login form.
+//
+// The rule is implemented twice — here and in `apps/web/lib/locale-path.ts` —
+// because the two runtimes cannot share a module. This is the half that keeps
+// the Go side honest; `apps/web/test/unit/locale-routing.test.ts` is the other.
+func TestEmailLinksUseTheCanonicalLocalePath(t *testing.T) {
+	const appURL = "https://example.test"
+
+	cases := []struct {
+		locale string
+		path   string
+		want   string
+	}{
+		{"en", "/login", "https://example.test/login"},
+		{"EN", "/login", "https://example.test/login"},
+		{"", "/login", "https://example.test/login"},
+		{"fr", "/login", "https://example.test/login"},
+		{"bn", "/login", "https://example.test/bn/login"},
+		{" bn ", "/login", "https://example.test/bn/login"},
+		{"en", "/reset-password?token=abc", "https://example.test/reset-password?token=abc"},
+		{"bn", "/reset-password?token=abc", "https://example.test/bn/reset-password?token=abc"},
+	}
+	for _, tc := range cases {
+		if got := localeURL(appURL, tc.locale, tc.path); got != tc.want {
+			t.Errorf("localeURL(%q, %q, %q) = %q, want %q", appURL, tc.locale, tc.path, got, tc.want)
+		}
+	}
+}
+
+// The census. Building one of these by hand is how the `/en/` prefix survives a
+// refactor, and the emails are the one surface where nobody notices for months.
+func TestNoEmailBuildsALocaleURLByHand(t *testing.T) {
+	source, err := os.ReadFile("email_service.go")
+	if err != nil {
+		t.Fatalf("read email_service.go: %v", err)
+	}
+	// Comments stripped first. The doc comment on localeURL quotes the very
+	// expression this forbids, and a detector that fires on its own rule being
+	// written down teaches people to delete the explanation — the same lesson
+	// requirements.test.ts records about searching for the word "markup".
+	// The banned shape is the *format string*, not the argument list —
+	// `localeURL(s.appURL, locale, "/login")` legitimately passes both, so a
+	// check on `s.appURL, locale` would fail on the fix itself.
+	if bytes.Contains(withoutComments(source), []byte(`"%s/%s/`)) {
+		// Worded without a verb of its own: `go vet` reads a literal containing
+		// one as a format string this call forgot to pass arguments for, and it
+		// constant-folds a concatenation, so hiding it that way does not work.
+		t.Error("email_service.go builds a URL by interpolating the locale into a Sprintf " +
+			"path. English has no prefix (ADR-034), so that produces a link the web app " +
+			"answers with a 301. Use localeURL(s.appURL, locale, path).")
+	}
+}
+
+// withoutComments removes `//` line comments so a census reads code, not prose.
+func withoutComments(source []byte) []byte {
+	var out bytes.Buffer
+	for _, line := range bytes.Split(source, []byte("\n")) {
+		if i := bytes.Index(line, []byte("//")); i >= 0 {
+			line = line[:i]
+		}
+		out.Write(line)
+		out.WriteByte('\n')
+	}
+	return out.Bytes()
 }
