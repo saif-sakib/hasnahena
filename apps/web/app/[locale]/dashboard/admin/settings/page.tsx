@@ -36,15 +36,32 @@ import { SETTINGS_CONFIG_KEYS } from '@/lib/system-config';
  * refuses a key that lands in both or in neither.
  */
 
+/**
+ * What this form shows for an `org.*` row the database does not have.
+ *
+ * **These must equal the seeded defaults**, and until 2026-08-25 two of them did
+ * not: this file said `Hasnahena` and `হাসনাহেনা` where `scripts/seed.mjs` said
+ * `Hasnahena Foundation` and `হাসনাহেনা ফাউন্ডেশন`. That is not a cosmetic
+ * disagreement, because these values are *written back on save* — an admin who
+ * opened Settings and pressed Save, having changed something else entirely,
+ * silently replaced the foundation's name with the short form, in both scripts,
+ * everywhere the name is published: the JSON-LD a crawler reads, the letterhead
+ * of every generated document, the browser tab. It is also why T-03 listed
+ * `org.nameEn` as wrong on the live site — nobody typed that, this constant did.
+ *
+ * `org-defaults.test.ts` reads both files and fails when they drift again.
+ */
 const DEFAULT_ORG_SETTINGS = {
-  name: 'হাসনাহেনা',
-  nameEn: 'Hasnahena',
+  name: 'হাসনাহেনা ফাউন্ডেশন',
+  nameEn: 'Hasnahena Foundation',
   email: 'info@hasnahenafoundation.com',
   phone: '+880 1712-345678',
   address: 'ভেকুটিয়া, সদর, যশোর',
   addressEn: 'Bhekutia, Sadar, Jashore, Bangladesh',
-  website: 'https://hasnahenafoundation.com',
+  website: 'hasnahenafoundation.com',
   description: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
+  descriptionEn:
+    'An interest-free (Qard al-Hasan) cooperative finance society in Jashore, Bangladesh.',
   regNumber: '',
 };
 
@@ -148,6 +165,7 @@ export default function AdminSettingsPage() {
       addressEn: pick('org.addressEn', DEFAULT_ORG_SETTINGS.addressEn),
       website: pick('org.website', DEFAULT_ORG_SETTINGS.website),
       description: pick('org.description', DEFAULT_ORG_SETTINGS.description),
+      descriptionEn: pick('org.descriptionEn', DEFAULT_ORG_SETTINGS.descriptionEn),
       regNumber: pick('org.regNumber', DEFAULT_ORG_SETTINGS.regNumber),
     };
   }, [settingsData]);
@@ -249,6 +267,7 @@ export default function AdminSettingsPage() {
         'org.addressEn': orgSettings.addressEn,
         'org.website': orgSettings.website,
         'org.description': orgSettings.description,
+        'org.descriptionEn': orgSettings.descriptionEn,
         'org.regNumber': orgSettings.regNumber,
         'loan.maxLoanMultiplier': String(normalizedLoanSettings.maxLoanMultiplier),
         'loan.minDepositForLoan': String(normalizedLoanSettings.minDepositForLoan),
@@ -490,12 +509,40 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="org-description">{locale === 'bn' ? 'বিবরণ' : 'Description'}</Label>
+                  <Label htmlFor="org-description">
+                    {locale === 'bn' ? 'বিবরণ (বাংলা)' : 'Description (Bengali)'}
+                  </Label>
                   <Textarea id="org-description"
                     value={orgSettings.description}
                     onChange={(e) => setOrgSettings({ ...orgSettings, description: e.target.value })}
                     rows={3}
                   />
+                </div>
+
+                {/*
+                  Two boxes, for the third time on this screen — name, address,
+                  and now description. This one is the least visible and was the
+                  last found: nothing on any page renders it, so the only reader
+                  is the JSON-LD an admin never sees. The single box was filled
+                  in in Bengali, which is the natural thing to do under a label
+                  that gives no hint, and the English home page published a
+                  Bengali NGO description to every crawler and assistant that
+                  read it.
+                */}
+                <div className="space-y-2">
+                  <Label htmlFor="org-description-en">
+                    {locale === 'bn' ? 'বিবরণ (ইংরেজি)' : 'Description (English)'}
+                  </Label>
+                  <Textarea id="org-description-en"
+                    value={orgSettings.descriptionEn}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, descriptionEn: e.target.value })}
+                    rows={3}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'bn'
+                      ? 'সার্চ ইঞ্জিন ও এআই সহকারী এই ইংরেজি বিবরণটিই পড়ে। খালি রাখলে বাংলা বিবরণটি ব্যবহৃত হবে।'
+                      : 'Search engines and AI assistants read this English description. Left empty, the Bengali one is used instead.'}
+                  </p>
                 </div>
               </CardContent>
             </Card>

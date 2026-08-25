@@ -29,8 +29,8 @@ the expensive-later list, and the work deferred to Phases 6 and 8 is deferred
 ## Before the cutover
 
 **Everything that has to be true first is in [tasks.md](tasks.md), Phases 0–4.**
-That is where the work lives now — the monitoring switch, `TRUSTED_PROXIES`, the
-three wrong `system_config` rows, the retention window, the restore rehearsal and
+That is where the work lives now — the rest of the monitoring switch,
+`TRUSTED_PROXIES`, two `system_config` confirmations, the restore rehearsal and
 the last schema change that is cheap only while the donation table is empty.
 
 This file is the cutover itself, and it starts once those are done.

@@ -25,7 +25,7 @@ another's.
 - **New to the project:** [product.md](product.md) → [architecture.md](architecture.md) → [setup.md](setup.md).
 - **Picking up work:** [tasks.md](tasks.md). Every task is written so it can be executed without first re-reading the codebase to find out what was meant.
 - **Changing something:** [changing-things.md](changing-things.md) for the how, then [decisions.md](decisions.md) — which will tell you whether an idea was already tried and rejected.
-- **Going to production:** [tasks.md](tasks.md) Phases 0–3 first, then [go-live.md](go-live.md) for the cutover. One thing is wrong right now and it is operational: the monitoring is built and switched off ([deployment.md](deployment.md#the-monitoring-is-built-and-switched-off)).
+- **Going to production:** [tasks.md](tasks.md) Phases 0–3 first, then [go-live.md](go-live.md) for the cutover. The monitoring is **half on** — `METRICS_TOKEN` and the web app's Sentry were confirmed live on 2026-08-25; the Go API's own Sentry DSN, the GitHub secret and the UptimeRobot monitors are not ([deployment.md](deployment.md#the-monitoring-and-how-to-tell-whether-it-is-actually-on)).
 - **Writing tests:** [testing.md](testing.md). The suites and CI checks that fail the build when the code grows something they do not know about are tabulated in [CLAUDE.md](../CLAUDE.md).
 - **Debugging something inexplicable:** [traps.md](traps.md) first. Most of what has gone wrong here has gone wrong before.
 

@@ -530,6 +530,25 @@ answered 500.
 
 ## Interface
 
+- **A form's "default" is a writer, not a fallback, when the form posts every
+  field.** The admin Settings screen held its own `DEFAULT_ORG_SETTINGS` for any
+  `org.*` row the database lacked, and submitted the whole object on save. It
+  disagreed with `scripts/seed.mjs` about the foundation's own name — `Hasnahena`
+  against `Hasnahena Foundation` — so an admin who changed the phone number and
+  pressed Save silently renamed the organisation everywhere the name is
+  published: the JSON-LD, the letterhead of every generated document, the
+  browser tab. It had already happened; the wrong name was recorded on the task
+  board as a settings row somebody had mistyped, and correcting the row by hand
+  would have held exactly until the next save. **Ask of any default: is it shown,
+  or is it sent?** If it is sent, it is a second copy of the seed and needs a
+  test that reads both files — `org-defaults.test.ts` is that test. The tell that
+  this had been happening for a while: `getOrgNameEn()` in
+  `lib/documents/theme.ts` carries a hand-written guard reading
+  `name.toLowerCase() === 'hasnahena' ? BRAND_NAME_EN : name`. Somebody saw the
+  short name arrive on a PDF and defended the PDF. **A downstream fallback
+  written against one specific wrong value is evidence of an upstream writer**,
+  not a fix for it — the JSON-LD and the browser tab had no such guard.
+
 - **A timestamp is not a unique value, however precise it looks.** Staff account
   numbers were `STF-${Date.now().toString(36).toUpperCase()}`. Two admins adding
   two *different* workers within the same millisecond collided on `accountNo`,
@@ -746,6 +765,16 @@ the identifier.
   already solved this; the address now has the same pair. Nothing over the
   source can catch this class — the string is in the database, not the repo — so
   the guard is a unit test on the pair plus an e2e test on the rendered page.
+  **And that guard did not catch the next one.** `org.description` was still a
+  single row four months later, and neither half of the guard could see it: the
+  pair test only knows about pairs somebody has already made, and the e2e test
+  reads *rendered pages*, while the description's only reader is the JSON-LD in
+  `organizationSchema()` — a surface no member ever looks at, whose whole
+  contract is that it is English, and which was publishing the foundation's
+  Bengali self-description to every search engine and assistant on both
+  locales. When splitting one of these, **enumerate the prose keys and check
+  each**, rather than fixing the one that was reported: `org.name`,
+  `org.address` and `org.description` were always the same bug three times.
 - **An e2e test that reads rendered text must strip what an admin typed.** A
   cooperative in Jashore legitimately has Bengali in its own settings, and a
   test that goes red because someone edited a database row gets deleted rather

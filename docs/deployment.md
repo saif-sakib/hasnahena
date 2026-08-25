@@ -330,17 +330,20 @@ Thresholds are repository *variables*, changeable without editing the workflow:
 
 ---
 
-## The monitoring is built and switched off
+## The monitoring, and how to tell whether it is actually on
 
 This came from outside: Sentry emailed to say a Next.js project had been created
-and **no errors had ever arrived**. That is accurate, and it is not a Sentry
-setup problem.
+and **no errors had ever arrived**. That was accurate at the time, and it was
+never a Sentry setup problem.
 
 The integration is complete and correct on both surfaces, and every piece is
 deliberately inert without a credential — *a missing DSN must never fail a build,
 and a financial API must never refuse to boot because error reporting is
-misconfigured.* The cost of that design is exactly what happened here: **the
-system is silent in the same way whether it is healthy or unwatched.**
+misconfigured.* The cost of that design is the thing to keep in mind here:
+**the system is silent in the same way whether it is healthy or unwatched.**
+Which is why the checks below probe for the switch rather than trusting a note
+in a document — the note said all of this was off, and by 2026-08-25 half of it
+was on.
 
 | Piece | Where | With no credential |
 |---|---|---|
@@ -349,15 +352,31 @@ system is silent in the same way whether it is healthy or unwatched.**
 | `/metrics` | `internal/metrics/handler.go` | logs `metrics endpoint disabled…` and 404s |
 | Business alerting | `.github/workflows/monitor.yml` | **exits 1** — fails twice a day rather than passing silently |
 
-**The code is done; the switch is not thrown** — it is T-01 in
-[tasks.md](tasks.md), and it is the one thing wrong operationally right now.
+**The code is done; the switch is half thrown** — it is T-01 in
+[tasks.md](tasks.md).
+
+Two of these were confirmed **on** by probing the live site on 2026-08-25, which
+is worth knowing how to repeat, because both can be checked without any
+credential:
+
+- `curl -o /dev/null -w '%{http_code}' https://api.hasnahenafoundation.com/metrics`
+  → **401** means `METRICS_TOKEN` is set; **404** means it is not. The endpoint
+  hides rather than challenges when unconfigured, so the two are the whole test.
+- `curl -s https://hasnahenafoundation.com | grep -o 'sentry-environment=[a-z]*'`
+  → a hit means `NEXT_PUBLIC_SENTRY_DSN` is set on Vercel and the client is
+  instrumented. The same `<meta name="baggage">` carries `sentry-release`, so it
+  also tells you *which deploy* is reporting.
+
+Neither says anything about the **Go API's** Sentry, which has no outside
+signal at all — the only evidence is the boot log line, or an error arriving in
+the project.
 
 | | To enable | Where |
 |---|---|---|
-| `[ ]` | `SENTRY_DSN` | **Render** (Go API) |
-| `[ ]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — `NEXT_PUBLIC_*` is baked at build time, so this needs a **redeploy**, not a restart |
+| `[ ]` | `SENTRY_DSN` | **Render** (Go API) — **not** confirmed; the web app being connected says nothing about this one |
+| `[x]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — confirmed live 2026-08-25 (`sentry-environment=production`). `NEXT_PUBLIC_*` is baked at build time, so changing it needs a **redeploy**, not a restart |
 | `[ ]` | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | **Vercel** — optional; without them the build succeeds with minified stack traces |
-| `[ ]` | `METRICS_TOKEN`, same value in both places | **Render** *and* as a **GitHub secret** — the Monitor workflow scrapes `/metrics` with it |
+| `[~]` | `METRICS_TOKEN`, same value in both places | **Render** — confirmed live 2026-08-25 (`/metrics` answers 401). Still to do: the same value as a **GitHub secret**, which is what the Monitor workflow scrapes with |
 | `[ ]` | An UptimeRobot monitor on `/v1/ready` | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`) |
 
 **Deliberately staying off:** tracing (`tracesSampleRate: 0`) and session replay.

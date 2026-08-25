@@ -70,13 +70,15 @@ is not a column, it is `EXISTS` over an unused, unexpired one of them.
 - `LoanStatus` PENDING_GUARANTOR · PENDING_APPROVAL · ACTIVE · COMPLETED · SETTLED · DEFAULTED · REJECTED. The legacy `PENDING` and `APPROVED` labels are **gone** ([WO-71](changelog.md)) — `PENDING` had been the column default, so every new loan was written into the legacy vocabulary, which is why the guarantor panel never showed a request and the admin dashboard always reported zero pending loans
 - `RequestStatus`, `MaritalStatus`, `Gender`, `NotificationType`
 
-`FEE` exists in `TransactionType` for late-fee policy that is not implemented; it must never carry interest.
+`FEE` exists in `TransactionType` and **nothing writes it**. It was reserved for a late-fee policy; the foundation ruled on 2026-08-25 that there is no late fee, and the printed loan agreement now says so ([T-05](changelog.md)). The label is kept rather than dropped because removing an enum label is a migration and `enum-literals.test.ts` work for a value no row holds — but a posting of this type would contradict the agreement every borrower signs.
 
 ## `system_config` keys
 
 The complete allow-list lives in
-[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 41 keys —
-and is the single source of truth. `PUT /api/v1/settings` **rejects the whole
+[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) and is the
+single source of truth. **The count that used to be written here is gone**: it
+said 41 while the file held 46, which is what a number a human maintains does.
+Read the file. `PUT /api/v1/settings` **rejects the whole
 request** on any key not declared there; it used to upsert anything, so a typo
 became a permanent row that looked like a real setting while the code read the
 correctly-spelled one.
@@ -100,16 +102,27 @@ page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
 `auth.welcomeBack`, and `loan.guarantorThresholdAmount` — which is enforced in
 the Next loan-application route, not in Go.
 
-**A config value that is prose needs one row per language.** `org.name` and
-`org.nameEn` are a pair, and so are `org.address` and `org.addressEn`. One row
+**A config value that is prose needs one row per language.** Three pairs:
+`org.name`/`org.nameEn`, `org.address`/`org.addressEn`, and
+`org.description`/`org.descriptionEn`. One row
 is shown to both audiences, so whichever script an admin types it in appears on
 the other language's site too — the foundation's Bengali address rendered under
 an English "Address" heading on the home, contact and support pages, in the
 footer of every public page, and on the letterhead of every generated document,
 which [ADR-012](decisions.md) makes English only. `orgAddress(settings, locale)`
-in [`apps/web/lib/org-address.ts`](../apps/web/lib/org-address.ts) is the only
-place that chooses between them; each side falls back to the other, because a
+and `orgDescription(settings, locale)` in
+[`apps/web/lib/org-address.ts`](../apps/web/lib/org-address.ts) are the only
+places that choose between them; each side falls back to the other, because a
 real address in the wrong script can still be posted to and an empty one cannot.
+
+The description was split **four months after the address**, on 2026-08-25, and
+the delay is the point: nothing renders it on any page, so its only reader is
+the JSON-LD in `organizationSchema()` — a node that is English by contract — and
+the live English home page therefore described the foundation in Bengali to
+every search engine and assistant that asked. **When splitting one of these,
+enumerate the prose keys and check each**; the guard that caught the address
+(an e2e test over rendered pages) structurally could not see this one.
+
 The remaining `org.*` values — phone, email, website, registration number — are
 language-neutral and stay single.
 

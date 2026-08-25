@@ -102,6 +102,24 @@ const CONFIG_DEFAULTS = [
   { key: 'org.email', value: 'info@hasnahenafoundation.com', description: 'Public contact email' },
   { key: 'org.website', value: 'hasnahenafoundation.com', description: 'Public website' },
 
+  // Two descriptions, for the same reason as the two names and the two
+  // addresses. This pair was found last (2026-08-25): nothing on any page
+  // renders it, so its only reader is the JSON-LD `organizationSchema()`
+  // publishes — a surface no admin looks at and no test could read, because the
+  // value lives in the database. The single box defaulted to the Bengali
+  // sentence below, so the English home page described the foundation in
+  // Bengali to every crawler and assistant that asked.
+  {
+    key: 'org.description',
+    value: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
+    description: 'One-line description (Bengali)',
+  },
+  {
+    key: 'org.descriptionEn',
+    value: 'An interest-free (Qard al-Hasan) cooperative finance society in Jashore, Bangladesh.',
+    description: 'One-line description (English) — the JSON-LD every search engine reads',
+  },
+
   // Bank transfer details for /donate (WO-67).
   //
   // Seeded EMPTY on purpose, unlike every other row here. The page hides its

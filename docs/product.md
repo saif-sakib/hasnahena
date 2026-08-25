@@ -202,7 +202,7 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 | FR-10 | Max loan from configured caps and liquidity | High |
 | FR-11 | Guarantor request + approval before admin review | High |
 | FR-12 | Admin approves loan → worker disburses → member confirms | Critical |
-| FR-13 | Record installments and late-fee flags per policy | High |
+| FR-13 | Record installments; no late fee is charged on a missed one | High |
 | FR-14 | Default settlement waterfall (self → guarantor → donation pool) | Critical |
 | FR-15 | Donations captured with fund type | High |
 | FR-16 | Donation funds isolated from withdrawable deposits | Critical |

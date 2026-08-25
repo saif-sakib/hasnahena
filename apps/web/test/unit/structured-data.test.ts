@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { locales, type Locale } from '@/i18n';
-import { publicPagePaths, siteOrigin, SITE_NAME_VARIANTS } from '@/lib/seo';
+import { publicPagePaths, siteOrigin, SITE_DESCRIPTION, SITE_NAME_VARIANTS } from '@/lib/seo';
 import { faqEntries } from '@/lib/faq';
 import { StructuredData } from '@/components/seo/structured-data';
 import {
@@ -122,6 +122,29 @@ describe('the organisation is described from settings, never hardcoded', () => {
     expect((org.address as Record<string, string>).streetAddress).toBe('Jashore Sadar, Jashore');
     expect((org.contactPoint as Record<string, string>).telephone).toBe('+8801700000000');
     expect((org.contactPoint as Record<string, string>).email).toBe('info@hasnahenafoundation.com');
+  });
+
+  it('describes the foundation in English, falling back to Bengali only if it must', () => {
+    // The defect this pins, live on the deployed site until 2026-08-25: the
+    // node is English by contract — it is what crawlers and assistants read,
+    // in both locales — and it took the single `org.description` box, which a
+    // Bengali-first foundation had naturally filled in in Bengali. So the
+    // English home page published a Bengali self-description beside an English
+    // WebSite node saying the same thing correctly.
+    const bengali = 'একটি কর্দ আল-হাসান সমবায় সংস্থা';
+    const english = 'An interest-free cooperative finance society in Jashore.';
+
+    // Both boxes filled: English wins, whichever locale the page is.
+    expect(organizationSchema({ 'org.description': bengali, 'org.descriptionEn': english }).description)
+      .toBe(english);
+
+    // Only the Bengali box filled — which is every database that has not been
+    // touched since. A description in the wrong script still describes this
+    // foundation; a hardcoded English sentence describes a generic one.
+    expect(organizationSchema({ 'org.description': bengali }).description).toBe(bengali);
+
+    // Neither: the site's own copy, not an empty string.
+    expect(organizationSchema({}).description).toBe(SITE_DESCRIPTION);
   });
 
   it('omits what it does not know instead of claiming an empty value', () => {

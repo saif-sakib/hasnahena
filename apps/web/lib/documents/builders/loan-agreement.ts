@@ -4,6 +4,13 @@
  * The zero-interest terms are printed explicitly: an interest-free loan
  * document that does not state the rate is worthless as evidence of Shariah
  * compliance.
+ *
+ * The same reasoning is why the terms *deny* a late fee rather than staying
+ * silent about one. Until 2026-08-25 this list reserved the right to charge
+ * “a fixed, interest-free late fee as set by foundation policy” — a policy that
+ * did not exist, on a question (who keeps the money?) that decides whether the
+ * charge is riba at all. The foundation ruled that there is no late fee, so the
+ * agreement now says so, which is the half of the ruling a member can read.
  */
 
 import {
@@ -22,7 +29,7 @@ const TERMS = [
   'This loan is granted under Qard al-Hasan: no interest, profit, or processing fee is charged at any stage.',
   'The borrower shall pay each installment in full on its due date.',
   'The borrower may prepay part or all of the outstanding amount at any time at no additional cost.',
-  'Late payment may attract a fixed, interest-free late fee as set by foundation policy.',
+  'No late fee, penalty, or additional charge of any kind is applied to a late or missed installment.',
   'On default, recovery proceeds in order: the borrower’s own savings, then the guarantor’s savings, then the donation pool.',
   'A guarantor may not withdraw their base deposit while the guarantee remains active.',
   'All disputes shall be resolved under foundation policy and applicable cooperative law.',

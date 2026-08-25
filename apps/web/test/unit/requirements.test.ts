@@ -148,11 +148,16 @@ const REQUIREMENTS: Record<string, Coverage> = {
     // lifecycle_integration_test.go pins the admin path; the bypass is a
     // product decision, recorded in tasks.md, not a missing identifier.
   },
+  // Rewritten 2026-08-25 (T-05). FR-13 was "record installments and late-fee
+  // flags per policy" and stood at `[~]` because the second half had no policy
+  // behind it — the printed agreement reserved a fee, nothing implemented one,
+  // and rule 3 forbade a session from picking. The foundation ruled that there
+  // is **no** late fee, so the requirement now describes what it actually asks
+  // for, and the absence of a fee is guarded by TEST-21 below rather than by a
+  // gap row here: it is a permanent rule, not an unfinished feature.
   'FR-13': {
-    gap: 'installments are recorded; there is no late-fee logic at all',
-    // And under rule 3 there must not be one without an explicit decision:
-    // a penalty accruing to the lender is riba on most readings.
-    absent: /lateFee|latePenalty|overdueCharge/i,
+    covered:
+      'apps/api/internal/money/shariah_test.go — the schedule repays the principal exactly and never a taka more; policy_enforcement_integration_test.go TestPaidInstalmentsCountAgainstTheMissedTotal',
   },
   'FR-14': { covered: 'replay_integration_test.go TestWaterfallTable — twelve source combinations' },
   'FR-15': {
@@ -353,33 +358,35 @@ describe('TEST-21 — no interest, markup or fee is reachable from a money path'
     expect(agreement).toContain("label: 'Processing fee', value: 'None'");
   });
 
-  it('the late-fee term the agreement reserves is still not implemented anywhere', () => {
-    // FLAGGED, not fixed. The printed agreement says:
+  it('the agreement rules a late fee out, and none is implemented anywhere', () => {
+    // RESOLVED 2026-08-25, by the foundation rather than by a session.
     //
-    //   "Late payment may attract a fixed, interest-free late fee as set by
-    //    foundation policy."
+    // This test used to pin a tension instead of a decision. The agreement
+    // reserved "a fixed, interest-free late fee as set by foundation policy"
+    // and FR-13 asked for late-fee flags "per policy" — but no policy said what
+    // the fee was or, the question that actually decides it, *who keeps the
+    // money*. A penalty retained by the lender is riba on the mainstream
+    // reading; one paid entirely to charity is the form scholars permit. Rule 3
+    // says flag rather than pick, so the flag stood and every member signed a
+    // document promising a charge nobody could explain.
     //
-    // and FR-13 asks for late-fee flags "per policy" — but no policy document
-    // says what the fee is or, more importantly, *who keeps it*. That last
-    // question is the whole question: a penalty retained by the lender is riba
-    // on the mainstream reading, while one paid entirely to charity is the
-    // form scholars permit. Rule 3 says to stop and flag rather than pick.
-    //
-    // So this test pins the tension instead of resolving it. The member signs a
-    // term reserving a fee; the system charges none. That is the safe direction
-    // to be wrong in, and it must not change by accident — implementing the fee
-    // fails this test, and removing the term fails the first assertion.
+    // The ruling is that there is no late fee. So the agreement now denies one
+    // rather than reserving one, and both halves are pinned: deleting the
+    // denial fails the first assertion, implementing a fee fails the second.
     const agreement = read('apps/web/lib/documents/builders/loan-agreement.ts');
     expect(
       agreement,
-      'the agreement no longer reserves a late fee — if that was deliberate, delete this test and the FR-13 row',
-    ).toContain('interest-free late fee');
+      'the agreement no longer tells the member that no late fee is charged. A Qard al-Hasan ' +
+        'agreement that goes silent on this is weaker evidence than one that denies it — and ' +
+        'silence is how the reserved-fee clause survived for as long as it did',
+    ).toContain('No late fee, penalty, or additional charge');
 
     const implementations = filesMatching(/lateFee|latePenalty|overdueCharge|penaltyAmount/i);
     expect(
       implementations,
-      'a late fee is now implemented. Under Qard al-Hasan this needs an explicit ruling on who ' +
-        'receives it before it ships — see CLAUDE.md rule 3:\n  ' + implementations.join('\n  '),
+      'a late fee is now implemented, and the printed agreement tells every borrower that none ' +
+        'is. Under Qard al-Hasan reversing this needs an explicit ruling on who receives the ' +
+        'money — see CLAUDE.md rule 3:\n  ' + implementations.join('\n  '),
     ).toEqual([]);
   });
 });

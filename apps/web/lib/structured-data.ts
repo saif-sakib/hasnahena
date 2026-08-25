@@ -32,7 +32,7 @@ import {
   SITE_NAME_VARIANTS,
 } from '@/lib/seo';
 import type { FaqEntry } from '@/lib/faq';
-import { orgAddress } from '@/lib/org-address';
+import { orgAddress, orgDescription } from '@/lib/org-address';
 
 /** A JSON-LD node. Deliberately loose — the shape is schema.org's, not ours. */
 export type JsonLdNode = Record<string, unknown>;
@@ -82,7 +82,15 @@ const trimmed = (settings: Settings, key: string): string | undefined => {
 export function organizationSchema(settings: Settings): JsonLdNode {
   // English, like `name` below and like every generated document: this node is
   // read by crawlers and assistants worldwide, not by one locale's readers.
+  //
+  // Both of these take the English half of a pair and fall back to the Bengali
+  // one. `description` did NOT until 2026-08-25: it read the single
+  // `org.description` box, which the foundation had filled in in Bengali, so
+  // this node described itself in Bengali on the English page and on the
+  // Bengali one — the only untranslated value in a node whose whole contract is
+  // that it is English.
   const streetAddress = orgAddress(settings, 'en') || undefined;
+  const description = orgDescription(settings, 'en') || SITE_DESCRIPTION;
 
   // Every name this organisation is searched under, deduplicated and with the
   // primary name removed — `alternateName` means "also called", so repeating
@@ -98,7 +106,7 @@ export function organizationSchema(settings: Settings): JsonLdNode {
     '@id': ORGANIZATION_ID,
     name: primaryName,
     alternateName: alternateNames,
-    description: trimmed(settings, 'org.description') ?? SITE_DESCRIPTION,
+    description,
     url: siteOrigin,
     // An ImageObject rather than a bare URL string. Google's logo guidance asks
     // for width and height, and the square mark rather than the wide lockup:

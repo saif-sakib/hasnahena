@@ -38,14 +38,17 @@ themselves; the quality of the two surfaces a member actually meets — the
 registration flow and the public site; and the long tail of product gaps in the
 FR table below.
 
-**One thing is wrong operationally right now:** the monitoring is built and
-switched off (T-01). Until it is on, everything else ships blind.
+**The monitoring is now mostly on** — `METRICS_TOKEN` on Render and Sentry on
+Vercel are both confirmed live. What remains of T-01 is the Go API's own Sentry
+DSN, the GitHub secret the Monitor workflow reads, and the two UptimeRobot
+monitors: until those, an API-side exception is still unseen and the workflow
+fails twice a day.
 
 ## What it adds up to
 
 | Phase | What | Sessions |
 |---|---|---|
-| **0** | Owner actions — monitoring, `TRUSTED_PROXIES`, three wrong settings rows, the retention window, the late-fee decision | `owner`, about 1½ h total |
+| **0** | Owner actions — finish the monitoring, `TRUSTED_PROXIES`, two settings confirmations | `owner`, about 30 min total |
 | **1** | The entry point: registration → approval → first login | **5–6** |
 | **2** | The public face: eleven pages, and the admin editing that drives them | **4–7** |
 | **3** | The whole-site input/output sweep | **4–6** |
@@ -68,16 +71,25 @@ two of them live on the deployed site.
 
 ## Phase 0 — Owner actions
 
-None of these is engineering. All of them are quick, and three of them are
-wrong on the live site *today*.
+None of these is engineering. All of them are quick.
+
+**Re-verified against the live site on 2026-08-25**, because a board that
+records a defect somebody has since fixed sends the next session hunting for
+it. Most of what this phase used to list is already done: `METRICS_TOKEN` is set
+on Render, Sentry is reporting from Vercel, and the three `system_config` rows
+now read correctly. What that verification *did* find is that one of them was
+never an owner problem at all — the Settings screen carried its own copy of the
+organisation's defaults, disagreeing with the seed about the foundation's own
+name, and **posts them back on every save**. Fixing the row by hand would have
+held until the next time an admin pressed Save. That is fixed in code and
+guarded by `org-defaults.test.ts`.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-01** | **Switch the monitoring on** | `owner` ~1 h | Four environment variables (Sentry DSN on both hosts, `METRICS_TOKEN`) and one UptimeRobot monitor against `/v1/ready`. The code is written and dormant. Until this is done every fix below ships blind and the Monitor workflow fails twice a day. [deployment.md](deployment.md) |
+| `[~]` **T-01** | **Finish switching the monitoring on** | `owner` ~20 min | Mostly done. **Confirmed live on 2026-08-25:** `/metrics` answers `401` rather than `404`, so `METRICS_TOKEN` is set on Render; and the public pages carry `sentry-environment=production` with a release matching the deployed commit, so `NEXT_PUBLIC_SENTRY_DSN` is set on Vercel. **Three things are left and none can be checked from outside:** `SENTRY_DSN` on **Render** (the Go API — the web app being connected says nothing about it), `METRICS_TOKEN` as a **GitHub Actions secret** (same value as Render; without it the Monitor workflow exits 1 twice a day), and the two **UptimeRobot** monitors — `/v1/ready` at 1 minute and the site at 5. [deployment.md](deployment.md) |
 | `[ ]` **T-02** | **`TRUSTED_PROXIES=1` on Render** | `owner` 5 min | At the default `0`, a process behind a proxy attributes every member to the proxy's address: one rate-limit bucket and one login lockout for the entire membership. The API already logs a warning at boot when it is `0` outside development ([ADR-019](decisions.md), [ADR-021](decisions.md)) |
-| `[ ]` **T-03** | **Fix three live `system_config` rows** | `owner` 10 min | Admin → Settings → Organisation. `org.email` reads `info@hasnahena.org`, a domain the foundation does not own, so a member replying to a foundation email sends it to a stranger. `org.nameEn` reads "Hasnahena" rather than "Hasnahena Foundation", and the JSON-LD publishes whatever it holds. `org.addressEn` is empty and new — until it is filled in, the English pages fall back to the Bengali address. None is fixable from code: the seeded defaults and the form are already correct |
-| `[ ]` **T-04** | **Confirm `security.rejectedRetentionDays`** | `owner` 5 min | Defaults to 365. The sweep counts from each rejection, so set it **before** real applications exist ([ADR-033](decisions.md)) |
-| `[ ]` **T-05** | **Answer the late-fee question** | `owner` | The loan agreement PDF prints *"Late payment may attract a fixed, interest-free late fee as set by foundation policy"*. Nothing implements one and no policy says who would keep the money. Pinned in both directions by `shariah_test.go`: implementing a fee fails the suite, and deleting the clause fails it too. Rule 3 says flag rather than choose — this is the flag. A penalty **retained by the lender** is riba on the mainstream reading; one **paid entirely to charity** is the form scholars permit. Needs authority over foundation policy, not code |
+| `[~]` **T-03** | **Fill in the new English description box** | `owner` 5 min | Admin → Settings → Organisation. The three rows this row used to list are **already correct live** (verified 2026-08-25: the site publishes `info@hasnahenafoundation.com`, "Hasnahena Foundation", and an English street address). What is left is one **new** box, *Description (English)*, added the same day. Until it is filled in, the JSON-LD every search engine and AI assistant reads describes the foundation **in Bengali** — on the English page as well as the Bengali one — because a single description box was shown to both audiences, exactly as the address was before it. Open the screen once and press Save even if you change nothing: that writes the corrected defaults for any row the database is missing |
+| `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | **Decided 2026-08-25: 365 days**, which is the seeded default, so there is most likely nothing to change — this is a look, not an edit. Admin → Settings. The sweep counts from each rejection, so it has to be right **before** real applications exist ([ADR-033](decisions.md)) |
 
 ---
 
@@ -214,7 +226,7 @@ are clear.
 | FR-10 | Max loan from configured caps | `[~]` | members apply from the dashboard, personal cap enforced; **fairness and solvency caps still missing** |
 | FR-11 | Guarantor request + approval | `[x]` | required above `loan.guarantorThresholdAmount`, nominated by member ID, approve/decline on the member dashboard |
 | FR-12 | Approve → disburse → confirm | `[~]` | the worker path (`CreateMemberLoan`) writes `status = 'ACTIVE'` directly, skipping `PENDING_GUARANTOR` → `PENDING_APPROVAL`. The documented lifecycle is reachable only via admin approval of a loan the worker UI cannot create |
-| FR-13 | Installments and late fees | `[~]` | installments recorded; **no late-fee logic at all**, and see the late-fee question below |
+| FR-13 | Record installments; no late fee on a missed one | `[x]` | installments recorded and counted against the missed total. **There is no late fee** — ruled by the foundation 2026-08-25 (was T-05). The printed agreement now *denies* one rather than reserving one, and `requirements.test.ts` pins both directions: deleting the denial fails, implementing a fee fails |
 | FR-14 | Default settlement waterfall | `[x]` | ordering and proportionality correct with or without a guarantor; status change, all three recovery legs and the audit row commit in one transaction |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split |
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, and the pool now exists as a real account owned by `system_donation_fund`; no per-fund accounting |
@@ -226,7 +238,7 @@ are clear.
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
 | FR-23 | Member erasure and rejected-application retention | `[x]` | admin erases from the member detail screen — anonymise if there are postings, delete if there are none; the Go sweep clears a rejected applicant's identity after `security.rejectedRetentionDays` |
 
-**13 complete · 8 partial · 2 not started · 0 broken.**
+**14 complete · 7 partial · 2 not started · 0 broken.**
 **This page cannot quietly fall behind the code.** A requirement not marked
 `[x]` must *still* be unimplemented in the source, or
 `apps/web/test/unit/requirements.test.ts` fails and names the file that
@@ -242,6 +254,7 @@ Recorded so they are not re-proposed as gaps.
 
 | Not doing | Why |
 |---|---|
+| A late fee on a missed installment | **Ruled by the foundation, 2026-08-25** (was T-05). The question was never the amount, it was who keeps the money: a penalty retained by the lender is riba on the mainstream reading, and one paid entirely to charity is the form scholars permit but needs a charity ledger destination and an audit trail proving the fund retained nothing. The ruling is that there is no late fee at all. The printed loan agreement now **denies** one rather than reserving one, which is the half of the ruling a member can read, and `requirements.test.ts` fails in both directions — deleting the denial, or implementing a fee |
 | Kubernetes | A cooperative in Jashore does not need an orchestrator. One VPS with Compose is operable by one person |
 | Microservices | Two services is already the right number |
 | Redis | Postgres handles the rate limits and the blacklist at this scale — and that choice is what makes the single-VPS target realistic |

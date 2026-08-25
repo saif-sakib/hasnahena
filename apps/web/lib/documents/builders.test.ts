@@ -303,6 +303,10 @@ describe('buildLoanAgreement', () => {
     expect(terms.items.join(' ')).toContain(
       'the borrower’s own savings, then the guarantor’s savings, then the donation pool',
     );
+    // The late fee is denied, not omitted (T-05, 2026-08-25). This clause used
+    // to reserve one "as set by foundation policy" — a policy that never
+    // existed. The member's copy is where the ruling has to be legible.
+    expect(terms.items.join(' ')).toContain('No late fee, penalty, or additional charge');
   });
 
   it('states the principal in words', () => {

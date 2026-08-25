@@ -71,6 +71,7 @@ export const SYSTEM_CONFIG_KEYS = [
   'org.website',
   'org.regNumber',
   'org.description',
+  'org.descriptionEn',
 
   // Landing-page presentation. Image values are Cloudinary URLs written by the
   // upload server actions, not typed by hand.
@@ -215,6 +216,7 @@ export const PUBLIC_CONFIG_KEYS = [
   'org.website',
   'org.regNumber',
   'org.description',
+  'org.descriptionEn',
 
   'hero.tagline',
   'hero.backgroundImage',
@@ -346,6 +348,7 @@ export const SETTINGS_CONFIG_KEYS = [
   'org.website',
   'org.regNumber',
   'org.description',
+  'org.descriptionEn',
 
   'loan.minDepositForLoan',
   'loan.maxLoanMultiplier',
