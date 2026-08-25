@@ -142,6 +142,44 @@ Collected on the public form, queued for admin approval, credentials emailed on 
 
 Under-18 applicants supply parents' NIDs instead of their own.
 
+### How long that data is kept, and what removes it
+
+Owner decision, 2026-08-25. The foundation holds NID numbers, photographs, home
+addresses and both parents' names for everyone who has ever *applied*, whether
+or not they were admitted. Three rules govern how long.
+
+**1. An approved member is anonymised, never deleted.** A member with any posting
+against their account cannot be removed: the ledger is summed hourly against the
+stored balances (`reconcile_repository.go`), and a posting whose owner has
+vanished makes that sum permanently wrong. Erasure therefore strips the person
+and keeps the money: NID number, photograph, addresses, nominee, parents' names,
+date of birth, blood group and profession are cleared; email and phone are
+tombstoned; `accountNo`, the account and every `Transaction` and `Loan` row stay
+exactly as they were. A member with *no* postings at all — an approval nobody
+ever used — is deleted outright, and the cascade takes the rest. Which of the two
+happens is decided by counting references, not by asking the operator: the
+database refuses the delete anyway (`ON DELETE RESTRICT` from `transactions` and
+`loans`), so the count is what turns a constraint violation into an answer.
+
+**2. A rejected application keeps its decision and loses its identity after one
+year.** The rejection itself, its reason and its `audit_logs` row are kept
+permanently — a refusal is a decision the foundation may have to justify, and the
+contact tombstone is what lets the applicant re-apply. The identity documents are
+not part of that justification a year later, so NID number, addresses, parents'
+names, date of birth, blood group, profession and photograph are cleared by a
+scheduled sweep 365 days after rejection.
+
+**3. A member may ask to be erased; an admin decides.** The request goes through
+the existing support thread — there is no self-service button, because erasure
+while a loan or a guarantee is outstanding has consequences for other members.
+An ADMIN, never a worker, approves it, and the approval is audit-logged by
+account number.
+
+What the audit row may contain is part of the policy rather than an
+implementation detail: `audit_logs` is append-only, so anything written there
+survives the erasure. The row names the account number, the approving admin and
+the reason. It never names what was erased.
+
 ### Passbook (সঞ্চয় ও ঋণ পাস বই)
 
 The printed member passbook maps to `Account` + `Transaction`: each row carries date, receipt no. (রশিদ নম্বর), deposit/withdrawal amount, and running savings/loan balance — which is why every `Transaction` stores `savingsAfter` / `loanAfter` snapshots. Receipt PDFs are generated in `apps/web/lib/documents/receipt-generator.ts`.
@@ -174,6 +212,7 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 | FR-20 | Member dashboard: balances, loan status, pending confirmations, guarantor actions | High |
 | FR-21 | Worker dashboard: pending queues by SLA | High |
 | FR-22 | Admin dashboard: approvals, liquidity alerts, disputes, settings, audit viewer | High |
+| FR-23 | Erase a member's identity on request, and time-expire a rejected applicant's | High |
 
 ## Quality bars
 

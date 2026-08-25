@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useLocale } from 'next-intl';
-import { Building2, Wallet, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, Globe, Banknote, MessageCircle, Users } from 'lucide-react';
+import { Building2, Wallet, Save, RefreshCw, AlertCircle, Mail, Phone, MapPin, Clock, Percent, Calendar, Lock, Globe, Banknote, MessageCircle, ShieldAlert, Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +67,11 @@ const DEFAULT_LOAN_SETTINGS = {
 };
 
 const DEFAULT_SUPPORT_RETENTION_DAYS = 10;
+// One year. Must stay equal to `DefaultRejectedRetentionDays` in
+// apps/api/internal/repositories/retention_repository.go — this is only the
+// figure the form shows before an admin has ever saved one; the sweep reads the
+// database (WO-93, ADR-033).
+const DEFAULT_REJECTED_RETENTION_DAYS = 365;
 
 /** The donor-facing account details and the support retention policy. */
 const DEFAULT_PAYMENT_SETTINGS: Record<string, string> = {
@@ -169,6 +174,15 @@ export default function AdminSettingsPage() {
     [settingsData],
   );
 
+  const serverRejectedRetentionDays = useMemo(
+    () =>
+      parseNumberSetting(
+        settingsData?.['security.rejectedRetentionDays'],
+        DEFAULT_REJECTED_RETENTION_DAYS,
+      ),
+    [settingsData],
+  );
+
   const serverPaymentSettings = useMemo<Record<string, string>>(() => {
     // Only this screen's own string keys. Reading every string key and posting
     // the lot back is what made the old form a second writer for the landing
@@ -185,6 +199,8 @@ export default function AdminSettingsPage() {
   const [loanSettings, setLoanSettings, resetLoanDraft] = useDraft(serverLoanSettings);
   const [supportRetentionDays, setSupportRetentionDays, resetSupportDraft] =
     useDraft(serverSupportRetentionDays);
+  const [rejectedRetentionDays, setRejectedRetentionDays, resetRejectedRetentionDraft] =
+    useDraft(serverRejectedRetentionDays);
   const [paymentSettings, setPaymentSettings, resetPaymentDraft] = useDraft(serverPaymentSettings);
 
   const getAuthToken = () =>
@@ -216,6 +232,7 @@ export default function AdminSettingsPage() {
         allowActiveLoanWithdrawal: loanSettings.allowActiveLoanWithdrawal,
       };
       const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
+      const normalizedRejectedRetentionDays = Math.max(1, Math.trunc(rejectedRetentionDays));
 
       // Flatten settings for saving. Only SETTINGS_CONFIG_KEYS — Content & Media
       // owns the rest, and the two lists are a partition, so neither screen can
@@ -238,6 +255,7 @@ export default function AdminSettingsPage() {
         'loan.guarantorThresholdAmount': String(normalizedLoanSettings.guarantorThresholdAmount),
         'loan.allowActiveLoanWithdrawal': String(normalizedLoanSettings.allowActiveLoanWithdrawal),
         'support.chatRetentionDays': String(normalizedSupportRetentionDays),
+        'security.rejectedRetentionDays': String(normalizedRejectedRetentionDays),
 
         // The notification.*, security.* and appearance.* keys are deliberately
         // NOT posted. Nothing in either backend reads them, and because this
@@ -255,6 +273,7 @@ export default function AdminSettingsPage() {
 
       setLoanSettings(normalizedLoanSettings);
       setSupportRetentionDays(normalizedSupportRetentionDays);
+      setRejectedRetentionDays(normalizedRejectedRetentionDays);
 
       const authToken = getAuthToken();
       const response = await fetch('/api/v1/settings', {
@@ -294,6 +313,7 @@ export default function AdminSettingsPage() {
       resetOrgDraft();
       resetLoanDraft();
       resetSupportDraft();
+      resetRejectedRetentionDraft();
       resetPaymentDraft();
 
       toast({
@@ -601,6 +621,38 @@ export default function AdminSettingsPage() {
                     {locale === 'bn'
                       ? 'এই দিনের বেশি পুরনো সাপোর্ট কথোপকথন স্বয়ংক্রিয়ভাবে মুছে যাবে'
                       : 'Support conversations older than this many days will be removed automatically'}
+                  </p>
+                </div>
+
+                {/*
+                  WO-93 / ADR-033. The rejection decision and its audit row are
+                  kept for ever; the applicant's identity documents are not.
+                  Editable rather than a constant so shortening the window is an
+                  admin decision rather than a deploy.
+                */}
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="rejected-retention" className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4" />
+                    {locale === 'bn'
+                      ? 'বাতিল আবেদনের তথ্য রাখার দিন'
+                      : 'Rejected Application Retention Days'}
+                  </Label>
+                  <Input
+                    id="rejected-retention"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={rejectedRetentionDays}
+                    onChange={(e) =>
+                      setRejectedRetentionDays(
+                        parseIntegerInput(e.target.value, rejectedRetentionDays),
+                      )
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'bn'
+                      ? 'এই দিন পর বাতিল আবেদনের এন.আই.ডি, ঠিকানা ও পিতা-মাতার নাম মুছে যাবে; সিদ্ধান্ত ও অডিট রেকর্ড থেকে যাবে'
+                      : "After this many days a rejected application's NID number, addresses and parents' names are cleared. The decision and its audit record are kept."}
                   </p>
                 </div>
               </CardContent>

@@ -128,6 +128,14 @@ export const SYSTEM_CONFIG_KEYS = [
 
   // Support.
   'support.chatRetentionDays',
+
+  // Retention. How long a REJECTED application keeps its identity data — the
+  // NID number, both parents' names, the date of birth and the two addresses.
+  // The decision and its audit row are permanent; these are not (WO-93,
+  // ADR-033). Read by the Go API's retention sweep,
+  // `internal/repositories/retention_repository.go`, and by nothing in the
+  // browser except the form that sets it.
+  'security.rejectedRetentionDays',
 ] as const;
 
 /**
@@ -354,6 +362,7 @@ export const SETTINGS_CONFIG_KEYS = [
   'bank.branch',
 
   'support.chatRetentionDays',
+  'security.rejectedRetentionDays',
 ] as const;
 
 export type SystemConfigKey = (typeof SYSTEM_CONFIG_KEYS)[number];

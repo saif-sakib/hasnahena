@@ -23,7 +23,11 @@ export type AuditAction =
   | 'BRANCH_CREATED'
   | 'BRANCH_UPDATED'
   | 'BRANCH_DEACTIVATED'
-  | 'BRANCH_DELETED';
+  | 'BRANCH_DELETED'
+  // WO-93 / FR-23. Erasing a member is the one irreversible thing an admin can
+  // do. The row records the account number, the counts and the reason — never
+  // what was erased, because this table is append-only (ADR-033).
+  | 'MEMBER_ERASED';
 
 export type AuditEntityType =
   | 'USER'

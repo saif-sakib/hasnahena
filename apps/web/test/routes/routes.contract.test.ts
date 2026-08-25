@@ -33,6 +33,7 @@ import {
 import * as auditLogs from '@/app/api/v1/admin/audit-logs/route';
 import * as adminWorkers from '@/app/api/v1/admin/workers/route';
 import * as adminBranches from '@/app/api/v1/admin/branches/route';
+import * as adminMemberErase from '@/app/api/v1/admin/members/[id]/erase/route';
 import * as authLogin from '@/app/api/v1/auth/login/route';
 import * as supportProxy from '@/app/api/v1/dashboard/support/[...path]/route';
 import * as gallery from '@/app/api/v1/gallery/route';
@@ -122,6 +123,20 @@ const ROUTES: Array<{
     handler: asHandler(adminBranches.DELETE),
     path: '/api/v1/admin/branches?id=no-such-branch',
     contract: { roles: ADMINS },
+  },
+  {
+    // WO-93 / FR-23. Erasure is the one irreversible action on this API, so the
+    // contract that matters most is who cannot reach it: a worker must not.
+    name: 'POST /api/v1/admin/members/[id]/erase',
+    file: 'v1/admin/members/[id]/erase',
+    method: 'POST',
+    handler: asHandler(adminMemberErase.POST),
+    path: '/api/v1/admin/members/no-such-member/erase',
+    contract: {
+      roles: ADMINS,
+      context: { params: Promise.resolve({ id: 'no-such-member' }) },
+      body: { confirmAccountNo: 'ACC-KH-00000', reason: 'contract test' },
+    },
   },
   {
     name: 'POST /api/v1/admin/workers',

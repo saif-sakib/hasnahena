@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { AuthError, requireAuthDetailed, type VerifiedToken } from '@/lib/auth';
 
@@ -38,6 +39,68 @@ function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/** The `token_blacklist` key for a whole account. `TokenRevocationMarker` in Go. */
+export function revocationMarker(userId: string): string {
+  return `all:${userId}`;
+}
+
+/**
+ * How far a revoke-all marker must outlive the longest token it can revoke.
+ * `revocationMargin` in `apps/api/internal/services/auth_service.go`.
+ */
+export const REVOCATION_MARGIN_SECONDS = 3600;
+
+/** The token lifetime both backends issue against, when nothing overrides it. */
+export const DEFAULT_JWT_EXPIRY_SECONDS = 86400;
+
+/**
+ * The marker's lifetime, derived from the token lifetime so the two cannot be
+ * configured apart — `revocationTTLFor` in Go, and it must stay equal to it.
+ *
+ * `JWT_EXPIRY_SECONDS` is set on Render, where tokens are minted. It is read
+ * here too, defaulting to the same 86400, because a marker that expires before
+ * the tokens it revokes brings those tokens back to life. Raising it on Render
+ * alone would do exactly that on this half — which is why `setup.md` now lists
+ * the variable against both hosts.
+ */
+export function revocationTtlSeconds(): number {
+  const raw = Number(process.env.JWT_EXPIRY_SECONDS);
+  const expiry = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_JWT_EXPIRY_SECONDS;
+  return expiry + REVOCATION_MARGIN_SECONDS;
+}
+
+/**
+ * End every session an account has open — WO-91.
+ *
+ * Takes the transaction client so it runs in the *same* transaction as whatever
+ * made the sessions invalid. Dismissing a worker and revoking their token are
+ * one fact; two statements with a crash in between leave a dismissed worker
+ * holding a staff token that can post deposits and process withdrawals.
+ *
+ * The row is written to match `revokeAllUserTokensSQL` in
+ * `apps/api/internal/repositories/auth_repository.go` exactly — the same key,
+ * the same upsert-on-conflict, the same derived lifetime. If the two ever
+ * disagree, a token is revoked on one backend and live on the other, which is
+ * worse than neither checking (the reason at the top of this file).
+ *
+ * `createdAt` is set explicitly on the update branch and that is load-bearing:
+ * it is the timestamp every `iat` is compared against, so a repeat revocation
+ * that left it alone would revoke nothing issued since the first one.
+ */
+export async function revokeAllTokens(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  reason: 'admin_revoke' | 'password_change' | 'logout',
+): Promise<void> {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + revocationTtlSeconds() * 1000);
+  await tx.tokenBlacklist.upsert({
+    where: { tokenHash: revocationMarker(userId) },
+    update: { reason, expiresAt, createdAt: now },
+    create: { tokenHash: revocationMarker(userId), userId, reason, expiresAt, createdAt: now },
+  });
+}
+
 /** Thrown when the lookup itself fails, so callers can fail closed. */
 export class RevocationCheckError extends Error {
   readonly name = 'RevocationCheckError';
@@ -69,7 +132,7 @@ export async function checkRevocation(
         select: { id: true },
       }),
       prisma.tokenBlacklist.findFirst({
-        where: { tokenHash: `all:${userId}`, expiresAt: { gt: now } },
+        where: { tokenHash: revocationMarker(userId), expiresAt: { gt: now } },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       }),

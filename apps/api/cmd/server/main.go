@@ -228,6 +228,7 @@ func main() {
 
 	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
 	startReconciliationLoop(runCtx, userRepo, config.ReconcileInterval)
+	startRetentionSweepLoop(runCtx, userRepo, config.RetentionSweepInterval)
 	// runCtx, not startupCtx: this must keep running for the life of the
 	// process, and is cancelled by the same SIGTERM that drains the server.
 	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
@@ -694,6 +695,81 @@ func startReconciliationLoop(ctx context.Context, repo *repositories.UserReposit
 			select {
 			case <-ctx.Done():
 				slog.Info("reconciliation loop stopped")
+				return
+			case <-ticker.C:
+				runOnce()
+			}
+		}
+	}()
+}
+
+// startRetentionSweepLoop clears the identity data of rejected applications
+// past the retention window — WO-93, FR-23, ADR-033.
+//
+// A rejection keeps the decision forever and the person's NID number, both
+// parents' names, date of birth and two addresses along with it. The decision is
+// what the foundation may have to justify; the identity documents are not, a
+// year later. Nothing removed them, because nothing existed that could.
+//
+// Daily, and deliberately unattended: a retention rule that needs somebody to
+// remember to run it is a retention rule that is not in force. The window itself
+// is `security.rejectedRetentionDays`, so shortening it is an admin decision
+// rather than a deploy.
+//
+// `ctx` must be runCtx, for the reason wiring_test.go spells out — a loop handed
+// the ten-second startup context runs once and stops, which here looks exactly
+// like a system with nothing left to sweep.
+func startRetentionSweepLoop(ctx context.Context, repo *repositories.UserRepository, interval time.Duration) {
+	if repo == nil || interval <= 0 {
+		slog.Warn("rejected-application retention sweep is disabled", "interval", interval)
+		return
+	}
+
+	runOnce := func() {
+		// Bounded independently of the tick. The first pass after this ships
+		// has whatever backlog exists to work through, in batches.
+		passCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+
+		report, err := repo.SweepRejectedApplications(passCtx)
+		if err != nil {
+			slog.Error("rejected-application retention sweep failed", "error", err)
+			return
+		}
+		if report.AvatarsFound > 0 {
+			// The sweep clears the column; only the Next app can delete the
+			// Cloudinary asset behind it. This is supposed to be impossible —
+			// avatarUrl is written by a signed-in member on their own profile
+			// page and a rejected applicant has never signed in — so it is an
+			// error rather than a warning: the photograph is still being served
+			// from a public CDN and only a person can remove it.
+			slog.Error("retention sweep cleared an avatarUrl it cannot delete from Cloudinary",
+				"count", report.AvatarsFound,
+				"action", "delete these assets by hand; see docs/runbook.md")
+		}
+		if report.Cleared == 0 {
+			return
+		}
+		slog.Info("retention sweep cleared rejected applications",
+			"cleared", report.Cleared,
+			"addresses", report.AddressesRemoved,
+			"nominees", report.NomineesRemoved,
+			"duration", report.Duration,
+		)
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		// Once at boot, like the others: a process that restarts more often than
+		// the interval would otherwise never sweep at all.
+		runOnce()
+
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Info("retention sweep loop stopped")
 				return
 			case <-ticker.C:
 				runOnce()

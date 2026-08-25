@@ -148,7 +148,7 @@ settlement, administering staff, reading the audit trail.
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-Twelve handlers, 25 exported methods. The "called by" column is the audited
+Thirteen handlers, 26 exported methods. The "called by" column is the audited
 answer, not an intention — grep every `/api/v1/...` literal in `app/`,
 `components/`, `lib/`, `hooks/` and `e2e/` if you change it. Only
 `admin/audit-logs` has no caller, and it is OBS-08's backend waiting on its
@@ -168,6 +168,7 @@ exercised, so treat it as untested.
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | `components/dashboard/guarantor-requests.tsx` |
 | GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branch CRUD — offices staff are assigned to. `DELETE` **deactivates** rather than deletes when staff are assigned, because `assignedBranch` is `SetNull` and deleting would silently unassign them ([WO-72](work-orders.md)) | admin branches page, worker branch picker |
 | GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
+| POST | `/api/v1/admin/members/{id}/erase` | **FR-23 / [ADR-033](decisions.md).** Erase a member: **anonymise** if they have any posting (identity columns cleared, contact tombstoned, documents / addresses / nominee and their Cloudinary assets deleted — `accountNo`, the account and every `Transaction` and `Loan` untouched), **delete** outright if they have none. The route counts references and decides; the caller does not choose. Refuses **409** while a loan or a guarantee is unsettled, **400** unless the caller echoes the member's own `accountNo`. Writes the revoke-all marker in the same transaction, and an audit row naming the account number, the counts and the admin's reason — never what it erased. Here rather than in Go because it must delete the Cloudinary assets; the *rejected-applicant* half of FR-23 is a Go background sweep instead | admin member detail screen |
 
 **Five handlers were removed** once it was clear none had a caller: two that
 mutated balances from Next (against [ADR-001](decisions.md)), one of which also

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 
-import { readJsonBody, routeErrorStatus, routeErrorMessage, BadRequestError } from './route-errors';
+import { readJsonBody, routeErrorStatus, routeErrorMessage, uniqueConflictLabel, BadRequestError } from './route-errors';
 import { AuthError } from './auth';
 
 // TEST-18. Every Next route used to end `catch { return 500 }`, so a truncated
@@ -139,5 +139,39 @@ describe('routeErrorMessage', () => {
   it('says Validation failed for Zod rather than dumping the issue list', () => {
     const parsed = z.object({ a: z.number() }).safeParse({});
     if (!parsed.success) expect(routeErrorMessage(parsed.error, 'x')).toBe('Validation failed');
+  });
+});
+
+describe('uniqueConflictLabel — WO-90', () => {
+  // The route test proves the 409 end to end; this proves the *naming* for the
+  // shapes a race produces, which a test cannot schedule reliably.
+  const p2002 = (target: unknown) =>
+    Object.assign(new Error('Unique constraint failed'), { code: 'P2002', meta: { target } });
+
+  it('names the field Prisma reports', () => {
+    expect(uniqueConflictLabel(p2002(['email']))).toBe('email address');
+    expect(uniqueConflictLabel(p2002(['phone']))).toBe('phone number');
+  });
+
+  it('names the field behind an index Prisma cannot model', () => {
+    // `users_email_lower_key` is WO-90's functional unique index on
+    // lower(email). Prisma has no field to map it to, so it reports the
+    // constraint name — and that is exactly the case-insensitive collision this
+    // work order added, so it is the one that must not fall through to "That
+    // value is already in use".
+    expect(uniqueConflictLabel(p2002('users_email_lower_key'))).toBe('email address');
+    expect(uniqueConflictLabel(p2002(['users_phone_key']))).toBe('phone number');
+  });
+
+  it('stays quiet about a column the caller never sent', () => {
+    // `accountNo` is generated. Telling an admin their account number is taken
+    // would send them to fix a field the form does not have.
+    expect(uniqueConflictLabel(p2002(['accountNo']))).toBeNull();
+    expect(uniqueConflictLabel(new Error('not a prisma error'))).toBeNull();
+  });
+
+  it('is what routeErrorMessage says for a 409', () => {
+    expect(routeErrorMessage(p2002(['email']), 'x')).toBe('That email address is already in use');
+    expect(routeErrorMessage(p2002(['accountNo']), 'x')).toBe('That value is already in use');
   });
 });

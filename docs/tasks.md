@@ -94,8 +94,9 @@ Legend: `[x]` done · `[~]` partial · `[ ]` not started · `[!]` **broken now**
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
+| FR-23 | Member erasure and rejected-application retention | `[x]` | admin erases from the member detail screen — anonymise if there are postings, delete if there are none; the Go sweep clears a rejected applicant's identity after `security.rejectedRetentionDays` |
 
-**12 complete · 8 partial · 2 not started · 0 broken.**
+**13 complete · 8 partial · 2 not started · 0 broken.**
 
 ---
 

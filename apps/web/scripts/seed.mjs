@@ -72,6 +72,16 @@ const CONFIG_DEFAULTS = [
     value: '10',
     description: 'Days a resolved support thread is kept before deletion',
   },
+  {
+    // WO-93 / ADR-033. A rejection keeps its decision and its audit row for
+    // ever; the applicant's NID number, both parents' names, date of birth and
+    // two addresses are cleared a year later by the Go API's retention sweep.
+    // A year, because a re-application or a dispute inside that window can
+    // still be checked against what was submitted.
+    key: 'security.rejectedRetentionDays',
+    value: '365',
+    description: "Days a rejected application keeps its identity data before the sweep clears it",
+  },
   { key: 'org.name', value: 'হাসনাহেনা ফাউন্ডেশন', description: 'Organisation name (Bengali)' },
   { key: 'org.nameEn', value: 'Hasnahena Foundation', description: 'Organisation name (English)' },
   {

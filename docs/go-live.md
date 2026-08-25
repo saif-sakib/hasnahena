@@ -50,7 +50,7 @@ afterwards every one needs a backfill.
 |---|---|
 | **Collapse the legacy `LoanStatus` values** (`PENDING`, `APPROVED`) | Two vocabularies for one concept. With real loans in flight you cannot drop enum values without rewriting rows, and Postgres will not remove a label that is still referenced |
 | **Donation fund types** (FR-15/16) | Every donation posted before this exists becomes an untyped row somebody classifies by hand later. Zakat funds especially cannot be reconstructed after the fact |
-| **Decide DATA-07** (retention and erasure) | It determines whether you need a `deletedAt`, an anonymisation path, or nothing — a schema question. Deciding after launch means discovering you needed a column |
+| ~~**Decide DATA-07** (retention and erasure)~~ | **Decided 2026-08-25, [ADR-033](decisions.md), and built (FR-23).** No `deletedAt` column was needed: a member with postings is anonymised in place and one without is deleted, and a rejected application expires on the sweep's clock. What is left here is a *setting*, not a schema change — confirm `security.rejectedRetentionDays` in Settings before real applications exist, because the sweep starts counting from the rejection |
 
 `pnpm db:migrate:check` runs in CI, so a schema edit without a generated
 migration fails the build rather than a production query.
@@ -132,6 +132,24 @@ else cannot hold a member out for an hour ([ADR-032](decisions.md)). At
 `TRUSTED_PROXIES=0` every caller has the same address, the two buckets collapse
 into one, and the escalation applies to the member as well as to the attacker.
 The mechanism is correct and the variable is what makes it true.
+
+### 1.6 Confirm the retention window before there is anything to retain
+
+`security.rejectedRetentionDays` defaults to **365** and is edited in
+Settings. It is what decides how long a refused applicant's NID number,
+photograph, addresses and both parents' names stay in the database
+([ADR-033](decisions.md)); the rejection decision and its audit row are kept for
+ever regardless. Set it to what the foundation actually intends *now*, because
+the sweep counts from each rejection and shortening it later applies to
+applications already stored.
+
+Two things to check on Render at the same time, both one line each:
+
+- `RETENTION_SWEEP_INTERVAL` is unset (24h) rather than `0`. At `0` the sweep
+  never runs, and the log says so once, at boot.
+- `JWT_EXPIRY_SECONDS` is at its default, or set to the **same** value on Vercel.
+  Only Render mints tokens, but Vercel sizes the revoke-all marker from it, and a
+  marker shorter than the tokens it revokes brings them back to life.
 
 ---
 

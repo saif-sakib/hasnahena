@@ -91,6 +91,9 @@ count that used to open this sentence is gone too. See
 | a rate-limited action | `apps/api/internal/services/rate_limit_policy_test.go` — declare it as a `RateLimitAction` constant and give it a policy. A bare string at the call site fails the census, because an unnamed action silently gets the default five-attempts-flat-30-seconds whatever the endpoint needs |
 | a row in `password_reset_tokens`, in **either** language | `apps/web/test/unit/reset-token-scopes.test.ts` — `scope` plus `sha256(secret)`, never the secret. The Next half is `apps/web/lib/reset-tokens.ts`; the test reads the Go source, so a scope renamed on one side fails on the other |
 | a branch in `forgot-password` that depends on what the lookup found | `apps/api/cmd/server/auth_security_integration_test.go` — a member, a suspended member, a member with no email and a stranger must get a byte-identical answer ([ADR-032](docs/decisions.md)). The three answers this replaced were a membership oracle on an unauthenticated endpoint |
+| a **branch that deactivates or deletes a staff or member account** | `apps/web/test/unit/revocation-contract.test.ts` — write the revoke-all marker **inside that transaction**. `status` is read at login and nowhere else, on purpose, so the marker is the *only* thing that takes a dismissed worker's staff token away; the census counts revocations against endings and fails when a fourth ending appears without one |
+| a second writer of `token_blacklist`, in **either** language | the same test — it reads `auth_repository.go` and `lib/auth-revocation.ts` and demands the same key, the same upsert and the same derived TTL. A marker written differently on one backend is a token revoked on one surface and live on the other, which is worse than neither checking |
+| **anything that erases or expires personal data** | `apps/web/test/routes/identity-integrity.test.ts` and `apps/api/internal/repositories/retention_integration_test.go` — and the audit row must name the **account number and nothing it erased**. `audit_logs` cannot be deleted from ([ADR-033](docs/decisions.md)), so an `oldValue` the way `WORKER_UPDATED` writes one is erasure that preserves what it erased |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -139,6 +142,15 @@ count that used to open this sentence is gone too. See
    pool-based variant takes a second connection and deadlocks the pool under
    concurrency ([ADR-017](docs/decisions.md)).
 7. Never commit `.env*` or credentials.
+6d. **Identity data has an end date; the money never does.** A member with any
+   posting is **anonymised, never deleted** — a posting whose owner has vanished
+   does not make the hourly reconciliation smaller, it makes it permanently
+   wrong. A member with none is deleted outright, and which of the two happens is
+   *counted*, not chosen. A rejected application keeps its decision for ever and
+   loses its NID number, parents' names, date of birth and addresses after
+   `security.rejectedRetentionDays`. Policy is
+   [ADR-033](docs/decisions.md) and [product.md](docs/product.md); it was the
+   owner's decision, not a session's.
 7a. **An auth endpoint must not disclose who is a member.** For a
    religious-finance cooperative in one town, membership itself is the sensitive
    fact. `forgot-password` answers `200` with one constant body for everybody;
@@ -175,6 +187,10 @@ apps/api/internal/repositories/   all SQL, split by domain (WO-38):
     report_repository.go          aggregate reporting
     reconcile_repository.go       sums the whole ledger and compares it to the stored balances (WO-82).
                                   Read-only by construction: it reports drift and never repairs (ADR-027)
+    retention_repository.go       clears a REJECTED application's identity data once it is past
+                                  security.rejectedRetentionDays (WO-93, FR-23, ADR-033). Daily loop in
+                                  main(). The *member* erasure half is a Next route instead, because it
+                                  has to delete the Cloudinary assets
 apps/api/internal/money/          pure loan/installment/waterfall/schedule arithmetic — tested, no DB.
                                   Put new money maths HERE, not inline in SQL. NextDueDate and
                                   MissedInstallments are the only answer to "is this loan overdue?" —
@@ -198,7 +214,8 @@ apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE
                                   money-actions.tsx  the ONE deposit / withdrawal / instalment /
                                   loan-application / loan-top-up form. Every screen opens it; it
                                   fetches the member detail its rules are about. Never write a second one
-apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member lookup
+apps/web/app/api/v1/              Next handlers: registration, gallery, settings, dispute, loans, member
+                                  lookup, and admin/members/[id]/erase — FR-23's anonymise-or-delete
 apps/web/lib/api.ts               browser → Go client (apiGet/apiPost/apiPut/apiPatch)
 apps/web/lib/csp.ts               the two Content-Security-Policies and why there are two (ADR-024)
 apps/web/lib/seo.ts               canonical URLs, hreflang (incl. x-default), OG/Twitter metadata, and
@@ -214,6 +231,10 @@ apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET a
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
 apps/web/lib/reset-tokens.ts      the password_reset_tokens contract for the half Next writes: the
                                   scopes and the SHA-256. Must agree with the Go half (ADR-031)
+apps/web/lib/auth-revocation.ts   the token_blacklist contract for the half Next reads AND writes.
+                                  revokeAllTokens() runs inside the caller's transaction and must
+                                  match revokeAllUserTokensSQL row for row; the TTL is derived from
+                                  JWT_EXPIRY_SECONDS on this host too (WO-85, WO-91)
 apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member is given (ADR-023/029).
                                   `users.accountNo`; called memberId before 2026-08-19. The Go half is
                                   apps/api/internal/utils/account_no.go and the two must agree

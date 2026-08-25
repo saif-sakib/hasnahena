@@ -95,6 +95,20 @@ enum RequestStatus {
 
 model User {
   id           String     @id @default(cuid())
+  /// WO-90. There is a **second** unique index on this column that Prisma
+  /// cannot express and this file therefore does not show:
+  /// `users_email_lower_key` on `lower(email)`, added by
+  /// `20260825120000_block_y_identity_integrity`. Without it `Saif@x.com` and
+  /// `saif@x.com` are two rows, and only the convention that every write path
+  /// lowercases first was keeping them from both existing. A convention is not
+  /// a constraint: a seed script, a hand-applied support fix, or the next
+  /// creation path someone adds re-opens it, and the duplicate is permanent and
+  /// invisible.
+  ///
+  /// Like the CHECK constraints and the `audit_logs` trigger it is invisible to
+  /// `prisma migrate diff`, so a future `--from-empty` baseline would drop it
+  /// silently. It is also what makes login's `lower(email) = lower($1)` lookup
+  /// an index scan rather than a sequential one.
   email        String?    @unique
   phone        String     @unique
   passwordHash String
@@ -158,6 +172,7 @@ model User {
   processedSupportThreads SupportThread[]  @relation("ProcessedSupportThreads")
   supportMessages         SupportMessage[] @relation("SentSupportMessages")
   sseTickets              SseTicket[]      @relation("UserSseTickets")
+  notifications           Notification[]   @relation("UserNotifications")
 
   // Worker-specific
   /// The office a worker is assigned to. Members do not have one.
@@ -528,7 +543,18 @@ model Notification {
 
   // Target (who should see this)
   targetRole   UserRole? // If set, all users with this role see it
+  /// WO-92. `targetUserId` was a bare `String?` with no relation while every
+  /// other user-owned table declared `onDelete: Cascade`, so notifications were
+  /// cleaned up by hand in exactly one place — the worker DELETE — and left
+  /// behind by every other deletion path.
+  ///
+  /// Orphaned rows are the small half of it. A notification is *read by target
+  /// id* (`member_repository.go`), so an id that is re-used or mis-assigned
+  /// delivers one member's balance and loan detail to another member's bell
+  /// icon. A foreign key is what makes an id that names nobody impossible
+  /// rather than merely unlikely.
   targetUserId String? // If set, specific user sees it
+  targetUser   User?     @relation("UserNotifications", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   // Status
   isRead Boolean   @default(false)

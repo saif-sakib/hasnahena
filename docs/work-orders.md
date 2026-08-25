@@ -25,23 +25,20 @@ do later, the same principle as [go-live.md](go-live.md).
 | ~~**V**~~ | ~~SEO~~ | WO-79 → 81 | **Done 2026-08-19** |
 | ~~**W**~~ | ~~Future-proof~~ | WO-82 → 84 | **Done 2026-08-19** |
 | ~~**X**~~ | ~~Account security — the live ones~~ | WO-85 → 89 | **Done 2026-08-24** |
-| **Y** | **Identity and deletion integrity** | WO-90 → 93 | **Open.** One contact = one account, and a deleted thing is actually gone. Costs more the more rows exist, so it is before launch, not after |
+| ~~**Y**~~ | ~~Identity and deletion integrity~~ | WO-90 → 93 | **Done 2026-08-25** |
 | **Z** | **English first** | WO-94 → 97 | **Open.** Locale defaults and the URL shape. Last because nothing here can lose money — but WO-95 gets dearer with every link and every indexed URL |
 
-Blocks R → X are closed. **Y and Z are open**; they were opened 2026-08-24 from
-an owner review, along with X, which is done. Everything else is in
+Blocks R → Y are closed. **Z is open**; it was opened 2026-08-24 from an owner
+review, along with X and Y, which are done. Everything else is in
 [production-readiness.md](production-readiness.md) and
 [go-live.md](go-live.md) — and one item in this file's last section that needs a
 credential rather than a session.
 
 ### Doing these in order
 
-**Y before Z.** Within a block the orders are independent unless an order says
-otherwise, so `do WO-91` on its own is a valid instruction. Three dependencies
-existed and are named where they bind: WO-91 needs WO-85's revocation helper,
-which now exists as `UserRepository.RevokeAllUserTokens`; WO-95 supersedes
-WO-94's URL shape; and WO-93 needs a decision from the owner before a line is
-written.
+Within a block the orders are independent unless an order says otherwise, so
+`do WO-95` on its own is a valid instruction. One dependency is left: WO-95
+supersedes WO-94's URL shape.
 
 ### Standing rules for every order
 
@@ -259,168 +256,59 @@ than specified by it.
   Every assertion about an audit row counts a **delta**. This is a nice property
   to have discovered from the enforcement rather than from a stale count.
 
-# Block Y — Identity and deletion integrity
-
-Owner review, 2026-08-24: *"All the email and phone number should be distinct
-through all the members, admin, workers, pending. Also all the deletion is
-perfectly deleting. All the message is clear that already exists."*
-
-**Read this before starting — most of it is already right.** Members, workers,
-admins and pending applicants are all rows in `users`, so `@unique` on `email`
-and `phone` already spans every role and every status; there is no separate
-pending table to diverge. `bdPhoneRegex = /^01\d{9}$/` is enforced on both
-creation paths, so phone numbers are already in one canonical form and cannot
-duplicate as `+880…` versus `01…`. Registration rejection tombstones the contact
-fields (`admin_repository.go:710`) so a rejected applicant can re-register —
-that is deliberate and good. The worker DELETE handler
-(`apps/web/app/api/v1/admin/workers/route.ts:413`) counts historical references,
-archives instead of deleting when any exist, and otherwise clears reset tokens
-and notifications before cascading — that is careful work; **do not rewrite it.**
-
-Four gaps remain.
-
 ---
 
-## WO-90 — Email uniqueness is case-sensitive, and one collision path returns 500
+# Block Y — closed 2026-08-25
 
-**Two defects, same area.**
+WO-90 → WO-93 are done. What they contained is one row in
+[changelog.md](changelog.md); the policy WO-93 needed is
+[ADR-033](decisions.md) and [product.md](product.md); what they *taught* is in
+[traps.md](traps.md). Six things are worth repeating, because all six were found
+by the work rather than specified by it.
 
-**(a) The database index is case-sensitive.** `email String? @unique` is a plain
-Postgres unique index, so `Saif@x.com` and `saif@x.com` are two rows. Both
-application paths lowercase before writing —
-`registrations/route.ts:216` and `workers/route.ts:124` — so today nothing
-creates a collision. That is a convention holding a constraint's job: a seed
-script, a migration, a support fix applied by hand, or the next creation path
-someone adds re-opens it, and the duplicate is permanent and invisible.
-`accountNo` is unaffected (generated). Fix it where it belongs — a unique index
-on `lower(email)`.
+- **WO-90(b) was already fixed, and the order did not know.** It said the
+  workers route "just never wired up" `routeErrorStatus`, so a concurrent
+  duplicate answered 500. The catch has routed `P2002 → 409` since the TEST-16 /
+  TEST-18 work; the concurrency test written to see that 500 was green before
+  the fix. What was actually wrong is smaller and was not in the order: the 409
+  said "User with this email/phone already exists" and `routeErrorMessage` said
+  "That value is already in use", so an admin was told that one of two values
+  was taken without being told which. Both name the field now.
 
-**(b) A concurrent duplicate is reported as a server fault.**
-`workers/route.ts:129` reads, then writes:
+- **`accountNo` was the collision the caller could not cause.** Staff numbers
+  were `STF-${Date.now().toString(36)}`, so two admins adding *different* workers
+  in the same millisecond collided on a unique column neither of them had sent,
+  and the 409 told them to change an email and a phone that were both fine.
+  Found by WO-90's concurrency test, which is about the other collision
+  entirely.
 
-```ts
-const existing = await prisma.user.findFirst({ OR: [{ email }, { phone }] });
-if (existing) return 409 'User with this email/phone already exists';
-…
-await prisma.user.create({ … })      // ← P2002 here falls to the catch
-```
+- **The functional index also made login faster.** `FindByIdentifier` has
+  matched on `lower(COALESCE(email,'')) = lower($1)` since the auth work, which
+  no plain index on `email` can answer — every login by email was a sequential
+  scan of `users`. `users_email_lower_key` exists for correctness and answers
+  that predicate as a side effect.
 
-Two admins adding the same worker at once: both reads miss, the second create
-raises `P2002`, and the handler's catch answers **500 "Failed to create staff
-account"**. `routeErrorStatus` already maps `P2002 → 409`
-(`lib/route-errors.ts:84`) and the registrations route already uses it
-(`registrations/route.ts:492`) — the workers route just never wired it up. This
-is CLAUDE.md rule 2b in the Next half: an expected refusal is not a 500.
+- **WO-91's revocation needed a second copy of WO-85's derived TTL, in the other
+  language.** The marker has to outlive the longest issuable token, and that
+  length is `JWT_EXPIRY_SECONDS`, which only Render sets — so the Next half runs
+  on the default far more often than the Go half does. `revocationTtlSeconds()`
+  mirrors `revocationTTLFor`, and `test/unit/revocation-contract.test.ts` reads
+  the Go source to keep the two from parting.
 
-**Change.** A functional unique index on `lower(email)` via
-`pnpm db:migrate:dev` (Prisma cannot express it — raw SQL in the migration, and
-say so in the migration comment so a later `--from-empty` baseline does not drop
-it, exactly like the CHECK constraints and the `audit_logs` trigger). Route
-`P2002` through `routeErrorStatus` in the workers POST and PUT, and name the
-field that collided rather than saying "email/phone" — the caller cannot fix
-what they are not told.
+- **Neither backend re-reads a user's status per request, by design.** WO-91
+  asks to "confirm a request carrying a valid token for an INACTIVE user is
+  refused on both backends". It is not, and adding a status read would be a
+  second user lookup on every call. The revocation marker *is* the mechanism,
+  which is what makes writing it in the same transaction as the deactivation the
+  whole of the fix rather than a belt-and-braces addition.
 
-**Test.** `apps/web/test/routes/` — a create colliding on case answers 409 and
-names the field. Seen red: today it is 500, or succeeds.
-
-**Verify.** `pnpm db:migrate:check && pnpm test:routes`
-
----
-
-## WO-91 — Deleting or deactivating a worker leaves their sessions alive
-
-**Depends on WO-85.**
-
-**The defect.** `workers/route.ts` DELETE cleans up thoroughly and then stops
-one step short: it writes no revocation marker. The same is true of PATCH →
-`INACTIVE` (`workers/route.ts:373`). A worker who is dismissed keeps a working
-staff token — able to post deposits and process withdrawals — until it expires.
-
-The archive branch is the worse of the two, because it is the branch that runs
-for any worker who has ever processed a transaction: that is every real worker,
-and it only sets `status = INACTIVE`.
-
-**Change.** In both paths, inside the existing `prisma.$transaction`, insert the
-`all:<userId>` row — the same shape `BlacklistAllUserTokens` writes, which
-`lib/auth-revocation.ts` and the Go `ValidateToken` both already honour. Reason
-`"admin_revoke"`. The Next side writes it with Prisma directly; keep the row
-identical to the Go one, and say in a comment that the two must not drift, for
-the reason `auth-revocation.ts:17` already gives.
-
-Then check what the token still buys: confirm a request carrying a valid token
-for an `INACTIVE` user is refused on **both** backends. If status is only read
-at login, a deactivated worker keeps their access for the life of the token by a
-second, independent route.
-
-**Test.** `apps/web/test/routes/`, seen red: delete a worker, assert a marker
-exists; deactivate a worker, assert the same.
-
-**Verify.** `pnpm test:routes && pnpm test:integration`
-
----
-
-## WO-92 — `Notification.targetUserId` is not a foreign key
-
-**The defect.** `schema.prisma:522` — every other user-owned table declares
-`onDelete: Cascade`. Notifications carry a bare `String?` with no relation.
-
-They are cleaned up by hand in exactly one place, the worker DELETE. Any other
-deletion path leaves them, and CLAUDE.md's contract table is explicit that an
-unindexed or undeclared FK is a defect this repo pins with a test.
-
-The failure is not just orphaned rows. `targetUserId` is a `cuid()`, so a
-delivered-to-nobody notification is merely waste — but a notification is *read
-by target id*, so any code that re-uses or mis-assigns an id delivers one
-member's balance and loan detail to another member's bell icon.
-
-**Change.** Declare the relation with `onDelete: Cascade` and a leading index on
-`targetUserId` (the existing `@@index([targetUserId, isRead])` already leads
-with it — confirm it satisfies `foreign-key-indexes.test.ts` and add nothing
-redundant). Migration via `pnpm db:migrate:dev`. Then delete the by-hand
-`notification.deleteMany` from the worker DELETE — the cascade owns it, and two
-mechanisms for one rule is how they drift.
-
-**Test.** `apps/web/test/unit/foreign-key-indexes.test.ts` covers the index. Add
-an integration assertion that deleting a user removes their notifications.
-
-**Verify.** `pnpm db:migrate:check && pnpm test:unit && pnpm test:integration`
-
----
-
-## WO-93 — There is no member deletion, and tombstones are permanent
-
-**Needs a decision from the owner before any code is written. Do not start this
-one on your own judgement.**
-
-**The situation.** Workers can be deleted. Members cannot — there is no endpoint,
-no screen and no repository method. A rejected applicant's row is kept forever
-with their address, both parents' names, their NID number and their photo URL,
-under a tombstoned email and phone (`admin_repository.go:710`).
-
-Keeping the row is defensible: a rejection is a decision the foundation may need
-to justify, and the tombstone is what lets the applicant re-apply. Keeping the
-**NID number and the photo** of someone who was refused membership, forever, is
-a different question, and it is the owner's to answer, not a session's.
-
-**The questions, in the order they need answering:**
-
-1. May an *approved* member ever be removed, and what happens to their postings?
-   A member with a confirmed transaction history cannot simply vanish — the
-   ledger stops summing (rule 6c, `reconcile_repository.go`). The worker
-   handler's archive-if-referenced pattern is the precedent.
-2. How long is a rejected application kept, and what is stripped when it expires?
-   Rejection already tombstones the contact fields; NID, addresses, parents'
-   names and `avatarUrl` are untouched.
-3. Does a member have a right to ask for their data to be removed, and who
-   approves it?
-
-**Once answered**, the implementation follows the worker handler exactly:
-reference count → archive or delete → clear reset tokens and notifications →
-cascade → audit row. Cloudinary assets need explicit deletion; the cascade does
-not reach them.
-
-**Verify.** Whatever is decided goes in `docs/product.md` and an ADR *before* the
-code, because this one is policy first.
+- **WO-93's `oldValue` had to be left out, which is the one place "follow the
+  worker handler exactly" is wrong.** `WORKER_UPDATED` records the row it
+  changed. An erasure that did the same would copy the NID number, the parents'
+  names and the address into `audit_logs`, which nothing can delete from
+  (DATA-08) — erasure that preserves what it erased. The row names the account
+  number, the counts and the admin's reason, and a test asserts the rest is
+  absent.
 
 ---
 

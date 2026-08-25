@@ -10,6 +10,23 @@
 3. **`audit_logs` is append-only.** Corrections append; nothing updates or deletes.
 3a. **The database has CHECK constraints of its own** (WO-69): no negative savings or loan balance, no zero or negative posting, a loan's `remainingAmount` between 0 and its principal, `paidInstallments` no greater than `totalInstallments`, and `applicationFee = 0` — rule 3 as a constraint rather than a convention. They exist because *two* backends write these tables, so "every current code path is careful" is a statement about today's code. Before them the database accepted every one of those rows; each constraint has an integration test that was seen to pass against the unconstrained schema.
 3b. **Migrations are the only definition of this schema** (WO-70). The Go API used to run `CREATE TABLE IF NOT EXISTS` at boot for four tables Prisma also owns, and the two definitions disagreed — `document_sequences."updatedAt"` had a default in one and not the other, which is the divergence that once broke all four money flows at once. A repository that issues DDL now fails `TestRepositoriesDoNotDefineSchema`.
+3c. **One contact is one account, and the database says so in two places.**
+   `email` carries the ordinary `@unique` index *and* `users_email_lower_key`, a
+   unique index on `lower(email)` that Prisma cannot express and `schema.prisma`
+   therefore only documents (WO-90). Without it `Saif@x.com` and `saif@x.com` are
+   two rows — two savings balances, one person — held apart only by the
+   convention that both write paths lowercase first. It is the third object
+   `prisma migrate diff` cannot see, and it is also what makes login's
+   `lower(email) = lower($1)` an index lookup rather than a scan of `users`.
+3d. **Identity data has an end date; the money does not.** A member with any
+   posting is **anonymised, never deleted** — a posting whose owner has vanished
+   makes the hourly reconciliation permanently wrong, not smaller — and a
+   rejected application keeps its decision for ever and loses its NID number,
+   parents' names, date of birth and addresses after
+   `security.rejectedRetentionDays` ([ADR-033](decisions.md), FR-23).
+   `transactions.userId` and `loans.borrowerId` declare no cascade, so they are
+   `ON DELETE RESTRICT`: the database refuses to delete a member with history
+   whatever the application thinks.
 4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
 5a. **Every foreign key is indexed, with its column leading** (WO-68), and `test/unit/foreign-key-indexes.test.ts` fails the build when a new one is not. Unindexed foreign keys cost twice: reads through them are sequential scans, and so is the foreign-key check Postgres runs when the *parent* row is written, while holding a lock.
@@ -58,13 +75,13 @@ is not a column, it is `EXISTS` over an unused, unexpired one of them.
 ## `system_config` keys
 
 The complete allow-list lives in
-[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 35 keys —
+[`apps/web/lib/system-config.ts`](../apps/web/lib/system-config.ts) — 40 keys —
 and is the single source of truth. `PUT /api/v1/settings` **rejects the whole
 request** on any key not declared there; it used to upsert anything, so a typo
 became a permanent row that looked like a real setting while the code read the
 correctly-spelled one.
 
-The six the Go API reads (plus `support.chatRetentionDays`). The first four come
+The seven the Go API reads (plus `support.chatRetentionDays`). The first four come
 through `getLoanPolicy()` in `internal/repositories/repository.go`:
 
 | Key | Default | Effect |
@@ -75,6 +92,7 @@ through `getLoanPolicy()` in `internal/repositories/repository.go`:
 | `loan.allowActiveLoanWithdrawal` | off | permit withdrawal while a loan is active |
 | `loan.noticePeriodDays` | `90` | days of notice a member is **asked** to give before withdrawing. Informational: rendered on the member's savings screen and in the FAQ, enforced by nothing ([ADR-030](decisions.md)). `0` shows nothing |
 | `loan.missedPaymentsForDefault` | `3` | scheduled instalments a borrower must have missed before a loan may be marked defaulted |
+| `security.rejectedRetentionDays` | `365` | days a **rejected** application keeps its NID number, parents' names, date of birth and addresses before the Go API's daily sweep clears them. The decision and its `audit_logs` row are kept for ever ([ADR-033](decisions.md)). A missing, unparseable or non-positive value falls back to 365 rather than stopping the sweep — refusing to run would keep the data indefinitely |
 
 The rest are read by the web app only: `org.*` (letterhead on generated
 documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
@@ -85,7 +103,8 @@ the Next loan-application route, not in Go.
 **Objects `prisma migrate diff` cannot see.** Three now, and the list matters
 because a `--from-empty` baseline would drop each one silently and
 `pnpm db:migrate:check` will not report them as drift: the `audit_logs`
-immutability trigger, the CHECK constraints from WO-69, and nothing else. A
+immutability trigger, the CHECK constraints from WO-69, and
+`users_email_lower_key`, the unique index on `lower(email)` from WO-90. A
 covering index on `support_messages` was a fourth candidate and was deliberately
 not added — it had never actually existed in any environment, and a marginal gain
 on the smallest hot path does not justify another invisible object.

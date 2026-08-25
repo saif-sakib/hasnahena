@@ -26,6 +26,7 @@ import {
   FileImage,
   Eye,
   Download,
+  ShieldAlert,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,9 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useIsAdmin } from '@/components/dashboard/role';
 import { useApi } from '@/lib/use-api';
 import {
   MoneyActionDialog,
@@ -145,6 +149,19 @@ export default function MemberDetailScreen() {
   const router = useRouter();
   const params = useParams();
   const memberUserId = params.id as string;
+
+  /**
+   * FR-23 / WO-93 / ADR-033. Erasure is the only irreversible action on this
+   * screen, and an admin decision by policy — a worker must not see it. This is
+   * presentation only: `/api/v1/admin/members/[id]/erase` refuses a worker's
+   * token regardless, which is the gate that counts (see `role.tsx`).
+   */
+  const isAdmin = useIsAdmin();
+  const [eraseOpen, setEraseOpen] = useState(false);
+  const [eraseConfirm, setEraseConfirm] = useState('');
+  const [eraseReason, setEraseReason] = useState('');
+  const [erasing, setErasing] = useState(false);
+  const [eraseError, setEraseError] = useState<string | null>(null);
 
   // WO-27 — SWR, not an effect. `memberUserId` is read from the route, so the key
   // is null until it exists: that is how "not yet" is expressed to a hook that
@@ -370,6 +387,44 @@ export default function MemberDetailScreen() {
     };
   };
 
+  /**
+   * Erase this member — anonymise if they have postings, delete if they do not.
+   *
+   * The route decides which by counting; nothing here chooses, and nothing here
+   * is told to. All this screen owns is the confirmation: the account number is
+   * echoed by hand because this action cannot be undone and the page is reached
+   * from a list.
+   */
+  const handleErase = async () => {
+    setErasing(true);
+    setEraseError(null);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const response = await fetch(`/api/v1/admin/members/${encodeURIComponent(memberUserId)}/erase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ confirmAccountNo: eraseConfirm.trim(), reason: eraseReason.trim() }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.ok) {
+        // The refusals are answers, not faults — "this member guarantees a loan
+        // that is not settled" is exactly what the admin needs to read.
+        throw new Error(payload?.error || 'Failed to erase member');
+      }
+      setEraseOpen(false);
+      setEraseConfirm('');
+      setEraseReason('');
+      router.back();
+    } catch (err) {
+      setEraseError(err instanceof Error ? err.message : 'Failed to erase member');
+    } finally {
+      setErasing(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -471,6 +526,26 @@ export default function MemberDetailScreen() {
           </div>
         )}
       </div>
+
+      {/* FR-23. Separated from the quick actions above and shown to admins only:
+          every button up there can be corrected by another posting, and this one
+          cannot be undone at all. */}
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEraseError(null);
+              setEraseOpen(true);
+            }}
+            className="gap-2 border-red-200 text-red-700 hover:bg-red-50"
+          >
+            <ShieldAlert className="h-4 w-4" />
+            {locale === 'bn' ? 'সদস্যের তথ্য মুছুন' : 'Erase member data'}
+          </Button>
+        </div>
+      )}
 
       {/* Account Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -952,6 +1027,86 @@ export default function MemberDetailScreen() {
                 {locale === 'bn' ? 'ডাউনলোড' : 'Download'}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* FR-23 / ADR-033 — erasure. */}
+      <Dialog
+        open={eraseOpen}
+        onOpenChange={(open) => {
+          if (!open && !erasing) {
+            setEraseOpen(false);
+            setEraseConfirm('');
+            setEraseReason('');
+            setEraseError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <ShieldAlert className="h-5 w-5" />
+              {locale === 'bn' ? 'সদস্যের তথ্য মুছুন' : 'Erase member data'}
+            </DialogTitle>
+            <DialogDescription>
+              {locale === 'bn'
+                ? 'এন.আই.ডি, ছবি, ঠিকানা, নমিনী ও পিতা-মাতার নাম চিরতরে মুছে যাবে। সঞ্চয়, লেনদেন ও হিসাব নম্বর অপরিবর্তিত থাকবে — খাতা মিলতেই হবে। এই কাজ ফেরানো যায় না।'
+                : 'The NID number, photographs, addresses, nominee and parents’ names are removed for good. Savings, postings and the account number are kept exactly as they are, because the ledger still has to add up. This cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="erase-confirm">
+                {locale === 'bn'
+                  ? `নিশ্চিত করতে হিসাব নম্বর লিখুন (${member.accountNo || member.uid || '-'})`
+                  : `Type this member’s account number to confirm (${member.accountNo || member.uid || '-'})`}
+              </Label>
+              <Input
+                id="erase-confirm"
+                value={eraseConfirm}
+                onChange={(e) => setEraseConfirm(e.target.value)}
+                placeholder="ACC-KH-33001"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="erase-reason">
+                {locale === 'bn' ? 'কারণ (অডিটে থাকবে)' : 'Reason (kept in the audit log)'}
+              </Label>
+              <Input
+                id="erase-reason"
+                value={eraseReason}
+                onChange={(e) => setEraseReason(e.target.value)}
+                placeholder={
+                  locale === 'bn'
+                    ? 'যেমন: সদস্য সাপোর্টে অনুরোধ করেছেন'
+                    : 'e.g. member requested this through the support thread'
+                }
+                autoComplete="off"
+              />
+            </div>
+            {eraseError && (
+              <p className="flex items-start gap-2 text-sm text-red-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                {eraseError}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEraseOpen(false)} disabled={erasing}>
+              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleErase()}
+              disabled={erasing || eraseConfirm.trim().length === 0 || eraseReason.trim().length < 3}
+            >
+              {erasing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {locale === 'bn' ? 'স্থায়ীভাবে মুছুন' : 'Erase permanently'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

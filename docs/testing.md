@@ -68,6 +68,8 @@ left behind would pass or fail on package ordering.
 | a Go HTTP contract | `apps/api/cmd/server/routes_integration_test.go` | Postgres |
 | **what an auth endpoint discloses** | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
 | a Next route handler | `apps/web/test/routes/*.test.ts` | Postgres |
+| **who owns a contact, and what a deletion takes with it** | `apps/web/test/routes/identity-integrity.test.ts` | Postgres |
+| **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` | Postgres |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
 | a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
 
@@ -86,6 +88,11 @@ left behind would pass or fail on package ordering.
 5. **The browser fixtures refuse a non-localhost `DATABASE_URL`**
    (`assertDisposableDatabase`). They write balances; the mistake is one pasted
    environment variable away.
+6. **Assert on a *delta* of `audit_logs`, never an absolute count.** The table is
+   append-only and the trigger refuses a `DELETE`, so rows your suite wrote on
+   previous runs are still there. A test that expected exactly one
+   `MEMBER_ERASED` row passed once and then found three. Read the newest row and
+   compare counts before and after.
 
 ## Writing an assertion that stays true
 

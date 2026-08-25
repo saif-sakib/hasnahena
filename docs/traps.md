@@ -94,6 +94,30 @@ that treats status as a proxy for "did this happen" has to decide about
 
 ## Prisma and migrations
 
+- **`@unique` on a text column is case-sensitive, so uniqueness you believe you
+  have is a convention two write paths happen to share.** `email String? @unique`
+  is a plain Postgres unique index: `Saif@x.com` and `saif@x.com` are two rows,
+  two savings balances and one person. Nothing had ever produced one, because
+  both creation paths lowercase first — which is exactly why it would have gone
+  unnoticed until a seed script, a hand-applied support fix at the psql prompt,
+  or the next creation path someone adds produced the first. Prisma cannot
+  express `lower(email)`, so the index lives in a migration and is documented on
+  the field; it is the **third** object `prisma migrate diff` cannot see, along
+  with the `audit_logs` trigger and the money CHECK constraints, which means a
+  `--from-empty` baseline would drop all three silently (WO-90).
+- **An expression index is invisible to `prisma migrate diff` — which is what
+  makes it safe to add and dangerous to lose.** `pnpm db:migrate:check` reported
+  "No difference detected" with `users_email_lower_key` present, because the
+  diff engine compares the objects Prisma can model. That is the property that
+  lets a hand-written index coexist with a generated schema, and the reason
+  every such object has to be listed in one place.
+- **A foreign key you did not declare is still a decision.** `Transaction.user`
+  and `Loan.borrower` declare no `onDelete`, so Prisma's default for a required
+  relation applies: `RESTRICT`. Deleting a member with any posting therefore
+  fails at the database with a foreign-key error — correct, and unreadable. The
+  application counts references first and *decides* between deleting and
+  anonymising, which is what turns that constraint into an answer instead of a
+  500 (WO-93, rule 2b).
 - **Two definitions of one table will disagree, and `IF NOT EXISTS` makes the
   disagreement silent.** The Go API ran `CREATE TABLE IF NOT EXISTS` at boot for
   four tables `schema.prisma` also owns. On any database that already had them
@@ -331,6 +355,26 @@ database** — [ADR-028](decisions.md).
 
 ## Tests and evidence
 
+- **A regression test can be green before the fix because the defect was already
+  fixed by somebody else.** WO-90 said the workers route answered 500 on a
+  concurrent duplicate. The concurrency test written to see that 500 passed
+  against the unmodified code: `routeErrorStatus` had routed `P2002 → 409` since
+  the TEST-18 work, and the order was written from a reading of the file that
+  predated it. A work order is a hypothesis; the red run is what confirms it.
+  What *was* wrong turned out to be one line the order never mentioned — the
+  message did not say which field collided.
+- **A guard that two independent clauses enforce cannot be red-checked by
+  deleting one.** The retention sweep excludes an approved-then-deactivated
+  member by `approvedAt IS NULL` *and* by the tombstoned phone. Removing either
+  alone left the test green, which is the point of defence in depth and also
+  means the red check has to remove both to prove the test discriminates. Say so
+  in the test rather than deleting the redundant clause to make the check
+  simpler.
+- **`audit_logs` is append-only, so every assertion about it is a delta.** A test
+  asserting exactly one `MEMBER_ERASED` row passed on a clean database and found
+  three after two red-check runs, because `t.Cleanup` cannot delete from that
+  table. Count before, count after, and read the newest row.
+
 - **The defects that moved money were found by running the code, not by reading
   it.** Every audit that reviewed those files by eye passed them. A green suite
   bounds only the cases it contains — 17 integration tests were green while two
@@ -485,6 +529,13 @@ answered 500.
   in a way a production build never is.
 
 ## Interface
+
+- **A timestamp is not a unique value, however precise it looks.** Staff account
+  numbers were `STF-${Date.now().toString(36).toUpperCase()}`. Two admins adding
+  two *different* workers within the same millisecond collided on `accountNo`,
+  which is `@unique` — so the second create raised `P2002` on a column neither
+  of them had sent, and the 409 told them to change an email and a phone that
+  were both fine. Random bytes, or a sequence.
 
 - **A one-line re-export is not proof that two screens are the same screen.**
   `dashboard/worker/approvals` was `export { default } from '../../admin/approvals/page'`

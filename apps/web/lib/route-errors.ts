@@ -89,6 +89,49 @@ export function routeErrorStatus(err: unknown): number | null {
 }
 
 /**
+ * Human labels for the columns a caller can actually collide on.
+ *
+ * Only fields a caller *submits* are listed. `accountNo` is generated, so a
+ * collision on it is our bug and naming it in a 409 would tell the caller to fix
+ * something they never sent.
+ */
+const UNIQUE_FIELD_LABELS: Record<string, string> = {
+  email: 'email address',
+  phone: 'phone number',
+  nidNumber: 'NID number',
+};
+
+/**
+ * Which field a P2002 was raised on, as a phrase for a message — or `null` when
+ * it cannot be told.
+ *
+ * Prisma reports the conflict in `meta.target`, and in two shapes. Usually it is
+ * the list of model fields (`['email']`). For an index Prisma does not model —
+ * `users_email_lower_key`, WO-90's functional unique index on `lower(email)` —
+ * it can only report the constraint name, so the name is parsed too. Both are
+ * handled because the *case-insensitive* collision is exactly the one this
+ * endpoint now catches, and answering it with "That value is already in use"
+ * would be the same unhelpful 409 the work order set out to fix.
+ */
+export function uniqueConflictLabel(err: unknown): string | null {
+  const target = (err as { meta?: { target?: unknown } })?.meta?.target;
+  const candidates: string[] = Array.isArray(target)
+    ? target.filter((t): t is string => typeof t === 'string')
+    : typeof target === 'string'
+      ? [target]
+      : [];
+
+  for (const candidate of candidates) {
+    if (UNIQUE_FIELD_LABELS[candidate]) return UNIQUE_FIELD_LABELS[candidate];
+    // `users_email_lower_key`, `users_phone_key` — the constraint-name shape.
+    for (const [field, label] of Object.entries(UNIQUE_FIELD_LABELS)) {
+      if (candidate.includes(`_${field}_`)) return label;
+    }
+  }
+  return null;
+}
+
+/**
  * The message to send with that status. Never the raw error for a 500: those
  * carry table names, column names and connection strings.
  */
@@ -96,7 +139,12 @@ export function routeErrorMessage(err: unknown, fallback: string): string {
   const status = routeErrorStatus(err);
   if (status === 401) return 'Unauthorized';
   if (status === 404) return 'Not found';
-  if (status === 409) return 'That value is already in use';
+  if (status === 409) {
+    // WO-90. "email/phone" told an admin that *one of two* values was taken and
+    // left them to work out which. The caller cannot fix what they are not told.
+    const label = uniqueConflictLabel(err);
+    return label ? `That ${label} is already in use` : 'That value is already in use';
+  }
   if (status === 400) {
     if (err instanceof z.ZodError) return 'Validation failed';
     return err instanceof Error ? err.message : 'Invalid request';

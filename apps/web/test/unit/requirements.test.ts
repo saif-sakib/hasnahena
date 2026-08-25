@@ -194,6 +194,14 @@ const REQUIREMENTS: Record<string, Coverage> = {
     // without SQL. OBS-08.
     absent: /AuditViewer|liquidityAlert|LiquidityAlert/,
   },
+  // WO-93 / ADR-033, added 2026-08-25 from the owner review. Two halves and two
+  // backends: the admin-triggered erasure is a Next route, because it has to
+  // delete the Cloudinary assets; the rejected-application sweep is a Go
+  // background loop, because it has to run unattended and needs no Cloudinary.
+  'FR-23': {
+    covered:
+      'apps/web/test/routes/identity-integrity.test.ts (anonymise vs delete, the refusals, the audit row that names nothing it erased) + apps/api/internal/repositories/retention_integration_test.go (the window, what it must not touch) + cmd/server/wiring_test.go (the loop is actually started)',
+  },
 };
 
 // ---------------------------------------------------------------------------

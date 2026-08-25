@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { requireActiveAuth } from '@/lib/auth-revocation';
+import { requireActiveAuth, revokeAllTokens } from '@/lib/auth-revocation';
 import { generateTemporaryPassword } from '@/lib/api-utils';
 import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
@@ -125,19 +125,40 @@ export async function POST(req: Request) {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPhone = phone.trim();
 
+    // WO-90. Named rather than "email/phone": an admin told that one of two
+    // values is taken, without being told which, has to guess. Both are looked
+    // at, because both can be taken at once and the second attempt should not
+    // be the first time they hear about the second one.
     const existing = await prisma.user.findFirst({
       where: {
         OR: [{ email: normalizedEmail }, { phone: normalizedPhone }],
       },
-      select: { id: true },
+      select: { id: true, email: true, phone: true },
     });
     if (existing) {
-      return NextResponse.json({ ok: false, error: 'User with this email/phone already exists' }, { status: 409 });
+      const taken: string[] = [];
+      if (existing.email === normalizedEmail) taken.push('email address');
+      if (existing.phone === normalizedPhone) taken.push('phone number');
+      return NextResponse.json(
+        {
+          ok: false,
+          error: taken.length
+            ? `That ${taken.join(' and that ')} is already in use`
+            : 'That value is already in use',
+        },
+        { status: 409 },
+      );
     }
 
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
-    const accountNo = `STF-${Date.now().toString(36).toUpperCase()}`;
+    // A millisecond is not unique. Two admins adding staff at the same moment
+    // produced the same `accountNo`, and `accountNo` is `@unique` — so the
+    // second create raised P2002 on a column neither caller had sent, and the
+    // 409 told them to change an email and phone that were both fine. Found by
+    // WO-90's concurrency test, which is about the collision the caller *can*
+    // cause; this is the one they cannot.
+    const accountNo = `STF-${Date.now().toString(36).toUpperCase()}-${randomBytes(3).toString('hex').toUpperCase()}`;
 
     const created = await prisma.user.create({
       data: {
@@ -373,12 +394,25 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: 'Only worker accounts can be updated here' }, { status: 400 });
     }
 
-    const updated = await prisma.user.update({
-      where: { id },
-      data: {
-        status: status === 'ACTIVE' ? UserStatus.ACTIVE : UserStatus.INACTIVE,
-      },
-      select: STAFF_SELECT,
+    // WO-91. Deactivating a worker and ending their sessions are one fact, so
+    // they are one transaction. `status` is read at **login** and nowhere else:
+    // neither backend re-reads it per request, by design — that would be a
+    // second user lookup on every call — so the revocation marker is the *only*
+    // thing that takes a deactivated worker's staff token away. Without it a
+    // dismissed worker went on posting deposits and processing withdrawals
+    // until their token expired, up to a day later.
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.user.update({
+        where: { id },
+        data: {
+          status: status === 'ACTIVE' ? UserStatus.ACTIVE : UserStatus.INACTIVE,
+        },
+        select: STAFF_SELECT,
+      });
+      if (status === 'INACTIVE') {
+        await revokeAllTokens(tx, id, 'admin_revoke');
+      }
+      return row;
     });
 
     await createAuditLog({
@@ -464,17 +498,24 @@ export async function DELETE(req: Request) {
 
     // If historical references exist, archive (INACTIVE) instead of hard delete.
     if (referenceCount > 0) {
-      const archived = await prisma.user.update({
-        where: { id },
-        data: { status: UserStatus.INACTIVE },
-        select: {
-          id: true,
-          nameEn: true,
-          email: true,
-          phone: true,
-          role: true,
-          status: true,
-        },
+      // The branch that runs for any worker who has ever processed a
+      // transaction — which is every real worker — and the one that used to
+      // stop a step short: it set INACTIVE and left the token alive (WO-91).
+      const archived = await prisma.$transaction(async (tx) => {
+        const row = await tx.user.update({
+          where: { id },
+          data: { status: UserStatus.INACTIVE },
+          select: {
+            id: true,
+            nameEn: true,
+            email: true,
+            phone: true,
+            role: true,
+            status: true,
+          },
+        });
+        await revokeAllTokens(tx, id, 'admin_revoke');
+        return row;
       });
 
       await createAuditLog({
@@ -505,6 +546,10 @@ export async function DELETE(req: Request) {
 
     await prisma.$transaction(async (tx) => {
       if (existing.email || existing.phone) {
+        // Reset tokens are keyed by contact details rather than by user id, so
+        // the cascade below cannot reach them. Leaving them would let a
+        // first-login link for a deleted account be redeemed against whoever is
+        // given that phone number next.
         await tx.passwordResetToken.deleteMany({
           where: {
             OR: [
@@ -514,7 +559,11 @@ export async function DELETE(req: Request) {
           },
         });
       }
-      await tx.notification.deleteMany({ where: { targetUserId: id } });
+      // Notifications are NOT deleted here any more. `targetUserId` is a real
+      // foreign key with `onDelete: Cascade` since WO-92, and two mechanisms
+      // for one rule is how they drift — this hand-written one was the only
+      // deletion path that had it, which is exactly the problem.
+      await revokeAllTokens(tx, id, 'admin_revoke');
       await tx.user.delete({ where: { id } });
     });
 

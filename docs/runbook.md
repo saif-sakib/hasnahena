@@ -23,7 +23,7 @@ here is theory: every command has been run against this project.
 | Hosting | Vercel (web) · Render (Go API) · Neon (Postgres) |
 | Email | Brevo · Media: Cloudinary |
 
-If you cannot reach the owner, everything you need is in [§5](#5-where-every-credential-lives) —
+If you cannot reach the owner, everything you need is in [§6](#6-where-every-credential-lives) —
 but most of it needs their account, which is the honest state of things today
 and the reason CI-09 and OPS-01 are still open.
 
@@ -269,7 +269,40 @@ is **truncated and rewritten**. Restore into a branch, never the primary.
 
 ---
 
-## 5. Where every credential lives
+## 5. A member's data was erased and an asset was left behind
+
+Erasing a member (FR-23, [ADR-033](decisions.md)) deletes their documents and
+avatar from Cloudinary **after** the database transaction commits, deliberately:
+a third-party API that will not answer must not roll back an erasure that has
+already succeeded. So a Cloudinary failure leaves the row erased and the image
+still served publicly, and the only record is this log line:
+
+```
+[Admin/EraseMember] N Cloudinary asset(s) for ACC-KH-33001 were not deleted and
+are still served publicly.
+```
+
+The URLs are gone from the database by then, so they cannot be recovered from
+it. Find the assets in the Cloudinary console by folder and date — uploads are
+foldered per document type — and delete them by hand. The `MEMBER_ERASED` audit
+row records `assetsFound` and `assetsDeleted`, so the gap is the count to look
+for; it does not record the URLs, and must not.
+
+The same log line at **error** level from the Go API means something different:
+
+```
+retention sweep cleared an avatarUrl it cannot delete from Cloudinary
+```
+
+That is supposed to be impossible — `avatarUrl` is written only by a signed-in
+member on their own profile page, and a rejected applicant has never signed in.
+If it appears, some upload path now reaches an applicant, the sweep has cleared
+the column it would have needed to find the image, and the fix is in the code as
+well as in the console.
+
+---
+
+## 6. Where every credential lives
 
 | Store | Holds | Who can reach it |
 |---|---|---|
@@ -296,5 +329,5 @@ the owner has:
   correct as written and has been run against a local scratch database; it has
   not been run against a Neon branch with a real archive. Do that once, and
   record the date here. A restore you have not performed is a rumour.
-- **One person can still reach every credential.** [§5](#5-where-every-credential-lives)
+- **One person can still reach every credential.** [§6](#6-where-every-credential-lives)
   is a map of single points of failure, not a solution to them. OPS-01.

@@ -70,6 +70,12 @@ type Config struct {
 	// switch it off, which should only ever be a temporary measure while a known
 	// drift is being corrected by hand.
 	ReconcileInterval time.Duration
+
+	// RetentionSweepInterval controls how often rejected applications past the
+	// retention window have their identity data cleared (WO-93, ADR-033). Daily:
+	// the window is a year, so the resolution of the sweep is irrelevant to the
+	// policy and a tighter tick would only add load.
+	RetentionSweepInterval time.Duration
 }
 
 func Load() Config {
@@ -145,6 +151,7 @@ func Load() Config {
 		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
 		MetricsRefreshInterval: getEnvDuration("METRICS_REFRESH_INTERVAL", 1*time.Minute),
 		ReconcileInterval:      getEnvDuration("RECONCILE_INTERVAL", 1*time.Hour),
+		RetentionSweepInterval: getEnvDuration("RETENTION_SWEEP_INTERVAL", 24*time.Hour),
 	}
 }
 
