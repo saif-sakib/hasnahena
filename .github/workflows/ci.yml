@@ -285,6 +285,18 @@ jobs:
       # default of 60 requests a minute, so the limiter would 429 the later
       # specs and they would render empty pages. See scripts/test-stack.sh.
       RATE_LIMIT_REQUESTS: '100000'
+      # The seeded admin, below. Without these every spec that acts as an
+      # administrator fails rather than skipping — `entry-path.spec.ts` asserts
+      # on them, because a silent skip of the approve/reject journey is the
+      # coverage Phase 1 existed to add. They must match the `db:seed` step.
+      E2E_ADMIN_IDENTIFIER: admin@hasnahena.test
+      E2E_ADMIN_PASSWORD: ci-password-1234567
+      # **No CLOUDINARY_* on purpose.** That account holds real members' NID
+      # photographs and nothing in CI may write to it. `POST /registrations`
+      # uploads the four documents and rolls the application back if it cannot,
+      # so the two specs that drive the registration form end to end skip here
+      # and say why; the decision half of the entry path seeds its applicant
+      # with Prisma and runs.
 
     steps:
       - uses: actions/checkout@v7

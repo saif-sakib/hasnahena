@@ -132,11 +132,28 @@ inside the fee-promise census.
 **Top padding under the fixed header is `pt-24`**, everywhere. It was `pt-32`,
 `pt-24` and `pt-20` depending on which page was written last.
 
-**The logo is sized by HEIGHT.** `size` in
-[`components/ui/logo.tsx`](../apps/web/components/ui/logo.tsx) sets a pixel
-height and the width follows the aspect ratio. Never `h-auto w-auto`: that
+**The logo is sized by HEIGHT, and the header is sized to hold it.** `size` in
+[`components/ui/logo.tsx`](../apps/web/components/ui/logo.tsx) sets a height
+class and the width follows the aspect ratio. Never `h-auto w-auto`: that
 overrides the size prop entirely, and every call site then renders at the
-asset's intrinsic 192×108 — inside a 64 px header.
+asset's intrinsic 192×108 — inside what used to be a 64 px header. The opposite
+mistake costs as much: at 40 px the two lines of Bengali tagline beneath
+হাসনাহেনা are about eight pixels each. The header is `h-24` at the top of the
+page, where it is transparent over the hero and the brand should dominate, and
+`h-16` once scrolled, where it is a utility bar. `matrix.spec.ts` asserts
+`36 ≤ logo ≤ header` on every page that has one.
+
+**The hero must not depend on a setting being filled in.** It has its own
+illustration ([`components/ui/geometric-panel.tsx`](../apps/web/components/ui/geometric-panel.tsx)),
+drawn rather than photographed, and the four figures are a band below it that
+appears only when the foundation has stated them. Design the unconfigured state
+first — it is what every new deployment shows and what the owner sees before
+they have anything to say.
+
+**The landing copy is seeded**, both halves of every pair, in
+[`scripts/seed.mjs`](../apps/web/scripts/seed.mjs). Adding a prose pair without
+seed rows leaves the admin screen blank, and saving from a blank screen writes
+the blankness back over the page.
 
 **Prove it:**
 ```bash

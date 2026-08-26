@@ -27,9 +27,11 @@ interface LegalDocumentProps {
  * "Last updated: March 2026" literal in both, the same bespoke header in both,
  * and no way to change one without remembering the other.
  *
- * `pt-24` is the shared clearance under the fixed header, matching /support and
- * /faq. Before T-10 the interior pages used `pt-32`, `pt-24` and `pt-20`
- * depending on which was written last.
+ * `pt-32 md:pt-36` is the shared clearance under the fixed header, which is
+ * `h-24`/`md:h-28` at the top of a page and shrinks on scroll. It matches
+ * /support, /faq and the four card pages.
+ * Before T-10 the interior pages used `pt-32`, `pt-24` and `pt-20` depending on
+ * which was written last.
  */
 export async function LegalDocument({
   icon,
@@ -57,7 +59,7 @@ export async function LegalDocument({
       : text;
 
   return (
-    <main className="flex-1 bg-slate-50 dark:bg-slate-950 pt-24 pb-16">
+    <main className="flex-1 bg-slate-50 dark:bg-slate-950 pt-32 md:pt-36 pb-16">
       <div className="container-wide max-w-3xl">
         <div className="mb-8">
           <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 dark:bg-emerald-900/30">

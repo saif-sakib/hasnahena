@@ -24,28 +24,37 @@ interface LogoProps {
 }
 
 /**
- * How **tall** the lockup renders, in CSS pixels.
+ * How **tall** the lockup renders — a Tailwind height class, with the width left
+ * to follow the aspect ratio.
  *
- * Height rather than width, and this is the whole fix from T-10. The size map
- * used to name widths and hand them to `next/image` as the `width` prop — while
- * the className said `h-auto w-auto`, which overrides both. A replaced element
- * with `width:auto;height:auto` renders at its *intrinsic* size, so every call
- * site got the same picture whatever `size` it asked for: `sm` and `md` both
- * measured **192 × 108**, inside a **64 px** header.
+ * Two corrections live in this map, in order.
  *
- * What that looked like: the leaf spilling 44 px below the header on every
- * public page, covering the hero badge at 412 px; and the privacy page's own
- * header growing to 141 px on a phone because it has no fixed height to spill
- * out of. The `size` prop had no effect anywhere, so nobody could have fixed one
- * call site without discovering this.
+ * **The size prop used to do nothing at all.** It named a *width*, handed it to
+ * `next/image`, and the className then said `h-auto w-auto` — which overrides
+ * both, because a replaced element sized `auto`/`auto` renders at its intrinsic
+ * dimensions. Every call site got the same picture: `sm` and `md` both measured
+ * 192 × 108, inside a 64 px header, so the leaf spilled over the hero and
+ * covered the tagline badge at 412 px.
  *
- * The header is `h-16`, so `md` is 40 px — the lockup sits inside it with room
- * above and below at every width.
+ * **Then the fix went too far the other way.** Constraining `md` to 40 px made
+ * the lockup obey its header and made the wordmark unreadable — the tagline
+ * under হাসনাহেনা is two lines of small Bengali type, and at 40 px tall those
+ * lines are about eight pixels each. The owner reads this on a phone in
+ * sunlight. So the header grew to hold a lockup at a size somebody can actually
+ * read, rather than the lockup shrinking to fit a header nobody chose.
+ *
+ * Classes rather than an inline style so the height can be responsive: a phone
+ * gets the smaller step of each pair, a desktop the larger.
  */
-const heightMap = { sm: 28, md: 40, lg: 56, xl: 72 } as const;
+const heightClass = {
+  sm: 'h-9 md:h-10',
+  md: 'h-14 md:h-16',
+  lg: 'h-16 md:h-20',
+  xl: 'h-20 md:h-24',
+} as const;
 
-/** The mark is square, so it reads smaller at the same height beside text. */
-const MARK_SCALE = 0.9;
+/** The largest CSS pixel height each step can reach, for `next/image` sizing. */
+const maxHeight = { sm: 40, md: 64, lg: 80, xl: 96 } as const;
 
 export function Logo({
   size = 'md',
@@ -56,7 +65,10 @@ export function Logo({
   priority = false,
 }: LogoProps) {
   const source = src ?? (mark ? LOGO_MARK_SRC : LOGO_LOCKUP_SRC);
-  const height = Math.round(heightMap[size] * (mark ? MARK_SCALE : 1));
+  // The intrinsic size handed to `next/image` is the *largest* the class pair
+  // can render, so the srcset it picks is never upscaled. The CSS below is what
+  // actually decides the size on screen.
+  const height = maxHeight[size];
   const width = Math.round(height / (mark ? MARK_RATIO : LOCKUP_RATIO));
 
   return (
@@ -68,13 +80,13 @@ export function Logo({
       alt="হাসনাহেনা ফাউন্ডেশন / Hasnahena Foundation"
       width={width}
       height={height}
-      // The height is fixed and the width follows the aspect ratio, so an
-      // uploaded `branding.logo` of any shape still fits the space it is given
-      // rather than deciding it. `max-w-full` keeps a very wide upload from
-      // pushing the language switcher off a 412 px screen.
-      style={{ height: `${height}px`, width: 'auto' }}
       className={cn(
-        'max-w-full object-contain',
+        // `w-auto` and never `h-auto`: the height class is the size, the width
+        // follows. `max-w-[45vw]` is the guard for an uploaded `branding.logo`
+        // of an unexpected shape — a very wide one must not push the language
+        // switcher off a 412 px screen.
+        'w-auto max-w-[45vw] object-contain',
+        heightClass[size],
         variant === 'light' && 'brightness-0 invert',
         className
       )}

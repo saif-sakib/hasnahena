@@ -157,6 +157,18 @@ for (const viewport of VIEWPORTS) {
           ).toBeLessThanOrEqual(measured!.header);
         }
 
+        // **And a floor**, which is the other half of the same story. The first
+        // fix for the overflow shrank the lockup to 40 px, and at that size the
+        // two lines of Bengali tagline beneath হাসনাহেনা are about eight pixels
+        // each — unreadable on the cheap Android in sunlight this site is built
+        // for. A number is the only way to state "legible"; 36 px is below every
+        // size the header actually uses, including the shrunk-on-scroll one.
+        expect(
+          measured!.logo,
+          `the logo is only ${measured!.logo}px tall on ${url('en', path)} — the wordmark ` +
+            'and its tagline cannot be read at that size',
+        ).toBeGreaterThanOrEqual(36);
+
         // An uploaded `branding.logo` of an unexpected shape must not push the
         // language switcher off a 412 px screen either. This is the bound that
         // applies on the auth pages, where the lockup is inside the card.

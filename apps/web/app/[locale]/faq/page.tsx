@@ -55,7 +55,7 @@ export default async function FaqPage({ params }: PageProps) {
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/faq" settings={settings} />
       <Header settings={settings} />
-      <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-24 pb-16">
+      <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-32 md:pt-36 pb-16">
         <div className="container-wide max-w-4xl">
           <div className="mb-8 flex items-center justify-between">
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">

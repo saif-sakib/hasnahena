@@ -146,6 +146,68 @@ const CONFIG_DEFAULTS = [
   { key: 'bank.accountNo', value: '', description: 'Bank account number shown on /donate — empty hides the bank card' },
   { key: 'bank.branch', value: '', description: 'Bank branch shown on /donate' },
 
+  // ---------------------------------------------------------------------
+  // The public site's own words.
+  //
+  // Seeded, and that is a change of position taken on the owner's instruction
+  // (2026-08-26): the landing copy used to fall back to strings in
+  // `messages/{en,bn}.json`, so a fresh install rendered correctly but Admin →
+  // Content & Media showed **empty boxes**, and an admin opening that screen
+  // could not tell whether the site had no copy or whether the form had failed
+  // to load. Seeding it makes the screen show what the visitor is being shown,
+  // which is the only state from which editing makes sense.
+  //
+  // Every one of these is a PAIR — the bare key is Bengali, the `…En` twin is
+  // English (`lib/localized-settings.ts`). Seeding only one half would put
+  // Bengali on the English home page, which is the bug the pairs exist for.
+  { key: 'hero.tagline', value: 'ইসলামী শরীয়াহ সম্মত', description: 'Hero badge (Bengali)' },
+  { key: 'hero.taglineEn', value: 'Shariah Compliant Finance', description: 'Hero badge (English)' },
+
+  { key: 'features.title', value: 'কেন হাসনাহেনা', description: 'Features section heading (Bengali)' },
+  { key: 'features.titleEn', value: 'Why Hasnahena', description: 'Features section heading (English)' },
+
+  { key: 'contact.title', value: 'যোগাযোগ করুন', description: 'Contact section heading (Bengali)' },
+  { key: 'contact.titleEn', value: 'Get in Touch', description: 'Contact section heading (English)' },
+
+  { key: 'navigation.donate', value: 'দান করুন', description: 'Donate menu label (Bengali)' },
+  { key: 'navigation.donateEn', value: 'Donate', description: 'Donate menu label (English)' },
+
+  { key: 'auth.welcomeBack', value: 'আবার স্বাগতম', description: 'Login greeting (Bengali)' },
+  { key: 'auth.welcomeBackEn', value: 'Welcome back', description: 'Login greeting (English)' },
+
+  {
+    key: 'donation.title',
+    value: 'আপনার অনুদান বদলে দিতে পারে একটি জীবন',
+    description: 'Donate section heading (Bengali)',
+  },
+  {
+    key: 'donation.titleEn',
+    value: 'Your Donation Can Change a Life',
+    description: 'Donate section heading (English)',
+  },
+  {
+    key: 'donation.subtitle',
+    value: 'নিচের যেকোনো মাধ্যমে অনুদান পাঠাতে পারেন। প্রতিটি টাকা পৌঁছে যাবে প্রকৃত অভাবীদের কাছে।',
+    description: 'Donate section subheading (Bengali)',
+  },
+  {
+    key: 'donation.subtitleEn',
+    value: 'Give through any of the channels below. Every taka reaches the people who need it.',
+    description: 'Donate section subheading (English)',
+  },
+  {
+    key: 'donation.referenceNote',
+    value:
+      'অনুদান পাঠানোর পর অনুগ্রহ করে রেফারেন্সে আপনার নাম ও মোবাইল নম্বর লিখুন, অথবা আমাদের ফোন করে জানান — তাহলে আমরা আপনার অনুদানের রসিদ পাঠাতে পারব।',
+    description: 'Donate reference note (Bengali)',
+  },
+  {
+    key: 'donation.referenceNoteEn',
+    value:
+      'After sending a donation, please put your name and mobile number in the reference, or call us — that is how we can send you a receipt.',
+    description: 'Donate reference note (English)',
+  },
+
   // The four figures beside the home page headline (T-11, 2026-08-26).
   //
   // Seeded EMPTY for the same reason as `bank.*`, and it is the stronger case

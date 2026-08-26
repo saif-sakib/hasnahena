@@ -212,9 +212,22 @@ export default function OverviewScreen() {
         </div>
       </div>
 
-      {/* Action centre — generated from the nav, so it can never list a screen
-          this role cannot open. */}
-      <div className="space-y-3">
+      {/*
+        Action centre — generated from the nav, so it can never list a screen
+        this role cannot open.
+
+        **`lg:hidden`**, which is the whole point of it. Below `lg` the sidebar
+        is a drawer behind a hamburger (`dashboard-layout.tsx` hides it with
+        `lg:hidden` on the overlay and the toggle), so these cards are the only
+        visible way to reach a screen — and this is an Android-first platform,
+        so that is the case that matters most. At `lg` and above the sidebar is
+        permanently on screen listing exactly the same destinations, and showing
+        them twice pushes the numbers below the fold to say nothing new.
+
+        Generated from the same `nav.ts` either way, so the two can still never
+        disagree about what a role may open.
+      */}
+      <div className="space-y-3 lg:hidden">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
           {locale === 'bn' ? 'আজকের কাজ' : 'Action Center'}
         </h2>

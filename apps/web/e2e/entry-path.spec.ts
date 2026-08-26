@@ -2,6 +2,10 @@ import { test, expect, devices, type Page } from '@playwright/test';
 import { PrismaClient } from '@prisma/client';
 
 import { hasDatabase, assertDisposableDatabase, disconnect } from './fixtures/accounts';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { PENDING_APPROVAL_PASSWORD_HASH } from '../lib/rejected-application';
 
 /**
  * T-08 — the entry path, walked end to end.
@@ -62,11 +66,125 @@ test.describe('the entry path', () => {
     prisma = new PrismaClient();
   });
 
+  /**
+   * The seeded application has to be the shape the route actually writes.
+   *
+   * A hand-built fixture that has drifted from the code passes forever while
+   * testing nothing, and this one carries the two fields the decision path turns
+   * on: the password-hash sentinel that makes a row a rejectable *application*
+   * rather than a member, and `preferredLocale`. Reading the route is how the
+   * drift becomes a failure instead of a false green.
+   */
+  test('the seeded application matches what POST /registrations writes', async () => {
+    const route = readFileSync(
+      resolve(__dirname, '..', 'app/api/v1/registrations/route.ts'),
+      'utf8',
+    );
+    for (const field of [
+      'passwordHash: PENDING_APPROVAL_PASSWORD_HASH',
+      'preferredLocale: applicantLocale',
+      'status: UserStatus.PENDING',
+      'role: UserRole.MEMBER',
+    ]) {
+      expect(
+        route,
+        `POST /registrations no longer writes \`${field}\` — seedApplication() in this ` +
+          'file builds a row the real flow never produces, so every decision test below ' +
+          'is now asserting against a fixture rather than against the entry path.',
+      ).toContain(field);
+    }
+  });
+
   test.afterAll(async () => {
     await prisma.user.deleteMany({ where: { email: { startsWith: `${NS}-` } } });
     await prisma.$disconnect();
     await disconnect();
   });
+
+  /**
+   * Whether a real form submission can reach the end of `POST /registrations`.
+   *
+   * It uploads four images to Cloudinary and rolls the whole application back if
+   * any of them fails — correctly, because the NID scan is a regulatory record
+   * and a member row without one is worse than no member row. So on a machine
+   * with no Cloudinary credentials the form cannot be driven end to end, and
+   * **CI is deliberately such a machine**: that account holds real members' NID
+   * photographs and no test may write to it.
+   *
+   * That is why the four tests below that are about the *decision* create their
+   * applicant with Prisma instead of through the form. They are not about the
+   * form — `registration.spec.ts` owns it, and stubs the POST for the same
+   * reason. Only the two that assert what the applicant is shown after
+   * submitting need the real round trip, and those skip when this is false.
+   */
+  const CLOUDINARY_KEYS = [
+    'CLOUDINARY_CLOUD_NAME',
+    'CLOUDINARY_API_KEY',
+    'CLOUDINARY_API_SECRET',
+  ] as const;
+
+  const canSubmitForReal = (() => {
+    if (CLOUDINARY_KEYS.every((key) => process.env[key])) return true;
+    // Playwright's own process does not load `apps/web/.env`; **Next does**, so
+    // asking `process.env` alone would skip these two tests on every developer
+    // machine that can actually run them. Read the file the server reads.
+    try {
+      const env = readFileSync(resolve(__dirname, '..', '.env'), 'utf8');
+      return CLOUDINARY_KEYS.every((key) => new RegExp(`^\\s*${key}\\s*=\\s*\\S`, 'm').test(env));
+    } catch {
+      return false;
+    }
+  })();
+
+  /**
+   * A PENDING application, written the way the route writes one.
+   *
+   * Every field here is one the decision path reads: `passwordHash` is the
+   * sentinel that makes this a *rejected-able application* rather than a member
+   * (`lib/rejected-application.ts`), `preferredLocale` decides which language the
+   * decision email goes out in, and `accountNo` is what the applicant was given
+   * as a reference. Getting any of them wrong would make these tests pass
+   * against a row the real flow never produces, which is the failure mode of
+   * every hand-built fixture — so `applicationShapeMatchesTheRoute` below reads
+   * the route and checks.
+   */
+  let seededApplications = 0;
+
+  async function seedApplication(tag: string, locale: 'en' | 'bn' = 'en') {
+    const who = applicant(tag);
+    // `accountNo` is globally `@unique`, and a re-application is a **second
+    // row** holding the same email, phone and NID as the first. Deriving the
+    // number from the tag alone would collide on exactly the test that matters.
+    seededApplications += 1;
+    const seq = (Math.abs(hash(tag)) % 90_000) + 9000 + seededApplications;
+    return prisma.user.create({
+      data: {
+        email: who.email,
+        phone: who.phone,
+        passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
+        preferredLocale: locale,
+        role: 'MEMBER',
+        status: 'PENDING',
+        accountNo: `ACC-KH-${seq}`,
+        formNumber: `FORM-ACC-KH-${seq}`,
+        nameEn: who.nameEn,
+        fatherName: 'Mohammad Ali',
+        motherName: 'Fatema Begum',
+        profession: 'Farmer',
+        dateOfBirth: new Date('1990-04-12T00:00:00Z'),
+        nidNumber: who.nidNumber,
+        account: {
+          create: {
+            isLoanEligible: false,
+            maxLoanAmount: BigInt(0),
+            savingsBalance: BigInt(0),
+            loanBalance: BigInt(0),
+          },
+        },
+      },
+      select: { id: true, accountNo: true },
+    });
+  }
 
   /** Remove any row this spec left behind, so each test starts from nothing. */
   async function reset(tag: string) {
@@ -160,6 +278,12 @@ test.describe('the entry path', () => {
 
   for (const locale of ['en', 'bn'] as const) {
     test(`${locale}: submitting leaves the applicant on a confirmation, not a login page`, async ({ page }) => {
+      test.skip(
+        !canSubmitForReal,
+        'Needs CLOUDINARY_* — POST /registrations uploads the four documents and rolls the ' +
+          'application back if it cannot. CI has no credentials on purpose: that account holds ' +
+          "real members' NID photographs.",
+      );
       const tag = `confirm-${locale}`;
       await reset(tag);
       await apply(page, tag, locale);
@@ -213,10 +337,10 @@ test.describe('the entry path', () => {
     // "improving" it into a conditional one.
     const tag = 'oracle';
     await reset(tag);
-    await apply(page, tag, 'en');
-    await expect(
-      page.getByRole('heading', { name: 'Application submitted' }),
-    ).toBeVisible({ timeout: 30_000 });
+    // The application is seeded rather than filled in: what is under test is the
+    // *login page's* answer, and driving twenty form fields to reach it would
+    // make this test depend on an image host for no assertion of its own.
+    await seedApplication(tag);
 
     const who = applicant(tag);
 
@@ -248,10 +372,7 @@ test.describe('the entry path', () => {
   test('an approved applicant can log in and is made to choose a password', async ({ page }) => {
     const tag = 'approve';
     await reset(tag);
-    await apply(page, tag, 'en');
-    await expect(
-      page.getByRole('heading', { name: 'Application submitted' }),
-    ).toBeVisible({ timeout: 30_000 });
+    const application = await seedApplication(tag);
 
     // Approve through the API rather than the admin screen: this test is about
     // the *applicant's* half of the journey, and admin-dashboard.spec.ts owns
@@ -261,12 +382,7 @@ test.describe('the entry path', () => {
     // on the response, which proves the same thing without guessing at the
     // seeded account's role — the seeded admin is SUPER_ADMIN, and the only row
     // with role ADMIN is the inactive donation-fund system account.
-    const created = await prisma.user.findFirstOrThrow({
-      where: { email: applicant(tag).email },
-      select: { id: true },
-    });
-
-    const approval = await approveViaApi(page, created.id);
+    const approval = await approveViaApi(page, application.id);
     expect(approval.temporaryPassword, 'the approval must hand back a password to hand over')
       .toBeTruthy();
 
@@ -294,16 +410,8 @@ test.describe('the entry path', () => {
     // held an application it had refused and no way to say so.
     const tag = 'reject';
     await reset(tag);
-    await apply(page, tag, 'en');
-    await expect(
-      page.getByRole('heading', { name: 'Application submitted' }),
-    ).toBeVisible({ timeout: 30_000 });
-
     const who = applicant(tag);
-    const created = await prisma.user.findFirstOrThrow({
-      where: { email: who.email },
-      select: { id: true },
-    });
+    const created = await seedApplication(tag);
 
     const result = await rejectViaApi(page, created.id, 'UNCLEAR_DOCUMENTS', 'The back of the NID is blurred.');
     expect(result.ok, `rejection failed: ${JSON.stringify(result)}`).toBe(true);
@@ -334,10 +442,14 @@ test.describe('the entry path', () => {
 
     // And the same person can apply again with the same email, phone and NID —
     // the owner's ruling, enforced by the live-scoped unique indexes.
-    await apply(page, tag, 'en');
-    await expect(
-      page.getByRole('heading', { name: 'Application submitted' }),
-    ).toBeVisible({ timeout: 30_000 });
+    //
+    // Asserted as a second INSERT rather than a second trip through the form,
+    // and that is the stronger check of the two: what permits the re-application
+    // is `users_email_live_key` / `users_phone_live_key` / `users_nid_live_key`,
+    // and only a write reaches them. A form submission would be refused by the
+    // route's own duplicate check first, so it would never touch the constraint
+    // this is about. The form path is covered by the gated pair above.
+    await seedApplication(`${tag}`);
 
     const rows = await prisma.user.findMany({
       where: { email: who.email },
@@ -399,15 +511,7 @@ test.describe('the entry path', () => {
     // where that has to be enforced, because the screen is only one caller.
     const tag = 'noreason';
     await reset(tag);
-    await apply(page, tag, 'en');
-    await expect(
-      page.getByRole('heading', { name: 'Application submitted' }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    const created = await prisma.user.findFirstOrThrow({
-      where: { email: applicant(tag).email },
-      select: { id: true },
-    });
+    const created = await seedApplication(tag);
 
     const blank = await rejectViaApi(page, created.id, '', '');
     expect(blank.ok, 'a rejection with no reason was accepted').toBe(false);

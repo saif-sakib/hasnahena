@@ -61,7 +61,7 @@ export default async function ContactPage({ params }: PageProps) {
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/contact" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-24 pb-20 z-10 w-full flex flex-col items-center">
+      <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-32 md:pt-36 pb-20 z-10 w-full flex flex-col items-center">
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">

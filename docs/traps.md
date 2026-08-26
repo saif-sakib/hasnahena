@@ -530,6 +530,42 @@ answered 500.
 
 ## Interface
 
+- **An application-level check that is stricter than the constraint it
+  anticipates is invisible, and it always wins.** Staff creation looked a
+  contact up with `OR: [{ email }, { phone }]` and no `liveIdentityFilter`, so a
+  person whose membership application had been *refused* could not be hired as a
+  field worker: the screen said "that email address is already in use" and named
+  a row `users_email_live_key` does not consider to hold it — the database would
+  have accepted the insert. Nothing failed, nothing logged, and the only way out
+  was an admin with SQL. **A pre-check exists to turn a constraint violation
+  into a sentence; when the two disagree, the pre-check is the bug**, because it
+  runs first and the constraint never gets to speak. The rule had been written
+  down in CLAUDE.md and in `product.md` for a day, and written down is not
+  enforced — the census over every `prisma.user.find*` that filters on a contact
+  detail is.
+
+- **A page whose layout depends on an admin having filled a box in looks broken
+  on launch day.** The hero's right-hand column was four statistic cards; when
+  those figures moved out of the message files into `system_config` — correctly,
+  they had been invented — an unconfigured foundation was left with a hero whose
+  right half was empty. The fix is not to seed a number back: it is that the
+  hero always has a visual of its own and the figures are a band below it that
+  appears when there are figures. **Design the unconfigured state first**; it is
+  the one every new deployment sees, and the only one the owner sees before they
+  have anything to say.
+
+- **A spec that drives a third-party service cannot run in CI, and failing is
+  not the same as being honest about it.** `entry-path.spec.ts` filled the
+  registration form and submitted it, which uploads four documents to
+  Cloudinary. CI has no credentials on purpose — that account holds real
+  members' NID scans — so `POST /registrations` rolled the application back
+  every time and six tests failed for twenty minutes a run, on every push. The
+  answer was to separate what each test is actually about: four of the six are
+  about the *decision*, so they seed the applicant row and run everywhere; the
+  two that are about what the applicant is *shown after submitting* skip, and
+  say why. A test that needs a service the environment cannot provide should
+  skip loudly, never fail quietly into the noise.
+
 - **A CSS `auto` silently overrides the size you just computed.** `logo.tsx`
   derived a width from its `size` prop, passed it to `next/image` as the `width`
   attribute, and set `h-auto w-auto` in the className. A replaced element sized
@@ -541,6 +577,15 @@ answered 500.
   untranslated key. **When a size prop appears to do nothing, measure the
   rendered element before changing the number**; the matrix sweep now does, on
   every page with a logo.
+
+  **And then the fix over-corrected.** Constraining the lockup to 40 px made it
+  obey its header and made the wordmark unreadable — the tagline beneath
+  হাসনাহেনা is two lines of small Bengali type, about eight pixels each at that
+  size, on a platform whose members read it on a cheap Android in sunlight. A
+  ceiling without a floor is half an invariant: the assertion is now
+  `36 ≤ logo ≤ header`, and the header is sized to hold the lockup (`h-24`,
+  shrinking to `h-16` on scroll) rather than the lockup shrinking to fit a
+  header nobody chose.
 
 - **A loading skeleton is a lie when nothing is loading.** The home page's
   partner-logo block rendered three grey `animate-pulse` rectangles as its

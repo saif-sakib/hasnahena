@@ -243,6 +243,90 @@ describe('no page reads half of a pair', () => {
   });
 });
 
+describe('every pair is seeded, so a fresh install has words on it', () => {
+  const seed = read('scripts/seed.mjs');
+
+  /**
+   * Seeding the landing copy is a position, taken on the owner's instruction
+   * (2026-08-26) rather than a default.
+   *
+   * The pages read `messages/{en,bn}.json` when a setting is empty, so an
+   * unseeded install *renders* correctly — and Admin → Content & Media shows a
+   * screen of **empty boxes**, from which an admin cannot tell whether the site
+   * has no copy or whether the form failed to load. Worse, saving from that
+   * screen writes the emptiness back over anything that was there.
+   *
+   * The figures are the deliberate exception: seeded as rows with **empty
+   * values**, because a number the foundation has not stated is a number nobody
+   * should invent for it, and the hero omits a figure that has no value.
+   */
+  const FIGURES = new Set(['stats.members', 'stats.deposits', 'stats.loans', 'stats.charity']);
+
+  for (const [bnKey, enKey] of LOCALIZED_SETTING_PAIRS) {
+    it(`${bnKey} and ${enKey} both have a seed row`, () => {
+      for (const key of [bnKey, enKey]) {
+        expect(
+          seed,
+          `scripts/seed.mjs has no row for ${key}. Both halves of a pair must be seeded ` +
+            'together — seeding one puts that language in front of both audiences, which ' +
+            'is the bug the pair exists to prevent.',
+        ).toContain(`key: '${key}'`);
+      }
+    });
+  }
+
+  it('seeds the copy with real words and the figures with nothing', () => {
+    // A row per key is not enough on its own: `value: ''` for a *sentence*
+    // would satisfy the check above and still leave the admin screen blank.
+    const rowValue = (key: string): string | null => {
+      const match = seed.match(
+        new RegExp(`key:\\s*'${key.replace('.', '\\.')}'\\s*,\\s*value:\\s*(['"\`])([\\s\\S]*?)\\1`),
+      );
+      if (match) return match[2];
+      // The multi-line object form, where `value` is on its own line.
+      const block = seed.match(
+        new RegExp(`key:\\s*'${key.replace('.', '\\.')}'[\\s\\S]{0,400}?value:\\s*\\n?\\s*(['"\`])([\\s\\S]*?)\\1`),
+      );
+      return block ? block[2] : null;
+    };
+
+    for (const [bnKey, enKey] of LOCALIZED_SETTING_PAIRS) {
+      for (const key of [bnKey, enKey]) {
+        const value = rowValue(key);
+        expect(value, `could not read the seeded value for ${key}`).not.toBeNull();
+        if (FIGURES.has(bnKey)) {
+          expect(
+            value,
+            `${key} is seeded with a figure. The four hero numbers were invented once ` +
+              'and published; they are the foundation\'s to state, and blank omits the card.',
+          ).toBe('');
+        } else {
+          expect(value!.trim().length, `${key} is seeded empty`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it('seeds each half in its own script', () => {
+    // The failure this catches is the quiet one: seeding the Bengali sentence
+    // into both rows satisfies every check above and shows Bengali to English
+    // readers on a fresh install — which is exactly the state the pairs were
+    // introduced to end.
+    const bengali = /[ঀ-৿]/;
+    for (const [bnKey, enKey] of LOCALIZED_SETTING_PAIRS) {
+      if (FIGURES.has(bnKey)) continue;
+      const en = seed.match(
+        new RegExp(`key:\\s*'${enKey.replace('.', '\\.')}'[\\s\\S]{0,400}?value:\\s*\\n?\\s*'([\\s\\S]*?)'`),
+      );
+      expect(en, `no seeded value found for ${enKey}`).toBeTruthy();
+      expect(
+        bengali.test(en![1]),
+        `${enKey} is seeded with Bengali text: "${en![1].slice(0, 40)}"`,
+      ).toBe(false);
+    }
+  });
+});
+
 describe('the module the footer imports stays free of Prisma', () => {
   it('does not import lib/system-config or lib/prisma', () => {
     // `<Footer>` is a client component. Importing `system-config.ts` — which

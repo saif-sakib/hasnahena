@@ -139,7 +139,17 @@ different case: they are *figures*, not sentences, and they used to be literals
 in `messages/{en,bn}.json` — "125+", "BDT 250,000+" — invented and unchangeable
 by the foundation. A number is prose: `১২৫+` and `125+` are the same fact in two
 scripts. They are seeded **empty**, and a blank figure omits its card rather than
-rendering a gap.
+rendering a gap; the hero has an illustration of its own so it does not depend on
+them being filled in.
+
+**Everything else in the list is seeded with real words, in both scripts.** That
+is a position rather than a default (the owner's instruction, 2026-08-26): the
+pages fall back to `messages/{en,bn}.json` when a setting is empty, so an
+unseeded install *renders* correctly and shows the admin a Content & Media screen
+of blank boxes they cannot distinguish from a form that failed to load — and
+saving from that screen writes the blankness over the page.
+`localized-settings.test.ts` requires a seed row for both halves of every pair,
+with real words in each script, and refuses Bengali seeded into an `…En` row.
 
 The remaining `org.*` values — phone, email, website, registration number — are
 language-neutral and stay single.

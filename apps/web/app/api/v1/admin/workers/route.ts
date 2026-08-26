@@ -9,6 +9,7 @@ import { UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
 import { RESET_SCOPE_FIRST_LOGIN, hashResetSecret } from '@/lib/reset-tokens';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
+import { liveIdentityFilter } from '@/lib/rejected-application';
 
 /**
  * WO-72. Staff rows always come back with their branch joined, so no caller has
@@ -129,15 +130,33 @@ export async function POST(req: Request) {
     // values is taken, without being told which, has to guess. Both are looked
     // at, because both can be taken at once and the second attempt should not
     // be the first time they hear about the second one.
+    //
+    // `liveIdentityFilter` is load-bearing and was missing until 2026-08-26. A
+    // **rejected application** owns nothing — that is the whole point of scoping
+    // uniqueness to live rows (owner's ruling) — so a person whose membership
+    // application was refused and who is then hired as a field worker must be
+    // able to use their own email and phone. Without it, this told the admin
+    // "that email address is already in use" and named a row the database would
+    // have accepted the insert against: `users_email_live_key` and
+    // `users_phone_live_key` both exclude rejected applications, so the check
+    // was stricter than the constraint it exists to anticipate.
+    //
+    // `mode: 'insensitive'` for the same reason: the index is on
+    // `lower("email")`, and an exact comparison would let `Foo@bar.com` past a
+    // check that the constraint then rejects with a raw P2002.
     const existing = await prisma.user.findFirst({
       where: {
-        OR: [{ email: normalizedEmail }, { phone: normalizedPhone }],
+        OR: [
+          { email: { equals: normalizedEmail, mode: 'insensitive' } },
+          { phone: normalizedPhone },
+        ],
+        ...liveIdentityFilter,
       },
       select: { id: true, email: true, phone: true },
     });
     if (existing) {
       const taken: string[] = [];
-      if (existing.email === normalizedEmail) taken.push('email address');
+      if (existing.email?.toLowerCase() === normalizedEmail) taken.push('email address');
       if (existing.phone === normalizedPhone) taken.push('phone number');
       return NextResponse.json(
         {
@@ -303,10 +322,13 @@ export async function PUT(req: Request) {
       );
     }
 
+    // Same rule as create: a rejected application holds no phone number, so
+    // giving a worker a number that only a refused applicant "has" is allowed.
     const existingPhone = await prisma.user.findFirst({
       where: {
         phone: normalizedPhone,
         id: { not: id },
+        ...liveIdentityFilter,
       },
       select: { id: true },
     });

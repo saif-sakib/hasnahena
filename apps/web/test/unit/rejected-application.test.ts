@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   PENDING_APPROVAL_PASSWORD_HASH,
@@ -164,6 +164,93 @@ describe('the rejected-application predicate', () => {
       sweep,
       "the sweep still selects on the phone tombstone, which rejection no longer writes",
     ).not.toContain("phone LIKE 'rejected-%'");
+  });
+
+  it('is applied by every lookup that filters on a contact detail', () => {
+    // **This is the assertion that was missing, and the defect it now names was
+    // live.** Creating a field worker looked up `OR: [{ email }, { phone }]`
+    // with no `liveIdentityFilter`, so a person whose membership application had
+    // been refused could not be hired: the screen answered "that email address
+    // is already in use" and named a row the database would happily have
+    // accepted the insert against — `users_email_live_key` excludes rejected
+    // applications, so the application-level check was stricter than the
+    // constraint it exists to anticipate.
+    //
+    // The rule was written down in CLAUDE.md and in `product.md`, and written
+    // down is not enforced. Uniqueness scoped to live rows is only true if
+    // **every** reader agrees, and there is no reason a future lookup would
+    // remember. So this enumerates them.
+    const roots = ['apps/web/app', 'apps/web/lib'];
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(join(REPO, dir))) {
+        if (entry === 'node_modules' || entry === '.next') continue;
+        const rel = `${dir}/${entry}`;
+        if (statSync(join(REPO, rel)).isDirectory()) walk(rel);
+        else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) files.push(rel);
+      }
+    };
+    for (const root of roots) walk(root);
+
+    /**
+     * A `prisma.user.find*({ … })` call whose `where` mentions a contact
+     * detail. Matched on the whole call expression by brace balance rather than
+     * by a line regex, because these are always written across several lines.
+     */
+    const offenders: string[] = [];
+    for (const rel of files) {
+      const source = codeOf(read(rel));
+      const pattern = /prisma\.user\.(findFirst|findUnique|findMany|count)\s*\(/g;
+      for (const match of source.matchAll(pattern)) {
+        const start = match.index! + match[0].length - 1;
+        let depth = 0;
+        let end = start;
+        for (; end < source.length; end += 1) {
+          if (source[end] === '(') depth += 1;
+          else if (source[end] === ')') {
+            depth -= 1;
+            if (depth === 0) break;
+          }
+        }
+        const call = source.slice(start, end + 1);
+        // Only the calls that select a user *by* a contact detail. A query that
+        // merely returns the column — `select: { email: true }` — is not a
+        // lookup, so the mention has to be on the left of a colon inside
+        // `where`, which in practice means it appears before `select:`.
+        const whereHalf = call.split(/\bselect\s*:/)[0];
+        const looksUpContact = /\b(email|phone|nidNumber)\s*:/.test(whereHalf);
+        if (!looksUpContact) continue;
+        if (call.includes('liveIdentityFilter') || call.includes('rejectedApplicationFilter')) continue;
+        // `where: { id: … }` is a lookup by primary key that happens to mention
+        // a contact detail in a nested update or a comparison; it selects one
+        // known row and cannot match the wrong person.
+        if (/\bwhere\s*:\s*\{\s*id\s*:/.test(call)) continue;
+        offenders.push(`${rel}: ${call.replace(/\s+/g, ' ').slice(0, 110)}`);
+      }
+    }
+
+    expect(
+      offenders,
+      'These look a user up by email, phone or NID without excluding rejected ' +
+        'applications. Uniqueness is scoped to LIVE rows, so a refused applicant ' +
+        'owns none of those values — a lookup that forgets it either refuses a ' +
+        'genuine person their own details, or authenticates against a row whose ' +
+        'password hash nothing can match. Add `...liveIdentityFilter` to the ' +
+        'where clause:\n  ' + offenders.join('\n  '),
+    ).toEqual([]);
+  });
+
+  it('is looking at real lookups, not passing on an empty list', () => {
+    // The parser above is doing real work only if it finds the calls that
+    // *are* correctly filtered. Two of them live in the registration route.
+    const registrations = codeOf(read('apps/web/app/api/v1/registrations/route.ts'));
+    expect((registrations.match(/liveIdentityFilter/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    const workers = codeOf(read('apps/web/app/api/v1/admin/workers/route.ts'));
+    expect(
+      workers,
+      'staff creation no longer excludes rejected applications — a refused ' +
+        'applicant cannot then be hired as a field worker',
+    ).toContain('liveIdentityFilter');
   });
 
   it('never lets the old scramble come back', () => {

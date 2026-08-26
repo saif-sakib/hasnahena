@@ -141,14 +141,39 @@ export function Header({ settings }: HeaderProps) {
             : 'bg-transparent border-transparent'
       }`}
     >
-      <nav className="container-wide flex h-16 items-center justify-between">
+      {/*
+        The header's height is set by the lockup it has to hold, not the other
+        way round — and it changes with the page position, which is the classic
+        way to have both.
+        -------------------------------------------------------------------
+        **At the top** the header is transparent over the hero and the brand
+        should dominate: 96 px, with the lockup at 64. **Once scrolled** it is a
+        sticky utility bar and should get out of the way: 64 px, lockup at 40.
+        The transition is the same 300 ms as the background's.
+
+        The sizes are the correction to a correction. `logo.tsx` originally
+        rendered every call site at the asset's intrinsic 192 × 108 inside a
+        64 px header, so the leaf covered the hero's tagline badge; constraining
+        it to 40 px fixed the overlap and made the wordmark unreadable — the
+        tagline beneath হাসনাহেনা is two lines of small Bengali type, and at
+        40 px those are about eight pixels each. On a cheap Android in sunlight
+        that is not a logo, it is a smudge.
+      */}
+      <nav
+        className={`container-wide flex items-center justify-between transition-all duration-300 ${
+          isScrolled || mobileMenuOpen ? 'h-16 md:h-20' : 'h-24 md:h-28'
+        }`}
+      >
         {/* Logo */}
         <Link href={localePath(locale)} className="flex items-center z-50 relative">
           <Logo
-            size="md"
+            size="lg"
             priority
             variant={mobileMenuOpen ? 'light' : 'default'}
             src={settings?.['branding.logo'] || undefined}
+            className={`transition-all duration-300 ${
+              isScrolled || mobileMenuOpen ? 'h-10 md:h-12' : 'h-16 md:h-20'
+            }`}
           />
         </Link>
 
@@ -239,7 +264,7 @@ export function Header({ settings }: HeaderProps) {
         className={`fixed inset-0 bg-linear-to-b from-emerald-800 to-emerald-950 backdrop-blur-xl z-49 md:hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'
         }`}
-        style={{ top: '0', paddingTop: '90px', height: '100dvh' }}
+        style={{ top: '0', paddingTop: '96px', height: '100dvh' }}
       >
         <div className="flex flex-col h-full px-6 pb-24 overflow-y-auto">
           {!isLoggedIn && (

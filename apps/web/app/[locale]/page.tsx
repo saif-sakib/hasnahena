@@ -9,6 +9,7 @@ import { Footer } from '@/components/layout/footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
+import { GeometricPanel } from '@/components/ui/geometric-panel';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale, siteTitle } from '@/lib/seo';
@@ -206,12 +207,12 @@ export default async function HomePage({ params }: PageProps) {
       <main className="flex-1">
         {/* Hero Section */}
         {/*
-          `pt-16` is the height of the fixed header. Without it the hero's first
-          element sat under a transparent header, and at 412 px the logo — which
-          was overflowing its own header, see components/ui/logo.tsx — covered
-          the "Shariah Compliant Finance" badge outright.
+          `pt-24`/`md:pt-28` matches the header at the top of the page, where it
+          is at its tallest. Without it the hero's first element sits under a
+          transparent header and the logo — deliberately large now, so the
+          wordmark can be read — covers the tagline badge outright.
         */}
-        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center pt-16">
+        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[88vh] flex items-center pt-24 md:pt-28">
           {settings['hero.backgroundImage'] && (
             <div className="absolute inset-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -267,38 +268,21 @@ export default async function HomePage({ params }: PageProps) {
               </div>
 
               {/*
-                T-10, the owner's ruling of 2026-08-26. These four figures were
-                literals in the message files — "125+" members, "BDT 250,000+"
-                deposits — invented, published on the live site, and impossible
-                for the foundation to correct without a developer. A cooperative
-                about to take real members' savings cannot publish made-up
-                totals about itself.
+                The hero always has a visual — `GeometricPanel`, drawn rather
+                than photographed. This column used to hold four statistic
+                cards, and when those figures moved into `system_config` on
+                2026-08-26 (they had been invented and published) an
+                unconfigured foundation was left with a hero whose right half
+                was **empty**. A layout that depends on an admin having filled a
+                box in looks broken on launch day.
 
-                They are `system_config` now, in a pair per figure so each
-                script is the foundation's own words (`stats.members` Bengali,
-                `stats.membersEn` English). Blank means the card is absent, and
-                all four blank means the whole panel is, which is the rule
-                /donate already uses for bank details: a gap invites a question,
-                a plausible wrong number gets believed.
+                The figures are a band of their own, below the hero, shown when
+                there are figures to show.
               */}
-              {statCards.length > 0 && (
-                <div className="relative mx-auto w-full max-w-[500px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
-                  <div className="absolute inset-0 bg-linear-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
-
-                  <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
-                    <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
-                      {statCards.filter((_, index) => index % 2 === 0).map((card) => (
-                        <StatCard key={card.label} {...card} />
-                      ))}
-                    </div>
-                    <div className="space-y-4 sm:space-y-6">
-                      {statCards.filter((_, index) => index % 2 === 1).map((card) => (
-                        <StatCard key={card.label} {...card} />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+              <div className="relative mx-auto w-full max-w-[380px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
+                <div className="absolute -inset-6 -z-10 rounded-full bg-linear-to-tr from-emerald-500/20 to-teal-500/20 blur-3xl" />
+                <GeometricPanel />
+              </div>
             </div>
           </div>
 
@@ -306,6 +290,32 @@ export default async function HomePage({ params }: PageProps) {
           <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-linear-to-b from-emerald-100/30 to-transparent blur-3xl" />
           <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-linear-to-t from-teal-100/30 to-transparent blur-3xl" />
         </section>
+
+        {/*
+          The foundation's own figures, in a band of their own.
+          -------------------------------------------------------------------
+          They were four literals in `messages/{en,bn}.json` — "125+" members,
+          "BDT 250,000+" deposits — invented when the page was designed,
+          published on the live site for months, and beyond the foundation's
+          reach without a developer. A cooperative asking people to trust it
+          with their savings must not publish made-up totals about itself.
+
+          `system_config`, a pair per figure, and the band is **absent** when
+          none is set rather than rendering four empty cards. That is the same
+          rule /donate uses for bank details: a gap invites a question, a
+          plausible wrong number gets believed.
+        */}
+        {statCards.length > 0 && (
+          <section className="border-y border-emerald-100/70 bg-white dark:border-emerald-900/40 dark:bg-slate-950">
+            <div className="container-wide py-10 md:py-14">
+              <div className="grid grid-cols-2 gap-6 lg:grid-cols-4 lg:gap-8">
+                {statCards.map((card) => (
+                  <StatCard key={card.label} {...card} />
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Islamic Teachings Section - Quran & Hadith */}
         <section className="py-16 md:py-20 bg-linear-to-b from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-background">
@@ -635,19 +645,22 @@ function StatCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <Card className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-slate-100 dark:border-slate-800 hover:shadow-xl hover:-translate-y-2 transition-all duration-500 group animate-in zoom-in fade-in fill-mode-both" style={{ animationDelay: `${delay}ms` }}>
-      <CardContent className="p-6 md:p-8 flex flex-col items-center text-center">
-        {icon && (
-          <div className="mb-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 group-hover:scale-110 transition-transform duration-300 ring-1 ring-slate-100 dark:ring-slate-700">
-            {icon}
-          </div>
-        )}
-        <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-2 bg-clip-text text-transparent bg-linear-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
-          {value}
+    <div
+      className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 fill-mode-both duration-700"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      {icon && (
+        <div className="mb-4 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800">
+          {icon}
         </div>
-        <div className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">{label}</div>
-      </CardContent>
-    </Card>
+      )}
+      <div className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl md:text-4xl dark:text-white">
+        {value}
+      </div>
+      <div className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500 sm:text-sm dark:text-slate-400">
+        {label}
+      </div>
+    </div>
   );
 }
 

@@ -35,6 +35,7 @@ import * as adminWorkers from '@/app/api/v1/admin/workers/route';
 import * as adminMemberErase from '@/app/api/v1/admin/members/[id]/erase/route';
 import * as auditLogs from '@/app/api/v1/admin/audit-logs/route';
 import { revocationMarker, revocationTtlSeconds } from '@/lib/auth-revocation';
+import { PENDING_APPROVAL_PASSWORD_HASH } from '@/lib/rejected-application';
 
 const skip = !hasTestDatabase();
 
@@ -225,6 +226,118 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
 
       expect(status).toBe(409);
       expect(String((json as { error?: string })?.error ?? '')).toMatch(/phone number/i);
+    });
+
+    /**
+     * The scenario the owner hit, verbatim: apply as a member, be rejected,
+     * then be hired.
+     *
+     * A **rejected application owns nothing** — that is the entire point of
+     * scoping uniqueness to live rows, and it is what makes a rejection email
+     * possible at all (the applicant's real address survives). The three
+     * partial unique indexes agree: `users_email_live_key` and
+     * `users_phone_live_key` both carry `NOT (…rejected…)` in their predicate,
+     * so the database would have accepted this insert.
+     *
+     * The application-level pre-check did not, and it ran first. So the screen
+     * said "that email address is already in use" about a row the constraint
+     * does not consider to hold it, and the only way out was for an admin to go
+     * into the database. The check was stricter than the constraint it exists to
+     * anticipate, which is the worst way for the two to disagree: the stricter
+     * one is invisible and always wins.
+     */
+    it('lets a rejected applicant be hired with their own email and phone', async () => {
+      const email = `${NS}rejected-then-hired${EMAIL_DOMAIN}`;
+      const theirPhone = phone(21);
+
+      // A refused application, in the shape rejection actually leaves behind:
+      // status INACTIVE, never approved, and the password-hash sentinel that
+      // distinguishes an application from a deactivated member.
+      await db().user.create({
+        data: {
+          email,
+          phone: theirPhone,
+          passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
+          role: 'MEMBER',
+          status: 'INACTIVE',
+          approvedAt: null,
+          nameEn: 'Refused Applicant',
+          fatherName: 'N/A',
+          motherName: 'N/A',
+          accountNo: `${NS}ACC-REJ-21`,
+          rejectionReasonCode: 'UNCLEAR_DOCUMENTS',
+          rejectedAt: new Date(),
+        },
+      });
+
+      const res = await adminWorkers.POST(
+        routeRequest('/api/v1/admin/workers', {
+          token: adminToken,
+          method: 'POST',
+          body: { name: 'Now A Field Worker', email, phone: theirPhone },
+        }),
+      );
+      const { status, json } = await readBody(res);
+
+      expect(
+        status,
+        'A refused applicant cannot be hired: staff creation refused their own email and ' +
+          `phone, which no live row holds. Response: ${JSON.stringify(json)}`,
+      ).toBe(200);
+
+      // Both rows exist, and only one of them is live — which is the state the
+      // partial indexes are built to allow and nothing else in the system may
+      // treat as a conflict.
+      const rows = await db().user.findMany({
+        where: { email },
+        select: { role: true, status: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => `${r.role}/${r.status}`)).toEqual([
+        'MEMBER/INACTIVE',
+        'WORKER/ACTIVE',
+      ]);
+    });
+
+    /**
+     * The other direction, and the reason the filter is `NOT (all four
+     * conjuncts)` rather than `status <> 'INACTIVE'`.
+     *
+     * A **deactivated member** is not a rejected application: they have a real
+     * password hash and an `approvedAt`, and they keep their identifiers. Freeing
+     * those would hand the next person given that phone number somebody else's
+     * account history.
+     */
+    it('still refuses a contact that a deactivated member holds', async () => {
+      const email = `${NS}deactivated${EMAIL_DOMAIN}`;
+      await db().user.create({
+        data: {
+          email,
+          phone: phone(22),
+          passwordHash: 'a-real-bcrypt-hash-would-be-here',
+          role: 'MEMBER',
+          status: 'INACTIVE',
+          approvedAt: new Date(),
+          nameEn: 'Former Member',
+          fatherName: 'N/A',
+          motherName: 'N/A',
+          accountNo: `${NS}ACC-DEACT-22`,
+        },
+      });
+
+      const res = await adminWorkers.POST(
+        routeRequest('/api/v1/admin/workers', {
+          token: adminToken,
+          method: 'POST',
+          body: { name: 'Impostor', email, phone: phone(23) },
+        }),
+      );
+      const { status } = await readBody(res);
+      expect(
+        status,
+        'a deactivated member still owns their email — freeing it gives their history away',
+      ).toBe(409);
     });
 
     it('gives two admins adding the same worker at once one success and one 409, never a 500', async () => {
