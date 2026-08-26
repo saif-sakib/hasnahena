@@ -99,7 +99,8 @@ through `getLoanPolicy()` in `internal/repositories/repository.go`:
 The rest are read by the web app only: `org.*` (letterhead on generated
 documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
 page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
-`auth.welcomeBack`, `stats.*` (the four figures in the hero),
+`auth.welcomeBack`, `stats.*` (an **override** for the four hero figures, which
+are otherwise counted from the ledger by `lib/public-stats.ts`),
 `membership.minimumAgeYears`, `security.rejectedRetentionDays` — which the
 privacy policy quotes and the Go retention sweep counts — and
 `loan.guarantorThresholdAmount`, which is enforced in the Next loan-application
@@ -118,7 +119,9 @@ the three `org.*` ones (`name`, `address`, `description`), the eight landing-pag
 ones (`hero.tagline`, `features.title`, `contact.title`, `donation.title`,
 `donation.subtitle`, `donation.referenceNote`, `navigation.donate`,
 `auth.welcomeBack`), and the four hero figures (`stats.members`,
-`stats.deposits`, `stats.loans`, `stats.charity`). The bare key holds **Bengali**
+`stats.deposits`, `stats.loans`, `stats.charity`) — which are a *pair* for the
+same reason as any other prose, because `১২৫+` and `125+` are the same fact in
+two alphabets. The bare key holds **Bengali**
 and the `…En` twin **English**; `localizedSetting(settings, key, locale)` is the
 only place that chooses between them, and each side falls back to the other,
 because a real address in the wrong script can still be posted to and an empty

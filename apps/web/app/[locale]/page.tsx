@@ -18,6 +18,7 @@ import { StructuredData } from '@/components/seo/structured-data';
 import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
 import { localizedSetting } from '@/lib/localized-settings';
+import { formatMemberCount, formatTakaTotal, getPublicStats } from '@/lib/public-stats';
 import { contactDetails } from '@/lib/contact-details';
 import { localePath } from '@/lib/locale-path';
 
@@ -69,13 +70,14 @@ export default async function HomePage({ params }: PageProps) {
   const tContact = await getTranslations({locale, namespace: 'contact'});
   const tDonation = await getTranslations({locale, namespace: 'donation'});
   
-  // Neither accessor rejects — each falls back to empty when the database is
-  // unreachable, which is what lets this page prerender in an image build that
-  // has no database. The `try` that used to be here said the same thing, in
-  // only two of the eight pages that needed it.
-  const [dbGalleryItems, settings] = await Promise.all([
+  // None of the three accessors rejects — each falls back to empty when the
+  // database is unreachable, which is what lets this page prerender in an image
+  // build that has no database. The `try` that used to be here said the same
+  // thing, in only two of the eight pages that needed it.
+  const [dbGalleryItems, settings, stats] = await Promise.all([
     getPublicGalleryItems(6),
     getPublicSettings(),
+    getPublicStats(),
   ]);
 
   const galleryItems: GalleryItem[] = dbGalleryItems.map(item => ({
@@ -150,6 +152,9 @@ export default async function HomePage({ params }: PageProps) {
     .map((logo) => logo?.trim())
     .filter((logo): logo is string => Boolean(logo));
 
+  // The figures: what an admin typed, else what the ledger counts, else no card
+  // (`lib/public-stats.ts` explains why it is that way round).
+  //
   // Each key sits on the line that resolves it, deliberately: the pair census in
   // `localized-settings.test.ts` reads line by line and refuses a prose key
   // named anywhere that does not also call `localizedSetting`. A table of bare
@@ -157,24 +162,20 @@ export default async function HomePage({ params }: PageProps) {
   // cannot tell apart from the bug.
   const statCards = [
     {
-      value: localizedSetting(settings, 'stats.members', locale),
+      value: localizedSetting(settings, 'stats.members', locale) || formatMemberCount(stats.members, locale),
       label: tStats('totalMembers'),
-      icon: <Users className="h-6 w-6 text-emerald-600" />,
     },
     {
-      value: localizedSetting(settings, 'stats.deposits', locale),
+      value: localizedSetting(settings, 'stats.deposits', locale) || formatTakaTotal(stats.deposits, locale),
       label: tStats('totalDeposits'),
-      icon: <Wallet className="h-6 w-6 text-amber-600" />,
     },
     {
-      value: localizedSetting(settings, 'stats.loans', locale),
+      value: localizedSetting(settings, 'stats.loans', locale) || formatTakaTotal(stats.loans, locale),
       label: tStats('loansDistributed'),
-      icon: <HandHeart className="h-6 w-6 text-blue-600" />,
     },
     {
-      value: localizedSetting(settings, 'stats.charity', locale),
+      value: localizedSetting(settings, 'stats.charity', locale) || formatTakaTotal(stats.charity, locale),
       label: tStats('charitableFund'),
-      icon: <Heart className="h-6 w-6 text-rose-600" />,
     },
   ]
     .filter((card) => card.value !== '')
@@ -212,7 +213,7 @@ export default async function HomePage({ params }: PageProps) {
           transparent header and the logo — deliberately large now, so the
           wordmark can be read — covers the tagline badge outright.
         */}
-        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[88vh] flex items-center pt-24 md:pt-28">
+        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 lg:min-h-[78vh] flex items-center pt-24 md:pt-28">
           {settings['hero.backgroundImage'] && (
             <div className="absolute inset-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -223,9 +224,9 @@ export default async function HomePage({ params }: PageProps) {
               />
             </div>
           )}
-          <div className="container-wide py-16 md:py-24 lg:py-32 relative z-10">
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-              <div className="space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
+          <div className="container-wide py-10 md:py-16 lg:py-24 relative z-10">
+            <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+              <div className="space-y-6 md:space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-xs">
                   <span className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2 animate-pulse"></span>
                   {localizedSetting(settings, 'hero.tagline', locale) || tHero('tagline')}
@@ -236,7 +237,7 @@ export default async function HomePage({ params }: PageProps) {
                 <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-xl leading-relaxed">
                   {tHero('subtitle')}
                 </p>
-                <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                   <AuthAwareCTA locale={locale} ctaText={tHero('cta')} learnMoreText={tHero('learnMore')} variant="hero" />
                 </div>
                 
@@ -268,20 +269,58 @@ export default async function HomePage({ params }: PageProps) {
               </div>
 
               {/*
-                The hero always has a visual — `GeometricPanel`, drawn rather
-                than photographed. This column used to hold four statistic
-                cards, and when those figures moved into `system_config` on
-                2026-08-26 (they had been invented and published) an
-                unconfigured foundation was left with a hero whose right half
-                was **empty**. A layout that depends on an admin having filled a
-                box in looks broken on launch day.
+                The hero's right column: the foundation's own figures, on the
+                drawn *khatam* field.
 
-                The figures are a band of their own, below the hero, shown when
-                there are figures to show.
+                It has been three things, and the third is the answer to the
+                first two. It held four **invented** statistics ("125+ members")
+                for months. Those moved into `system_config` on 2026-08-26 so
+                they could at least be corrected, and the column became a
+                decorative panel — which fixed the honesty and left a hero whose
+                right half said nothing on a foundation that had real numbers
+                sitting in its own database.
+
+                So the figures are counted (`lib/public-stats.ts`) and they are
+                back where they belong: beside the headline, which is where a
+                visitor deciding whether to trust a cooperative with their
+                savings actually looks. The panel keeps its own height when they
+                are there, and falls back to a ratio when they are not — a
+                foundation on its first day gets the pattern alone rather than
+                an empty box or four zeroes.
               */}
-              <div className="relative mx-auto w-full max-w-[380px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
+              <div className="relative mx-auto w-full max-w-[420px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
                 <div className="absolute -inset-6 -z-10 rounded-full bg-linear-to-tr from-emerald-500/20 to-teal-500/20 blur-3xl" />
-                <GeometricPanel />
+                <GeometricPanel
+                  className={
+                    statCards.length > 0
+                      ? 'flex items-center lg:min-h-[26rem]'
+                      : 'aspect-5/4 sm:aspect-square'
+                  }
+                >
+                  {statCards.length > 0 && (
+                    <div className="w-full p-7 sm:p-9 lg:p-11">
+                      <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-emerald-50/70">
+                        {tStats('heading')}
+                      </p>
+                      <div className="mt-1.5 h-px w-12 bg-white/30" />
+                      {/*
+                        One column until `lg`, and only then two.
+
+                        `BDT 4,796,100` is thirteen characters. In half of a
+                        420 px panel it wrapped **inside the number** — the
+                        phone hero read "BDT 4,796,1 / 00", which is worse than
+                        no figure at all on a page asking to be trusted with
+                        money. Two columns only exist where the panel is wide
+                        enough to hold a seven-digit total on one line.
+                      */}
+                      <div className="mt-7 grid grid-cols-1 gap-y-6 lg:grid-cols-2 lg:gap-x-8 lg:gap-y-10">
+                        {statCards.map((card) => (
+                          <HeroFigure key={card.label} value={card.value} label={card.label} delay={card.delay} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </GeometricPanel>
               </div>
             </div>
           </div>
@@ -290,32 +329,6 @@ export default async function HomePage({ params }: PageProps) {
           <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-linear-to-b from-emerald-100/30 to-transparent blur-3xl" />
           <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-linear-to-t from-teal-100/30 to-transparent blur-3xl" />
         </section>
-
-        {/*
-          The foundation's own figures, in a band of their own.
-          -------------------------------------------------------------------
-          They were four literals in `messages/{en,bn}.json` — "125+" members,
-          "BDT 250,000+" deposits — invented when the page was designed,
-          published on the live site for months, and beyond the foundation's
-          reach without a developer. A cooperative asking people to trust it
-          with their savings must not publish made-up totals about itself.
-
-          `system_config`, a pair per figure, and the band is **absent** when
-          none is set rather than rendering four empty cards. That is the same
-          rule /donate uses for bank details: a gap invites a question, a
-          plausible wrong number gets believed.
-        */}
-        {statCards.length > 0 && (
-          <section className="border-y border-emerald-100/70 bg-white dark:border-emerald-900/40 dark:bg-slate-950">
-            <div className="container-wide py-10 md:py-14">
-              <div className="grid grid-cols-2 gap-6 lg:grid-cols-4 lg:gap-8">
-                {statCards.map((card) => (
-                  <StatCard key={card.label} {...card} />
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Islamic Teachings Section - Quran & Hadith */}
         <section className="py-16 md:py-20 bg-linear-to-b from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-background">
@@ -633,31 +646,30 @@ function SectionLink({ href, label }: { href: string; label: string }) {
   );
 }
 
-function StatCard({
-  value,
-  label,
-  delay,
-  icon,
-}: {
-  value: string;
-  label: string;
-  delay: number;
-  icon?: React.ReactNode;
-}) {
+/**
+ * One counted figure on the hero panel.
+ *
+ * White on emerald, no icon. The four cards this replaced each carried a
+ * coloured lucide glyph — amber, blue, rose — which were legible on the white
+ * band they used to sit in and are four clashing colours on a green field. A
+ * number and what it counts is the whole of what this has to say, and saying
+ * only that is what makes the panel read as classic rather than as a dashboard.
+ *
+ * `tabular-nums` so the four values line up on their digits. And no
+ * `break-words`: it was here, and it let `BDT 4,796,100` break *between its
+ * own digits* on a phone. A number is one word however long it is — the column
+ * widens instead, which is what the single-column phone grid above is for.
+ */
+function HeroFigure({ value, label, delay }: { value: string; label: string; delay: number }) {
   return (
     <div
-      className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-3 fill-mode-both duration-700"
+      className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-700"
       style={{ animationDelay: `${delay}ms` }}
     >
-      {icon && (
-        <div className="mb-4 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800">
-          {icon}
-        </div>
-      )}
-      <div className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl md:text-4xl dark:text-white">
+      <div className="text-2xl font-bold tracking-tight text-white tabular-nums lg:text-3xl">
         {value}
       </div>
-      <div className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500 sm:text-sm dark:text-slate-400">
+      <div className="mt-1.5 text-[0.7rem] font-medium uppercase tracking-wider text-emerald-50/80 sm:text-xs">
         {label}
       </div>
     </div>

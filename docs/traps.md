@@ -94,6 +94,26 @@ that treats status as a proxy for "did this happen" has to decide about
 
 ## Prisma and migrations
 
+- **An idempotent seed that refuses to touch an existing value cannot repair a
+  row that exists and is blank — and a settings screen creates those by the
+  dozen.** `seedConfig` upserted with `update: { description }`, on the
+  reasonable-sounding ground that an operator who changed a value in the admin
+  UI outranks a file in the repo. Then the public site's copy moved into
+  `system_config` as Bengali/`…En` pairs. The English keys were new, so `create`
+  ran and they got their words; the Bengali keys **already existed as empty
+  strings**, because Admin → Content & Media POSTs every field on save and
+  somebody had once pressed Save on a blank form. The seed dutifully declined to
+  fill in a value nobody had ever set, and there was no way to repair it by
+  re-running the seed — the only tool anyone would reach for. The site fell back
+  to `messages/bn.json`, rendered correctly in both languages, and gave no sign
+  at all; it was found by the owner opening the admin screen, not by anything in
+  the repo. **An empty value is the absence of a decision, not a decision.**
+  Backfill a blank, leave words alone, and accept the one thing that makes
+  wrong: an operator who clears a box on purpose has it refilled next run. That
+  is the right way round, because a settings screen can express "blank" and this
+  file cannot express "deliberately blank", while the other failure is copy no
+  re-run can fix.
+
 - **`@unique` on a text column is case-sensitive, so uniqueness you believe you
   have is a convention two write paths happen to share.** `email String? @unique`
   is a plain Postgres unique index: `Saif@x.com` and `saif@x.com` are two rows,
@@ -210,6 +230,33 @@ index name against a schema that disagrees.
   works under the extended protocol fails there and nowhere else.
 
 ## Test stacks and stale processes
+
+- **A test stack can hand `next dev` the right `DATABASE_URL` and have Next
+  overwrite it from `apps/web/.env` before any of your code runs.** `@next/env`
+  re-applies the `.env` files over `process.env` when it loads, so a value
+  inherited from the parent shell loses to a file on disk.
+  `/proc/<pid>/environ` showed the throwaway database; the app read the
+  developer's Neon dev one. The Go API obeyed, so the **API half and the web
+  half of the same browser run were on two different databases** — every
+  assertion about a public page was made against whatever that developer's
+  database happened to contain, three `entry-path` specs failed because the row
+  the test process had just seeded was in the other database, and
+  `public-content.spec.ts`, which PUTs settings through a Next route, was
+  **writing to it**. CI never showed any of it, because CI has no `.env`. It was
+  found by noticing that a home page served by the test stack listed ten members
+  and four gallery photographs from a database holding one member and none.
+  The fix is a name no `.env` in this repo defines — `TEST_DATABASE_URL`, which
+  the route harness already keys on — so there is nothing to override it with;
+  both halves are pinned by `test/unit/test-stack-database.test.ts`, because
+  either alone is silently useless. **The general form: a variable your rig
+  passes in is only as authoritative as the framework lets it be. Verify what
+  the app read, not what you exported.**
+- **A rig that does not export the credentials it seeded makes its own specs
+  look broken.** `test-stack.sh` seeded `admin@hasnahena.test` and said nothing
+  about it, so `public-content.spec.ts` failed locally with "Set
+  E2E_ADMIN_IDENTIFIER and E2E_ADMIN_PASSWORD" — which reads like a defective
+  spec and is a rig that did not finish introducing itself. `test-stack.sh env`
+  exports them now, from the same two constants the seed uses.
 
 - **`test-stack.sh up --serve` will not replace a server that is already
   answering.** It polls `/v1/health` and moves on, so an API left running by an
@@ -529,6 +576,32 @@ answered 500.
   in a way a production build never is.
 
 ## Interface
+
+- **Removing an invented number leaves a hole, and the honest replacement is
+  usually to count it rather than to ask someone to type it.** The home page's
+  four statistics were literals — "125+ members", "BDT 250,000+ deposits" —
+  invented at design time and published for months. Moving them into
+  `system_config` fixed the honesty and created a maintenance problem: the hero
+  had no numbers until an admin typed some, a typed figure is stale the day
+  after, and the empty boxes read to the owner as a broken screen. The platform
+  **already knew all four**, so they are counted from the ledger now, with the
+  setting kept as an override for the real case of publishing `৩০+` rather than
+  `৩১`. Ask what the database already knows before adding a field for a human to
+  keep in step with it.
+- **`aria-hidden` on a decorative wrapper becomes a content wrapper the moment
+  the decoration gains children.** The hero's geometric panel carried
+  `aria-hidden="true"` on its root, correctly, while it was a drawing. Putting
+  the foundation's figures inside it would have hidden every one of them from
+  every screen reader — the numbers, their labels, and the heading — with no
+  visual difference and nothing in any test to say so. The attribute belongs on
+  the `<svg>`, not on the box.
+- **A long number wraps between its own digits, and only at a real viewport
+  width.** `BDT 4,796,100` in half of a 420 px panel rendered as "BDT 4,796,1 /
+  00" on the phone hero — on the page asking to be trusted with money. The
+  cause was a `break-words` added for a *different* concern (Bengali being the
+  wider script), which turns a number into something breakable anywhere. A
+  number is one word however long it is: widen the column instead. Two columns
+  now exist only above the width where a seven-digit total fits on one line.
 
 - **An application-level check that is stricter than the constraint it
   anticipates is invisible, and it always wins.** Staff creation looked a

@@ -26,23 +26,40 @@ import * as React from 'react';
  * eight-point star made of two overlaid squares, with the interstitial
  * quadrilaterals left open. Everything is drawn from one `<pattern>`, so the
  * whole panel is a few hundred bytes whatever size it renders at.
+ *
+ * It takes `children`, and the hero puts the foundation's figures inside it —
+ * so on a working cooperative this is a panel *about something*, and on a brand
+ * new one it is the pattern alone. The caller supplies the height: an aspect
+ * ratio when it is empty, the content's own height when it is not. A fixed
+ * `aspect-square` here made the empty version a full phone screen of scrolling
+ * for decoration.
  */
-export function GeometricPanel({ className }: { className?: string }) {
+export function GeometricPanel({
+  className,
+  children,
+}: {
+  className?: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div
       className={[
-        'relative aspect-square w-full overflow-hidden rounded-[2rem]',
-        'bg-linear-to-br from-emerald-600 via-emerald-500 to-teal-500',
-        'shadow-2xl shadow-emerald-900/20 ring-1 ring-white/20',
+        'relative w-full overflow-hidden rounded-[2rem]',
+        'bg-linear-to-br from-emerald-600 via-emerald-500 to-teal-600',
+        'shadow-2xl shadow-emerald-900/25 ring-1 ring-white/20',
         className ?? '',
       ].join(' ')}
-      // Decorative: it carries no information the surrounding copy does not.
-      // Announcing "geometric pattern" to a screen reader adds noise to a page
-      // whose headline is two lines below it.
-      aria-hidden="true"
     >
+      {/*
+        `aria-hidden` belongs on the drawing, not on the panel — the panel now
+        has children, and hiding the whole thing would have taken the
+        foundation's figures away from every screen reader on the site. The
+        pattern itself carries nothing the surrounding copy does not, and
+        announcing "geometric pattern" two lines under the headline is noise.
+      */}
       <svg
-        className="absolute inset-0 h-full w-full"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full"
         viewBox="0 0 400 400"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
@@ -62,7 +79,7 @@ export function GeometricPanel({ className }: { className?: string }) {
               width="56"
               height="56"
               stroke="white"
-              strokeOpacity="0.28"
+              strokeOpacity="0.20"
               strokeWidth="1.5"
               fill="none"
             />
@@ -73,7 +90,7 @@ export function GeometricPanel({ className }: { className?: string }) {
               width="56"
               height="56"
               stroke="white"
-              strokeOpacity="0.28"
+              strokeOpacity="0.20"
               strokeWidth="1.5"
               fill="none"
               transform="rotate(45 50 50)"
@@ -82,7 +99,7 @@ export function GeometricPanel({ className }: { className?: string }) {
             <path
               d="M0 0 L8 0 L0 8 Z M100 0 L92 0 L100 8 Z M0 100 L8 100 L0 92 Z M100 100 L92 100 L100 92 Z"
               fill="white"
-              fillOpacity="0.14"
+              fillOpacity="0.10"
             />
           </pattern>
 
@@ -101,24 +118,45 @@ export function GeometricPanel({ className }: { className?: string }) {
 
         <rect width="400" height="400" fill="url(#hn-khatam)" mask="url(#hn-mask)" />
 
-        {/* A single large rosette, centred, as the focal point. */}
+        {/*
+          One large rosette, anchored off the bottom-right corner and cropped by
+          it. Centred, it sat directly behind the figures — "BDT 4,796,100" read
+          across two circles and a rotated square, and no amount of opacity
+          fixes type crossing a line at right angles to it. Cropped at the
+          corner it does what a focal point is for: it gives the eye somewhere
+          to rest *away* from the words.
+        */}
         <g
           stroke="white"
-          strokeOpacity="0.55"
-          strokeWidth="2"
+          strokeWidth="1.75"
           fill="none"
-          transform="translate(200 200)"
+          transform="translate(352 356)"
         >
-          <circle r="96" strokeOpacity="0.25" />
-          <circle r="72" strokeOpacity="0.35" />
+          <circle r="104" strokeOpacity="0.16" />
+          <circle r="78" strokeOpacity="0.22" />
           {[0, 45, 90, 135].map((angle) => (
-            <rect key={angle} x="-64" y="-64" width="128" height="128" transform={`rotate(${angle})`} />
+            <rect
+              key={angle}
+              x="-70"
+              y="-70"
+              width="140"
+              height="140"
+              strokeOpacity="0.24"
+              transform={`rotate(${angle})`}
+            />
           ))}
         </g>
       </svg>
 
-      {/* A soft highlight in the top-left corner, for depth. */}
-      <div className="absolute -left-16 -top-16 h-56 w-56 rounded-full bg-white/20 blur-3xl" />
+      {/*
+        Depth, from a lit top-left and a shaded bottom-right. The highlight is
+        emerald rather than white: white sat exactly where the figures are and
+        took the contrast under them below what white type needs.
+      */}
+      <div className="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full bg-emerald-300/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 -right-24 h-72 w-72 rounded-full bg-emerald-900/30 blur-3xl" />
+
+      {children ? <div className="relative">{children}</div> : null}
     </div>
   );
 }

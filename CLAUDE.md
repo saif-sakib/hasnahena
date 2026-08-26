@@ -41,6 +41,15 @@ pnpm test:integration && pnpm test:routes
 scripts/test-stack.sh down
 ```
 
+`eval "$(scripts/test-stack.sh env)"` is not optional even for the browser
+suite: it exports the seeded admin's credentials, and without them two specs
+fail with `Set E2E_ADMIN_IDENTIFIER and E2E_ADMIN_PASSWORD`. It also exports
+**`TEST_DATABASE_URL`, which is what actually decides the web app's database** —
+Next overwrites an inherited `DATABASE_URL` from `apps/web/.env` before any of
+this repo's code runs, so `DATABASE_URL` alone puts the Go API on the test
+database and the web app on **your own**. See `apps/web/lib/prisma.ts` and
+[docs/traps.md](docs/traps.md) § Test stacks.
+
 Order does not matter: the Go suites truncate every table between tests, so each
 suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
@@ -109,6 +118,10 @@ count that used to open this sentence is gone too. See
 | a spec that needs **Cloudinary, Brevo or any third party** | it cannot run in CI — that Cloudinary account holds real members' NID scans and CI has no credentials on purpose. Stub at the module boundary (`test/routes/registration.test.ts`) or seed the row the journey would have created (`e2e/entry-path.spec.ts`). A spec that drives the real thing fails the whole workflow: six did, for twenty minutes a run |
 | **copy on `/privacy` or `/terms`** | `apps/web/lib/legal.test.ts` and `apps/web/test/unit/messages.test.ts` — the wording is `legal.*` in `messages/{en,bn}.json`, and the fee-promise census reads it there. Both pages were shells' worth of inline prose, which is exactly how the Terms came to promise administrative fees with every other guard green. The revision date is a constant in `apps/web/lib/legal.ts`; both pages printed `Last updated: March 2026` through two rewrites of the loan clause |
 | **copy to a page under `app/[locale]/(auth)/`** | `apps/web/test/unit/messages.test.ts` — put it in `messages/{en,bn}.json`. A `locale === 'bn' ? … : …` in a component is invisible to the parity census, the placeholder check *and* the fee-promise search, which is how the Terms of Service promised administrative fees in both languages with every guard green |
+| a **sum over `transactions`** in the web app | `apps/web/lib/public-stats.test.ts` — filter on `status: 'CONFIRMED'` (rule 6a). The census is about `_sum` and not about `count`, deliberately: two routes count a member's postings at *every* status to decide whether they can be erased, and a `PENDING` row is still a row that stops one. It is summing **money** that must never see one |
+| a **default in `scripts/seed.mjs`** that could already exist as a blank row | `apps/web/test/unit/localized-settings.test.ts` — `seedConfig` backfills an empty value and leaves a non-empty one alone. It used to refresh only the `description`, so a key the Content & Media screen had written blank could **never** be repaired by re-running the seed: the English half of every landing pair was created with its words while the Bengali half stayed empty, and the site fell back to `messages/bn.json` where nobody could see it was doing so |
+| a **public accessor that reads the database** | `apps/web/test/unit/public-content-fallback.test.ts` — it must not reject, and the `catch` goes **outside** `unstable_cache`. There are three (`getPublicSettings`, `getPublicGalleryItems`, `getPublicStats`); a fourth belongs in that file rather than growing its own `try`. Inside the cache, one transient Neon blip memoises the empty fallback for the whole revalidate hour |
+| a way for the **web app** to reach the database in a test | `apps/web/test/unit/test-stack-database.test.ts` — go through `TEST_DATABASE_URL`. `DATABASE_URL` handed to `next dev` is overwritten from `apps/web/.env` before any of our code runs, which put the API and the web app of one browser run on **two different databases** — and `public-content.spec.ts` writing settings into a developer's live Neon |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -258,6 +271,11 @@ apps/web/lib/structured-data.ts   the JSON-LD builders. Type is NGO, never Finan
                                   interestRate and fee properties that misrepresent a Qard al-Hasan fund
 apps/web/lib/system-config.ts     every system_config key, split into public / member / admin tiers,
                                   plus the cached getPublicSettings() every marketing page renders from
+apps/web/lib/public-stats.ts      the four figures beside the home page headline, COUNTED from the ledger
+                                  rather than typed. They were invented literals, then empty settings
+                                  boxes nobody filled; a `stats.*` value still overrides the count, for
+                                  the real case of publishing "৩০+" instead of "৩১". Aggregates filter
+                                  on CONFIRMED (rule 6a) and loans count by disbursementDate, not status
 apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
                                   token, and without one the caller silently gets the public subset
 apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce.

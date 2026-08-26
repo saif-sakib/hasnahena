@@ -158,6 +158,11 @@ export function Header({ settings }: HeaderProps) {
         tagline beneath হাসনাহেনা is two lines of small Bengali type, and at
         40 px those are about eight pixels each. On a cheap Android in sunlight
         that is not a logo, it is a smudge.
+
+        The scrolled state has the same floor for the same reason. It was
+        `h-10 md:h-12` — 40 px again, the size the rule above exists to forbid —
+        and since a reader spends almost the whole visit scrolled, that was the
+        state the wordmark was unreadable in for almost the whole visit.
       */}
       <nav
         className={`container-wide flex items-center justify-between transition-all duration-300 ${
@@ -172,7 +177,7 @@ export function Header({ settings }: HeaderProps) {
             variant={mobileMenuOpen ? 'light' : 'default'}
             src={settings?.['branding.logo'] || undefined}
             className={`transition-all duration-300 ${
-              isScrolled || mobileMenuOpen ? 'h-10 md:h-12' : 'h-16 md:h-20'
+              isScrolled || mobileMenuOpen ? 'h-12 md:h-14' : 'h-16 md:h-20'
             }`}
           />
         </Link>

@@ -48,6 +48,16 @@ scripts/test-stack.sh down        # destroys the volume
 `up --serve` also builds and starts both apps, for `pnpm test:e2e`.
 `pnpm test:stack` is the same thing through the package script.
 
+**`eval "$(scripts/test-stack.sh env)"` is required for the browser suite too**,
+and for two separate reasons. It exports the seeded admin's credentials, without
+which `public-content.spec.ts` and `admin-dashboard.spec.ts` fail or skip on a
+message about missing variables rather than on anything real. And it exports
+**`TEST_DATABASE_URL`, which is what decides the web app's database** — Next
+re-applies `apps/web/.env` over the inherited environment before any of this
+repo's code runs, so `DATABASE_URL` alone leaves the Go API on the test database
+and the web app on the developer's own. That was live until 2026-08-26; see
+[traps.md](traps.md) § Test stacks and `apps/web/lib/prisma.ts`.
+
 **Never point this at a development database.** These suites truncate tables and
 `down` destroys the volume — that is the point, not a hazard to work around.
 
@@ -159,13 +169,13 @@ Not everything absent is a gap. These are decisions:
 | A generic accessibility audit | See the reasoning in `e2e/accessibility.spec.ts` — four specific checks beat a long advisory list nobody actions |
 | Cloudinary against the real account | It holds members' NID scans. The client is stubbed and the compensation path driven end to end |
 
-**One known hole.** `e2e/admin-dashboard.spec.ts` skips unless
-`E2E_ADMIN_IDENTIFIER` and `E2E_ADMIN_PASSWORD` are set, and neither
-`test-stack.sh env` nor the CI e2e job sets them — so it has **never run in any
-environment** and is the "1 skipped" in every report. `journeys.spec.ts` already
-signs in as an admin through the fixtures and asserts more, so this is redundant
-rather than missing coverage. Wire it to `ACCOUNTS.ADMIN` or delete it: a
-permanently-skipped spec is worse than no spec, because it reads as covered.
+**The hole that used to be here is closed.** `e2e/admin-dashboard.spec.ts` skips
+unless `E2E_ADMIN_IDENTIFIER` and `E2E_ADMIN_PASSWORD` are set, and for most of
+this project's life *nothing* set them — not `test-stack.sh env`, not the CI e2e
+job — so it had never run in any environment and was the "1 skipped" in every
+report, reading as covered. Both now supply them: CI in `.github/workflows/ci.yml`
+and the stack from the same two constants its seed uses. A spec that can only
+skip is worse than no spec; if one appears again, wire it up or delete it.
 
 ## Measured, so a regression has something to compare against
 

@@ -123,14 +123,17 @@ Run the release checklist in [deployment.md](deployment.md), then:
 - [ ] Check **Render's stop grace period exceeds `SERVER_SHUTDOWN_TIMEOUT`**
       (30 s default) or a deploy will `SIGKILL` mid-transaction
 - [ ] **Read the public site in both languages, as a stranger.** Every box on
-      Admin → Content & Media → Public Pages is a **pair**, and the English half
-      of each is empty on a database seeded before 2026-08-26 — so the Bengali
-      text shows to English readers until it is written. The four hero figures
-      (*Total Members*, *Total Deposits*, *Loans Distributed*, *Charitable
-      Fund*) are seeded blank **on purpose**: they used to be invented numbers
-      compiled into the source, and the hero omits a figure that has no value.
-      Write the foundation's true ones or leave the panel off — do not launch
-      with numbers nobody can defend
+      Admin → Content & Media → Public Pages is a **pair**, and both halves are
+      seeded with real copy — so what is left there is editorial, not repair.
+      Read both languages and change what the foundation would say differently.
+      The four hero figures (*Total Members*, *Total Deposits*, *Loans
+      Distributed*, *Charitable Fund*) are **counted from the ledger** and need
+      no entry; type into one only to override the count, and then only with a
+      number the foundation can defend. Blank is the normal state
+- [ ] **Check the figures against the ledger before launch day.** They are the
+      real totals of whatever is in the database when the page renders, so a
+      cutover that has not yet cleared the test data will publish it. Run
+      `pnpm db:clear` first — see the freeze section above
 - [ ] **Read `/privacy` and `/terms` end to end.** They describe what the
       platform actually does with a member's national ID, including the parts
       that are limits rather than rights. They are legal documents the

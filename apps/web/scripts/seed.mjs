@@ -210,25 +210,27 @@ const CONFIG_DEFAULTS = [
 
   // The four figures beside the home page headline (T-11, 2026-08-26).
   //
-  // Seeded EMPTY for the same reason as `bank.*`, and it is the stronger case
-  // of the two. These were literals in `messages/{en,bn}.json` — "125+"
-  // members, "BDT 250,000+" deposits, "BDT 180,000+" lent — invented, published
-  // on the live site, and beyond the foundation's reach without a developer. A
-  // cooperative asking people to trust it with their savings must not publish
-  // made-up totals about itself, and a seeded default here would be exactly
-  // that with an extra step.
+  // Seeded EMPTY — but unlike `bank.*` above, empty here does not mean the panel
+  // is blank. It means **counted**. `lib/public-stats.ts` reads the member
+  // count, the confirmed deposits, the disbursed principal and the confirmed
+  // donations straight out of the database, so a foundation with one member and
+  // one deposit has a filled-in home page having typed nothing.
   //
-  // Empty means the card is absent; all four empty means the panel is. The
-  // admin writes the real ones on Content & Media → Public Pages, in both
-  // languages, because `১২৫+` and `125+` are the same fact in two scripts.
-  { key: 'stats.members', value: '', description: 'Members figure on the home page (Bengali) — empty hides the card' },
-  { key: 'stats.membersEn', value: '', description: 'Members figure on the home page (English)' },
-  { key: 'stats.deposits', value: '', description: 'Deposits figure on the home page (Bengali)' },
-  { key: 'stats.depositsEn', value: '', description: 'Deposits figure on the home page (English)' },
-  { key: 'stats.loans', value: '', description: 'Loans-distributed figure on the home page (Bengali)' },
-  { key: 'stats.loansEn', value: '', description: 'Loans-distributed figure on the home page (English)' },
-  { key: 'stats.charity', value: '', description: 'Charitable-fund figure on the home page (Bengali)' },
-  { key: 'stats.charityEn', value: '', description: 'Charitable-fund figure on the home page (English)' },
+  // These rows exist as the *override*, for the real case where the foundation
+  // would rather publish `৩০+` than `৩১`. That is its call to make and there is
+  // no honest default for it, which is why nothing is seeded: a seeded figure
+  // would be the invented "125+" this replaced, with an extra step.
+  //
+  // Written in both scripts when written at all, because `১২৫+` and `125+` are
+  // the same fact in two alphabets. Admin → Content & Media → Public Pages.
+  { key: 'stats.members', value: '', description: 'Members figure override (Bengali) — empty means the live member count' },
+  { key: 'stats.membersEn', value: '', description: 'Members figure override (English) — empty means the live member count' },
+  { key: 'stats.deposits', value: '', description: 'Deposits figure override (Bengali) — empty means confirmed deposits' },
+  { key: 'stats.depositsEn', value: '', description: 'Deposits figure override (English) — empty means confirmed deposits' },
+  { key: 'stats.loans', value: '', description: 'Loans figure override (Bengali) — empty means disbursed principal' },
+  { key: 'stats.loansEn', value: '', description: 'Loans figure override (English) — empty means disbursed principal' },
+  { key: 'stats.charity', value: '', description: 'Charity figure override (Bengali) — empty means confirmed donations' },
+  { key: 'stats.charityEn', value: '', description: 'Charity figure override (English) — empty means confirmed donations' },
 ];
 
 function requiredEnv(name, hint) {
@@ -331,22 +333,68 @@ async function seedAdmin(prisma) {
   return created.id;
 }
 
+/**
+ * Ensure every default exists, and **fill in the blanks**.
+ *
+ * The rule is unchanged where it matters: an operator who typed a value into
+ * the admin UI outranks this file, and re-running the seed must never undo
+ * their edit. But an *empty* row is not somebody's edit — it is the absence of
+ * one, and treating it as a decision is what produced the defect this now
+ * exists to fix.
+ *
+ * What happened (2026-08-26). The public site's copy moved into `system_config`
+ * with a Bengali key and an `…En` twin each. The English halves were brand new,
+ * so `create` ran and they got their words. The Bengali halves already existed
+ * as **empty strings** — the Content & Media screen POSTs every field on save,
+ * so an admin who had once opened that screen and pressed Save had written a
+ * blank row for each of them. `update: { description }` then dutifully declined
+ * to touch a value nobody had ever set, and the result was `hero.tagline` empty
+ * beside `hero.taglineEn` filled: an English home page rendering correctly, a
+ * Bengali one falling back to `messages/bn.json`, and Admin → Content & Media
+ * showing half a screen of empty boxes. Re-running the seed could not fix it,
+ * which is what made it worth changing this function rather than the data.
+ *
+ * So a stored value of `''` (or whitespace) is backfilled from the default, and
+ * anything else is left alone. The rows deliberately seeded empty — `bank.*`,
+ * `stats.*`, `hero.partnerLogo*` — have an empty default too, so backfilling
+ * them is a no-op and their intent survives.
+ *
+ * The one behaviour to be aware of: an operator who clears a box *to* empty on
+ * purpose will have it refilled by the next seed run. That is the right way for
+ * this to be wrong. A settings screen can express "blank" in a way this file
+ * cannot express "deliberately blank", and the failure mode above — copy that
+ * no re-run can repair — is far worse than a default coming back.
+ */
 async function seedConfig(prisma) {
-  let created = 0;
+  let atDefault = 0;
+  let backfilled = 0;
   for (const { key, value, description } of CONFIG_DEFAULTS) {
-    const result = await prisma.systemConfig.upsert({
+    const existing = await prisma.systemConfig.findUnique({
       where: { key },
-      // An operator who changed a value in the admin UI outranks this file.
-      // Only the description is refreshed, since that is documentation.
-      update: { description },
-      create: { key, value, description },
       select: { value: true },
     });
-    if (result.value === value) {
-      created += 1;
+
+    if (!existing) {
+      await prisma.systemConfig.create({ data: { key, value, description } });
+      atDefault += 1;
+      continue;
     }
+
+    const isBlank = existing.value.trim() === '';
+    const fillable = isBlank && value !== '';
+    await prisma.systemConfig.update({
+      where: { key },
+      // The description is documentation and is always refreshed.
+      data: fillable ? { value, description } : { description },
+    });
+
+    if (fillable) backfilled += 1;
+    if (fillable || existing.value === value) atDefault += 1;
   }
-  console.log(`config: ${CONFIG_DEFAULTS.length} keys ensured (${created} at default values)`);
+  console.log(
+    `config: ${CONFIG_DEFAULTS.length} keys ensured (${atDefault} at default values` +
+      `${backfilled > 0 ? `, ${backfilled} blank rows backfilled` : ''})`,
+  );
 }
 
 // The donation pool is a real account in the ledger, not a computed total:

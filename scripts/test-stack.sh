@@ -31,6 +31,15 @@ PGURL="postgresql://postgres:postgres@localhost:${PGPORT}/${DBNAME}"
 # deployment would accept.
 JWT_SECRET="test-secret-at-least-thirty-two-characters"
 
+# The admin this stack seeds, in one place — because two specs sign in as it and
+# they used to have to be told its credentials by hand. `test-stack.sh env` now
+# exports them, so `eval "$(scripts/test-stack.sh env)" && pnpm test:e2e` is
+# enough: without them `public-content.spec.ts` fails with "Set
+# E2E_ADMIN_IDENTIFIER and E2E_ADMIN_PASSWORD", which reads like a broken spec
+# and is a rig that did not finish introducing itself.
+ADMIN_EMAIL="admin@hasnahena.test"
+ADMIN_PASSWORD="test-password-123456"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNDIR="${ROOT}/.test-stack"
 
@@ -68,8 +77,8 @@ migrate_and_seed() {
 
   say "seeding config and an admin"
   DATABASE_URL="$PGURL" \
-  SEED_ADMIN_EMAIL="admin@hasnahena.test" \
-  SEED_ADMIN_PASSWORD="test-password-123456" \
+  SEED_ADMIN_EMAIL="$ADMIN_EMAIL" \
+  SEED_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
     pnpm --dir "$ROOT" db:seed
 }
 
@@ -112,9 +121,16 @@ serve() {
   "$RUNDIR/api-bin" > "$RUNDIR/api.log" 2>&1 &
   echo $! > "$RUNDIR/api.pid"
 
+  # TEST_DATABASE_URL as well as DATABASE_URL, and it is the one that decides.
+  # Next re-applies `apps/web/.env` over the inherited environment before any of
+  # our code runs (@next/env), so `DATABASE_URL` handed in here loses to a file
+  # on disk: the API ran on the test database while the web app quietly ran on
+  # the developer's Neon dev one, in the same browser suite. Nothing in this
+  # repo's .env files defines TEST_DATABASE_URL, so nothing can override it —
+  # see the note in apps/web/lib/prisma.ts.
   say "starting Next on ${WEB_PORT}"
   ( cd "$ROOT/apps/web" && \
-    DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" \
+    DATABASE_URL="$PGURL" TEST_DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" \
     NEXT_PUBLIC_API_URL="http://localhost:${API_PORT}" \
     npx next dev -p "$WEB_PORT" > "$RUNDIR/web.log" 2>&1 & echo $! > "$RUNDIR/web.pid" )
 
@@ -165,6 +181,8 @@ export TEST_DATABASE_URL="${PGURL}"
 export JWT_SECRET="${JWT_SECRET}"
 export NEXT_PUBLIC_API_URL="http://localhost:${API_PORT}"
 export E2E_BASE_URL="http://localhost:${WEB_PORT}"
+export E2E_ADMIN_IDENTIFIER="${ADMIN_EMAIL}"
+export E2E_ADMIN_PASSWORD="${ADMIN_PASSWORD}"
 EOF
 }
 

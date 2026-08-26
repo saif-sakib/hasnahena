@@ -307,6 +307,45 @@ describe('every pair is seeded, so a fresh install has words on it', () => {
     }
   });
 
+  it('fills a row that exists and is blank', () => {
+    /*
+     * The bug this is here for, in full, because a source census only makes
+     * sense next to the story.
+     *
+     * The English halves of these pairs were brand new keys on 2026-08-26, so
+     * `create` ran and they got their words. The Bengali halves already
+     * existed — as **empty strings**. Admin → Content & Media POSTs every field
+     * on save, so an admin who had once opened that screen while the boxes were
+     * blank had written a blank row for each of them. `seedConfig` then said
+     * "an operator outranks this file" and refused to touch a value nobody had
+     * ever set.
+     *
+     * The result was `hero.tagline` empty beside `hero.taglineEn` filled: an
+     * English page rendering correctly, a Bengali one silently on its
+     * `messages/bn.json` fallback, and no way to repair it by re-running the
+     * seed — which is what made it a bug in this function rather than in the
+     * data. Reported by the owner as "Bangla is not seeded yet".
+     *
+     * An empty value is the absence of a decision, not a decision. A row that
+     * holds one gets the default; a row that holds words keeps them.
+     */
+    const body = seed.slice(seed.indexOf('async function seedConfig'));
+    const fn = body.slice(0, body.indexOf('\n}'));
+
+    expect(
+      fn,
+      'seedConfig no longer looks at what the stored value is. If it only ever ' +
+        'refreshes the description, a config row that exists and is blank can ' +
+        'never be repaired by re-running the seed — which is how the whole ' +
+        'Bengali half of the public site stayed empty.',
+    ).toMatch(/\.trim\(\)\s*===\s*''/);
+
+    expect(
+      fn,
+      'seedConfig never writes `value` to an existing row, so a blank one stays blank',
+    ).toMatch(/\{\s*value,\s*description\s*\}/);
+  });
+
   it('seeds each half in its own script', () => {
     // The failure this catches is the quiet one: seeding the Bengali sentence
     // into both rows satisfies every check above and shows Bengali to English
