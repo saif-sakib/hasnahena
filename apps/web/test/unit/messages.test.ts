@@ -208,13 +208,33 @@ describe('no member-facing page promises a fee', () => {
     ).toEqual([]);
   });
 
-  it('the terms page states the rule positively in both languages', () => {
-    // The absence check above passes on a page that says nothing at all. This
-    // is the other half: the one page a member reads before borrowing has to
-    // say what the rule is.
-    const terms = readFileSync(join(PAGES, '[locale]', 'terms', 'page.tsx'), 'utf8');
-    expect(terms).toMatch(/no\s+(?:administrative|processing)/i);
-    expect(terms).toContain('সুদমুক্ত');
+  it('the terms state the rule positively in both languages', () => {
+    // The absence check above passes on copy that says nothing at all. This is
+    // the other half: the one page a member reads before borrowing has to say
+    // what the rule is.
+    //
+    // It reads `messages/{en,bn}.json`, not `terms/page.tsx`, because that is
+    // where the wording moved on 2026-08-26 (T-10) — the page is now a shell
+    // around `legal.terms.sections`. **This assertion following the copy is the
+    // point**, not an inconvenience: the fee promise that started this census
+    // survived every other guard precisely because it sat in a component, and a
+    // census left pointing at the old location would have gone green while
+    // reading nothing.
+    const loans = {
+      en: en.get('legal.terms.sections.loans.content'),
+      bn: bn.get('legal.terms.sections.loans.content'),
+    };
+    expect(
+      loans.en,
+      'the loan clause is gone from legal.terms.sections.loans.content — if it was ' +
+        'renamed, move this assertion with it rather than deleting it',
+    ).toBeDefined();
+    expect(loans.en).toMatch(/no\s+(?:administrative|processing)/i);
+    // "no late fee" is the second half of the same ruling (T-05, 2026-08-25):
+    // the agreement denies one rather than reserving one, and so must the page.
+    expect(loans.en).toMatch(/no\s+penalty|no\s+additional\s+charge/i);
+    expect(loans.bn).toContain('সুদমুক্ত');
+    expect(loans.bn).toMatch(/কোনো জরিমানা|বাড়তি চার্জ/);
   });
 });
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
-import { orgAddress } from '@/lib/org-address';
+import { contactDetails } from '@/lib/contact-details';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 import { localePath } from '@/lib/locale-path';
@@ -50,10 +50,11 @@ export default async function SupportPage({ params }: PageProps) {
   // never declared in SYSTEM_CONFIG_KEYS, so no admin could ever set one and the
   // branch was unreachable. `org.*` is declared, seeded, and printed on every
   // generated document.
-  const supportEmail = settings['org.email']?.trim() || '';
-  const supportPhone = settings['org.phone']?.trim() || '';
-  // Not `settings['org.address']`: one box, two audiences — see orgAddress().
-  const supportAddress = orgAddress(settings, locale);
+  const {
+    address: supportAddress,
+    phone: supportPhone,
+    email: supportEmail,
+  } = contactDetails(settings, locale);
 
   return (
     <>

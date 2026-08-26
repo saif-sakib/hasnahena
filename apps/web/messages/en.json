@@ -21,11 +21,13 @@
     "previous": "Previous",
     "submit": "Submit",
     "close": "Close",
-    "motto": "Building an interest-free and poverty-free society"
+    "motto": "Building an interest-free and poverty-free society",
+    "readMore": "Read more"
   },
   "navigation": {
     "home": "Home",
-    "about": "Our Activities",
+    "about": "About Us",
+    "activities": "Our Activities",
     "howItWorks": "How It Works",
     "donate": "Donate",
     "gallery": "Gallery",
@@ -34,15 +36,19 @@
     "register": "Register",
     "dashboard": "Dashboard",
     "logout": "Logout",
-    "language": "Language",
-    "features": "Features"
+    "language": "Language"
   },
   "hero": {
     "title": "Interest-Free Finance",
     "subtitle": "Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest",
     "cta": "Become a Member",
     "learnMore": "Learn More",
-    "tagline": "Shariah Compliant Finance"
+    "tagline": "Shariah Compliant Finance",
+    "partners": "Trusted by community",
+    "partnerAlt": "Partner {number}",
+    "goToDashboard": "Go to Dashboard",
+    "ctaTitle": "Join Interest-Free Finance Today",
+    "ctaSubtitle": "Become a member of Hasnahena and enjoy interest-free loans"
   },
   "hadith": {
     "title": "In Light of Hadith",
@@ -108,17 +114,17 @@
     "title": "Our Activity Gallery",
     "subtitle": "Memories from our various activities",
     "viewAll": "View All",
-    "noImages": "No images added yet"
+    "noImages": "No images added yet",
+    "openImage": "Open photo: {caption}",
+    "previousImage": "Previous photo",
+    "nextImage": "Next photo",
+    "imageFailed": "Image failed to load"
   },
   "stats": {
     "totalMembers": "Total Members",
     "totalDeposits": "Total Deposits",
     "loansDistributed": "Loans Distributed",
-    "charitableFund": "Charitable Fund",
-    "totalMembersValue": "125+",
-    "totalDepositsValue": "BDT 250,000+",
-    "loansDistributedValue": "BDT 180,000+",
-    "charitableFundValue": "BDT 25,000+"
+    "charitableFund": "Charitable Fund"
   },
   "features": {
     "title": "Why Choose Hasnahena?",
@@ -433,7 +439,8 @@
       "toggleMenu": "Open navigation menu",
       "facebookPage": "Hasnahena on Facebook",
       "changePhoto": "Change profile photo",
-      "removePhoto": "Remove profile photo"
+      "removePhoto": "Remove profile photo",
+      "close": "Close"
     }
   },
   "footer": {
@@ -445,6 +452,86 @@
     "termsOfService": "Terms of Service",
     "faq": "FAQ",
     "support": "Support",
-    "copyright": "© 2024 Hasnahena. All rights reserved."
+    "copyright": "© {year} {name}. All rights reserved."
+  },
+  "legal": {
+    "lastUpdated": "Last updated {date}",
+    "backToHome": "Back to Home",
+    "privacy": {
+      "title": "Privacy Policy",
+      "intro": "This policy describes what Hasnahena Foundation records about you, who else holds it, and how long it is kept. It describes what the system actually does — where a right has a limit, the limit is stated here rather than left out.",
+      "sections": {
+        "collect": {
+          "title": "What we collect",
+          "content": "To become a member you give us your name, date of birth, your parents’ names, your present and permanent address, your mobile number, an email address, your national ID number, a photograph of that ID document and a photograph of yourself, and the name and details of your nominee. Once you are a member we also hold the record of everything that happens to your money: every deposit, withdrawal, loan, instalment and donation, and who processed it."
+        },
+        "why": {
+          "title": "Why we collect it",
+          "content": "Identity details establish that you are eligible for membership and that the person at the counter is the person who owns the account. Nominee details decide who receives your savings if you die. The financial record is the account itself — it is what your balance is calculated from, and it is checked against the sum of every posting every hour."
+        },
+        "processors": {
+          "title": "Who else holds it",
+          "content": "We do not sell your information and we do not share it for marketing. Three services hold parts of it on our behalf: Cloudinary stores the photographs, including the image of your national ID; Brevo delivers the emails we send you; and Neon hosts the database. Staff of the foundation see what their role requires — a field worker sees the members they serve, an administrator sees the whole membership — and every change to money is recorded against the person who made it. We disclose information beyond this only when the law requires it."
+        },
+        "retention": {
+          "title": "How long we keep it",
+          "content": "The financial record is permanent. It has to be: a posting whose owner has vanished does not make the accounts smaller, it makes them permanently wrong. Identity details are not permanent. If your application is refused, the decision and its reason are kept, and your national ID number, your parents’ names, your date of birth and your addresses are erased {rejectedDays} days after the refusal. If you leave and your account was never used, your record is deleted outright. If you leave and money has moved through your account, your record is anonymised instead — your name, contact details, ID number and photographs are removed and the postings remain, attached to an account number that no longer identifies anybody."
+        },
+        "rights": {
+          "title": "Your rights, and where they stop",
+          "content": "You may ask to see what we hold about you, to correct anything that is wrong, and to have your identity details erased. Ask at the office and we will act on it. The one thing we cannot do is delete the financial record of an account that has been used, for the reason above; erasure of such an account means anonymisation, and we will tell you which of the two applies to you before we do it. Corrections to money are never made by overwriting: a mistaken posting is corrected by adding a further posting, so the history stays readable."
+        },
+        "security": {
+          "title": "How it is protected",
+          "content": "Passwords are stored only as a one-way hash, so nobody at the foundation can read yours. Sessions expire, and changing your password ends every other session immediately. Access needs a signed-in account with a role that permits it. Every change to a balance is written to an audit log that cannot be edited or deleted, only added to — the database itself refuses an attempt to alter one."
+        },
+        "contact": {
+          "title": "Asking us about this",
+          "content": "For anything in this policy — a request to see your record, a correction, an erasure, or a question about it — contact the office. The address, phone number and email are at the bottom of every page."
+        }
+      }
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "intro": "These terms govern your membership of Hasnahena Foundation and your use of this platform.",
+      "sections": {
+        "acceptance": {
+          "title": "Acceptance of Terms",
+          "content": "By accessing and using the Hasnahena Foundation services, you accept and agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use our services."
+        },
+        "service": {
+          "title": "Service Description",
+          "content": "Hasnahena Foundation provides interest-free cooperative finance to its members — savings accounts, Qard al-Hasan loans, and the tools to manage them. Our services operate under Islamic finance principles."
+        },
+        "registration": {
+          "title": "Account Registration",
+          "content": "To use our services you must register for an account and provide accurate, complete information. Membership is granted by decision of the foundation and may be refused. You are responsible for keeping your password confidential and for everything done under your account."
+        },
+        "responsibilities": {
+          "title": "Member Responsibilities",
+          "content": "Members agree to use our services only for lawful purposes, provide truthful information, make timely repayments on any loans, and comply with all applicable laws and regulations."
+        },
+        "loans": {
+          "title": "Loan Terms",
+          "content": "Loans provided by Hasnahena Foundation are interest-free. There is no profit rate, no markup, no service charge and no administrative or processing fee — you repay exactly the amount you borrowed and not one taka more. A late or missed instalment carries no penalty and no additional charge of any kind. Specific repayment schedules and conditions are set out in your individual loan agreement."
+        },
+        "privacy": {
+          "title": "Privacy",
+          "content": "Your use of our services is also governed by our Privacy Policy, which sets out what we record, who else holds it and how long it is kept. Please read it."
+        },
+        "termination": {
+          "title": "Termination",
+          "content": "We may terminate or suspend your account for violation of these terms. You may close your account at any time by contacting us; how your record is treated afterwards is described in the Privacy Policy."
+        },
+        "changes": {
+          "title": "Changes to Terms",
+          "content": "We reserve the right to modify these terms at any time. We will notify members of significant changes. Continued use of our services after changes constitutes acceptance of the new terms."
+        },
+        "contact": {
+          "title": "Contact",
+          "content": "For questions about these Terms of Service, contact the office. The address, phone number and email are at the bottom of every page."
+        }
+      }
+    }
   }
 }

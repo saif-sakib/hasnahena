@@ -23,7 +23,29 @@ interface LogoProps {
   priority?: boolean;
 }
 
-const widthMap = { sm: 140, md: 180, lg: 240, xl: 320 } as const;
+/**
+ * How **tall** the lockup renders, in CSS pixels.
+ *
+ * Height rather than width, and this is the whole fix from T-10. The size map
+ * used to name widths and hand them to `next/image` as the `width` prop — while
+ * the className said `h-auto w-auto`, which overrides both. A replaced element
+ * with `width:auto;height:auto` renders at its *intrinsic* size, so every call
+ * site got the same picture whatever `size` it asked for: `sm` and `md` both
+ * measured **192 × 108**, inside a **64 px** header.
+ *
+ * What that looked like: the leaf spilling 44 px below the header on every
+ * public page, covering the hero badge at 412 px; and the privacy page's own
+ * header growing to 141 px on a phone because it has no fixed height to spill
+ * out of. The `size` prop had no effect anywhere, so nobody could have fixed one
+ * call site without discovering this.
+ *
+ * The header is `h-16`, so `md` is 40 px — the lockup sits inside it with room
+ * above and below at every width.
+ */
+const heightMap = { sm: 28, md: 40, lg: 56, xl: 72 } as const;
+
+/** The mark is square, so it reads smaller at the same height beside text. */
+const MARK_SCALE = 0.9;
 
 export function Logo({
   size = 'md',
@@ -34,8 +56,8 @@ export function Logo({
   priority = false,
 }: LogoProps) {
   const source = src ?? (mark ? LOGO_MARK_SRC : LOGO_LOCKUP_SRC);
-  const width = mark ? Math.round(widthMap[size] * 0.42) : widthMap[size];
-  const height = Math.round(width * (mark ? MARK_RATIO : LOCKUP_RATIO));
+  const height = Math.round(heightMap[size] * (mark ? MARK_SCALE : 1));
+  const width = Math.round(height / (mark ? MARK_RATIO : LOCKUP_RATIO));
 
   return (
     <Image
@@ -46,8 +68,13 @@ export function Logo({
       alt="হাসনাহেনা ফাউন্ডেশন / Hasnahena Foundation"
       width={width}
       height={height}
+      // The height is fixed and the width follows the aspect ratio, so an
+      // uploaded `branding.logo` of any shape still fits the space it is given
+      // rather than deciding it. `max-w-full` keeps a very wide upload from
+      // pushing the language switcher off a 412 px screen.
+      style={{ height: `${height}px`, width: 'auto' }}
       className={cn(
-        'h-auto w-auto object-contain',
+        'max-w-full object-contain',
         variant === 'light' && 'brightness-0 invert',
         className
       )}

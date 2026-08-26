@@ -76,6 +76,7 @@ export const SYSTEM_CONFIG_KEYS = [
   // Landing-page presentation. Image values are Cloudinary URLs written by the
   // upload server actions, not typed by hand.
   'hero.tagline',
+  'hero.taglineEn',
   'hero.backgroundImage',
   'hero.partnerLogo1',
   'hero.partnerLogo2',
@@ -87,21 +88,52 @@ export const SYSTEM_CONFIG_KEYS = [
   // admin settings page unable to save *anything at all* — including loan
   // policy. The allow-list was written from the schema rather than from what the
   // form posts, which is the failure mode to watch for when adding to it.
+  //
+  // Every one of them is PROSE, and each therefore has an `…En` twin as of
+  // 2026-08-26 (T-11). They were single boxes labelled in English on the admin
+  // screen and rendered to both audiences — the `org.address` bug, four more
+  // times. `lib/localized-settings.ts` owns the pairing and the census.
   'features.title',
+  'features.titleEn',
   'contact.title',
+  'contact.titleEn',
   'donation.title',
+  'donation.titleEn',
   'donation.subtitle',
+  'donation.subtitleEn',
   'donation.bkash',
   'donation.nagad',
   'donation.rocket',
   'donation.referenceNote',
+  'donation.referenceNoteEn',
 
-  // Navigation visibility toggles, read by components/layout/header.tsx.
-  'navigation.features',
+  // The one menu label an admin may override, read by
+  // components/layout/header.tsx. `navigation.features` was here too until
+  // 2026-08-26 and relabelled a menu item pointing at `/#features` — an anchor
+  // the home page has never had. A control for a link that did nothing.
   'navigation.donate',
+  'navigation.donateEn',
+
+  // The four figures in the hero, read by app/[locale]/page.tsx.
+  //
+  // They were literals in `messages/{en,bn}.json` until 2026-08-26 — "125+"
+  // members, "BDT 250,000+" deposits — invented, live, and uncorrectable
+  // without a developer. A cooperative that is about to hold real savings
+  // cannot publish made-up totals about itself, and the foundation is the only
+  // party that knows the true ones. Blank hides the card; all four blank hides
+  // the panel.
+  'stats.members',
+  'stats.membersEn',
+  'stats.deposits',
+  'stats.depositsEn',
+  'stats.loans',
+  'stats.loansEn',
+  'stats.charity',
+  'stats.charityEn',
 
   // Login-page greeting, read by app/[locale]/(auth)/login/page.tsx.
   'auth.welcomeBack',
+  'auth.welcomeBackEn',
 
   // Uploaded brand assets. `branding.logo` is read by the header, the footer and
   // the logo primitive; `branding.favicon` by the layout. Cloudinary URLs written
@@ -228,24 +260,40 @@ export const PUBLIC_CONFIG_KEYS = [
   'org.descriptionEn',
 
   'hero.tagline',
+  'hero.taglineEn',
   'hero.backgroundImage',
   'hero.partnerLogo1',
   'hero.partnerLogo2',
   'hero.partnerLogo3',
 
   'features.title',
+  'features.titleEn',
   'contact.title',
+  'contact.titleEn',
   'donation.title',
+  'donation.titleEn',
   'donation.subtitle',
+  'donation.subtitleEn',
   'donation.bkash',
   'donation.nagad',
   'donation.rocket',
   'donation.referenceNote',
+  'donation.referenceNoteEn',
 
-  'navigation.features',
   'navigation.donate',
+  'navigation.donateEn',
+
+  'stats.members',
+  'stats.membersEn',
+  'stats.deposits',
+  'stats.depositsEn',
+  'stats.loans',
+  'stats.loansEn',
+  'stats.charity',
+  'stats.charityEn',
 
   'auth.welcomeBack',
+  'auth.welcomeBackEn',
 
   'branding.logo',
   'branding.favicon',
@@ -267,6 +315,14 @@ export const PUBLIC_CONFIG_KEYS = [
   // that refuses a date of birth without being able to say what the limit is
   // gives the applicant nothing to act on.
   'membership.minimumAgeYears',
+
+  // Public because the **privacy policy quotes it** (T-10). A page that tells a
+  // refused applicant when their national ID number is erased has to name the
+  // period the sweep actually counts, and `/privacy` is a prerendered marketing
+  // page reading `getPublicSettings()`. Stating a retention period is
+  // publishing it — the alternative is a legal document with a number in it
+  // that nothing keeps true.
+  'security.rejectedRetentionDays',
 ] as const;
 
 /**
@@ -326,21 +382,37 @@ export const MEMBER_CONFIG_KEYS = [
  */
 export const CONTENT_CONFIG_KEYS = [
   'hero.tagline',
+  'hero.taglineEn',
   'hero.backgroundImage',
   'hero.partnerLogo1',
   'hero.partnerLogo2',
   'hero.partnerLogo3',
 
   'features.title',
+  'features.titleEn',
   'contact.title',
+  'contact.titleEn',
   'donation.title',
+  'donation.titleEn',
   'donation.subtitle',
+  'donation.subtitleEn',
   'donation.referenceNote',
+  'donation.referenceNoteEn',
 
-  'navigation.features',
   'navigation.donate',
+  'navigation.donateEn',
+
+  'stats.members',
+  'stats.membersEn',
+  'stats.deposits',
+  'stats.depositsEn',
+  'stats.loans',
+  'stats.loansEn',
+  'stats.charity',
+  'stats.charityEn',
 
   'auth.welcomeBack',
+  'auth.welcomeBackEn',
 
   'branding.logo',
   'branding.dashboardLogo',

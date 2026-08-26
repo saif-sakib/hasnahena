@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Mail, Phone, MapPin, Send } from 'lucide-react';
 import { getPublicSettings } from '@/lib/system-config';
-import { orgAddress } from '@/lib/org-address';
+import { contactDetails, telHref } from '@/lib/contact-details';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
@@ -41,7 +41,6 @@ export default async function ContactPage({ params }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   setRequestLocale(locale);
 
-  const t = await getTranslations({ locale });
   const settings = await getPublicSettings();
 
   // WO-67. These used to read `contact.phone` / `contact.email` /
@@ -56,16 +55,13 @@ export default async function ContactPage({ params }: PageProps) {
   // letterhead on every generated document uses. A second copy of the
   // organisation's address is the ADR-023 shape — two places for one fact, kept
   // equal by hand.
-  const orgPhone = settings['org.phone']?.trim() || '';
-  const orgEmail = settings['org.email']?.trim() || '';
-  // Not `settings['org.address']`: one box, two audiences — see orgAddress().
-  const address = orgAddress(settings, locale);
+  const { address, phone: orgPhone, email: orgEmail } = contactDetails(settings, locale);
 
   return (
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/contact" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-32 pb-24 z-10 w-full flex flex-col items-center">
+      <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-24 pb-20 z-10 w-full flex flex-col items-center">
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
@@ -91,7 +87,9 @@ export default async function ContactPage({ params }: PageProps) {
                   <Phone className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ফোন' : 'Phone'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{orgPhone}</p>
+                <a href={telHref(orgPhone)} className="text-zinc-600 dark:text-zinc-400 hover:text-emerald-600">
+                  {orgPhone}
+                </a>
               </div>
               
               <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
@@ -99,7 +97,9 @@ export default async function ContactPage({ params }: PageProps) {
                   <Mail className="w-5 h-5" />
                 </div>
                 <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ইমেইল' : 'Email'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{orgEmail}</p>
+                <a href={`mailto:${orgEmail}`} className="text-zinc-600 dark:text-zinc-400 hover:text-emerald-600">
+                  {orgEmail}
+                </a>
               </div>
 
               <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
@@ -121,11 +121,18 @@ export default async function ContactPage({ params }: PageProps) {
                 <p className="text-zinc-500 dark:text-zinc-400 max-w-sm">
                    {locale === 'bn' ? 'বিস্তারিত আলোচনার জন্য সরাসরি ফোনে কল করতে পারেন অথবা আমাদের অফিসে যোগাযোগ করতে পারেন।' : 'For detailed discussions, please call directly or visit our office.'}
                 </p>
-                <a href={`tel:${orgPhone}`}>
-                  <Button variant="outline" className="mt-4 rounded-full px-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30">
-                     {locale === 'bn' ? 'কল করুন' : 'Call Now'}
-                  </Button>
-                </a>
+                {/*
+                  This rendered `href="tel:"` — a link to nothing — on any
+                  deployment that had not filled the number in, under a button
+                  reading "Call Now".
+                */}
+                {orgPhone && (
+                  <a href={telHref(orgPhone)}>
+                    <Button variant="outline" className="mt-4 rounded-full px-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30">
+                       {locale === 'bn' ? 'কল করুন' : 'Call Now'}
+                    </Button>
+                  </a>
+                )}
               </div>
             </div>
           </div>

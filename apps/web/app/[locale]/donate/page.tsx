@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
@@ -39,14 +39,13 @@ export default async function DonatePage({ params }: PageProps) {
   if (!locales.includes(locale as any)) notFound();
   setRequestLocale(locale);
 
-  const t = await getTranslations({ locale });
   const settings = await getPublicSettings();
 
   return (
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/donate" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 bg-rose-50/30 dark:bg-zinc-950 pt-32 pb-24 z-10 w-full flex flex-col items-center">
+      <main className="flex-1 bg-rose-50/30 dark:bg-zinc-950 pt-24 pb-20 z-10 w-full flex flex-col items-center">
         <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
           
           <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">

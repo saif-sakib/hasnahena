@@ -32,7 +32,7 @@ import {
   SITE_NAME_VARIANTS,
 } from '@/lib/seo';
 import type { FaqEntry } from '@/lib/faq';
-import { orgAddress, orgDescription } from '@/lib/org-address';
+import { localizedSettingPair, orgAddress, orgDescription } from '@/lib/localized-settings';
 
 /** A JSON-LD node. Deliberately loose — the shape is schema.org's, not ours. */
 export type JsonLdNode = Record<string, unknown>;
@@ -96,9 +96,15 @@ export function organizationSchema(settings: Settings): JsonLdNode {
   // primary name removed — `alternateName` means "also called", so repeating
   // `name` inside it is noise. The Bengali name comes from `org.name`, which an
   // admin edits; the Latin-script variants are SITE_NAME_VARIANTS.
-  const primaryName = trimmed(settings, 'org.nameEn') ?? SITE_NAME;
+  //
+  // Through `localizedSettingPair`, like the letterhead: this is the second of
+  // the two callers that genuinely want both halves rather than the reader's
+  // one, and routing it through the module is what keeps
+  // `localized-settings.test.ts` able to see every read of a prose key.
+  const names = localizedSettingPair(settings, 'org.name');
+  const primaryName = names.en || SITE_NAME;
   const alternateNames = [
-    ...new Set([trimmed(settings, 'org.name'), ...SITE_NAME_VARIANTS]),
+    ...new Set([names.bn, ...SITE_NAME_VARIANTS]),
   ].filter((name): name is string => Boolean(name) && name !== primaryName);
 
   return compact({

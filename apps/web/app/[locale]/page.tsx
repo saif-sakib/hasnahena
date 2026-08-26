@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { useTranslations } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -17,7 +16,8 @@ import { StructuredData } from '@/components/seo/structured-data';
 
 import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
-import { orgAddress } from '@/lib/org-address';
+import { localizedSetting } from '@/lib/localized-settings';
+import { contactDetails } from '@/lib/contact-details';
 import { localePath } from '@/lib/locale-path';
 
 /**
@@ -141,6 +141,57 @@ export default async function HomePage({ params }: PageProps) {
     },
   ];
 
+  const partnerLogos = [
+    settings['hero.partnerLogo1'],
+    settings['hero.partnerLogo2'],
+    settings['hero.partnerLogo3'],
+  ]
+    .map((logo) => logo?.trim())
+    .filter((logo): logo is string => Boolean(logo));
+
+  // Each key sits on the line that resolves it, deliberately: the pair census in
+  // `localized-settings.test.ts` reads line by line and refuses a prose key
+  // named anywhere that does not also call `localizedSetting`. A table of bare
+  // keys mapped through the resolver three lines below is exactly the shape it
+  // cannot tell apart from the bug.
+  const statCards = [
+    {
+      value: localizedSetting(settings, 'stats.members', locale),
+      label: tStats('totalMembers'),
+      icon: <Users className="h-6 w-6 text-emerald-600" />,
+    },
+    {
+      value: localizedSetting(settings, 'stats.deposits', locale),
+      label: tStats('totalDeposits'),
+      icon: <Wallet className="h-6 w-6 text-amber-600" />,
+    },
+    {
+      value: localizedSetting(settings, 'stats.loans', locale),
+      label: tStats('loansDistributed'),
+      icon: <HandHeart className="h-6 w-6 text-blue-600" />,
+    },
+    {
+      value: localizedSetting(settings, 'stats.charity', locale),
+      label: tStats('charitableFund'),
+      icon: <Heart className="h-6 w-6 text-rose-600" />,
+    },
+  ]
+    .filter((card) => card.value !== '')
+    .map((card, index) => ({ ...card, delay: index * 100 }));
+
+  const contact = contactDetails(settings, locale);
+  const contactCards = [
+    { icon: MapPin, title: tContact('address'), value: contact.address },
+    { icon: Phone, title: tContact('phone'), value: contact.phone },
+    { icon: Mail, title: tContact('email'), value: contact.email },
+  ].filter((card) => card.value !== '');
+
+  const donationChannels = [
+    { label: tDonation('bkash'), value: settings['donation.bkash']?.trim() || '' },
+    { label: tDonation('nagad'), value: settings['donation.nagad']?.trim() || '' },
+    { label: tDonation('rocket'), value: settings['donation.rocket']?.trim() || '' },
+  ].filter((channel) => channel.value !== '');
+
   const steps = [
     { step: 1, icon: FileText, ...getStepContent(tHowItWorks, 'step1') },
     { step: 2, icon: Wallet, ...getStepContent(tHowItWorks, 'step2') },
@@ -154,7 +205,13 @@ export default async function HomePage({ params }: PageProps) {
       <Header settings={settings} />
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center">
+        {/*
+          `pt-16` is the height of the fixed header. Without it the hero's first
+          element sat under a transparent header, and at 412 px the logo — which
+          was overflowing its own header, see components/ui/logo.tsx — covered
+          the "Shariah Compliant Finance" badge outright.
+        */}
+        <section className="relative overflow-hidden bg-linear-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-950 dark:via-background dark:to-teal-950 min-h-[90vh] flex items-center pt-16">
           {settings['hero.backgroundImage'] && (
             <div className="absolute inset-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -170,7 +227,7 @@ export default async function HomePage({ params }: PageProps) {
               <div className="space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-xs">
                   <span className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2 animate-pulse"></span>
-                  {settings['hero.tagline'] || tHero('tagline') || (locale === 'bn' ? 'ইসলামী শরীয়াহ সম্মত' : 'Shariah Compliant Finance')}
+                  {localizedSetting(settings, 'hero.tagline', locale) || tHero('tagline')}
                 </div>
                 <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 dark:text-white leading-[1.1]">
                   {tHero('title')}
@@ -182,86 +239,66 @@ export default async function HomePage({ params }: PageProps) {
                   <AuthAwareCTA locale={locale} ctaText={tHero('cta')} learnMoreText={tHero('learnMore')} variant="hero" />
                 </div>
                 
-                <div className="pt-8 border-t border-slate-200 dark:border-slate-800">
-                  <p className="text-sm text-slate-500 mb-4 font-medium uppercase tracking-wider">{locale === 'bn' ? 'আমাদের পার্টনার' : 'Trusted by community'}</p>
-                  <div className="flex gap-8 grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all duration-500">
-                    {(
-                      [
-                        settings['hero.partnerLogo1'],
-                        settings['hero.partnerLogo2'],
-                        settings['hero.partnerLogo3'],
-                      ].filter(Boolean) as string[]
-                    ).length > 0 ? (
-                      ([
-                        settings['hero.partnerLogo1'],
-                        settings['hero.partnerLogo2'],
-                        settings['hero.partnerLogo3'],
-                      ]
-                        .filter(Boolean) as string[]
-                      ).map((logo, index) => (
+                {/*
+                  T-10. The `else` branch here used to render three grey boxes
+                  with `animate-pulse` — a loading skeleton for content that was
+                  never loading. On the live site, under the heading "Trusted by
+                  community", three placeholders had been shimmering since the
+                  page was written. A section with nothing in it is not a section.
+                */}
+                {partnerLogos.length > 0 && (
+                  <div className="pt-8 border-t border-slate-200 dark:border-slate-800">
+                    <p className="text-sm text-slate-500 mb-4 font-medium uppercase tracking-wider">
+                      {tHero('partners')}
+                    </p>
+                    <div className="flex flex-wrap gap-6 sm:gap-8 grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all duration-500">
+                      {partnerLogos.map((logo, index) => (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           key={logo}
                           src={logo}
-                          alt={`Partner ${index + 1}`}
+                          alt={tHero('partnerAlt', { number: index + 1 })}
                           className="h-8 w-24 rounded object-contain bg-white/30 p-1"
                         />
-                      ))
-                    ) : (
-                      <>
-                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse" />
-                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse delay-75" />
-                        <div className="h-8 w-24 bg-slate-300 dark:bg-slate-700 rounded animate-pulse delay-150" />
-                      </>
-                    )}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
-              {/* Stats Cards - Floating layout */}
-              <div className="relative mx-auto w-full max-w-[500px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
-                <div className="absolute inset-0 bg-linear-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
-                
-                <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
-                  <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
-                    {/*
-                      The figures are translated, not just the labels. They were
-                      four Bengali literals — `১২৫+`, `৳১.৮ লক্ষ+` — rendered
-                      whatever the locale was, which nobody could see while
-                      Bengali was the default. Making English the default (WO-94)
-                      put Bengali numerals on the English home page above English
-                      captions. A number is copy: it has a script and a grouping
-                      convention, and both belong in the message files (rule 5).
-                    */}
-                    <StatCard
-                      value={tStats('totalMembersValue')}
-                      label={tStats('totalMembers')}
-                      delay={0}
-                      icon={<Users className="h-6 w-6 text-emerald-600" />}
-                    />
-                    <StatCard
-                      value={tStats('loansDistributedValue')}
-                      label={tStats('loansDistributed')}
-                      delay={200}
-                      icon={<HandHeart className="h-6 w-6 text-blue-600" />}
-                    />
-                  </div>
-                  <div className="space-y-4 sm:space-y-6">
-                    <StatCard
-                      value={tStats('totalDepositsValue')}
-                      label={tStats('totalDeposits')}
-                      delay={100}
-                      icon={<Wallet className="h-6 w-6 text-amber-600" />}
-                    />
-                    <StatCard
-                      value={tStats('charitableFundValue')}
-                      label={tStats('charitableFund')}
-                      delay={300}
-                      icon={<Heart className="h-6 w-6 text-rose-600" />}
-                    />
+              {/*
+                T-10, the owner's ruling of 2026-08-26. These four figures were
+                literals in the message files — "125+" members, "BDT 250,000+"
+                deposits — invented, published on the live site, and impossible
+                for the foundation to correct without a developer. A cooperative
+                about to take real members' savings cannot publish made-up
+                totals about itself.
+
+                They are `system_config` now, in a pair per figure so each
+                script is the foundation's own words (`stats.members` Bengali,
+                `stats.membersEn` English). Blank means the card is absent, and
+                all four blank means the whole panel is, which is the rule
+                /donate already uses for bank details: a gap invites a question,
+                a plausible wrong number gets believed.
+              */}
+              {statCards.length > 0 && (
+                <div className="relative mx-auto w-full max-w-[500px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
+                  <div className="absolute inset-0 bg-linear-to-tr from-emerald-500/20 to-teal-500/20 rounded-full blur-3xl transform -translate-y-1/2 scale-75" />
+
+                  <div className="grid grid-cols-2 gap-4 sm:gap-6 relative z-10">
+                    <div className="space-y-4 sm:space-y-6 mt-8 sm:mt-12">
+                      {statCards.filter((_, index) => index % 2 === 0).map((card) => (
+                        <StatCard key={card.label} {...card} />
+                      ))}
+                    </div>
+                    <div className="space-y-4 sm:space-y-6">
+                      {statCards.filter((_, index) => index % 2 === 1).map((card) => (
+                        <StatCard key={card.label} {...card} />
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -338,6 +375,11 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Activities Section */}
+        {/*
+          `id="about"` is kept so an existing external link to `/#about` still
+          lands somewhere, but the menu now points at /activities and /about —
+          the pages this section summarises. See components/layout/header.tsx.
+        */}
         <section id="about" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="container-wide">
             <div className="text-center mb-12">
@@ -364,15 +406,17 @@ export default async function HomePage({ params }: PageProps) {
                 </Card>
               ))}
             </div>
+
+            <SectionLink href={localePath(locale, '/activities')} label={t('readMore')} />
           </div>
         </section>
 
         {/* Features Section */}
-        <section className="py-16 md:py-20">
+        <section id="features" className="py-16 md:py-20">
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {settings['features.title'] || tFeatures('title')}
+                {localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
                 {tFeatures('subtitle')}
@@ -398,8 +442,12 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Gallery Section */}
+        {/*
+          The decorative layer here referenced `/patterns/grid.svg`, which has
+          never existed in `public/`. Every visit to the home page — the live
+          one included — fetched it and got a 404.
+        */}
         <section id="gallery" className="py-20 md:py-32 bg-slate-50 dark:bg-slate-900 relative overflow-hidden">
-          <div className="absolute inset-0 bg-[url('/patterns/grid.svg')] opacity-[0.03]" />
           <div className="container-wide relative z-10">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="max-w-2xl">
@@ -415,7 +463,7 @@ export default async function HomePage({ params }: PageProps) {
               </div>
               <Link href={localePath(locale, '/gallery')}>
                 <Button variant="outline" className="hidden md:flex gap-2">
-                    {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
+                    {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </div>
@@ -425,7 +473,7 @@ export default async function HomePage({ params }: PageProps) {
             <div className="mt-12 text-center md:hidden">
               <Link href={localePath(locale, '/gallery')}>
                 <Button variant="outline" className="w-full gap-2">
-                    {locale === 'bn' ? 'সব দেখুন' : 'View All'} <ArrowRight className="h-4 w-4" />
+                    {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </div>
@@ -469,17 +517,19 @@ export default async function HomePage({ params }: PageProps) {
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {settings['contact.title'] || tContact('title')}
+                {localizedSetting(settings, 'contact.title', locale) || tContact('title')}
               </h2>
             </div>
 
+            {/*
+              WO-67 took the invented fallbacks off /donate and /support and
+              left them here: `+880 1XXX-XXXXXX` under the heading "Phone", on
+              the most-visited page on the site. A visitor cannot tell a
+              placeholder from a number nobody answers.
+            */}
             <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {[
-                { icon: MapPin, title: tContact('address'), value: orgAddress(settings, locale) || tContact('officeAddress') },
-                { icon: Phone, title: tContact('phone'), value: settings['org.phone'] || '+880 1XXX-XXXXXX' },
-                { icon: Mail, title: tContact('email'), value: settings['org.email'] || 'info@hasnahenafoundation.com' },
-              ].map((item, index) => (
-                <Card key={index} className="text-center hover:shadow-lg transition-shadow">
+              {contactCards.map((item) => (
+                <Card key={item.title} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                       <item.icon className="h-5 w-5 text-primary" />
@@ -490,6 +540,8 @@ export default async function HomePage({ params }: PageProps) {
                 </Card>
               ))}
             </div>
+
+            <SectionLink href={localePath(locale, '/contact')} label={t('readMore')} />
           </div>
         </section>
 
@@ -497,28 +549,20 @@ export default async function HomePage({ params }: PageProps) {
           <div className="container-wide">
             <div className="text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {settings['donation.title'] || tDonation('title')}
+                {localizedSetting(settings, 'donation.title', locale) || tDonation('title')}
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                {settings['donation.subtitle'] || tDonation('subtitle')}
+                {localizedSetting(settings, 'donation.subtitle', locale) || tDonation('subtitle')}
               </p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-              {[
-                {
-                  label: tDonation('bkash'),
-                  value: settings['donation.bkash'] || '+880 1XXXXXXXXX',
-                },
-                {
-                  label: tDonation('nagad'),
-                  value: settings['donation.nagad'] || '+880 1XXXXXXXXX',
-                },
-                {
-                  label: tDonation('rocket'),
-                  value: settings['donation.rocket'] || '+880 1XXXXXXXXX',
-                },
-              ].map((item) => (
+            {/*
+              Same rule as the /donate page, and here it matters most: a donor
+              reading the home page was being shown `+880 1XXXXXXXXX` as a
+              mobile-banking number to send money to. Unset means absent.
+            */}
+            <div className={donationChannels.length > 0 ? 'grid md:grid-cols-3 gap-6 max-w-5xl mx-auto' : 'hidden'}>
+              {donationChannels.map((item) => (
                 <Card key={item.label} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
@@ -535,11 +579,14 @@ export default async function HomePage({ params }: PageProps) {
               <Card>
                 <CardContent className="pt-6">
                   <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                    {settings['donation.referenceNote'] || tDonation('referenceNote')}
+                    {localizedSetting(settings, 'donation.referenceNote', locale) ||
+                      tDonation('referenceNote')}
                   </p>
                 </CardContent>
               </Card>
             </div>
+
+            <SectionLink href={localePath(locale, '/donate')} label={t('readMore')} />
           </div>
         </section>
 
@@ -552,6 +599,27 @@ export default async function HomePage({ params }: PageProps) {
       </main>
       <Footer settings={settings} />
     </>
+  );
+}
+
+/**
+ * "Read more →", from a home-page section to the page it summarises.
+ *
+ * The home page and the four standalone pages now say the same thing at two
+ * depths rather than competing: the section is the summary, the page is the
+ * whole of it. Before T-10 the menu pointed at the sections and nothing pointed
+ * at the pages at all.
+ */
+function SectionLink({ href, label }: { href: string; label: string }) {
+  return (
+    <div className="mt-10 text-center">
+      <Link href={href}>
+        <Button variant="outline" className="gap-2">
+          {label}
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      </Link>
+    </div>
   );
 }
 

@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
+import { localizedSetting } from '@/lib/localized-settings';
 import { cn } from '@/lib/utils'; // Assuming this utility exists, otherwise check utils
 import {
   clearClientAuthState,
@@ -15,14 +16,35 @@ import {
   getValidatedClientToken,
 } from '@/lib/client-auth';
 
+/**
+ * The menu, pointing at pages rather than at sections of the home page — T-10,
+ * the owner's ruling of 2026-08-26.
+ *
+ * What it used to be, and why that was wrong. Every item was an anchor:
+ * `/#about`, `/#donate`, `/#contact`, `/#features`. Meanwhile `/about`,
+ * `/activities`, `/contact` and `/donate` existed as real pages with their own
+ * content, their own metadata and their own JSON-LD — and the audit's link crawl
+ * found **24 links to `/#about` and exactly one to `/about`**, which was the
+ * language switcher on the page itself. Four pages in the sitemap that nothing
+ * on the site linked to, each duplicating a home-page section that said
+ * something different.
+ *
+ * `/#features` was worse than an orphan: the home page has never had an element
+ * with `id="features"`, so that item scrolled nowhere on every page it appeared
+ * on. It is gone, and with it the `navigation.features` setting that relabelled
+ * it — a control for a link that did nothing.
+ *
+ * `howItWorks` is deliberately not here. It is a section of the home page and
+ * nothing else, so the footer links it as an anchor and the header does not
+ * offer it as though it were a page.
+ */
 const navigation = [
   { name: 'home', href: '/' },
-  { name: 'about', href: '/#about' },
-  { name: 'features', href: '/#features' }, // Added Features link if section exists
-  { name: 'donate', href: '/#donate' },
-  { name: 'gallery', href: '/#gallery' },
-  { name: 'howItWorks', href: '/#how-it-works' },
-  { name: 'contact', href: '/#contact' },
+  { name: 'about', href: '/about' },
+  { name: 'activities', href: '/activities' },
+  { name: 'gallery', href: '/gallery' },
+  { name: 'donate', href: '/donate' },
+  { name: 'contact', href: '/contact' },
 ];
 
 interface HeaderProps {
@@ -88,6 +110,19 @@ export function Header({ settings }: HeaderProps) {
     router.replace(localePath(locale));
   };
 
+  /**
+   * A menu item's text.
+   *
+   * Only "Donate" is overridable, and it now reads through `localizedSetting`
+   * so the override is a **pair**: `navigation.donate` is the Bengali label and
+   * `navigation.donateEn` the English one. It used to be a single box, labelled
+   * in English on the admin screen, rendered to both audiences — so a Bengali
+   * admin naming the menu item for their own members put Bengali in the English
+   * menu, on every page. See lib/localized-settings.ts.
+   */
+  const navLabel = (name: string) =>
+    (name === 'donate' && localizedSetting(settings, 'navigation.donate', locale)) || t(name);
+
   const other = otherLocale(locale);
   // WO-95. This was `pathname.replace('/en', '/bn')`, which had two problems and
   // now has three: it matched `/enrolment` as readily as the locale segment, it
@@ -127,9 +162,7 @@ export function Header({ settings }: HeaderProps) {
                 isScrolled ? 'text-slate-600 dark:text-slate-300 hover:text-primary' : 'text-slate-700 dark:text-slate-200 hover:text-primary'
               }`}
             >
-              {((item.name === 'features' && settings?.['navigation.features']) ||
-                (item.name === 'donate' && settings?.['navigation.donate']) ||
-                t(item.name))}
+              {navLabel(item.name)}
             </Link>
           ))}
         </div>
@@ -234,9 +267,7 @@ export function Header({ settings }: HeaderProps) {
                 style={{ transitionDelay: `${index * 50}ms` }}
               >
                 <span>
-                  {((item.name === 'features' && settings?.['navigation.features']) ||
-                    (item.name === 'donate' && settings?.['navigation.donate']) ||
-                    t(item.name))}
+                  {navLabel(item.name)}
                 </span>
                 <ChevronRight className="h-5 w-5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-emerald-200" />
               </Link>
@@ -259,9 +290,6 @@ export function Header({ settings }: HeaderProps) {
               </div>
             ) : null}
             
-            <div className="pt-6 text-center text-sm text-emerald-200/60">
-              <p>© {new Date().getFullYear()} Hasnahena</p>
-            </div>
           </div>
         </div>
       </div>

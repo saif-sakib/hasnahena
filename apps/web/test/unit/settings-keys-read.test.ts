@@ -80,6 +80,100 @@ function keysRead(): Read[] {
 const READS = keysRead();
 const DECLARED: ReadonlySet<string> = new Set(SYSTEM_CONFIG_KEYS);
 
+/**
+ * The other direction — T-11.
+ *
+ * Everything above asks "is this read key writable?". This asks **"is this
+ * writable key read?"**, which is the half that was missing and the half the
+ * task board named: *"every control on Admin → Content & Media and Admin →
+ * Settings must change what a visitor sees."*
+ *
+ * A control nothing reads is worse than no control, because an admin will
+ * eventually rely on it. `UNIMPLEMENTED_CONFIG_KEYS` exists precisely because
+ * fourteen of them had accumulated — a notifications tab whose switches did
+ * nothing, a session-timeout box overruled by an environment variable. Those are
+ * *declared* dead, which is honest. This refuses an *undeclared* dead one.
+ *
+ * Both backends count as a reader. `loan.*` is read by the Go API and never by
+ * the browser; `membership.minimumAgeYears` is read by both. Scanning only
+ * `apps/web` would report most of the loan policy as unreachable, which is the
+ * kind of false positive that gets a census switched off.
+ */
+describe('every setting an admin can write is one something reads', () => {
+  const REPO = resolve(WEB_ROOT, '..', '..');
+
+  /** Go source, where the loan policy and the retention sweeps read their keys. */
+  function goSources(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (entry.endsWith('.go') && !entry.endsWith('_test.go')) out.push(full);
+      }
+    };
+    walk(join(REPO, 'apps', 'api'));
+    return out;
+  }
+
+  /**
+   * Everything that could name a key, as one blob.
+   *
+   * Deliberately a substring search rather than the `settings['…']` pattern
+   * above: a key reaches a reader in more shapes than an index expression —
+   * `localizedSetting(settings, 'hero.tagline', locale)` in a page,
+   * `getConfigTx(ctx, tx, "loan.maxLoanMultiplier")` in Go, and the seed's own
+   * row. Scoped to the two application trees and the seed so that a key
+   * mentioned only in a comment in this file cannot vouch for itself.
+   */
+  const corpus = [
+    ...sourceFiles().filter((f) => !f.includes('/system-config.ts')),
+    join(WEB_ROOT, 'lib', 'localized-settings.ts'),
+    join(WEB_ROOT, 'lib', 'contact-details.ts'),
+    join(WEB_ROOT, 'lib', 'faq.ts'),
+    join(WEB_ROOT, 'lib', 'retention-policy.ts'),
+    join(WEB_ROOT, 'lib', 'membership-eligibility.ts'),
+    ...goSources(),
+  ]
+    .map((file) => readFileSync(file, 'utf8'))
+    .join('\n');
+
+  it('is reading something', () => {
+    // The corpus assembling to nothing would make the assertion below vacuous.
+    expect(corpus.length).toBeGreaterThan(100_000);
+    expect(corpus).toContain('loan.maxLoanMultiplier');
+  });
+
+  it('has a reader for every declared key', () => {
+    const dead: ReadonlySet<string> = new Set(UNIMPLEMENTED_CONFIG_KEYS);
+    const orphans = SYSTEM_CONFIG_KEYS.filter(
+      (key) => !dead.has(key) && !corpus.includes(key),
+    );
+    expect(
+      orphans,
+      'These keys have an admin control and nothing reads them, so saving the form ' +
+        'writes a row that changes nothing a member or visitor can see. Either wire ' +
+        'a reader, or move the key to UNIMPLEMENTED_CONFIG_KEYS and take its control ' +
+        'off the screen — a switch that does nothing will be trusted eventually:\n  ' +
+        orphans.join('\n  '),
+    ).toEqual([]);
+  });
+
+  it('has a control for every key a public page renders', () => {
+    // The converse of the tier checks below, stated where it belongs: a key in
+    // PUBLIC_CONFIG_KEYS is one a stranger's page can render, so an admin must
+    // be able to set it. WO-67's `bank.*` keys failed exactly this — read by
+    // /donate, settable by nobody.
+    const reachable = new Set<string>([...CONTENT_CONFIG_KEYS, ...SETTINGS_CONFIG_KEYS]);
+    const unreachable = PUBLIC_CONFIG_KEYS.filter((key) => !reachable.has(key));
+    expect(
+      unreachable,
+      'a public page can render these and no admin screen can set them:\n  ' +
+        unreachable.join('\n  '),
+    ).toEqual([]);
+  });
+});
+
 describe('every setting a page reads is one an admin can write', () => {
   it('finds the reads at all', () => {
     // Guards the regex itself. If a refactor changes how pages access settings,

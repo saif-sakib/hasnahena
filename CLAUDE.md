@@ -101,7 +101,11 @@ count that used to open this sentence is gone too. See
 | an internal **URL** anywhere in `app/`, `components/` or `lib/` | `apps/web/test/unit/locale-routing.test.ts` — build it with `localePath(locale, path)`. English has no prefix ([ADR-034](docs/decisions.md)), so a hand-written `` `/${locale}/faq` `` produces `/en/faq`, which 301s: a redirect on every internal navigation, and a crawler told the href is not the real URL |
 | a **language switch** | the same test — `switchLocalePath(pathname, otherLocale(locale))`, never a `replace` on the pathname. There is no correct spelling with `replace`, because under `as-needed` English has no segment to replace: `localePath('en')` is `/`, so the admin shell's `pathname.replace(localePath(locale), …)` rewrote the **first slash** of `/dashboard/admin` and sent staff to `/bndashboard/admin`, a 404 on the language button of every staff screen |
 | **copy written into a component on a public page** | `apps/web/e2e/locale-content.spec.ts` — it reads the rendered page and fails on Bengali an English reader can see. The parity census cannot: a string that was never in a message file has nothing to be compared against, which is how four hardcoded Bengali figures (`১২৫+`, `৳১.৮ লক্ষ+`) sat on the English home page under English captions. Values an admin typed are stripped first, so it never goes red on database content |
-| a `system_config` value that is **prose** | give it an `…En` twin and read it through a helper — `org.address`/`org.addressEn`, like `org.name`/`org.nameEn` and `org.description`/`org.descriptionEn`. One box is shown to both audiences, so the foundation's Bengali address rendered under an English "Address" heading on every public page *and* on the English-only letterhead of every generated document ([ADR-012](docs/decisions.md)). `apps/web/test/unit/org-address.test.ts` pins the pairs. **Enumerate the prose keys rather than fixing the reported one** — these three were always the same bug three times, and `org.description` survived the address fix by four months because its only reader is the JSON-LD, which no rendered-page test reads |
+| a `system_config` value that is **prose** | add it to `LOCALIZED_SETTING_PAIRS` in `apps/web/lib/localized-settings.ts` as `key`/`keyEn`, and read it through `localizedSetting()`. `apps/web/test/unit/localized-settings.test.ts` reads every source line and fails on a pair key named anywhere that does not also call the resolver — an index read *or* a `trimmed(settings, 'org.name')`, which is the shape that got past the first version of the census. One box is shown to both audiences, so whichever script an admin types goes to everybody: the foundation's Bengali address sat under an English "Address" heading on every public page and on the English-only letterhead of every generated document ([ADR-012](docs/decisions.md)). **It has been found four times because each fix took the reported key** — `org.address`, then `org.description` four months later, then eleven more on 2026-08-26. The list is the fix; adding one key is not |
+| a **new prose pair** | the same test — both halves must be in `SYSTEM_CONFIG_KEYS`, in `PUBLIC_CONFIG_KEYS`, and on the **same** admin screen. Split across Content and Settings, an admin gets one language on each; missing from PUBLIC, the page reads `undefined` and renders its fallback for ever. `apps/web/e2e/public-content.spec.ts` then proves it end to end — it PUTs a marker per language and asserts the other one is **not** on the page |
+| a control on **Content & Media** or **Settings** | `apps/web/test/unit/settings-keys-read.test.ts` — something must read the key, in either backend. A control nothing reads is worse than none, because it gets trusted: that is what `UNIMPLEMENTED_CONFIG_KEYS` is a list of, and this refuses an *undeclared* addition to it |
+| a **logo, or a fixed header's height** | `apps/web/e2e/matrix.spec.ts` measures the lockup against the header it sits in. `logo.tsx` computed a width from its `size` prop and then set `h-auto w-auto`, which overrides it — so `sm` and `md` both rendered **192×108 inside a 64 px header**, the leaf covering the hero badge at 412 px and the privacy page's header growing to 141 px. Nothing else could see it: the page does not scroll sideways and no text is clipped |
+| **copy on `/privacy` or `/terms`** | `apps/web/lib/legal.test.ts` and `apps/web/test/unit/messages.test.ts` — the wording is `legal.*` in `messages/{en,bn}.json`, and the fee-promise census reads it there. Both pages were shells' worth of inline prose, which is exactly how the Terms came to promise administrative fees with every other guard green. The revision date is a constant in `apps/web/lib/legal.ts`; both pages printed `Last updated: March 2026` through two rewrites of the loan clause |
 | **copy to a page under `app/[locale]/(auth)/`** | `apps/web/test/unit/messages.test.ts` — put it in `messages/{en,bn}.json`. A `locale === 'bn' ? … : …` in a component is invisible to the parity census, the placeholder check *and* the fee-promise search, which is how the Terms of Service promised administrative fees in both languages with every guard green |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
@@ -225,7 +229,13 @@ apps/api/internal/middleware/     the global stack, mounted by mountMiddleware i
                                   for *who* a caller is: RequestUserID(r), verified signature and expiry
                                   only — for attributing a request, never for authorising one (ADR-025)
 apps/web/app/[locale]/            pages: (marketing) (auth) dashboard/{member,worker,admin}. Every
-                                  staff route file is a one-line re-export — edit the screen, not it
+                                  staff route file is a one-line re-export — edit the screen, not it.
+                                  The 404 is app/not-found.tsx, at the ROOT — a segment's not-found.tsx
+                                  only catches notFound() thrown inside it, and an unmatched URL never
+                                  reaches the segment, so one under [locale]/ renders for nothing
+apps/web/components/layout/       header.tsx  the menu — PAGES, not home-page anchors, since T-10
+                                  footer.tsx  the only copyright, built from the year and org.name
+                                  legal-document.tsx  the shell /privacy and /terms both render into
 apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE component each. Both
                                   role folders re-export the same file; the screen asks
                                   useDashboardRole() and hides what that role may not do
@@ -260,12 +270,21 @@ apps/web/lib/rejection-reasons.ts the codes an admin picks from when refusing an
                                   the allow-list in dashboard_handler.go and the sentences in email_service.go
 apps/web/lib/membership-eligibility.ts  the age floor, from `membership.minimumAgeYears`. Pure, so the form,
                                   the API and the Settings screen share one answer
-apps/web/lib/org-address.ts       the organisation's PROSE settings in the reader's language — the address and
-                                  the description. Its own module, not part of
-                                  system-config.ts, because the footer is a client component and that file
-                                  imports Prisma. org.address is Bengali, org.addressEn is English, exactly
-                                  like org.name/org.nameEn — one row shown to both audiences put the
-                                  Bengali address under an English heading on every public page
+apps/web/lib/localized-settings.ts  EVERY system_config value that is prose, in the reader's language.
+                                  LOCALIZED_SETTING_PAIRS is the list; the bare key is Bengali and the
+                                  `…En` twin is English, each falling back to the other. Its own module,
+                                  not part of system-config.ts, because the footer is a client component
+                                  and that file imports Prisma. Named for the mechanism, not for
+                                  org.address, because taking the reported key produced this bug four times
+apps/web/lib/contact-details.ts   the address, phone and email the footer, the home page, /contact and
+                                  /support all show — one reader, so they cannot disagree about a missing
+                                  value again. They did: two showed a blank, two showed `+880 1XXX-XXXXXX`
+apps/web/lib/legal.ts             when /privacy and /terms were last revised. The WORDING is
+                                  messages/{en,bn}.json under `legal.*` — that is what puts it inside the
+                                  fee-promise census
+apps/web/lib/retention-policy.ts  security.rejectedRetentionDays, which the privacy policy quotes and the
+                                  Go sweep counts. A policy naming a period the sweep does not use is a
+                                  promise broken silently
 apps/web/lib/server-auth.ts       JWT verify in Next handlers (same JWT_SECRET as Go)
 apps/web/lib/documents/           statement, receipt, loan, certificate — English only, vector PDF
 apps/web/lib/reset-tokens.ts      the password_reset_tokens contract for the half Next writes: the
@@ -278,6 +297,9 @@ apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member i
                                   `users.accountNo`; called memberId before 2026-08-19. The Go half is
                                   apps/api/internal/utils/account_no.go and the two must agree
 apps/web/prisma/schema.prisma     the data model
+apps/web/components/ui/logo.tsx   the lockup. `size` sets a HEIGHT, and the width follows the aspect
+                                  ratio — never `h-auto w-auto`, which overrides the size prop entirely
+                                  and renders every call site at the asset's intrinsic 192x108
 apps/web/public/images/logo/      logo.png lockup · -mark square · -og social · -print PDF
 ```
 
@@ -294,7 +316,7 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 | [docs/testing.md](docs/testing.md) | where a new test goes, the fixture contract, running each suite, what is deliberately uncovered |
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting, **switching the monitoring on**, the host-move plan |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
-| [docs/tasks.md](docs/tasks.md) | **everything left to do**, ordered, one session estimate each. Closed rows are deleted, so the numbering has gaps — that is the board working, not a missing task. `do T-09` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
+| [docs/tasks.md](docs/tasks.md) | **everything left to do**, ordered, one session estimate each. Closed rows are deleted, so the numbering has gaps — that is the board working, not a missing task. `do T-12` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
 | [docs/go-live.md](docs/go-live.md) | **the cutover procedure** — freeze, clear the fake data, rotate every secret, create the real first admin, launch day |
 | [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives, and the steady-state cadences |
 | [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch, plus the per-defect record. The only doc that keeps history |

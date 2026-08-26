@@ -65,7 +65,7 @@ export default async function GalleryPage({ params }: PageProps) {
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/gallery" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 min-h-screen bg-slate-50 dark:bg-slate-950 pt-20">
+      <main className="flex-1 min-h-screen bg-slate-50 dark:bg-slate-950 pt-24">
         <div className="container-wide py-12 md:py-20">
             <div className="text-center mb-16 animate-in fade-in slide-in-from-bottom-5 duration-700">
                 <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6 shadow-lg shadow-emerald-500/10">

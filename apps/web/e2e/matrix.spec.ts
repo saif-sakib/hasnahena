@@ -106,6 +106,69 @@ async function clippedElements(page: import('@playwright/test').Page): Promise<s
   });
 }
 
+/**
+ * The logo fits inside the header it is in — T-10.
+ *
+ * `components/ui/logo.tsx` computed a width from its `size` prop and handed it
+ * to `next/image`, and then set `h-auto w-auto` in the className, which
+ * overrides both. A replaced element sized `auto`/`auto` renders at its
+ * intrinsic dimensions, so **every call site got the same picture**: `sm` and
+ * `md` both measured 192 × 108 inside a 64 px header. At 412 px the leaf spilled
+ * over the hero and covered the tagline badge; the privacy page's own header
+ * grew to 141 px because it had no fixed height to spill out of.
+ *
+ * Nothing caught it. The page does not scroll sideways, no text is clipped, and
+ * an oversized image is not a missing translation — the three things the matrix
+ * above looks for. This is the assertion that would have.
+ *
+ * Measured rather than screenshotted on purpose: the failure is a number, and a
+ * number names itself in the report.
+ */
+for (const viewport of VIEWPORTS) {
+  test.describe(`the logo fits its header · ${viewport.name}`, () => {
+    test.use({ viewport: viewport.size });
+
+    for (const path of ['', 'privacy', 'terms', 'login', 'register']) {
+      test(`${url('en', path) || '/'}`, async ({ page }) => {
+        await page.goto(url('en', path));
+        await waitForContent(page);
+
+        const measured = await page.evaluate(() => {
+          // The lockup, wherever it is. On the marketing pages it sits in the
+          // site header; the auth pages put it inside the card instead, so
+          // `header` is null there and only the width bound applies.
+          const logo = document.querySelector<HTMLImageElement>('img[src*="logo"]');
+          if (!logo) return null;
+          const header = logo.closest('header');
+          return {
+            header: header ? Math.round(header.getBoundingClientRect().height) : null,
+            logo: Math.round(logo.getBoundingClientRect().height),
+            width: Math.round(logo.getBoundingClientRect().width),
+          };
+        });
+
+        expect(measured, `no logo image found on ${url('en', path)}`).not.toBeNull();
+
+        if (measured!.header !== null) {
+          expect(
+            measured!.logo,
+            `the logo is ${measured!.logo}px tall inside a ${measured!.header}px header on ` +
+              `${url('en', path)} — it is overflowing onto the page below it`,
+          ).toBeLessThanOrEqual(measured!.header);
+        }
+
+        // An uploaded `branding.logo` of an unexpected shape must not push the
+        // language switcher off a 412 px screen either. This is the bound that
+        // applies on the auth pages, where the lockup is inside the card.
+        expect(
+          measured!.width,
+          `the logo is ${measured!.width}px wide on a ${viewport.size.width}px screen`,
+        ).toBeLessThan(viewport.size.width * 0.7);
+      });
+    }
+  });
+}
+
 for (const viewport of VIEWPORTS) {
   for (const locale of LOCALES) {
     test.describe(`public pages · ${viewport.name} · ${locale}`, () => {

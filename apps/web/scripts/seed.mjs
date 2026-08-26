@@ -145,6 +145,28 @@ const CONFIG_DEFAULTS = [
   { key: 'bank.accountName', value: '', description: 'Bank account holder name shown on /donate' },
   { key: 'bank.accountNo', value: '', description: 'Bank account number shown on /donate — empty hides the bank card' },
   { key: 'bank.branch', value: '', description: 'Bank branch shown on /donate' },
+
+  // The four figures beside the home page headline (T-11, 2026-08-26).
+  //
+  // Seeded EMPTY for the same reason as `bank.*`, and it is the stronger case
+  // of the two. These were literals in `messages/{en,bn}.json` — "125+"
+  // members, "BDT 250,000+" deposits, "BDT 180,000+" lent — invented, published
+  // on the live site, and beyond the foundation's reach without a developer. A
+  // cooperative asking people to trust it with their savings must not publish
+  // made-up totals about itself, and a seeded default here would be exactly
+  // that with an extra step.
+  //
+  // Empty means the card is absent; all four empty means the panel is. The
+  // admin writes the real ones on Content & Media → Public Pages, in both
+  // languages, because `১২৫+` and `125+` are the same fact in two scripts.
+  { key: 'stats.members', value: '', description: 'Members figure on the home page (Bengali) — empty hides the card' },
+  { key: 'stats.membersEn', value: '', description: 'Members figure on the home page (English)' },
+  { key: 'stats.deposits', value: '', description: 'Deposits figure on the home page (Bengali)' },
+  { key: 'stats.depositsEn', value: '', description: 'Deposits figure on the home page (English)' },
+  { key: 'stats.loans', value: '', description: 'Loans-distributed figure on the home page (Bengali)' },
+  { key: 'stats.loansEn', value: '', description: 'Loans-distributed figure on the home page (English)' },
+  { key: 'stats.charity', value: '', description: 'Charitable-fund figure on the home page (Bengali)' },
+  { key: 'stats.charityEn', value: '', description: 'Charitable-fund figure on the home page (English)' },
 ];
 
 function requiredEnv(name, hint) {

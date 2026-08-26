@@ -530,6 +530,82 @@ answered 500.
 
 ## Interface
 
+- **A CSS `auto` silently overrides the size you just computed.** `logo.tsx`
+  derived a width from its `size` prop, passed it to `next/image` as the `width`
+  attribute, and set `h-auto w-auto` in the className. A replaced element sized
+  `auto`/`auto` renders at its **intrinsic** dimensions, so the attribute did
+  nothing: `sm` and `md` both measured 192×108, inside a 64 px header. The prop
+  had no effect at any call site, which is why nobody could have fixed one page
+  without finding this. Nothing in the suite could see it either — the page does
+  not scroll sideways, no text is clipped, and an oversized image is not an
+  untranslated key. **When a size prop appears to do nothing, measure the
+  rendered element before changing the number**; the matrix sweep now does, on
+  every page with a logo.
+
+- **A loading skeleton is a lie when nothing is loading.** The home page's
+  partner-logo block rendered three grey `animate-pulse` rectangles as its
+  *else* branch — the state for "no partner logos are configured". They had been
+  shimmering on the live site under the heading "Trusted by community" since the
+  page was written, and they read as a page that never finishes loading.
+  **`animate-pulse` belongs to a pending request, never to an empty
+  collection.** An empty collection renders nothing, or says it is empty.
+
+- **A number in the copy is a claim, and copy has no owner.** "125+ Total
+  Members", "BDT 250,000+ Total Deposits" were literals in
+  `messages/{en,bn}.json`, invented when the page was designed, live for months,
+  and unchangeable by the foundation whose figures they were. Nothing was wrong
+  with them technically: both languages had them, the parity census passed, and
+  they were correctly translated into Bengali numerals. **A figure a page states
+  about the organisation belongs in `system_config`, not in a message file** —
+  a message file is for words the software says, and this is a fact the
+  foundation asserts.
+
+- **A dead control on a public page advertises a feature that does not exist.**
+  The gallery's Like button toggled a heart, incremented a count in the DOM, and
+  persisted nothing — no endpoint in either backend accepts a like. For a
+  signed-out visitor it went further and raised a red "Login Required" toast,
+  telling them that liking is a members' feature. It was removed rather than
+  implemented. The rule `UNIMPLEMENTED_CONFIG_KEYS` states for settings is the
+  same rule: **a control that does nothing is worse than no control, because it
+  will eventually be trusted.**
+
+- **A page can be in the sitemap and reachable by nobody.** The menu pointed at
+  `/#about`, `/#donate` and `/#contact` while `/about`, `/donate` and `/contact`
+  existed as real pages with different content. The link crawl found 24 links to
+  `/#about` and exactly one to `/about` — the language switcher on the page
+  itself. `/#features` was worse: no element on the home page has ever had that
+  id, so the menu item scrolled nowhere on every page it appeared on.
+  **Crawl the rendered links, not the route list.** A route that exists, builds,
+  prerenders and appears in `sitemap.xml` can still be unreachable, and no test
+  over the source can tell.
+
+- **A segment's `not-found.tsx` does not catch an unmatched URL.** It only
+  catches `notFound()` thrown from *inside* that segment, and a URL that matches
+  no route never reaches the segment at all — so `app/[locale]/not-found.tsx`
+  renders for nothing. Verified on all three shapes this site can produce:
+  `/nonexistent`, `/bn/nonexistent` and `/fr` (an unknown locale, where the
+  layout itself calls `notFound()`) all land on `app/not-found.tsx`. The
+  consequence is that the 404 renders **outside** `app/[locale]/layout.tsx`,
+  which is where next-intl's provider and the font variables live: there is no
+  `useTranslations`, and no locale to translate into either. Say it in both
+  languages and import `globals.css` directly.
+
+- **Prose in a component is invisible to every guard, and legal pages are all
+  prose.** `/privacy` and `/terms` each carried a `content = { en: …, bn: … }`
+  object, which is the inline-string problem wearing a different shape: the
+  parity census, the placeholder check and the fee-promise search all read
+  `messages/{en,bn}.json` and none of them read that object. It is the same
+  reason the Terms once promised administrative fees in both languages with
+  every check green. Both pages are shells around `legal.*` now.
+
+- **A revision date is a claim about the document, and it goes stale in
+  silence.** Both legal pages printed `Last updated: March 2026` as a literal,
+  through two rewrites of the loan clause — one deleting the promise of
+  administrative fees, one denying a late fee. A member who had read the March
+  version had no way to learn what they agreed to had changed. The dates are
+  constants in `lib/legal.ts` now, next to nothing else, so changing the wording
+  and changing the date are one edit in one place.
+
 - **A workaround can be the thing that makes the defect unfixable.** Rejecting a
   registration overwrote the applicant's email and phone
   (`rejected+<id>@hasnahena.local`) so the unique constraint would let them
@@ -797,6 +873,17 @@ the identifier.
   locales. When splitting one of these, **enumerate the prose keys and check
   each**, rather than fixing the one that was reported: `org.name`,
   `org.address` and `org.description` were always the same bug three times.
+  **It then happened a fourth time**, because that instruction was written and
+  not carried out. The T-09 audit found nine more — `hero.tagline`,
+  `features.title`, `contact.title`, three `donation.*`, `navigation.donate`,
+  `auth.welcomeBack` — every one a single box labelled in English on the admin
+  screen. The list is the fix, not the key: `LOCALIZED_SETTING_PAIRS` in
+  `lib/localized-settings.ts` names all twelve pairs, one resolver reads them,
+  and the census reads source **line by line** and fails on a pair key named
+  anywhere that does not also call the resolver. That last detail matters: the
+  first version of the census searched for `settings['…']` and walked straight
+  past `trimmed(settings, 'org.name')` in the JSON-LD builder, which is the
+  reader that hid `org.description` for four months in the first place.
 - **An e2e test that reads rendered text must strip what an admin typed.** A
   cooperative in Jashore legitimately has Bengali in its own settings, and a
   test that goes red because someone edited a database row gets deleted rather

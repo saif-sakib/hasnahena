@@ -122,6 +122,20 @@ Run the release checklist in [deployment.md](deployment.md), then:
 - [ ] Check the Render log for the `TRUSTED_PROXIES` warning — it should be absent
 - [ ] Check **Render's stop grace period exceeds `SERVER_SHUTDOWN_TIMEOUT`**
       (30 s default) or a deploy will `SIGKILL` mid-transaction
+- [ ] **Read the public site in both languages, as a stranger.** Every box on
+      Admin → Content & Media → Public Pages is a **pair**, and the English half
+      of each is empty on a database seeded before 2026-08-26 — so the Bengali
+      text shows to English readers until it is written. The four hero figures
+      (*Total Members*, *Total Deposits*, *Loans Distributed*, *Charitable
+      Fund*) are seeded blank **on purpose**: they used to be invented numbers
+      compiled into the source, and the hero omits a figure that has no value.
+      Write the foundation's true ones or leave the panel off — do not launch
+      with numbers nobody can defend
+- [ ] **Read `/privacy` and `/terms` end to end.** They describe what the
+      platform actually does with a member's national ID, including the parts
+      that are limits rather than rights. They are legal documents the
+      foundation is publishing under its own name, and nobody outside the
+      foundation can approve them
 
 Then stop and watch for a day before adding members in bulk.
 

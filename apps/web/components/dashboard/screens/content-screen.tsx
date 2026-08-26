@@ -374,16 +374,75 @@ export default function ContentScreen() {
     </div>
   );
 
-  const textField = (key: string, label: string, placeholder?: string, hint?: string) => (
+  const textField = (
+    key: string,
+    label: string,
+    placeholder?: string,
+    hint?: string,
+    rows?: number,
+  ) => (
     <div className="space-y-2">
       <Label htmlFor={`content-${key}`}>{label}</Label>
-      <Input
-        id={`content-${key}`}
-        value={content[key] ?? ''}
-        onChange={(e) => setKey(key)(e.target.value)}
-        placeholder={placeholder}
-      />
+      {rows ? (
+        <Textarea
+          id={`content-${key}`}
+          value={content[key] ?? ''}
+          onChange={(e) => setKey(key)(e.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+        />
+      ) : (
+        <Input
+          id={`content-${key}`}
+          value={content[key] ?? ''}
+          onChange={(e) => setKey(key)(e.target.value)}
+          placeholder={placeholder}
+        />
+      )}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+
+  /**
+   * A **pair** of boxes for one piece of public prose — T-11.
+   *
+   * Every field here used to be a single box, labelled in English, whose value
+   * was rendered to both audiences. An admin writing for their own members put
+   * Bengali on the English home page and had no way to tell: nothing over the
+   * source can see a string that lives in the database, and the end-to-end
+   * language check strips admin-typed values on purpose so it never goes red on
+   * content.
+   *
+   * It is the same shape as the organisation's name and address — the bare key
+   * is Bengali, the `…En` twin is English — and `lib/localized-settings.ts` is
+   * the one place that resolves them.
+   */
+  const localizedField = (
+    key: string,
+    label: string,
+    options?: { placeholderBn?: string; placeholderEn?: string; hint?: string; rows?: number },
+  ) => (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">{label}</p>
+        {options?.hint && <p className="text-xs text-muted-foreground">{options.hint}</p>}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {textField(
+          key,
+          locale === 'bn' ? 'বাংলা' : 'Bangla',
+          options?.placeholderBn,
+          undefined,
+          options?.rows,
+        )}
+        {textField(
+          `${key}En`,
+          locale === 'bn' ? 'ইংরেজি' : 'English',
+          options?.placeholderEn,
+          undefined,
+          options?.rows,
+        )}
+      </div>
     </div>
   );
 
@@ -557,74 +616,113 @@ export default function ContentScreen() {
               </div>
             ) : (
               <>
-                {textField(
-                  'hero.tagline',
-                  'Hero Tagline',
-                  'e.g. Empowering Community through Islamic Finance',
-                  'The main headline on the home page.',
+                {localizedField('hero.tagline', locale === 'bn' ? 'হিরো ট্যাগলাইন' : 'Hero Tagline', {
+                  placeholderBn: 'যেমন: ইসলামী শরীয়াহ সম্মত',
+                  placeholderEn: 'e.g. Shariah Compliant Finance',
+                  hint:
+                    locale === 'bn'
+                      ? 'হোম পেজের উপরের ছোট ব্যাজ'
+                      : 'The small badge above the home page headline.',
+                })}
+
+                {localizedField(
+                  'navigation.donate',
+                  locale === 'bn' ? 'মেনুতে "দান করুন" লেখা' : 'Navigation Donate Label',
+                  { placeholderBn: 'যেমন: দান করুন', placeholderEn: 'e.g. Donate' },
                 )}
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  {textField(
-                    'navigation.features',
-                    'Navigation Features Label',
-                    'e.g. Features',
-                    'The menu item text for the Features section.',
+                <div className="grid gap-4">
+                  {localizedField(
+                    'features.title',
+                    locale === 'bn' ? 'ফিচার সেকশনের শিরোনাম' : 'Features Section Title',
+                    { placeholderBn: 'যেমন: কেন আমরা?', placeholderEn: 'e.g. Why Choose Us?' },
                   )}
-                  {textField(
-                    'navigation.donate',
-                    'Navigation Donate Label',
-                    'e.g. Donate',
-                    'The menu item text for the Donate section.',
+                  {localizedField(
+                    'contact.title',
+                    locale === 'bn' ? 'যোগাযোগ সেকশনের শিরোনাম' : 'Contact Section Title',
+                    { placeholderBn: 'যেমন: যোগাযোগ করুন', placeholderEn: 'e.g. Contact Us' },
                   )}
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  {textField('features.title', 'Features Section Title', 'e.g. Why Choose Us?')}
-                  {textField('contact.title', 'Contact Section Title', 'e.g. Contact Us')}
                 </div>
 
                 <div className="border-t border-gray-200 my-4" />
 
                 <div className="space-y-1">
-                  <h4 className="font-semibold text-sm">Donate page copy</h4>
+                  <h4 className="font-semibold text-sm">
+                    {locale === 'bn' ? 'হোম পেজের পরিসংখ্যান' : 'Home page figures'}
+                  </h4>
                   <p className="text-xs text-muted-foreground">
-                    The headings and the reference note. The bKash, Nagad, Rocket and bank
-                    details live on <strong>Settings</strong>, with the rest of the money
-                    configuration — a wrong heading is embarrassing, a wrong account number sends
-                    a donor&apos;s money to a stranger.
+                    {locale === 'bn'
+                      ? 'হিরোর চারটি সংখ্যা। খালি রাখলে সেই কার্ডটি দেখানো হবে না, চারটিই খালি রাখলে পুরো অংশটিই থাকবে না। ফাউন্ডেশনের প্রকৃত সংখ্যাই লিখুন।'
+                      : 'The four figures beside the headline. Leave one blank and that card is not shown; leave all four blank and the panel is not shown. Write the foundation\u2019s real figures \u2014 these used to be invented numbers nobody could correct.'}
                   </p>
                 </div>
 
-                {textField(
-                  'donation.title',
-                  'Donate Section Title',
-                  'e.g. Donate to Support Our Mission',
-                )}
-                {textField(
-                  'donation.subtitle',
-                  'Donate Section Subtitle',
-                  'e.g. Send your donation through the following channels',
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="content-donation-note">Donation Reference Note</Label>
-                  <Textarea
-                    id="content-donation-note"
-                    value={content['donation.referenceNote'] ?? ''}
-                    onChange={(e) => setKey('donation.referenceNote')(e.target.value)}
-                    rows={3}
-                    placeholder="e.g. Please mention your name, address and mobile number in reference..."
-                  />
-                </div>
+                {localizedField('stats.members', locale === 'bn' ? 'মোট সদস্য' : 'Total Members', {
+                  placeholderBn: 'যেমন: ১২৫+',
+                  placeholderEn: 'e.g. 125+',
+                })}
+                {localizedField('stats.deposits', locale === 'bn' ? 'মোট আমানত' : 'Total Deposits', {
+                  placeholderBn: 'যেমন: \u09f3২.৫ লক্ষ+',
+                  placeholderEn: 'e.g. BDT 250,000+',
+                })}
+                {localizedField('stats.loans', locale === 'bn' ? 'বিতরণকৃত ঋণ' : 'Loans Distributed', {
+                  placeholderBn: 'যেমন: \u09f3১.৮ লক্ষ+',
+                  placeholderEn: 'e.g. BDT 180,000+',
+                })}
+                {localizedField('stats.charity', locale === 'bn' ? 'দান তহবিল' : 'Charitable Fund', {
+                  placeholderBn: 'যেমন: \u09f3২৫,০০০+',
+                  placeholderEn: 'e.g. BDT 25,000+',
+                })}
 
                 <div className="border-t border-gray-200 my-4" />
 
-                {textField(
+                <div className="space-y-1">
+                  <h4 className="font-semibold text-sm">
+                    {locale === 'bn' ? 'ডোনেট পেজের লেখা' : 'Donate page copy'}
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'bn'
+                      ? 'শুধু শিরোনাম ও নোট। বিকাশ, নগদ, রকেট ও ব্যাংকের তথ্য সেটিংস পেজে — ভুল শিরোনাম বিব্রতকর, ভুল একাউন্ট নম্বর দাতার টাকা অন্যের কাছে পাঠায়।'
+                      : 'The headings and the reference note. The bKash, Nagad, Rocket and bank details live on Settings, with the rest of the money configuration \u2014 a wrong heading is embarrassing, a wrong account number sends a donor\u2019s money to a stranger.'}
+                  </p>
+                </div>
+
+                {localizedField(
+                  'donation.title',
+                  locale === 'bn' ? 'ডোনেট সেকশনের শিরোনাম' : 'Donate Section Title',
+                  {
+                    placeholderBn: 'যেমন: আমাদের কাজে সহযোগিতা করুন',
+                    placeholderEn: 'e.g. Donate to Support Our Mission',
+                  },
+                )}
+                {localizedField(
+                  'donation.subtitle',
+                  locale === 'bn' ? 'ডোনেট সেকশনের উপশিরোনাম' : 'Donate Section Subtitle',
+                  {
+                    placeholderBn: 'যেমন: নিচের মাধ্যমগুলোতে অনুদান পাঠান',
+                    placeholderEn: 'e.g. Send your donation through the following channels',
+                  },
+                )}
+                {localizedField(
+                  'donation.referenceNote',
+                  locale === 'bn' ? 'অনুদানের রেফারেন্স নোট' : 'Donation Reference Note',
+                  {
+                    rows: 3,
+                    placeholderBn: 'যেমন: রেফারেন্সে আপনার নাম, ঠিকানা ও মোবাইল নম্বর লিখুন...',
+                    placeholderEn:
+                      'e.g. Please mention your name, address and mobile number in reference...',
+                  },
+                )}
+
+                <div className="border-t border-gray-200 my-4" />
+
+                {localizedField(
                   'auth.welcomeBack',
-                  'Welcome Back Message (Login Page)',
-                  'e.g. Welcome Back!',
-                  'The greeting message shown on the login screen.',
+                  locale === 'bn' ? 'লগইন পেজের অভিবাদন' : 'Welcome Back Message (Login Page)',
+                  {
+                    placeholderBn: 'যেমন: স্বাগতম!',
+                    placeholderEn: 'e.g. Welcome Back!',
+                  },
                 )}
               </>
             )}

@@ -99,29 +99,47 @@ through `getLoanPolicy()` in `internal/repositories/repository.go`:
 The rest are read by the web app only: `org.*` (letterhead on generated
 documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
 page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
-`auth.welcomeBack`, and `loan.guarantorThresholdAmount` — which is enforced in
-the Next loan-application route, not in Go.
+`auth.welcomeBack`, `stats.*` (the four figures in the hero),
+`membership.minimumAgeYears`, `security.rejectedRetentionDays` — which the
+privacy policy quotes and the Go retention sweep counts — and
+`loan.guarantorThresholdAmount`, which is enforced in the Next loan-application
+route, not in Go.
 
-**A config value that is prose needs one row per language.** Three pairs:
-`org.name`/`org.nameEn`, `org.address`/`org.addressEn`, and
-`org.description`/`org.descriptionEn`. One row
-is shown to both audiences, so whichever script an admin types it in appears on
-the other language's site too — the foundation's Bengali address rendered under
-an English "Address" heading on the home, contact and support pages, in the
-footer of every public page, and on the letterhead of every generated document,
-which [ADR-012](decisions.md) makes English only. `orgAddress(settings, locale)`
-and `orgDescription(settings, locale)` in
-[`apps/web/lib/org-address.ts`](../apps/web/lib/org-address.ts) are the only
-places that choose between them; each side falls back to the other, because a
-real address in the wrong script can still be posted to and an empty one cannot.
+**A config value that is prose needs one row per language.** One row is shown to
+both audiences, so whichever script an admin types it in appears on the other
+language's site too — the foundation's Bengali address rendered under an English
+"Address" heading on the home, contact and support pages, in the footer of every
+public page, and on the letterhead of every generated document, which
+[ADR-012](decisions.md) makes English only.
 
-The description was split **four months after the address**, on 2026-08-25, and
-the delay is the point: nothing renders it on any page, so its only reader is
-the JSON-LD in `organizationSchema()` — a node that is English by contract — and
-the live English home page therefore described the foundation in Bengali to
-every search engine and assistant that asked. **When splitting one of these,
-enumerate the prose keys and check each**; the guard that caught the address
-(an e2e test over rendered pages) structurally could not see this one.
+**Twelve pairs**, enumerated in `LOCALIZED_SETTING_PAIRS` in
+[`apps/web/lib/localized-settings.ts`](../apps/web/lib/localized-settings.ts):
+the three `org.*` ones (`name`, `address`, `description`), the eight landing-page
+ones (`hero.tagline`, `features.title`, `contact.title`, `donation.title`,
+`donation.subtitle`, `donation.referenceNote`, `navigation.donate`,
+`auth.welcomeBack`), and the four hero figures (`stats.members`,
+`stats.deposits`, `stats.loans`, `stats.charity`). The bare key holds **Bengali**
+and the `…En` twin **English**; `localizedSetting(settings, key, locale)` is the
+only place that chooses between them, and each side falls back to the other,
+because a real address in the wrong script can still be posted to and an empty
+one cannot.
+
+The delays are the point. The description was split **four months after the
+address**, because nothing renders it on any page — its only reader is the
+JSON-LD in `organizationSchema()`, a node that is English by contract — so the
+live English home page described the foundation in Bengali to every search
+engine that asked. Then the other nine were found **a day later**, by the T-09
+audit, having been there all along. The instruction "enumerate the prose keys"
+was written after the second occurrence and not carried out, which is why the
+enumeration is now a list in code with a census over it rather than a sentence
+in a document.
+
+The four `stats.*` pairs joined the list on 2026-08-26 and are a slightly
+different case: they are *figures*, not sentences, and they used to be literals
+in `messages/{en,bn}.json` — "125+", "BDT 250,000+" — invented and unchangeable
+by the foundation. A number is prose: `১২৫+` and `125+` are the same fact in two
+scripts. They are seeded **empty**, and a blank figure omits its card rather than
+rendering a gap.
 
 The remaining `org.*` values — phone, email, website, registration number — are
 language-neutral and stay single.

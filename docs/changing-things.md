@@ -45,7 +45,7 @@ page.tsx
 └── components/{layout,ui}          → Header, Footer, Button, Card, Gallery, AuthAwareCTA
 ```
 
-**The four things that will bite you:**
+**The six things that will bite you:**
 
 1. **Copy lives in `messages/{en,bn}.json`, never in the component.** A hardcoded
    English string is invisible until a Bengali member reads it. Add the key to
@@ -55,13 +55,31 @@ page.tsx
    code. If your new design drops `hero.backgroundImage`, remove the key from
    [`lib/system-config.ts`](../apps/web/lib/system-config.ts) too — from
    `SYSTEM_CONFIG_KEYS` *and* from whichever of `CONTENT_CONFIG_KEYS` /
-   `SETTINGS_CONFIG_KEYS` claims it — or you leave a control that does nothing.
+   `SETTINGS_CONFIG_KEYS` claims it — or you leave a control that does nothing,
+   and `test/unit/settings-keys-read.test.ts` will say so.
+2b. **A settings value that is prose is a PAIR.** Read it with
+   `localizedSetting(settings, key, locale)`, never `settings['hero.tagline']`.
+   One box is shown to both audiences, so whichever script an admin typed goes
+   to everybody — the bug that has been found four times. The list of pairs is
+   `LOCALIZED_SETTING_PAIRS` in
+   [`lib/localized-settings.ts`](../apps/web/lib/localized-settings.ts), and the
+   census reads source line by line, so `trimmed(settings, key)` fails as loudly
+   as an index read.
+2c. **An unset value renders NOTHING, never a plausible placeholder.** The home
+   page showed `+880 1XXX-XXXXXX` under "Phone" and `+880 1XXXXXXXXX` under
+   "bKash". A visitor cannot tell a placeholder from a number nobody answers, and
+   on the donation channels they can act on it. `contactDetails()` and the
+   `.filter(v => v !== '')` on each card list are how the current page does it.
 3. **Use semantic colour classes** — `bg-primary`, `text-muted-foreground`,
    `border-border` — not hex, and not raw `emerald-600`. The tokens are defined
    once in `app/globals.css` for light and `.dark`. A hardcoded colour is the one
    change that looks fine to you and broken to a member on dark mode.
-4. **`AuthAwareCTA` changes based on login state.** If you replace the hero
-   button, keep it, or a signed-in member gets shown "Register".
+4. **`AuthAwareCTA` changes based on login state**, and its *signed-out* form is
+   what renders on the server. Keep it that way: it used to paint a grey
+   skeleton until an effect had read `localStorage`, so the prerendered HTML of
+   the most-visited page on the site contained no "Become a Member" link at all.
+   If you replace the hero button, keep the component, or a signed-in member gets
+   shown "Register".
 
 **Prove it:**
 ```bash
@@ -76,6 +94,62 @@ Both locales and both themes, every time. That is the whole checklist.
 `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`. Status badge colours are
 centralised in [`lib/status-styles.ts`](../apps/web/lib/status-styles.ts) —
 extend that, never inline a badge colour.
+
+---
+
+## "I want to change the public site"
+
+The eleven pages a stranger can reach, and the two admin screens that drive
+them. Audited end to end on 2026-08-26 (T-09 → T-11); what follows is what that
+audit had to learn.
+
+**The menu points at pages, not at anchors.**
+[`components/layout/header.tsx`](../apps/web/components/layout/header.tsx) holds
+one `navigation` array — Home, About, Activities, Gallery, Donate, Contact — and
+each entry is a real route. It used to be `/#about`, `/#donate`, `/#contact`,
+which left `/about`, `/activities`, `/contact` and `/donate` with **zero inbound
+links** while `/#features` scrolled nowhere, because no element on the home page
+has ever had that id. The home page keeps the same sections as summaries and
+each ends in a `SectionLink` to its page.
+
+**Adding a page** means all of: the route, `publicPagePaths` in
+[`lib/seo.ts`](../apps/web/lib/seo.ts), a breadcrumb label in both languages, a
+`<StructuredData>` render, `MUST_BE_STATIC` in
+[`scripts/assert-static-routes.mjs`](../apps/web/scripts/assert-static-routes.mjs),
+`PAGES.public` in `e2e/fixtures/session.ts`, and — if a human should be able to
+find it — the `navigation` array. Miss the last one and you have shipped a page
+only the sitemap knows about. See the next section for the mechanics.
+
+**Chrome is `<Header>` and `<Footer>`, on every page without exception.**
+`/privacy` and `/terms` each had a bespoke header (a logo and a "Back to Home"
+button) and a one-line footer, so a visitor arriving from a search result had no
+navigation and no language switcher, and the mini-footer was English on the
+Bengali page. Both are shells around
+[`components/layout/legal-document.tsx`](../apps/web/components/layout/legal-document.tsx)
+now, and their wording is `legal.*` in the message files — which is what puts it
+inside the fee-promise census.
+
+**Top padding under the fixed header is `pt-24`**, everywhere. It was `pt-32`,
+`pt-24` and `pt-20` depending on which page was written last.
+
+**The logo is sized by HEIGHT.** `size` in
+[`components/ui/logo.tsx`](../apps/web/components/ui/logo.tsx) sets a pixel
+height and the width follows the aspect ratio. Never `h-auto w-auto`: that
+overrides the size prop entirely, and every call site then renders at the
+asset's intrinsic 192×108 — inside a 64 px header.
+
+**Prove it:**
+```bash
+pnpm test:unit                                   # the censuses over keys, pairs and copy
+pnpm exec playwright test e2e/matrix.spec.ts     # 412 px and 1280 px, both languages
+pnpm exec playwright test e2e/public-content.spec.ts   # an admin edit reaches the visitor
+pnpm build && node scripts/assert-static-routes.mjs
+```
+
+`public-content.spec.ts` is the one that matters for T-11: it signs in as an
+admin, `PUT`s a marker per language through `/api/v1/settings`, and asserts the
+marker arrives **and that the other language's marker does not**. A source-level
+census cannot see the cache, the tier or the language; that spec sees all three.
 
 ---
 

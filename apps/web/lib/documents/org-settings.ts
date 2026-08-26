@@ -4,7 +4,7 @@ import { fetchSettings } from '@/lib/settings-client';
 
 import { DEFAULT_ORG } from './theme';
 import type { OrgSettings } from './types';
-import { orgAddress } from '@/lib/org-address';
+import { localizedSettingPair, orgAddress } from '@/lib/localized-settings';
 
 let cached: OrgSettings | null = null;
 
@@ -23,9 +23,16 @@ export async function fetchOrgSettings(options?: { refresh?: boolean }): Promise
     // once (WO-77).
     const data = await fetchSettings();
     if (data) {
+      // Both halves, through the pair helper — this is the one caller that
+      // wants each language rather than the reader's, because the letterhead
+      // prints the Bengali legal name above the English one. Reading the two
+      // rows directly worked, and also meant a foundation that had filled in
+      // only one of them got the *built-in default* for the other rather than
+      // its own name in the other script.
+      const orgNames = localizedSettingPair(data, 'org.name');
       cached = {
-        name: data['org.name'] || DEFAULT_ORG.name,
-        nameEn: data['org.nameEn'] || DEFAULT_ORG.nameEn,
+        name: orgNames.bn || DEFAULT_ORG.name,
+        nameEn: orgNames.en || DEFAULT_ORG.nameEn,
         // English. Generated documents are English only (ADR-012), so the
         // letterhead takes the English address and falls back to whatever the
         // single old box holds.

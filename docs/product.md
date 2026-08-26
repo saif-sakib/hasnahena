@@ -196,6 +196,23 @@ implementation detail: `audit_logs` is append-only, so anything written there
 survives the erasure. The row names the account number, the approving admin and
 the reason. It never names what was erased.
 
+**All three rules are published.** `/privacy` describes them to the person they
+apply to, in both languages — including the part that is a limit rather than a
+right: a member with postings is anonymised, not deleted, and the page says so
+and says why. It also names the three processors that hold member data
+(Cloudinary for the photographs and the NID image, Brevo for email, Neon for the
+database) and quotes `security.rejectedRetentionDays` rather than a number typed
+into a sentence.
+
+Until 2026-08-26 it said none of this. It promised deletion — which the platform
+deliberately does not do — described "microfinance services", and never
+mentioned that a scan of every applicant's national ID sits in a third-party
+account. The wording lives in `messages/{en,bn}.json` under `legal.privacy.*`,
+which is what puts it inside the census that reads member-facing prose for
+promises the code does not keep; that census exists because the Terms of Service
+once promised administrative fees in both languages with every other guard
+green.
+
 ### Passbook (সঞ্চয় ও ঋণ পাস বই)
 
 The printed member passbook maps to `Account` + `Transaction`: each row carries date, receipt no. (রশিদ নম্বর), deposit/withdrawal amount, and running savings/loan balance — which is why every `Transaction` stores `savingsAfter` / `loanAfter` snapshots. Receipt PDFs are generated in `apps/web/lib/documents/receipt-generator.ts`.

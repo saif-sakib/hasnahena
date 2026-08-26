@@ -11,7 +11,7 @@ changelog is where it goes.
 
 ## How to use this
 
-Say **`do T-09`** and the task is executed from the description here plus the
+Say **`do T-12`** and the task is executed from the description here plus the
 docs it points at — no re-reading of the codebase needed to know what is wanted.
 Tasks are ordered so that each is genuinely doable when you reach it.
 
@@ -32,13 +32,16 @@ Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 ## Where the platform stands
 
 No requirement is **broken**. The money paths, the security work, the tests, CI,
-backups and containers are done and hold. **The entry point is done too** —
-Phase 1 closed on 2026-08-26; the registration → approval → first-login journey
-now has an end-to-end spec at phone width in both languages. What is left is of
-three kinds: a handful of owner actions that take minutes and are blocking
-nothing but themselves; the quality of the surface a member meets before they
-apply — the public site; and the long tail of product gaps in the FR table
-below.
+backups and containers are done and hold. **The entry point is done** — Phase 1
+closed on 2026-08-26; the registration → approval → first-login journey has an
+end-to-end spec at phone width in both languages. **The public face is done too**
+— Phase 2 closed the same day: the eleven pages a stranger can reach were
+audited link by link, the menu now points at the pages rather than at anchors on
+the home page, and every control on the two admin content screens is proved to
+change what a visitor sees. What is left is of three kinds: a handful of owner
+actions that take minutes and are blocking nothing but themselves; the
+input/output sweep before production; and the long tail of product gaps in the FR
+table below.
 
 **The monitoring is now mostly on** — `METRICS_TOKEN` on Render and Sentry on
 Vercel are both confirmed live. What remains of T-01 is the Go API's own Sentry
@@ -51,7 +54,6 @@ fails twice a day.
 | Phase | What | Sessions |
 |---|---|---|
 | **0** | Owner actions — finish the monitoring, `TRUSTED_PROXIES`, two settings confirmations | `owner`, about 30 min total |
-| **2** | The public face: eleven pages, and the admin editing that drives them | **4–7** |
 | **3** | The whole-site input/output sweep | **4–6** |
 | **4** | The last cheap schema change | **1–2** |
 | — | **Go live** — the cutover in [go-live.md](go-live.md) | 1 |
@@ -59,7 +61,7 @@ fails twice a day.
 | **6** | Operations: restore drill, asset backup, logs, dashboard | **4–5** |
 | **8** | Move hosts | **4–6** |
 
-**To a launch you would not be embarrassed by: Phases 0, 2, 3, 4 plus the cutover — 10–16 sessions.**
+**To a launch you would not be embarrassed by: Phases 0, 3, 4 plus the cutover — 6–9 sessions.**
 Phase 5 is real product work that a live foundation can absorb gradually; Phase 6
 follows the first real data; Phase 8 waits until everything is quiet.
 
@@ -89,28 +91,8 @@ guarded by `org-defaults.test.ts`.
 |---|---|---|---|
 | `[~]` **T-01** | **Finish switching the monitoring on** | `owner` ~20 min | Mostly done. **Confirmed live on 2026-08-25:** `/metrics` answers `401` rather than `404`, so `METRICS_TOKEN` is set on Render; and the public pages carry `sentry-environment=production` with a release matching the deployed commit, so `NEXT_PUBLIC_SENTRY_DSN` is set on Vercel. **Three things are left and none can be checked from outside:** `SENTRY_DSN` on **Render** (the Go API — the web app being connected says nothing about it), `METRICS_TOKEN` as a **GitHub Actions secret** (same value as Render; without it the Monitor workflow exits 1 twice a day), and the two **UptimeRobot** monitors — `/v1/ready` at 1 minute and the site at 5. [deployment.md](deployment.md) |
 | `[ ]` **T-02** | **`TRUSTED_PROXIES=1` on Render** | `owner` 5 min | At the default `0`, a process behind a proxy attributes every member to the proxy's address: one rate-limit bucket and one login lockout for the entire membership. The API already logs a warning at boot when it is `0` outside development ([ADR-019](decisions.md), [ADR-021](decisions.md)) |
-| `[~]` **T-03** | **Fill in the new English description box** | `owner` 5 min | Admin → Settings → Organisation. The three rows this row used to list are **already correct live** (verified 2026-08-25: the site publishes `info@hasnahenafoundation.com`, "Hasnahena Foundation", and an English street address). What is left is one **new** box, *Description (English)*, added the same day. Until it is filled in, the JSON-LD every search engine and AI assistant reads describes the foundation **in Bengali** — on the English page as well as the Bengali one — because a single description box was shown to both audiences, exactly as the address was before it. Open the screen once and press Save even if you change nothing: that writes the corrected defaults for any row the database is missing |
+| `[~]` **T-03** | **Fill in the new English boxes, and the four figures** | `owner` 15 min | Two screens. **Settings → Organisation**: *Description (English)*, added 2026-08-25. Until it is filled in, the JSON-LD every search engine and AI assistant reads describes the foundation **in Bengali**, on the English page as well as the Bengali one. **Content & Media → Public Pages**: every box there is now a pair — Bangla and English — and the English half of each is empty on an existing database, so the Bengali text shows to English readers until it is written. The same screen holds the four hero figures (*Total Members*, *Total Deposits*, *Loans Distributed*, *Charitable Fund*), which are **blank on purpose**: they used to be invented numbers in the source, and the hero simply omits a figure that has no value. Write the true ones or leave the panel off. Open Settings once and press Save even if you change nothing: that writes the corrected defaults for any row the database is missing |
 | `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | **Decided 2026-08-25: 365 days**, which is the seeded default, so there is most likely nothing to change — this is a look, not an edit. Admin → Settings. The sweep counts from each rejection, so it has to be right **before** real applications exist ([ADR-033](decisions.md)) |
-
----
-
-## Phase 2 — The public face
-
-*Owner priority, 2026-08-25: "the main representation of our website and the
-whole foundation is the welcome page and the other pages including our logo that
-anyone can see without login — the design should be elegant, professional,
-classic (the current one is really nice), everything should be in the right
-place, everything there should work properly."*
-
-The design direction is **refine what is there**, not redesign it. The owner
-likes the current look; the job is to make it right, consistent and correct on a
-phone, not to replace it.
-
-| # | Task | Sessions | Detail |
-|---|---|---|---|
-| `[ ]` **T-09** | **Audit every public page and report** | 1–2 | The eleven pages a stranger can reach, in both languages, at phone and desktop width: home, about, activities, contact, donate, faq, gallery, privacy, support, terms, plus the auth pages. Every broken link, every dead control, every placeholder that survived, every element that overflows at 412 px, every inconsistency in spacing, type scale and the logo's use. Report first, as the entry-path audit did — taste is the owner's call, and a session spent changing things nobody asked to change is a session wasted |
-| `[ ]` **T-10** | **Fix and refine** | 2–3 | Execute the approved list. Elegant, professional, classic — and **Android-first**: verified at 412 px in Bengali as well as English before it is called done (rule 10) |
-| `[ ]` **T-11** | **Make the admin content editing actually drive the pages** | 1–2 | Every control on Admin → Content & Media and Admin → Settings must change what a visitor sees, and every value a public page renders must be reachable from one of those two screens. Both halves have failed before and neither is theoretical: WO-67 found four `bank.*` keys the donate page read that no screen could set, so its "fallback" account number was the only value it could ever show; the office address was one row shown to both languages until 2026-08-25. `settings-keys-read.test.ts` enforces the key lists, but **nothing yet proves the rendered page changes when the value does** — that proof is this task |
 
 ---
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { ArrowRight, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getClientRoleFromToken, getValidatedClientToken } from '@/lib/client-auth';
@@ -14,9 +15,26 @@ interface AuthAwareCTAProps {
   variant: 'hero' | 'footer';
 }
 
+/**
+ * The home page's call to action, which changes once somebody is signed in.
+ *
+ * **The signed-out form is what renders on the server**, and that is the T-10
+ * fix. This component used to hold `isLoading` state and paint two grey
+ * `animate-pulse` boxes until an effect had read `localStorage` — so the
+ * prerendered HTML of the most-visited page on the site contained **no
+ * "Become a Member" link at all**. A crawler read a hero with no call to action;
+ * a member on a slow Android watched two grey rectangles where the primary
+ * button belongs, on a page that is otherwise served from the edge and
+ * instant.
+ *
+ * The trade is that a signed-in member sees "Become a Member" for the
+ * milliseconds before hydration, and is then offered their dashboard. That is a
+ * much smaller cost than the button not existing for everybody, and it is the
+ * same shape the header already uses for its Login / Register pair.
+ */
 export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAwareCTAProps) {
+  const t = useTranslations('hero');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [userRole, setUserRole] = useState('member');
 
   useEffect(() => {
@@ -24,7 +42,6 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
       const token = getValidatedClientToken();
       setIsLoggedIn(!!token);
       setUserRole(token ? getClientRoleFromToken() : 'member');
-      setIsLoading(false);
     };
 
     checkAuth();
@@ -38,46 +55,30 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     };
   }, []);
 
-  // Show loading placeholder to prevent layout shift
-  if (isLoading) {
-    if (variant === 'hero') {
-      return (
-        <div className="flex flex-col sm:flex-row gap-4 pt-2">
-          <div className="h-12 w-40 bg-primary/20 rounded-sm animate-pulse" />
-          <div className="h-12 w-32 bg-muted rounded-sm animate-pulse" />
-        </div>
-      );
-    }
-    return <div className="h-40 bg-emerald-500/50 animate-pulse" />;
-  }
-
   if (variant === 'hero') {
-    if (isLoggedIn) {
-      return (
-        <div className="flex flex-col sm:flex-row gap-4 pt-2">
-          <Link href={localePath(locale, `/dashboard/${userRole}`)}>
-            <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-              <LayoutDashboard className="h-5 w-5" />
-              {locale === 'bn' ? 'ড্যাশবোর্ডে যান' : 'Go to Dashboard'}
-            </Button>
-          </Link>
-          <Link href="#how-it-works">
-            <Button variant="outline" size="xl" className="w-full sm:w-auto">
-              {learnMoreText}
-            </Button>
-          </Link>
-        </div>
-      );
-    }
-
     return (
       <div className="flex flex-col sm:flex-row gap-4 pt-2">
-        <Link href={localePath(locale, '/register')}>
-          <Button size="xl" className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all">
-            {ctaText}
-            <ArrowRight className="h-5 w-5" />
-          </Button>
-        </Link>
+        {isLoggedIn ? (
+          <Link href={localePath(locale, `/dashboard/${userRole}`)}>
+            <Button
+              size="xl"
+              className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              {t('goToDashboard')}
+            </Button>
+          </Link>
+        ) : (
+          <Link href={localePath(locale, '/register')}>
+            <Button
+              size="xl"
+              className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
+            >
+              {ctaText}
+              <ArrowRight className="h-5 w-5" />
+            </Button>
+          </Link>
+        )}
         <Link href="#how-it-works">
           <Button variant="outline" size="xl" className="w-full sm:w-auto">
             {learnMoreText}
@@ -87,7 +88,8 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     );
   }
 
-  // Footer variant - hidden when logged in
+  // Footer variant — the closing invitation, which has nothing to say to
+  // somebody who has already accepted it.
   if (isLoggedIn) {
     return null;
   }
@@ -95,16 +97,8 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
   return (
     <section className="py-16 md:py-20 bg-linear-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white">
       <div className="container-wide text-center">
-        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">
-          {locale === 'bn'
-            ? 'আজই সুদমুক্ত অর্থায়নে যোগ দিন'
-            : 'Join Interest-Free Finance Today'}
-        </h2>
-        <p className="text-lg mb-8 opacity-90 max-w-2xl mx-auto">
-          {locale === 'bn'
-            ? 'হাসনাহেনার সদস্য হয়ে সুদমুক্ত ঋণের সুবিধা নিন'
-            : 'Become a member of Hasnahena and enjoy interest-free loans'}
-        </p>
+        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">{t('ctaTitle')}</h2>
+        <p className="text-lg mb-8 opacity-90 max-w-2xl mx-auto">{t('ctaSubtitle')}</p>
         <Link href={localePath(locale, '/register')}>
           <Button
             size="xl"

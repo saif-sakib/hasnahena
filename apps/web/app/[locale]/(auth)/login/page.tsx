@@ -15,6 +15,7 @@ import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { setClientAuthToken } from '@/lib/client-auth';
 import { fetchSettings } from '@/lib/settings-client';
+import { localizedSetting } from '@/lib/localized-settings';
 import { localePath, otherLocale } from '@/lib/locale-path';
 
 const loginSchema = z.object({
@@ -68,12 +69,15 @@ export default function LoginPage() {
     // is one place that knows this endpoint's shape.
     fetchSettings()
       .then(data => {
-        if (data && data['auth.welcomeBack']) {
-          setWelcomeMessage(data['auth.welcomeBack']);
-        }
+        // Through `localizedSetting`, not `data['auth.welcomeBack']`: the
+        // greeting is a PAIR as of 2026-08-26. One box shown to two audiences
+        // put a Bengali greeting above an English login form for everybody who
+        // reached this page in English.
+        const greeting = localizedSetting(data, 'auth.welcomeBack', locale);
+        if (greeting) setWelcomeMessage(greeting);
       })
       .catch(() => {}); // Silently fail
-  }, []);
+  }, [locale]);
 
   const other = otherLocale(locale);
 
