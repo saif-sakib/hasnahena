@@ -24,8 +24,18 @@ import { loginAs, PAGES, waitForContent } from './fixtures/session';
  * it renders, and only a click reveals it.
  */
 
-/** Bengali (and Bengali-Assamese digits) — the whole Unicode block. */
-const BENGALI = /[ঀ-৿]/;
+/**
+ * Bengali letters and Bengali-Assamese digits — the block, minus one character.
+ *
+ * `৳` is U+09F3, inside the Bengali block, and it is the **taka sign**: what a
+ * Bangladeshi reads a price in whichever language the sentence is written in.
+ * `৳25 Lakh+` is correct English here, and the hero's figures count up through
+ * intermediate values (`৳12 Lakh+`) that are not settings values and so cannot
+ * be stripped like one. Every Bengali *letter* and every Bengali *digit* is
+ * still refused, which is what this spec was written for: `১২৫+` under an
+ * English caption was the original defect.
+ */
+const BENGALI = /[\u0980-\u09F2\u09F4-\u09FF]/;
 
 /**
  * Text that is legitimately Bengali on an English page.
@@ -50,12 +60,33 @@ const ALLOWED_ON_ENGLISH = ['বাংলা'];
  */
 async function settingsValues(page: Page): Promise<string[]> {
   const response = await page.request.get('/api/v1/settings');
-  if (!response.ok()) return [];
-  const body = (await response.json()) as { data?: Record<string, string> } | Record<string, string>;
+  const body = response.ok()
+    ? ((await response.json()) as { data?: Record<string, string> } | Record<string, string>)
+    : {};
   const map = (body as { data?: Record<string, string> }).data ?? (body as Record<string, string>);
-  return Object.values(map)
+  const values = Object.values(map)
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => value.trim());
+
+  // An empty answer is a **broken rig**, not a page with no settings, and the
+  // two used to be indistinguishable here: with nothing to strip, this spec
+  // silently becomes a check on database content and reports the foundation's
+  // own Bengali as copy hardcoded in a component. It happened — a Go suite
+  // truncated `system_config` out from under a browser run, and the failure
+  // named `৳25 Lakh+`, a settings value, as a defect in the source.
+  //
+  // Say which it is. A public page always has settings behind it; if it does
+  // not, every assertion below is measuring the wrong thing.
+  expect(
+    values.length,
+    'GET /api/v1/settings returned nothing, so there is no admin-typed text to ' +
+      'strip and this spec would report database content as hardcoded copy. ' +
+      'Re-seed: `scripts/test-stack.sh down && scripts/test-stack.sh up --serve`. ' +
+      'The Go integration suite truncates every table, so it must not run ' +
+      'alongside the browser suite.',
+  ).toBeGreaterThan(0);
+
+  return values;
 }
 
 /** What a reader actually sees, minus the sanctioned Bengali and admin data. */

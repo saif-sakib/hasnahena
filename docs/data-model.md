@@ -99,8 +99,8 @@ through `getLoanPolicy()` in `internal/repositories/repository.go`:
 The rest are read by the web app only: `org.*` (letterhead on generated
 documents and the public site), `hero.*` and `features.*`/`contact.*` (landing
 page), `donation.*` (payment instructions), `branding.*`, `navigation.*`,
-`auth.welcomeBack`, `stats.*` (an **override** for the four hero figures, which
-are otherwise counted from the ledger by `lib/public-stats.ts`),
+`auth.welcomeBack`, `stats.*` (the four figures beside the home page headline —
+**stated**, never counted from the ledger; see [traps.md](traps.md) § Interface),
 `membership.minimumAgeYears`, `security.rejectedRetentionDays` — which the
 privacy policy quotes and the Go retention sweep counts — and
 `loan.guarantorThresholdAmount`, which is enforced in the Next loan-application

@@ -18,7 +18,7 @@ import { StructuredData } from '@/components/seo/structured-data';
 import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
 import { localizedSetting } from '@/lib/localized-settings';
-import { formatMemberCount, formatTakaTotal, getPublicStats } from '@/lib/public-stats';
+import { CountUp } from '@/components/ui/count-up';
 import { contactDetails } from '@/lib/contact-details';
 import { localePath } from '@/lib/locale-path';
 
@@ -70,14 +70,13 @@ export default async function HomePage({ params }: PageProps) {
   const tContact = await getTranslations({locale, namespace: 'contact'});
   const tDonation = await getTranslations({locale, namespace: 'donation'});
   
-  // None of the three accessors rejects — each falls back to empty when the
-  // database is unreachable, which is what lets this page prerender in an image
-  // build that has no database. The `try` that used to be here said the same
-  // thing, in only two of the eight pages that needed it.
-  const [dbGalleryItems, settings, stats] = await Promise.all([
+  // Neither accessor rejects — each falls back to empty when the database is
+  // unreachable, which is what lets this page prerender in an image build that
+  // has no database. The `try` that used to be here said the same thing, in
+  // only two of the eight pages that needed it.
+  const [dbGalleryItems, settings] = await Promise.all([
     getPublicGalleryItems(6),
     getPublicSettings(),
-    getPublicStats(),
   ]);
 
   const galleryItems: GalleryItem[] = dbGalleryItems.map(item => ({
@@ -152,8 +151,13 @@ export default async function HomePage({ params }: PageProps) {
     .map((logo) => logo?.trim())
     .filter((logo): logo is string => Boolean(logo));
 
-  // The figures: what an admin typed, else what the ledger counts, else no card
-  // (`lib/public-stats.ts` explains why it is that way round).
+  // The figures the foundation **states** about itself, and only those.
+  //
+  // They were briefly read from the ledger — the member count and the real
+  // balances, which is a nicer engineering answer and the wrong product one.
+  // The owner's ruling (2026-08-26) is that the fund's true numbers are not
+  // published, so the reader is `system_config` and there is no other path;
+  // `lib/public-stats.ts` was deleted rather than switched off.
   //
   // Each key sits on the line that resolves it, deliberately: the pair census in
   // `localized-settings.test.ts` reads line by line and refuses a prose key
@@ -162,24 +166,28 @@ export default async function HomePage({ params }: PageProps) {
   // cannot tell apart from the bug.
   const statCards = [
     {
-      value: localizedSetting(settings, 'stats.members', locale) || formatMemberCount(stats.members, locale),
+      value: localizedSetting(settings, 'stats.members', locale),
       label: tStats('totalMembers'),
+      icon: <Users className="h-5 w-5 text-emerald-600 sm:h-6 sm:w-6" />,
     },
     {
-      value: localizedSetting(settings, 'stats.deposits', locale) || formatTakaTotal(stats.deposits, locale),
+      value: localizedSetting(settings, 'stats.deposits', locale),
       label: tStats('totalDeposits'),
+      icon: <Wallet className="h-5 w-5 text-amber-600 sm:h-6 sm:w-6" />,
     },
     {
-      value: localizedSetting(settings, 'stats.loans', locale) || formatTakaTotal(stats.loans, locale),
+      value: localizedSetting(settings, 'stats.loans', locale),
       label: tStats('loansDistributed'),
+      icon: <HandHeart className="h-5 w-5 text-blue-600 sm:h-6 sm:w-6" />,
     },
     {
-      value: localizedSetting(settings, 'stats.charity', locale) || formatTakaTotal(stats.charity, locale),
+      value: localizedSetting(settings, 'stats.charity', locale),
       label: tStats('charitableFund'),
+      icon: <Heart className="h-5 w-5 text-rose-600 sm:h-6 sm:w-6" />,
     },
   ]
-    .filter((card) => card.value !== '')
-    .map((card, index) => ({ ...card, delay: index * 100 }));
+    .filter((card) => card.value.trim() !== '')
+    .map((card, index) => ({ ...card, delay: index * 140 }));
 
   const contact = contactDetails(settings, locale);
   const contactCards = [
@@ -224,7 +232,21 @@ export default async function HomePage({ params }: PageProps) {
               />
             </div>
           )}
-          <div className="container-wide py-10 md:py-16 lg:py-24 relative z-10">
+          {/*
+            `w-full`, and it is the fix for a misalignment that had been on this
+            page since it was written.
+
+            The section is `flex items-center` (to centre the hero vertically),
+            which makes this container a **flex item** — and a flex item with no
+            width shrinks to fit its contents instead of filling its parent. So
+            `container-wide`'s `max-w-7xl` never applied: the hero's width was
+            whatever its own text happened to measure, and the headline started
+            at a different x from the header's logo and from every section below
+            it. It moved with the **language**, because Bengali is the wider
+            script — which is what "the layout breaks in Bengali" turned out to
+            be. It moved when the figures were shortened, too.
+          */}
+          <div className="container-wide w-full py-10 md:py-16 lg:py-24 relative z-10">
             <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
               <div className="space-y-6 md:space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-xs">
@@ -269,62 +291,58 @@ export default async function HomePage({ params }: PageProps) {
               </div>
 
               {/*
-                The hero's right column: the foundation's own figures, on the
-                drawn *khatam* field.
+                The hero's right column: the figures, floating.
+                -------------------------------------------------------------
+                It has been four things, and this is the first one again.
 
-                It has been three things, and the third is the answer to the
-                first two. It held four **invented** statistics ("125+ members")
-                for months. Those moved into `system_config` on 2026-08-26 so
-                they could at least be corrected, and the column became a
-                decorative panel — which fixed the honesty and left a hero whose
-                right half said nothing on a foundation that had real numbers
-                sitting in its own database.
+                It began as this — two columns of frosted white cards, the left
+                column dropped by a step so they read as *floating* rather than
+                as a table, over a soft emerald bloom. Then the figures inside
+                it turned out to be invented (`125+ members`), and fixing that
+                honestly cost the design: they became settings, the settings
+                were seeded empty, and the column became a bare decorative panel
+                because an empty hero looks broken. Counting them from the
+                ledger filled it again and was the wrong answer for a different
+                reason — the fund's real balances are not for publication
+                (owner, 2026-08-26).
 
-                So the figures are counted (`lib/public-stats.ts`) and they are
-                back where they belong: beside the headline, which is where a
-                visitor deciding whether to trust a cooperative with their
-                savings actually looks. The panel keeps its own height when they
-                are there, and falls back to a ratio when they are not — a
-                foundation on its first day gets the pattern alone rather than
-                an empty box or four zeroes.
+                So the figures are the foundation's own stated ones, in
+                `system_config`, and the layout is the one that was elegant
+                before any of that happened. `GeometricPanel` stays as the
+                fallback for a deployment that has cleared all four, which is
+                the state that started the whole sequence.
               */}
-              <div className="relative mx-auto w-full max-w-[420px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
-                <div className="absolute -inset-6 -z-10 rounded-full bg-linear-to-tr from-emerald-500/20 to-teal-500/20 blur-3xl" />
-                <GeometricPanel
-                  className={
-                    statCards.length > 0
-                      ? 'flex items-center lg:min-h-[26rem]'
-                      : 'aspect-5/4 sm:aspect-square'
-                  }
-                >
-                  {statCards.length > 0 && (
-                    <div className="w-full p-7 sm:p-9 lg:p-11">
-                      <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-emerald-50/70">
-                        {tStats('heading')}
-                      </p>
-                      <div className="mt-1.5 h-px w-12 bg-white/30" />
-                      {/*
-                        One column until `lg`, and only then two.
+              <div className="relative mx-auto w-full max-w-[460px] lg:max-w-none animate-in slide-in-from-right-10 fade-in duration-1000 delay-200">
+                {/* The bloom the cards float over. Decorative, and behind them. */}
+                <div className="absolute inset-0 -z-10 scale-90 rounded-full bg-linear-to-tr from-emerald-500/25 to-teal-500/25 blur-3xl" />
 
-                        `BDT 4,796,100` is thirteen characters. In half of a
-                        420 px panel it wrapped **inside the number** — the
-                        phone hero read "BDT 4,796,1 / 00", which is worse than
-                        no figure at all on a page asking to be trusted with
-                        money. Two columns only exist where the panel is wide
-                        enough to hold a seven-digit total on one line.
-                      */}
-                      <div className="mt-7 grid grid-cols-1 gap-y-6 lg:grid-cols-2 lg:gap-x-8 lg:gap-y-10">
-                        {statCards.map((card) => (
-                          <HeroFigure key={card.label} value={card.value} label={card.label} delay={card.delay} />
-                        ))}
-                      </div>
+                {statCards.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 sm:gap-5">
+                    {/*
+                      Two columns, and the left one starts a step lower. That
+                      offset is the whole character of this panel — square with
+                      it, four cards are a spreadsheet; staggered, they are a
+                      composition. It is a margin rather than a transform, so the
+                      column's own height still reserves the space and nothing
+                      below the hero moves.
+                    */}
+                    <div className="mt-6 space-y-3 sm:mt-10 sm:space-y-5">
+                      {statCards.filter((_, i) => i % 2 === 0).map((card) => (
+                        <StatCard key={card.label} {...card} locale={locale} />
+                      ))}
                     </div>
-                  )}
-                </GeometricPanel>
+                    <div className="space-y-3 sm:space-y-5">
+                      {statCards.filter((_, i) => i % 2 === 1).map((card) => (
+                        <StatCard key={card.label} {...card} locale={locale} />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <GeometricPanel className="aspect-5/4 sm:aspect-square" />
+                )}
               </div>
             </div>
           </div>
-
           {/* Background decoration */}
           <div className="absolute top-0 right-0 w-1/3 h-1/3 bg-linear-to-b from-emerald-100/30 to-transparent blur-3xl" />
           <div className="absolute bottom-0 left-0 w-1/3 h-1/3 bg-linear-to-t from-teal-100/30 to-transparent blur-3xl" />
@@ -396,6 +414,8 @@ export default async function HomePage({ params }: PageProps) {
             </div>
           </div>
         </section>
+
+
 
         {/* Activities Section */}
         {/*
@@ -660,19 +680,52 @@ function SectionLink({ href, label }: { href: string; label: string }) {
  * own digits* on a phone. A number is one word however long it is — the column
  * widens instead, which is what the single-column phone grid above is for.
  */
-function HeroFigure({ value, label, delay }: { value: string; label: string; delay: number }) {
+/**
+ * One figure on the hero.
+ *
+ * Frosted rather than solid, because it floats over the hero's own gradient and
+ * a soft emerald bloom — an opaque card would read as a hole punched in the
+ * background. The hover lift and the icon's scale are the only motion that is
+ * not the count itself, and both are `transition`s, so a reader who has turned
+ * motion off gets a still card rather than a broken one.
+ *
+ * `tabular-nums` is load-bearing rather than typographic: the value counts up
+ * from zero, and without fixed-width digits the card's whole width jitters
+ * sixty times a second while it does.
+ */
+function StatCard({
+  value,
+  label,
+  icon,
+  delay,
+  locale,
+}: {
+  value: string;
+  label: string;
+  icon: React.ReactNode;
+  delay: number;
+  locale: string;
+}) {
   return (
-    <div
-      className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-700"
+    <Card
+      className="group animate-in zoom-in-95 fade-in fill-mode-both border-slate-100 bg-white/80 backdrop-blur-md transition-all duration-500 hover:-translate-y-1.5 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900/80"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="text-2xl font-bold tracking-tight text-white tabular-nums lg:text-3xl">
-        {value}
-      </div>
-      <div className="mt-1.5 text-[0.7rem] font-medium uppercase tracking-wider text-emerald-50/80 sm:text-xs">
-        {label}
-      </div>
-    </div>
+      <CardContent className="flex flex-col items-center p-5 text-center sm:p-6">
+        <div className="mb-3 rounded-2xl bg-slate-50 p-2.5 ring-1 ring-slate-100 transition-transform duration-300 group-hover:scale-110 dark:bg-slate-800 dark:ring-slate-700 sm:mb-4 sm:p-3">
+          {icon}
+        </div>
+        <CountUp
+          value={value}
+          locale={locale}
+          delay={delay}
+          className="block text-xl font-extrabold leading-tight tracking-tight text-slate-900 tabular-nums dark:text-white sm:text-2xl lg:text-3xl"
+        />
+        <div className="mt-1.5 text-[0.7rem] font-medium uppercase leading-snug tracking-wide text-slate-500 dark:text-slate-400 sm:text-xs">
+          {label}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

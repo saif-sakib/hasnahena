@@ -55,6 +55,12 @@ suite seeds what it needs under identifiers namespaced to itself. Keep it that
 way — a test depending on rows another suite left behind passes or fails on
 package ordering.
 
+**Concurrency does matter.** Never run `pnpm test:integration` while
+`pnpm test:e2e` is in flight: the truncation empties `system_config` and `users`
+under the browser suite, and it does not present as an empty database — it
+presents as four unrelated specs failing on their own subject matter. Run them
+one after the other.
+
 **The suites and CI checks below enumerate rather than list, and will fail the
 build when the code grows something they do not know about.** That is deliberate
 — a list a human maintains goes stale the day it is written, which is why the
@@ -118,9 +124,9 @@ count that used to open this sentence is gone too. See
 | a spec that needs **Cloudinary, Brevo or any third party** | it cannot run in CI — that Cloudinary account holds real members' NID scans and CI has no credentials on purpose. Stub at the module boundary (`test/routes/registration.test.ts`) or seed the row the journey would have created (`e2e/entry-path.spec.ts`). A spec that drives the real thing fails the whole workflow: six did, for twenty minutes a run |
 | **copy on `/privacy` or `/terms`** | `apps/web/lib/legal.test.ts` and `apps/web/test/unit/messages.test.ts` — the wording is `legal.*` in `messages/{en,bn}.json`, and the fee-promise census reads it there. Both pages were shells' worth of inline prose, which is exactly how the Terms came to promise administrative fees with every other guard green. The revision date is a constant in `apps/web/lib/legal.ts`; both pages printed `Last updated: March 2026` through two rewrites of the loan clause |
 | **copy to a page under `app/[locale]/(auth)/`** | `apps/web/test/unit/messages.test.ts` — put it in `messages/{en,bn}.json`. A `locale === 'bn' ? … : …` in a component is invisible to the parity census, the placeholder check *and* the fee-promise search, which is how the Terms of Service promised administrative fees in both languages with every guard green |
-| a **sum over `transactions`** in the web app | `apps/web/lib/public-stats.test.ts` — filter on `status: 'CONFIRMED'` (rule 6a). The census is about `_sum` and not about `count`, deliberately: two routes count a member's postings at *every* status to decide whether they can be erased, and a `PENDING` row is still a row that stops one. It is summing **money** that must never see one |
+| a **figure to a public page** | `apps/web/test/unit/public-figures.test.ts` — state it in `system_config`; do **not** count it. The four hero numbers were briefly read from the ledger (member count, confirmed deposits, disbursed principal) and the owner ruled that the fund's real balances are not for publication. The test asserts the *absence* of that, because the next person to see four hand-maintained numbers beside a database that knows all four will reach for exactly the change that was reverted |
 | a **default in `scripts/seed.mjs`** that could already exist as a blank row | `apps/web/test/unit/localized-settings.test.ts` — `seedConfig` backfills an empty value and leaves a non-empty one alone. It used to refresh only the `description`, so a key the Content & Media screen had written blank could **never** be repaired by re-running the seed: the English half of every landing pair was created with its words while the Bengali half stayed empty, and the site fell back to `messages/bn.json` where nobody could see it was doing so |
-| a **public accessor that reads the database** | `apps/web/test/unit/public-content-fallback.test.ts` — it must not reject, and the `catch` goes **outside** `unstable_cache`. There are three (`getPublicSettings`, `getPublicGalleryItems`, `getPublicStats`); a fourth belongs in that file rather than growing its own `try`. Inside the cache, one transient Neon blip memoises the empty fallback for the whole revalidate hour |
+| a **public accessor that reads the database** | `apps/web/test/unit/public-content-fallback.test.ts` — it must not reject, and the `catch` goes **outside** `unstable_cache`. There are two (`getPublicSettings`, `getPublicGalleryItems`); a third belongs in that file rather than growing its own `try`. Inside the cache, one transient Neon blip memoises the empty fallback for the whole revalidate hour |
 | a way for the **web app** to reach the database in a test | `apps/web/test/unit/test-stack-database.test.ts` — go through `TEST_DATABASE_URL`. `DATABASE_URL` handed to `next dev` is overwritten from `apps/web/.env` before any of our code runs, which put the API and the web app of one browser run on **two different databases** — and `public-content.spec.ts` writing settings into a developer's live Neon |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
@@ -271,11 +277,11 @@ apps/web/lib/structured-data.ts   the JSON-LD builders. Type is NGO, never Finan
                                   interestRate and fee properties that misrepresent a Qard al-Hasan fund
 apps/web/lib/system-config.ts     every system_config key, split into public / member / admin tiers,
                                   plus the cached getPublicSettings() every marketing page renders from
-apps/web/lib/public-stats.ts      the four figures beside the home page headline, COUNTED from the ledger
-                                  rather than typed. They were invented literals, then empty settings
-                                  boxes nobody filled; a `stats.*` value still overrides the count, for
-                                  the real case of publishing "৩০+" instead of "৩১". Aggregates filter
-                                  on CONFIRMED (rule 6a) and loans count by disbursementDate, not status
+apps/web/components/ui/count-up.tsx  the hero figures, counting up from zero. Takes the admin's STRING
+                                  (`৳২৫ লক্ষ+`), finds the number inside it and puts the ৳, the word and
+                                  the + back — because a figure here is copy with a number in it, in
+                                  either script. Renders the finished value server-side and for reduced
+                                  motion; the animation is layered on after
 apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
                                   token, and without one the caller silently gets the public subset
 apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce.

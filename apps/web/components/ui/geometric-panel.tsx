@@ -27,20 +27,18 @@ import * as React from 'react';
  * quadrilaterals left open. Everything is drawn from one `<pattern>`, so the
  * whole panel is a few hundred bytes whatever size it renders at.
  *
- * It takes `children`, and the hero puts the foundation's figures inside it —
- * so on a working cooperative this is a panel *about something*, and on a brand
- * new one it is the pattern alone. The caller supplies the height: an aspect
- * ratio when it is empty, the content's own height when it is not. A fixed
- * `aspect-square` here made the empty version a full phone screen of scrolling
- * for decoration.
+ * It is the **fallback**, and only that. The hero normally shows the
+ * foundation's four figures as floating cards; this renders in their place when
+ * all four have been cleared, so a deployment that has said nothing about
+ * itself gets an illustration rather than a hole. The caller supplies the
+ * aspect ratio: a fixed `aspect-square` here made it a full phone screen of
+ * scrolling for decoration.
+ *
+ * It briefly carried the figures itself, on the emerald field. That version was
+ * legible and correct and less elegant than the frosted cards it had replaced,
+ * which is why the cards came back (owner, 2026-08-26).
  */
-export function GeometricPanel({
-  className,
-  children,
-}: {
-  className?: string;
-  children?: React.ReactNode;
-}) {
+export function GeometricPanel({ className }: { className?: string }) {
   return (
     <div
       className={[
@@ -49,16 +47,14 @@ export function GeometricPanel({
         'shadow-2xl shadow-emerald-900/25 ring-1 ring-white/20',
         className ?? '',
       ].join(' ')}
+      // Decorative: it carries no information the surrounding copy does not,
+      // and announcing "geometric pattern" two lines under the headline is
+      // noise. Safe on the root again because nothing is rendered inside it —
+      // when it briefly held the figures, this attribute was hiding all four
+      // from every screen reader.
+      aria-hidden="true"
     >
-      {/*
-        `aria-hidden` belongs on the drawing, not on the panel — the panel now
-        has children, and hiding the whole thing would have taken the
-        foundation's figures away from every screen reader on the site. The
-        pattern itself carries nothing the surrounding copy does not, and
-        announcing "geometric pattern" two lines under the headline is noise.
-      */}
       <svg
-        aria-hidden="true"
         className="pointer-events-none absolute inset-0 h-full w-full"
         viewBox="0 0 400 400"
         fill="none"
@@ -156,7 +152,6 @@ export function GeometricPanel({
       <div className="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full bg-emerald-300/25 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-24 -right-24 h-72 w-72 rounded-full bg-emerald-900/30 blur-3xl" />
 
-      {children ? <div className="relative">{children}</div> : null}
     </div>
   );
 }

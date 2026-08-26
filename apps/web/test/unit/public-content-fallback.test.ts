@@ -21,10 +21,11 @@ import { resolve } from 'node:path';
  * rather than as a missing contract on one function.
  *
  * The contract is here now: **no accessor rejects.** No database means fallback
- * copy, an empty gallery and no figures — which is a page, rather than a failed
- * build or a 500. `getPublicStats()` joined them on 2026-08-26 and inherits the
- * contract rather than restating it; there are three now, and a fourth should
- * be added to this file rather than growing its own `try`.
+ * copy and an empty gallery, which is a page, rather than a failed build or a
+ * 500. A third accessor belongs in this file rather than growing its own `try`.
+ * There briefly was one — `getPublicStats()`, which counted the hero's figures
+ * out of the ledger — and it was deleted when the owner ruled that the fund's
+ * real balances are not published. The contract outlived it.
  *
  * ── What this file can and cannot check ──────────────────────────────────────
  *
@@ -47,17 +48,10 @@ import { resolve } from 'node:path';
 
 const findManySettings = vi.fn();
 const findManyGallery = vi.fn();
-const countUsers = vi.fn();
-const aggregateTransactions = vi.fn();
-const aggregateLoans = vi.fn();
-
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     systemConfig: { findMany: (...args: unknown[]) => findManySettings(...args) },
     galleryItem: { findMany: (...args: unknown[]) => findManyGallery(...args) },
-    user: { count: (...args: unknown[]) => countUsers(...args) },
-    transaction: { aggregate: (...args: unknown[]) => aggregateTransactions(...args) },
-    loan: { aggregate: (...args: unknown[]) => aggregateLoans(...args) },
   },
 }));
 
@@ -77,9 +71,6 @@ let errors: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   findManySettings.mockReset();
   findManyGallery.mockReset();
-  countUsers.mockReset();
-  aggregateTransactions.mockReset();
-  aggregateLoans.mockReset();
   errors = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -105,51 +96,6 @@ describe('the public accessors survive an unreachable database', () => {
 
     await expect(getPublicGalleryItems(6)).resolves.toEqual([]);
     expect(findManyGallery, 'the query never ran, so nothing was proved').toHaveBeenCalled();
-  });
-
-  it('getPublicStats() resolves to zeroes rather than rejecting', async () => {
-    const { getPublicStats, NO_PUBLIC_STATS } = await import('@/lib/public-stats');
-    countUsers.mockImplementation(dead);
-    aggregateTransactions.mockImplementation(dead);
-    aggregateLoans.mockImplementation(dead);
-
-    // Zeroes, not a throw — and the home page reads a zero as "no card", so the
-    // hero falls back to the drawn panel rather than publishing four zero
-    // totals about a foundation that has members.
-    await expect(getPublicStats()).resolves.toEqual(NO_PUBLIC_STATS);
-    expect(countUsers, 'the query never ran, so nothing was proved').toHaveBeenCalled();
-  });
-
-  it('getPublicStats() adds nothing up itself when a sum is null', async () => {
-    const { getPublicStats } = await import('@/lib/public-stats');
-    countUsers.mockResolvedValue(31);
-    // What Prisma returns for an aggregate over no rows. It is `null`, not 0 —
-    // a foundation that has taken deposits but no donations gets one of each.
-    aggregateTransactions.mockResolvedValue({ _sum: { amount: null } });
-    aggregateLoans.mockResolvedValue({ _sum: { principalAmount: null } });
-
-    await expect(getPublicStats()).resolves.toEqual({
-      members: 31,
-      deposits: BigInt(0),
-      loans: BigInt(0),
-      charity: BigInt(0),
-    });
-  });
-
-  it('getPublicStats() carries whole taka back as BigInt, not as a string', async () => {
-    const { getPublicStats } = await import('@/lib/public-stats');
-    countUsers.mockResolvedValue(10);
-    aggregateTransactions.mockResolvedValue({ _sum: { amount: BigInt(4796100) } });
-    aggregateLoans.mockResolvedValue({ _sum: { principalAmount: BigInt(6502000) } });
-
-    // The cache stores strings on purpose — `JSON.stringify` throws on a BigInt
-    // and `unstable_cache` serialises what it holds, so a raw BigInt would fail
-    // on the first uncached render of the home page and never in a unit test.
-    // What the caller gets back must still be money (rule 1).
-    const stats = await getPublicStats();
-    expect(typeof stats.deposits).toBe('bigint');
-    expect(stats.deposits).toBe(BigInt(4796100));
-    expect(stats.loans).toBe(BigInt(6502000));
   });
 
   it('still returns real rows when the database answers', async () => {
@@ -182,7 +128,7 @@ describe('the catch is outside the cache, not inside it', () => {
     return source.slice(start);
   };
 
-  for (const file of ['lib/system-config.ts', 'lib/public-content.ts', 'lib/public-stats.ts']) {
+  for (const file of ['lib/system-config.ts', 'lib/public-content.ts']) {
     it(`${file} does not swallow the error inside the cached function`, () => {
       const source = read(file);
 

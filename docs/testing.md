@@ -48,6 +48,12 @@ scripts/test-stack.sh down        # destroys the volume
 `up --serve` also builds and starts both apps, for `pnpm test:e2e`.
 `pnpm test:stack` is the same thing through the package script.
 
+**One suite at a time.** The Go suites truncate every table between tests and
+the browser suite reads the same database, so running `test:integration` during
+a `test:e2e` run empties the settings and the accounts under it. It does not
+look like an empty database; it looks like unrelated specs failing on their own
+subject matter ([traps.md](traps.md) § Test stacks).
+
 **`eval "$(scripts/test-stack.sh env)"` is required for the browser suite too**,
 and for two separate reasons. It exports the seeded admin's credentials, without
 which `public-content.spec.ts` and `admin-dashboard.spec.ts` fail or skip on a

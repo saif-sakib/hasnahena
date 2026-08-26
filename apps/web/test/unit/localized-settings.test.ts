@@ -256,11 +256,14 @@ describe('every pair is seeded, so a fresh install has words on it', () => {
    * has no copy or whether the form failed to load. Worse, saving from that
    * screen writes the emptiness back over anything that was there.
    *
-   * The figures are the deliberate exception: seeded as rows with **empty
-   * values**, because a number the foundation has not stated is a number nobody
-   * should invent for it, and the hero omits a figure that has no value.
+   * The four figures were the exception for a day: seeded blank, on the
+   * argument that a number the foundation has not stated is a number nobody
+   * should invent for it. The owner settled it in the other direction — `135+`
+   * members and estimates consistent with it — because the alternative on offer
+   * was **counting them out of the ledger**, and the fund's real balances are
+   * not for publication. They are seeded like every other pair now, and like
+   * every other pair they are the foundation's to correct.
    */
-  const FIGURES = new Set(['stats.members', 'stats.deposits', 'stats.loans', 'stats.charity']);
 
   for (const [bnKey, enKey] of LOCALIZED_SETTING_PAIRS) {
     it(`${bnKey} and ${enKey} both have a seed row`, () => {
@@ -294,16 +297,28 @@ describe('every pair is seeded, so a fresh install has words on it', () => {
       for (const key of [bnKey, enKey]) {
         const value = rowValue(key);
         expect(value, `could not read the seeded value for ${key}`).not.toBeNull();
-        if (FIGURES.has(bnKey)) {
-          expect(
-            value,
-            `${key} is seeded with a figure. The four hero numbers were invented once ` +
-              'and published; they are the foundation\'s to state, and blank omits the card.',
-          ).toBe('');
-        } else {
-          expect(value!.trim().length, `${key} is seeded empty`).toBeGreaterThan(0);
-        }
+        expect(value!.trim().length, `${key} is seeded empty`).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it('seeds the four figures with a number in each script', () => {
+    // Not "some words": a figure has to contain a digit, in the alphabet of the
+    // language it is shown in. `stats.members` reading `135+` would put Latin
+    // numerals on the Bengali home page, which is the same defect as Bengali
+    // prose on the English one — and it is easy to do, because `135+` looks
+    // finished.
+    const rowValue = (key: string) =>
+      seed.match(new RegExp(`key:\\s*'${key.replace('.', '\\.')}'\\s*,\\s*value:\\s*'([^']*)'`))?.[1] ?? null;
+
+    for (const figure of ['members', 'deposits', 'loans', 'charity']) {
+      const bn = rowValue(`stats.${figure}`);
+      const en = rowValue(`stats.${figure}En`);
+      expect(bn, `stats.${figure} has no seeded value`).not.toBeNull();
+      expect(en, `stats.${figure}En has no seeded value`).not.toBeNull();
+      expect(bn, `stats.${figure} is not written in Bengali numerals`).toMatch(/[০-৯]/u);
+      expect(en, `stats.${figure}En is not written in Latin numerals`).toMatch(/[0-9]/u);
+      expect(en, `stats.${figure}En carries Bengali numerals`).not.toMatch(/[০-৯]/u);
     }
   });
 
@@ -351,9 +366,14 @@ describe('every pair is seeded, so a fresh install has words on it', () => {
     // into both rows satisfies every check above and shows Bengali to English
     // readers on a fresh install — which is exactly the state the pairs were
     // introduced to end.
-    const bengali = /[ঀ-৿]/;
-    for (const [bnKey, enKey] of LOCALIZED_SETTING_PAIRS) {
-      if (FIGURES.has(bnKey)) continue;
+    //
+    // The taka sign is the one exception, and it has to be: `৳` is U+09F3,
+    // inside the Bengali block, and it is what a Bangladeshi reads a price in
+    // whichever language the sentence is in — `৳25 Lakh+` is correct English
+    // here. Every Bengali *letter* and *digit* is still refused, so seeding
+    // `৳২৫ লক্ষ+` into the English row still fails, on its numerals.
+    const bengali = /[\u0980-\u09F2\u09F4-\u09FF]/;
+    for (const [, enKey] of LOCALIZED_SETTING_PAIRS) {
       const en = seed.match(
         new RegExp(`key:\\s*'${enKey.replace('.', '\\.')}'[\\s\\S]{0,400}?value:\\s*\\n?\\s*'([\\s\\S]*?)'`),
       );

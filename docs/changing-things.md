@@ -143,19 +143,26 @@ page, where it is transparent over the hero and the brand should dominate, and
 `h-16` once scrolled, where it is a utility bar. `matrix.spec.ts` asserts
 `36 ≤ logo ≤ header` on every page that has one.
 
-**The hero must not depend on a setting being filled in.** It renders on the
-foundation's own illustration ([`components/ui/geometric-panel.tsx`](../apps/web/components/ui/geometric-panel.tsx)),
-drawn rather than photographed, and the four figures on it are **counted** from
-the ledger ([`lib/public-stats.ts`](../apps/web/lib/public-stats.ts)) rather than
-typed — so a cooperative with one member and one deposit has a filled-in home
-page having configured nothing, and one on its first day gets the pattern alone.
-Design the unconfigured state first; it is what every new deployment shows and
-what the owner sees before they have anything to say.
+**The hero must not depend on a setting being filled in.** Its four figures are
+`system_config` values, seeded with the foundation's own stated numbers, and
+they count up from zero through
+[`components/ui/count-up.tsx`](../apps/web/components/ui/count-up.tsx). If all
+four are cleared the column falls back to the drawn illustration
+([`components/ui/geometric-panel.tsx`](../apps/web/components/ui/geometric-panel.tsx))
+rather than to a hole. Design the unconfigured state first; it is what every new
+deployment shows and what the owner sees before they have anything to say.
 
-**Before adding a settings box, ask whether the database already knows.** The
-figures were invented literals, then settings nobody filled in, and only then
-the count that was available the whole time. A field a human has to keep in step
-with something the platform already stores is a chore *and* a source of drift.
+**Do not replace a stated figure with a counted one.** It is the obvious
+improvement and it was reverted: the fund's real member count and balances are
+not published ([traps.md](traps.md) § Interface). Ask whether a number *may* be
+published before asking whether it can be derived.
+
+**The hero section is `flex items-center`, so its container needs `w-full`.**
+A flex item with no width shrinks to its contents, which silently defeated
+`container-wide`'s `max-w-7xl`: the hero's width was whatever its own text
+measured, so it did not line up with the header or with any section below it,
+and it moved when the language changed. `e2e/matrix.spec.ts` measures the
+headline against the logo in both languages.
 
 **The landing copy is seeded**, both halves of every pair, in
 [`scripts/seed.mjs`](../apps/web/scripts/seed.mjs). Adding a prose pair without

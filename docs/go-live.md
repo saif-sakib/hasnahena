@@ -127,13 +127,10 @@ Run the release checklist in [deployment.md](deployment.md), then:
       seeded with real copy — so what is left there is editorial, not repair.
       Read both languages and change what the foundation would say differently.
       The four hero figures (*Total Members*, *Total Deposits*, *Loans
-      Distributed*, *Charitable Fund*) are **counted from the ledger** and need
-      no entry; type into one only to override the count, and then only with a
-      number the foundation can defend. Blank is the normal state
-- [ ] **Check the figures against the ledger before launch day.** They are the
-      real totals of whatever is in the database when the page renders, so a
-      cutover that has not yet cleared the test data will publish it. Run
-      `pnpm db:clear` first — see the freeze section above
+      Distributed*, *Charitable Fund*) are seeded with `135+` and estimates
+      consistent with it. They are **published under the foundation's name**, so
+      confirm each one before launch or replace it — and they are deliberately
+      *not* read from the ledger, so clearing the test data does not change them
 - [ ] **Read `/privacy` and `/terms` end to end.** They describe what the
       platform actually does with a member's national ID, including the parts
       that are limits rather than rights. They are legal documents the

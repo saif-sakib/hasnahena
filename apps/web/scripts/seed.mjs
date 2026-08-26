@@ -208,29 +208,41 @@ const CONFIG_DEFAULTS = [
     description: 'Donate reference note (English)',
   },
 
-  // The four figures beside the home page headline (T-11, 2026-08-26).
+  // The four figures beside the home page headline.
   //
-  // Seeded EMPTY — but unlike `bank.*` above, empty here does not mean the panel
-  // is blank. It means **counted**. `lib/public-stats.ts` reads the member
-  // count, the confirmed deposits, the disbursed principal and the confirmed
-  // donations straight out of the database, so a foundation with one member and
-  // one deposit has a filled-in home page having typed nothing.
+  // These are the foundation's **stated** figures, and stated is the whole
+  // point. They were briefly counted from the ledger — true by construction,
+  // never stale — and the owner's ruling on 2026-08-26 was that the fund's real
+  // member count and real balances are **not for publication**. A cooperative
+  // is entitled to describe its scale without opening its books to anyone who
+  // loads the home page, and a figure the database can reach is a figure that
+  // moves every time somebody deposits, which is not what a headline is for.
   //
-  // These rows exist as the *override*, for the real case where the foundation
-  // would rather publish `৩০+` than `৩১`. That is its call to make and there is
-  // no honest default for it, which is why nothing is seeded: a seeded figure
-  // would be the invented "125+" this replaced, with an extra step.
+  // So the page reads these rows and nothing else. `lib/public-stats.ts`,
+  // which did the counting, is gone rather than left switched off: code that
+  // can publish a real balance is a hazard for as long as it exists.
   //
-  // Written in both scripts when written at all, because `১২৫+` and `125+` are
-  // the same fact in two alphabets. Admin → Content & Media → Public Pages.
-  { key: 'stats.members', value: '', description: 'Members figure override (Bengali) — empty means the live member count' },
-  { key: 'stats.membersEn', value: '', description: 'Members figure override (English) — empty means the live member count' },
-  { key: 'stats.deposits', value: '', description: 'Deposits figure override (Bengali) — empty means confirmed deposits' },
-  { key: 'stats.depositsEn', value: '', description: 'Deposits figure override (English) — empty means confirmed deposits' },
-  { key: 'stats.loans', value: '', description: 'Loans figure override (Bengali) — empty means disbursed principal' },
-  { key: 'stats.loansEn', value: '', description: 'Loans figure override (English) — empty means disbursed principal' },
-  { key: 'stats.charity', value: '', description: 'Charity figure override (Bengali) — empty means confirmed donations' },
-  { key: 'stats.charityEn', value: '', description: 'Charity figure override (English) — empty means confirmed donations' },
+  // The numbers below are the owner's `135+` members and estimates consistent
+  // with it — roughly ৳18,500 saved per member, rather less than that lent out,
+  // and a charitable fund about a seventh of deposits. **They are a starting
+  // point and the foundation is expected to correct them** on Admin → Content &
+  // Media → Public Pages; they are published under its name, not this file's.
+  //
+  // Lakh notation, not seven digits, and that is a layout decision as much as a
+  // stylistic one: `৳২৫,০০,০০০+` in half of a hero panel wraps between its own
+  // digits on a phone. It is also the notation the figures had before they were
+  // ever settings (`৳১.৮ লক্ষ+`), so it is what the owner reads them in.
+  //
+  // A pair per figure, like every other prose row, because `১৩৫+` and `135+`
+  // are the same fact in two alphabets.
+  { key: 'stats.members', value: '১৩৫+', description: 'Members figure (Bengali)' },
+  { key: 'stats.membersEn', value: '135+', description: 'Members figure (English)' },
+  { key: 'stats.deposits', value: '৳২৫ লক্ষ+', description: 'Total deposits figure (Bengali)' },
+  { key: 'stats.depositsEn', value: '৳25 Lakh+', description: 'Total deposits figure (English)' },
+  { key: 'stats.loans', value: '৳১৮ লক্ষ+', description: 'Loans-distributed figure (Bengali)' },
+  { key: 'stats.loansEn', value: '৳18 Lakh+', description: 'Loans-distributed figure (English)' },
+  { key: 'stats.charity', value: '৳৩.৫ লক্ষ+', description: 'Charitable-fund figure (Bengali)' },
+  { key: 'stats.charityEn', value: '৳3.5 Lakh+', description: 'Charitable-fund figure (English)' },
 ];
 
 function requiredEnv(name, hint) {
@@ -355,9 +367,9 @@ async function seedAdmin(prisma) {
  * which is what made it worth changing this function rather than the data.
  *
  * So a stored value of `''` (or whitespace) is backfilled from the default, and
- * anything else is left alone. The rows deliberately seeded empty — `bank.*`,
- * `stats.*`, `hero.partnerLogo*` — have an empty default too, so backfilling
- * them is a no-op and their intent survives.
+ * anything else is left alone. The rows deliberately seeded empty — `bank.*`
+ * and `hero.partnerLogo*` — have an empty default too, so backfilling them is a
+ * no-op and their intent survives.
  *
  * The one behaviour to be aware of: an operator who clears a box *to* empty on
  * purpose will have it refilled by the next seed run. That is the right way for

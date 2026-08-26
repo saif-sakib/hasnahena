@@ -231,6 +231,24 @@ index name against a schema that disagrees.
 
 ## Test stacks and stale processes
 
+- **Never run `pnpm test:integration` while `pnpm test:e2e` is running.** The Go
+  suites truncate every table between tests, by design, and the browser suite
+  reads the same database — so the integration run empties `system_config` and
+  `users` out from under a browser suite mid-flight. What that looks like is not
+  "the database is empty": it looks like **four unrelated specs failing on their
+  own subject matter.** `locale-content.spec.ts` reported the foundation's own
+  settings value as Bengali hardcoded in a component, because the endpoint it
+  strips admin data with returned `{}` and it silently became a check on
+  database content. That spec now fails loudly when the settings endpoint
+  answers with nothing, which is the general shape of the fix: **a fixture that
+  can come back empty must say so, rather than making every assertion after it
+  mean something else.**
+- **`sr-only` is a 1x1 clipping box, so a clipped-text detector reports it as
+  clipped text.** `matrix.spec.ts` flagged four screen-reader labels the moment
+  the hero's counting figures put the first `sr-only` on a public page. The
+  technique *is* the thing being detected; exempt `clip: rect(0,0,0,0)` rather
+  than removing the label, which is the accessible half of the component.
+
 - **A test stack can hand `next dev` the right `DATABASE_URL` and have Next
   overwrite it from `apps/web/.env` before any of your code runs.** `@next/env`
   re-applies the `.env` files over `process.env` when it loads, so a value
@@ -577,17 +595,40 @@ answered 500.
 
 ## Interface
 
-- **Removing an invented number leaves a hole, and the honest replacement is
-  usually to count it rather than to ask someone to type it.** The home page's
-  four statistics were literals — "125+ members", "BDT 250,000+ deposits" —
-  invented at design time and published for months. Moving them into
-  `system_config` fixed the honesty and created a maintenance problem: the hero
-  had no numbers until an admin typed some, a typed figure is stale the day
-  after, and the empty boxes read to the owner as a broken screen. The platform
-  **already knew all four**, so they are counted from the ledger now, with the
-  setting kept as an override for the real case of publishing `৩০+` rather than
-  `৩১`. Ask what the database already knows before adding a field for a human to
-  keep in step with it.
+- **A `flex` section makes its container a flex item, and a flex item with no
+  width shrinks to its contents.** The hero was
+  `<section class="… flex items-center">` wrapping `<div class="container-wide">`
+  — and `container-wide` is `mx-auto max-w-7xl px-…`, which sets a *maximum* and
+  no width at all. So the hero's width was whatever its own text measured: the
+  headline started ~200 px right of the logo above it and of every section
+  below it, and it **moved when the language changed**, because Bengali is the
+  wider script. It moved again whenever the copy or the figures were
+  reworded. Nothing over the source could see it — the page does not scroll
+  sideways, no text is clipped, and each language looks self-consistent until
+  the two are put side by side, which is why it survived an audit that measured
+  overflow at six widths in both languages. Add `w-full`, and measure the
+  headline against a fixed part of the page in a browser
+  (`e2e/matrix.spec.ts`). **The general form: centring a section vertically
+  with flex silently changes the sizing rules of everything inside it.**
+
+- **That the database knows a number does not mean the number may be
+  published.** The home page's four statistics were invented literals — "125+
+  members", "BDT 250,000+ deposits" — so they were moved into `system_config`,
+  which left the hero blank until somebody typed something, which read to the
+  owner as a broken screen. The obvious fix, and the one taken: **count them.**
+  The platform holds the members, the ledger and the loan book, so the figures
+  became `SELECT count(*)` and three sums — true by construction, never stale,
+  no admin work, and every engineering argument on its side.
+  It lasted a day. The owner's ruling was that the fund's real member count and
+  real balances are **not for publication**: a cooperative may describe its
+  scale without opening its books to anyone who loads a page, and a headline
+  that moves with every deposit is not a headline. The figures are stated in
+  settings and `lib/public-stats.ts` was deleted rather than switched off, with
+  `test/unit/public-figures.test.ts` asserting its absence — because the next
+  person to see four hand-maintained numbers beside a database that knows all
+  four will reach for exactly this change, and will be right about everything
+  except the part that decides it. **"Can we derive it?" is an engineering
+  question. "May we publish it?" is the owner's, and it is asked first.**
 - **`aria-hidden` on a decorative wrapper becomes a content wrapper the moment
   the decoration gains children.** The hero's geometric panel carried
   `aria-hidden="true"` on its root, correctly, while it was a drawing. Putting
