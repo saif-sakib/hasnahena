@@ -27,6 +27,7 @@ import {
   Eye,
   Download,
   ShieldAlert,
+  KeyRound,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -157,6 +158,15 @@ export default function MemberDetailScreen() {
    * token regardless, which is the gate that counts (see `role.tsx`).
    */
   const isAdmin = useIsAdmin();
+  // Staff-assisted password reset. Most members have no email address, so the
+  // self-service `forgot-password` path does not exist for them — see the note
+  // on app/api/v1/admin/members/[id]/reset-password/route.ts.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null);
+
   const [eraseOpen, setEraseOpen] = useState(false);
   const [eraseConfirm, setEraseConfirm] = useState('');
   const [eraseReason, setEraseReason] = useState('');
@@ -395,6 +405,45 @@ export default function MemberDetailScreen() {
    * echoed by hand because this action cannot be undone and the page is reached
    * from a list.
    */
+  /**
+   * Issue this member a temporary password, to be read to them at the desk.
+   *
+   * Everything that makes it safe is on the server — the role check, the
+   * account-number confirmation, revoking their live sessions, the audit row.
+   * All this owns is showing the result **once**: the password is in the
+   * response and nowhere else, so leaving this dialog without writing it down
+   * means doing the reset again.
+   */
+  const handleResetPassword = async () => {
+    setResetting(true);
+    setResetError(null);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const response = await fetch(
+        `/api/v1/admin/members/${encodeURIComponent(memberUserId)}/reset-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ confirmAccountNo: resetConfirm.trim() }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.ok) {
+        // A suspended member and a wrong account number are answers, not
+        // faults; the route says which and the admin needs to read it.
+        throw new Error(payload?.error || 'Failed to reset the password');
+      }
+      setIssuedPassword(String(payload.data?.temporaryPassword ?? ''));
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Failed to reset the password');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const handleErase = async () => {
     setErasing(true);
     setEraseError(null);
@@ -531,7 +580,21 @@ export default function MemberDetailScreen() {
           every button up there can be corrected by another posting, and this one
           cannot be undone at all. */}
       {isAdmin && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setResetError(null);
+              setResetConfirm('');
+              setIssuedPassword(null);
+              setResetOpen(true);
+            }}
+            className="gap-2"
+          >
+            <KeyRound className="h-4 w-4" />
+            {locale === 'bn' ? 'পাসওয়ার্ড রিসেট' : 'Reset password'}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1026,6 +1089,105 @@ export default function MemberDetailScreen() {
                   : <Download className="mr-2 h-4 w-4" />}
                 {locale === 'bn' ? 'ডাউনলোড' : 'Download'}
               </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Staff-assisted password reset, for the members with no email. */}
+      <Dialog
+        open={resetOpen}
+        onOpenChange={(open) => {
+          if (!open && !resetting) {
+            setResetOpen(false);
+            setResetConfirm('');
+            setResetError(null);
+            setIssuedPassword(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5" />
+              {locale === 'bn' ? 'পাসওয়ার্ড রিসেট' : 'Reset password'}
+            </DialogTitle>
+            <DialogDescription>
+              {issuedPassword
+                ? locale === 'bn'
+                  ? 'নিচের পাসওয়ার্ডটি সদস্যকে পড়ে শোনান বা লিখে দিন। এই লেখাটি একবারই দেখা যাবে — পরে আর উদ্ধার করা যাবে না। প্রথমবার লগইনের সময় সদস্যকে নতুন পাসওয়ার্ড দিতেই হবে।'
+                  : 'Read this password to the member, or write it down for them. It is shown once and cannot be recovered afterwards. They will be required to choose a new one at first login.'
+                : locale === 'bn'
+                  ? 'সদস্য সামনে উপস্থিত থাকলে এবং আপনি তাঁকে চিনে থাকলেই কেবল রিসেট করুন — উত্তোলনের সময় যেভাবে পরিচয় নিশ্চিত করেন। রিসেট করলে তাঁর চালু থাকা সব সেশন বন্ধ হয়ে যাবে।'
+                  : 'Only reset this when the member is in front of you and you recognise them — the same check you make before paying a withdrawal. Resetting signs out every device they are currently logged in on.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {issuedPassword ? (
+            <div className="space-y-3">
+              <div className="rounded-sm border border-emerald-200 bg-emerald-50 p-4 text-center">
+                <p className="text-xs uppercase tracking-widest text-emerald-800">
+                  {locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড' : 'Temporary password'}
+                </p>
+                <p className="mt-2 font-mono text-xl font-bold break-all text-emerald-900">
+                  {issuedPassword}
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {locale === 'bn'
+                  ? `হিসাব নম্বর: ${member.accountNo || member.uid || '-'}`
+                  : `Account number: ${member.accountNo || member.uid || '-'}`}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reset-confirm">
+                  {locale === 'bn'
+                    ? `নিশ্চিত করতে হিসাব নম্বর লিখুন (${member.accountNo || member.uid || '-'})`
+                    : `Type this member’s account number to confirm (${member.accountNo || member.uid || '-'})`}
+                </Label>
+                <Input
+                  id="reset-confirm"
+                  value={resetConfirm}
+                  onChange={(e) => setResetConfirm(e.target.value)}
+                  placeholder="ACC-KH-33001"
+                  autoComplete="off"
+                />
+              </div>
+              {resetError && (
+                <p className="flex items-start gap-2 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {resetError}
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {issuedPassword ? (
+              <Button
+                onClick={() => {
+                  setResetOpen(false);
+                  setResetConfirm('');
+                  setIssuedPassword(null);
+                }}
+              >
+                {locale === 'bn' ? 'লিখে নিয়েছি, বন্ধ করুন' : 'I have written it down'}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetting}>
+                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+                </Button>
+                <Button
+                  onClick={() => void handleResetPassword()}
+                  disabled={resetting || resetConfirm.trim().length === 0}
+                >
+                  {resetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {locale === 'bn' ? 'পাসওয়ার্ড তৈরি করুন' : 'Issue a temporary password'}
+                </Button>
+              </>
             )}
           </DialogFooter>
         </DialogContent>

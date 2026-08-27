@@ -52,10 +52,19 @@ const cloudinary = vi.hoisted(() => {
   };
 });
 
-vi.mock('@/lib/cloudinary', () => ({
-  uploadImage: cloudinary.uploadImage,
-  deleteImage: cloudinary.deleteImage,
-}));
+vi.mock('@/lib/cloudinary', async (importOriginal) => {
+  // `personFolder` is pure — it turns an account number into the folder path —
+  // so it comes from the real module rather than being restated here. Only the
+  // two functions that talk to Cloudinary over the network are replaced. A
+  // hand-listed mock silently loses any export the route later starts using,
+  // which is how adding `personFolder` turned four passing tests into a 503.
+  const actual = await importOriginal<typeof import('@/lib/cloudinary')>();
+  return {
+    ...actual,
+    uploadImage: cloudinary.uploadImage,
+    deleteImage: cloudinary.deleteImage,
+  };
+});
 
 import { testPrisma, hasTestDatabase, disconnectTestPrisma } from '../route-harness';
 import * as registrations from '@/app/api/v1/registrations/route';

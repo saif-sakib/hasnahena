@@ -22,6 +22,15 @@
 //   gallery_items    the photographs, and the Cloudinary assets behind them.
 //   the two admins   named below. Their rows are *reused* rather than recreated,
 //                    so nothing that references them by id has to be rewritten.
+//   branches         the foundation's offices. These are **configuration**, not
+//                    test data: Vekutia is the base branch, it is named on every
+//                    worker assigned to it, and re-creating one by hand after
+//                    every clear is exactly the kind of step that gets skipped
+//                    once and then debugged for an hour. Workers are deleted, so
+//                    the `assignedBranchId` foreign key is left with nothing
+//                    pointing at it — which is the correct state for a branch
+//                    with no staff yet, and is what the admin Branches screen
+//                    shows as "0 staff".
 //   the donation pool
 //                    `system_donation_fund` and its account. This is
 //                    infrastructure, not an account: its password hash is a
@@ -37,8 +46,7 @@
 // Every other user — members, workers, the `*.test` fixtures — and with them
 // every account, transaction, loan, document, address, nominee, notification,
 // support thread, audit row, reset token, blacklist entry and rate-limit
-// bucket. Branches go too: they are named offices and the real ones should be
-// created deliberately rather than inherited from testing.
+// bucket.
 //
 // `document_sequences` is reset to nothing, so the first real receipt is
 // DEP-2026-000001. Reference numbers are printed on what a member is handed;
@@ -58,11 +66,27 @@ import bcrypt from 'bcryptjs';
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv, redactUrl } from './lib/env.mjs';
 
-/** The two accounts this foundation is launching with. */
-const ADMINS = [
-  { email: 'ashiqhmm1@gmail.com', nameEn: 'Md Ashiqur Rahaman', nameBn: 'মোঃ আশিকুর রহমান' },
-  { email: 'saifahmedsakib@gmail.com', nameEn: 'Md Saif Ahmed', nameBn: 'মোঃ সাইফ আহমেদ' },
-];
+/**
+ * The accounts this foundation is launching with.
+ *
+ * Named here rather than discovered, which is the whole difference between this
+ * script and `pnpm db:clear`: that one keeps whichever admin it happens to find,
+ * and on a database that has been tested against, "whichever it finds" can be a
+ * fixture nobody remembers creating.
+ *
+ * Override for a different environment with a comma-separated list:
+ *
+ *   PURGE_KEEP_ADMINS=a@x.com,b@x.com pnpm db:purge
+ */
+const DEFAULT_ADMINS = ['ashiqhmm1@gmail.com', 'saifahmedsakib@gmail.com'];
+
+const ADMINS = (process.env.PURGE_KEEP_ADMINS?.trim()
+  ? process.env.PURGE_KEEP_ADMINS.split(',')
+  : DEFAULT_ADMINS
+)
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean)
+  .map((email) => ({ email }));
 
 // Kept in step with scripts/seed.mjs and scripts/db-clear-preserve-core.mjs,
 // which both name the same id. donation-pool-owner.test.ts fails if they drift.
@@ -167,7 +191,7 @@ async function main() {
       console.log('would delete (before -> after):');
       for (const [table, n] of Object.entries(before)) {
         const kept =
-          table === 'system_config' || table === 'gallery_items'
+          table === 'system_config' || table === 'gallery_items' || table === 'branches'
             ? n
             : table === 'users'
               ? ADMINS.length + 1
@@ -259,7 +283,7 @@ async function main() {
         await tx.tokenBlacklist.deleteMany({});
         await tx.rateLimit.deleteMany({});
         await tx.sseTicket.deleteMany({});
-        await tx.branch.deleteMany({});
+        // NOT branches. See the header: they are configuration.
 
         await tx.user.deleteMany({
           where: { id: { notIn: [...keptIds, DONATION_OWNER_ID] } },

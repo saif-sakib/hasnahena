@@ -117,7 +117,15 @@ export function settingsImageFolder(imageType: string): string {
 export function settingsImageTransformation(imageType: string): Record<string, unknown>[] {
   if (imageType.includes('favicon')) {
     return [
-      { width: 512, height: 512, crop: 'limit' },
+      // **Padded to a square, not limited to one.** A favicon is drawn in a
+      // square box by every browser and every Android launcher, so a 3:1 lockup
+      // handed to this field would otherwise be squashed or cropped by whoever
+      // renders it — a different wrong answer per surface. `pad` centres
+      // whatever shape it is given on a 512x512 canvas and fills the rest with
+      // **transparency**, so a wide logo becomes a correct square favicon with
+      // margins and a square one is unchanged. Asking an admin to prepare a
+      // square file is asking them to own a problem the image host can solve.
+      { width: 512, height: 512, crop: 'pad', background: 'transparent' },
       { quality: 'auto:good', fetch_format: 'auto' },
     ];
   }
@@ -296,19 +304,57 @@ function isCloudinaryUrl(url: string): boolean {
 }
 
 /**
- * Upload avatar with face detection and cropping
- * @param fileBuffer File buffer
- * @param userId User ID
- * @param role User role (admin, worker, member)
+ * Where one person's images live, and why it is their account number.
+ *
+ * The asset tree is the only description of this account that survives leaving
+ * it. `hasnahena/profiles/super_admin/cmob97efh00003zynz0as5knq/bqs94z5ywwgjchofjrs1`
+ * — a role, a cuid and a random string — names nothing a human can look up: to
+ * find out whose avatar that is you have to query the database, and after a
+ * migration off Cloudinary you would have to have kept the mapping. Two levels
+ * of opacity, and neither bought anything.
+ *
+ * `hasnahena/people/ACC-KH-33001/avatar` is the same asset, named after the one
+ * identifier this platform gives a person ([ADR-023](../../../docs/decisions.md)) —
+ * the one printed on their passbook and read aloud at the counter. Migrating
+ * becomes `rsync` plus a prefix rewrite, and an operator staring at a bucket can
+ * tell what they are looking at.
+ *
+ * **One folder per person, not one per role.** A member who is later hired as a
+ * field worker keeps their account number and their folder; keying on the role
+ * would have moved their files and orphaned the URL already stored on the row.
+ *
+ * `accountNo` is allocated before any of these uploads happen — at registration
+ * for a member (`app/api/v1/registrations/route.ts`), at creation for staff — so
+ * there is never a moment where a file has nowhere meaningful to go. The `id`
+ * fallback exists only so a row that somehow has no account number still gets a
+ * file rather than an exception; it is the pre-existing shape, not the intent.
+ */
+export function personFolder(accountNo: string | null | undefined, fallbackId: string): string {
+  const slug = (accountNo ?? '').trim();
+  return `people/${slug || fallbackId}`;
+}
+
+/**
+ * Upload avatar with face detection and cropping.
+ *
+ * Fixed public id, so replacing a profile picture **overwrites** it. Before this
+ * every change left the previous file behind and relied on a delete that runs
+ * after the fact and whose result nobody reads — see `deleteOldAvatar`, whose
+ * whole existence is that clean-up. There is nothing to clean up now.
  */
 export async function uploadAvatar(
   fileBuffer: Buffer,
-  userId: string,
-  role: string
+  accountNo: string | null | undefined,
+  fallbackId: string
 ): Promise<UploadResult> {
-  return uploadImage(fileBuffer, `profiles/${role}/${userId}`, {
+  return uploadImage(fileBuffer, personFolder(accountNo, fallbackId), {
     transformation: AVATAR_TRANSFORMATION,
     format: 'jpg',
+    publicId: 'avatar',
+    overwrite: true,
+    invalidate: true,
+    uniqueFilename: false,
+    useFilename: false,
   });
 }
 
@@ -317,9 +363,23 @@ export async function uploadAvatar(
  * @param fileBuffer File buffer
  */
 export async function uploadGalleryImage(
-  fileBuffer: Buffer
+  fileBuffer: Buffer,
+  takenOn?: Date
 ): Promise<UploadResult> {
+  // `gallery/2026-08-27-k3f9x2` rather than `gallery/xclzbnipijgrhorlgmil`.
+  //
+  // A gallery photograph has no identifier of its own before the row exists, so
+  // unlike a person's files this cannot be named after something meaningful —
+  // but it can at least be **ordered and dated**. Listing the folder then reads
+  // as a timeline, which is what a gallery is, and a photo can be found from its
+  // caption's date without a database. The suffix keeps two photographs from the
+  // same distribution apart.
+  const day = (takenOn ?? new Date()).toISOString().slice(0, 10);
+  const suffix = Math.random().toString(36).slice(2, 8);
   return uploadImage(fileBuffer, 'gallery', {
+    publicId: `${day}-${suffix}`,
+    uniqueFilename: false,
+    useFilename: false,
     transformation: [
       // Height as well as width. A width-only limit lets a portrait photo
       // through at its full height — a phone shooting 3024x4032 stored 1200x1600

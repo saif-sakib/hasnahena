@@ -136,7 +136,18 @@ func (r *UserRepository) GetWorkerRequests(ctx context.Context, workerID string)
 }
 
 func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
-	// Get loans from members in worker's branch
+	// **Every loan, not the worker's branch's loans.** The comment here used to
+	// say "loans from members in worker's branch" and the query has never had a
+	// branch predicate — nor could it, because a *member* has no branch: only
+	// staff carry `assignedBranchId`. A comment describing a filter that does
+	// not exist is worse than none, because the next reader adding branch
+	// scoping trusts it and looks in the wrong place.
+	//
+	// Returning everything is also correct today: the foundation runs one
+	// office, and `/worker/loans` and `/admin/loans` are one React component
+	// that must return the same rows (see loan_schedule_integration_test.go).
+	// If members ever belong to a branch, this is one of the queries that has to
+	// learn about it.
 	const query = `
 		SELECT
 			l.id::text,

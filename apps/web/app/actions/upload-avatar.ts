@@ -37,7 +37,6 @@ export async function uploadAvatarAction(
     }
 
     const userId = auth.user.id;
-    const userRole = (auth.user.role || 'member').toLowerCase();
 
     // Get file from form data
     const file = formData.get('avatar') as File;
@@ -54,10 +53,11 @@ export async function uploadAvatarAction(
       return { success: false, error: validation.error };
     }
 
-    // Get current user to delete old avatar
+    // Get current user to delete old avatar. `accountNo` comes along because it
+    // is what names the folder the new file goes into — see personFolder.
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { avatarUrl: true },
+      select: { avatarUrl: true, accountNo: true },
     });
 
     if (!currentUser) {
@@ -69,10 +69,18 @@ export async function uploadAvatarAction(
     const buffer = Buffer.from(bytes);
 
     // Upload to Cloudinary
-    const uploadResult = await uploadAvatar(buffer, userId, userRole);
+    const uploadResult = await uploadAvatar(buffer, currentUser.accountNo, userId);
 
-    // Remove previous Cloudinary asset before swapping DB pointer.
-    if (currentUser.avatarUrl) {
+    // Remove the previous asset — but only when it is genuinely a different one.
+    //
+    // Avatars go to a fixed public id now (`people/<accountNo>/avatar`), so
+    // replacing one is an overwrite and there is nothing left behind. Without
+    // this guard the delete below would name the file we have just written and
+    // destroy it, leaving `avatarUrl` pointing at a 404 with the upload reported
+    // as successful. The comparison still earns its place: avatars uploaded
+    // before this change live under a cuid with a random filename, and those do
+    // need removing the first time each is replaced.
+    if (currentUser.avatarUrl && extractPublicId(currentUser.avatarUrl) !== uploadResult.publicId) {
       const deleted = await deleteOldAvatar(currentUser.avatarUrl);
       if (!deleted) {
         const newPublicId = extractPublicId(uploadResult.url);

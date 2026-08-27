@@ -822,8 +822,8 @@ export default function ContentScreen() {
                     'branding.favicon',
                     locale === 'bn' ? 'ফেভিকন' : 'Favicon',
                     locale === 'bn'
-                      ? 'ব্রাউজারের ট্যাবে, বুকমার্কে এবং ফোনের হোম স্ক্রিনে শর্টকাটের আইকন হিসেবে দেখা যায়। বর্গাকার ছবি দিন — ছোট আকারে দেখা যাবে, তাই লেখা নয়, শুধু প্রতীক ব্যবহার করুন।'
-                      : "Shows as the small icon on the browser tab, in bookmarks, and on a phone's home screen if a member adds a shortcut. Use a square image — it is drawn at about 16px, so a mark reads and words do not.",
+                      ? 'ব্রাউজারের ট্যাবে, বুকমার্কে এবং ফোনের হোম স্ক্রিনে শর্টকাটের আইকন হিসেবে দেখা যায়। যেকোনো আকারের ছবি দিতে পারেন — এটি নিজে থেকেই বর্গাকারে বসিয়ে নেবে, চারপাশ স্বচ্ছ থাকবে। খুব ছোট আকারে দেখা যায়, তাই লেখা নয়, শুধু প্রতীক ভালো বোঝা যাবে।'
+                      : "Shows as the small icon on the browser tab, in bookmarks, and on a phone's home screen if a member adds a shortcut. Any shape works — it is centred on a square canvas with transparent margins, so you do not have to prepare one. It is drawn at about 16px, so a mark reads and words do not.",
                     'aspect-square',
                     'favicon',
                   )}

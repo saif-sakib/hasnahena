@@ -4,7 +4,11 @@ import { join, resolve } from 'node:path';
 
 import { IMAGE_PRESETS, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 import { PUBLIC_CONFIG_KEYS } from '@/lib/system-config';
-import { settingsImagePublicId, settingsImageTransformation } from '@/lib/cloudinary';
+import {
+  personFolder,
+  settingsImagePublicId,
+  settingsImageTransformation,
+} from '@/lib/cloudinary';
 
 /**
  * Every image this application accepts is compressed in the browser first.
@@ -151,7 +155,9 @@ describe('a settings image replaces its predecessor rather than orphaning it', (
   });
 
   it('caps what is stored, and never enlarges', () => {
-    for (const key of ['branding.logo', 'branding.favicon', 'hero.backgroundImage', 'hero.partnerLogo1']) {
+    // The favicon is deliberately absent: it is *padded* to a square rather than
+    // limited, which has its own test below.
+    for (const key of ['branding.logo', 'hero.backgroundImage', 'hero.partnerLogo1']) {
       const steps = settingsImageTransformation(key);
       const resize = steps.find((step) => 'crop' in step);
       expect(resize, `${key} has no size ceiling`).toBeTruthy();
@@ -167,6 +173,62 @@ describe('a settings image replaces its predecessor rather than orphaning it', (
         expect(step.format, `${key} must not be forced to a single format`).toBeUndefined();
       }
     }
+  });
+});
+
+describe('every asset is stored under a name a human can look up', () => {
+  /**
+   * The asset tree is the only description of the image host that survives
+   * leaving it. `hasnahena/profiles/super_admin/cmob97efh00003zynz0as5knq/bqs94z5ywwgjchofjrs1`
+   * — a role, a cuid and a random string — names nothing: finding out whose
+   * avatar that is needs a database query, and after a migration off Cloudinary
+   * it needs a mapping somebody remembered to keep. This is what makes the move
+   * to a VPS an `rsync` and a prefix rewrite rather than a reconciliation.
+   */
+  it('files a person under their account number, not their row id', () => {
+    expect(personFolder('ACC-KH-33001', 'cmob97efh00003zynz0as5knq')).toBe('people/ACC-KH-33001');
+    // One folder per person and not per role: a member later hired as a field
+    // worker keeps their number and their folder, where keying on the role would
+    // move their files and orphan the URL already stored on their row.
+    expect(personFolder('STF-0001', 'x')).toBe('people/STF-0001');
+  });
+
+  it('still files somebody with no account number somewhere', () => {
+    // The fallback is so a row that somehow has no number gets a file rather
+    // than an exception — not the intended path. `accountNo` is allocated at
+    // registration, before any of these uploads happen.
+    expect(personFolder(null, 'cmob97efh0000')).toBe('people/cmob97efh0000');
+    expect(personFolder('   ', 'cmob97efh0000')).toBe('people/cmob97efh0000');
+  });
+
+  it('gives the avatar and the four registration documents fixed names', () => {
+    const cloudinary = read('lib', 'cloudinary.ts');
+    expect(cloudinary).toMatch(/publicId: 'avatar'/);
+    const registrations = read('app', 'api', 'v1', 'registrations', 'route.ts');
+    expect(registrations).toContain('personFolder(created.accountNo, created.id)');
+    expect(registrations).toMatch(/publicId: requirement\.folderSlug/);
+    // An NID scan must never be re-encoded, whatever else changes here.
+    expect(registrations).toContain('preserveOriginal: true');
+  });
+
+  it('dates a gallery photograph, which has no identifier of its own', () => {
+    const cloudinary = read('lib', 'cloudinary.ts');
+    expect(cloudinary).toMatch(/publicId: `\$\{day\}-\$\{suffix\}`/);
+  });
+});
+
+describe('the favicon accepts whatever shape it is given', () => {
+  it('pads to a square rather than limiting to one', () => {
+    // Every browser and every Android launcher draws a favicon in a square box,
+    // so a 3:1 lockup handed to this field is squashed or cropped by whoever
+    // renders it — a different wrong answer per surface. `pad` centres it on a
+    // square canvas and fills the rest with transparency, which means an admin
+    // does not have to own a problem the image host can solve.
+    const steps = settingsImageTransformation('branding.favicon');
+    const resize = steps.find((step) => 'crop' in step);
+    expect(resize?.crop).toBe('pad');
+    expect(resize?.background).toBe('transparent');
+    expect(resize?.width).toBe(resize?.height);
   });
 });
 

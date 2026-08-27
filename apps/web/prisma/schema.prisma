@@ -219,12 +219,24 @@ model User {
   sseTickets              SseTicket[]      @relation("UserSseTickets")
   notifications           Notification[]   @relation("UserNotifications")
 
-  // Worker-specific
-  /// The office a worker is assigned to. Members do not have one.
+  /// The office this person belongs to — **a member's as well as a worker's**.
   ///
   /// Was a free-text string with no referential integrity until WO-72: renaming
   /// a branch left every worker pointing at the old name, and a typo created a
   /// branch that existed only on that one row.
+  ///
+  /// It said "members do not have one" until 2026-08-27, and the column had
+  /// never been restricted to staff — only nothing ever wrote it for a member.
+  /// The read side was already built: the admin member list `LEFT JOIN`s
+  /// branches on this exact column and has always returned `null` for every
+  /// member, because there was no write path rather than because there was no
+  /// column. The owner's ruling was to fill it in, which cost a write path and
+  /// no migration.
+  ///
+  /// Nullable, and stays that way. A member registering while the foundation has
+  /// more than one office cannot be assigned automatically, and guessing is
+  /// worse than an admin picking; `onDelete: SetNull` means closing an office
+  /// does not delete the people who banked there.
   assignedBranch   Branch? @relation("AssignedBranch", fields: [assignedBranchId], references: [id], onDelete: SetNull)
   assignedBranchId String?
 
@@ -475,7 +487,13 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  staff User[] @relation("AssignedBranch")
+  /// Everyone attached to this office — members and staff alike.
+  ///
+  /// Named `staff` until 2026-08-27, which is what made "members do not have a
+  /// branch" look like a property of the schema rather than of the write paths.
+  /// It is a Prisma-side field name and maps to no column, so the rename is not
+  /// a migration.
+  users User[] @relation("AssignedBranch")
 
   @@index([isActive, name])
   @@map("branches")

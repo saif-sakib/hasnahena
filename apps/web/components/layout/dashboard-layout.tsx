@@ -142,18 +142,35 @@ const subscribeToNothing = () => () => {};
 /**
  * How often the shell asks the server for something, in milliseconds.
  *
- * WO-74 raised all three from 20 s / 10 s / 7 s. Named rather than inlined
- * because the numbers are the point of that order: together they were about 26
- * requests a minute per open tab, against a free Render instance and a free Neon
- * compute, for data that changes a few times an hour.
+ * WO-74 raised all three from 20 s / 10 s / 7 s, and the 2026-08-27 cost pass
+ * raised them again from 60 s. Named rather than inlined because the numbers are
+ * the point of that order: at the original values they were about 26 requests a
+ * minute per open tab, against a free Render instance and a free Neon compute,
+ * for data that changes a few times an hour.
  *
  * `e2e/dashboard-traffic.spec.ts` counts the requests a real tab makes over a
  * minute and fails if these grow back.
  */
-const NOTIFICATION_POLL_MS = 60_000;
-const SUPPORT_SIGNAL_POLL_MS = 60_000;
-/** The backstop for what the SSE stream does not carry. Was 7 s. */
-const SUPPORT_THREAD_POLL_MS = 60_000;
+const NOTIFICATION_POLL_MS = 180_000;
+const SUPPORT_SIGNAL_POLL_MS = 180_000;
+/**
+ * The backstop for what the SSE stream does not carry. Was 7 s, then 60 s.
+ *
+ * Three minutes, not one, since the 2026-08-27 cost pass. The database this
+ * talks to **suspends when nothing is connected and bills for the time it is
+ * awake**, so a poll is not merely a request — it is a wake, and a wake holds
+ * the compute up for its whole idle timer whatever the query cost. Three
+ * endpoints at sixty seconds meant a single staff tab left open on a desk kept
+ * the database awake all day by itself, for data that changes a few times an
+ * hour.
+ *
+ * All three already stop entirely while the tab is hidden (`usePageVisible`),
+ * which is what makes this affordable: the cost is only paid by a tab somebody
+ * is actually looking at. A worker waiting on a member's confirmation sees it
+ * within three minutes rather than one, and the support popup has an SSE stream
+ * in front of it for the case where latency genuinely matters.
+ */
+const SUPPORT_THREAD_POLL_MS = 180_000;
 
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const { dashboardLogo } = useDashboardBranding();

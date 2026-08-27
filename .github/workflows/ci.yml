@@ -18,6 +18,66 @@ env:
   NODE_VERSION: '24'
 
 jobs:
+  # What this commit actually touched.
+  #
+  # Actions minutes are a metered resource on this account, and the four heavy
+  # jobs below — two Postgres services, a Playwright browser and a full backup
+  # and restore drill — cost the great majority of them. A commit that edits only
+  # prose has nothing for any of them to find.
+  #
+  # `web` is deliberately **not** gated on this. Several of its tests read the
+  # documentation and fail when the docs and the code disagree — the requirement
+  # census reads product.md and tasks.md, the settings census reads the key
+  # lists — so a docs-only commit is exactly the kind that can break it. Skipping
+  # it here to save ninety seconds would defeat the guard that makes those docs
+  # trustworthy.
+  #
+  # Written with git rather than a marketplace filter action: it is six lines,
+  # and this repository already avoids third-party actions where a binary or a
+  # shell line will do (see the note on gitleaks below).
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Two commits is enough for a push; a PR is compared against its base.
+          fetch-depth: 0
+
+      - id: filter
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # A first push to a branch, or a force-push, has no usable base. Run
+          # everything rather than guess — the failure mode of guessing wrong is
+          # a merged commit nothing tested.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "no usable base commit; running every job"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" HEAD)
+          echo "changed files:"
+          echo "$CHANGED"
+
+          # Anything that is not documentation counts as code — including
+          # workflow files, scripts and lockfiles.
+          if echo "$CHANGED" | grep -qvE '^(docs/|README|CONTRIBUTING|CLAUDE|LICENSE|.*\.md$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "documentation only — skipping the Postgres, browser and restore jobs"
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   web:
     name: Web — typecheck and lint
     runs-on: ubuntu-latest
@@ -73,6 +133,8 @@ jobs:
 
   go:
     name: Go — vet, build, unit tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -123,6 +185,8 @@ jobs:
 
   integration:
     name: Go — integration tests against Postgres
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -260,6 +324,8 @@ jobs:
 
   e2e:
     name: Browser — Playwright on a phone viewport
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -377,6 +443,8 @@ jobs:
 
   restore:
     name: Backup and restore drill
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:

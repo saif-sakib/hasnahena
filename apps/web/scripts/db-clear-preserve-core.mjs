@@ -169,7 +169,11 @@ async function main() {
       await tx.passwordResetToken.deleteMany({});
       await tx.tokenBlacklist.deleteMany({});
       await tx.rateLimit.deleteMany({});
-      await tx.branch.deleteMany({});
+      // NOT branches. An office is configuration, not test data: Vekutia is the
+      // base branch and every worker assigned to it names it. Deleting it meant
+      // re-creating it by hand after every clear, which is the kind of step that
+      // gets skipped once and then debugged for an hour. The workers that
+      // pointed at it are gone, which is simply a branch with no staff.
 
       await tx.user.deleteMany({
         where: {
@@ -184,7 +188,7 @@ async function main() {
 
     console.log('Database cleanup completed.');
     console.log(`Kept admin user: ${admin.email || admin.id} (${admin.role})`);
-    console.log('Preserved tables: system_config, gallery_items');
+    console.log('Preserved tables: system_config, gallery_items, branches');
     console.log(`Preserved the donation pool account owned by ${DONATION_OWNER_ID} (reset to 0)`);
     console.log('Counts (before -> after):');
 

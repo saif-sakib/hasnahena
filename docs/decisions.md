@@ -44,6 +44,8 @@ still true.
 | [ADR-032](#adr-032--the-auth-endpoints-answer-the-same-way-whoever-is-asked-about) | The auth endpoints answer the same way whoever is asked about | accepted |
 | [ADR-033](#adr-033--a-member-is-anonymised-a-rejected-applicant-expires) | A member is anonymised; a rejected applicant expires | accepted |
 | [ADR-034](#adr-034--english-is-the-default-locale-and-the-default-has-no-prefix) | English is the default locale, and the default has no prefix | accepted |
+| [ADR-035](#adr-035--idle-behaviour-is-a-line-item-not-a-performance-detail) | Idle behaviour is a line item, not a performance detail | accepted |
+| [ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk) | A member with no email resets their password at the desk | accepted |
 
 ---
 
@@ -833,8 +835,20 @@ an alert that is always firing, which is the same as no alert.
 
 ## ADR-027 — The reconciliation job reports and never repairs
 
-**Context.** WO-82 (OPS-07) sums the ledger hourly and compares it to the stored
+**Context.** WO-82 (OPS-07) sums the ledger and compares it to the stored
 balances. The obvious next step, once drift is detected, is to correct it.
+
+**Amended 2026-08-27: the pass runs daily, not hourly.** The cadence was never
+part of this decision and is a cost one. The database this runs against suspends
+its compute when nothing is connected and bills for the time it is awake, so an
+hourly pass is twenty-four wakes a day — each holding the compute up for its
+whole idle timer — to answer a question that, by the rest of this ADR, *nobody
+acts on automatically anyway*. Drift is corrected by a human appending a posting,
+the paper passbook is the reconciling record ([product.md](product.md)), and a
+day's latency on a check whose output is an audit row and a gauge changes nothing
+operationally. `RECONCILE_INTERVAL` still overrides it, and
+`internal/config/idle_cost_test.go` fails if the default creeps back under six
+hours without the reasoning being revisited.
 
 **Decision.** It never does. On drift it writes an `audit_logs` row, logs a
 `slog` error, and sets the `hasnahena_ledger_drift_*` gauges. A human decides
@@ -1273,3 +1287,102 @@ one silently change the other.
 `generateStaticParams` still yields both locales and the prerender manifest keys
 are still `/en/...`. `localePrefix` is a routing rule, not a directory rule, and
 `assert-static-routes.mjs` reads the manifest rather than the public URLs.
+
+---
+
+## ADR-035 — Idle behaviour is a line item, not a performance detail
+
+**Status:** accepted · 2026-08-27.
+
+**Context.** The database is Neon on a free plan: the compute **suspends when
+nothing is connected** and is billed for the time it is awake, against an
+allowance measured in compute-hours. The platform is a village cooperative's
+office — genuinely idle overnight and for much of the day.
+
+It was nonetheless awake 100% of the time, and had been since deployment. Nothing
+was misconfigured in any way that shows up in a review; four separately
+reasonable decisions each held it open:
+
+| Cause | Why it looked fine |
+|---|---|
+| `DB_MIN_CONNS=2` with a 1-minute health check | "Keep two warm connections so the first request is fast" |
+| UptimeRobot on `/v1/ready` every minute | `/v1/ready` is *the* readiness endpoint — that is what it is for |
+| `METRICS_REFRESH_INTERVAL=1m` | "Do not let a stranger's scrape interval drive database load" (ADR on OBS-02's ticker) |
+| Cleanup and reconciliation hourly | Both are cheap queries |
+
+Measured cost: roughly **182 compute-hours a month against an allowance of 100**,
+on a platform nobody was using for most of them.
+
+**Decision.** The idle cost of a running process is a first-class constraint on
+this project, and every recurring database touch has to justify itself against
+it. Concretely:
+
+1. **The pool must be able to empty.** `DB_MIN_CONNS=0`, and
+   `DB_MAX_CONN_IDLE_TIME` strictly shorter than the host's suspend timer so
+   connections are gone before it would have started rather than resetting it.
+2. **Uptime monitoring pings `/v1/health`, which touches nothing.** Keeping the
+   *API* warm and keeping the *database* warm are different problems with
+   different answers, and conflating them is what made a monitor into the
+   largest line on the bill. `/v1/ready` remains correct for a load balancer,
+   and is checked slowly (half-hourly) by the monitor.
+3. **Metrics refresh on scrape, with a floor.** The original argument — that
+   database load must not depend on somebody else's scrape interval — is kept by
+   the floor. What it missed is that the alternative it chose tied load to
+   *nothing at all*: 43,000 aggregate queries a month to answer 60 scrapes.
+4. **Background jobs are measured in wakes per day, not queries per pass.** A
+   tick is a wake whatever it costs to run, and a wake is billed for the whole
+   idle timer.
+
+**Why not just pay for it.** The foundation is a Qard al-Hasan fund in Jessore
+running on free tiers by necessity, and every one of these changes costs a few
+hundred milliseconds on a cold first request — paid once, by one person, when
+nobody has used the platform for minutes. That is a good trade at this size. It
+stops being one if the platform ever becomes busy enough that the compute never
+idles anyway, at which point none of this has any effect and all of it can stay.
+
+**Consequences.** `internal/config/idle_cost_test.go` asserts each of these as a
+*ceiling on eagerness* rather than an exact value, so an operator may tune them
+and a future default cannot silently drift back. The failure this prevents is
+invisible in code review by construction — nothing here is a bug, and each value
+is defensible alone — which is exactly why it is written down rather than
+remembered.
+
+---
+
+## ADR-036 — A member with no email resets their password at the desk
+
+**Status:** accepted · 2026-08-27 · the owner's ruling.
+
+**Context.** `forgot-password` sends a link. **Most members of this cooperative
+have no email address at all** — of the foundation's own register, a handful had
+one and two of those were phone numbers typed into the wrong box. For those
+people the self-service path did not exist, and no other one did either: a
+forgotten password was permanent lockout, remediable only by somebody with SQL
+access.
+
+**Options.** SMS through a Bangladeshi gateway was the obvious answer and is
+what a commercial product would do. It needs a paid account, credentials, a spend
+limit and a new failure mode, and it reverses [ADR-003](#adr-003--email-only-no-sms).
+
+**Decision.** An admin resets it in person. The member comes to the office and is
+recognised the same way they are before being paid a withdrawal — which is an
+identity check this foundation already performs daily and trusts with money. The
+admin issues a temporary password from the member's own page, reads it to them,
+and the application forces a change at first login.
+
+**Why this is not a weaker answer than SMS.** The thing SMS proves is control of
+a phone number. The thing a field worker proves is that the person in front of
+them is the member — which is strictly stronger, and is the check the foundation
+already stakes cash on. What SMS buys is *convenience at a distance*, and for a
+platform whose members walk in anyway, that is not worth a running bill and a
+vendor.
+
+**Consequences.** `POST /api/v1/admin/members/[id]/reset-password`, admins only,
+members only. It revokes every live session in the same transaction as the
+password ([ADR-031](#adr-031--a-password-reset-is-one-transaction-and-the-table-behind-it-holds-no-secrets)) —
+because a member asking for a reset may be asking precisely because somebody else
+has their phone, and answering half of that is SEC-17 in a new place. The
+temporary password is returned once and stored nowhere; the audit row names the
+account number and never the password. This does not close the door on SMS: if
+the volume of desk resets ever justifies the bill, this route stays and SMS
+becomes an additional path rather than a replacement.

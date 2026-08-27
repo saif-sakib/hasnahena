@@ -28,10 +28,13 @@ const WINDOW_MS = 70_000;
 /**
  * What one tab may ask for in that window.
  *
- * Two polls at 60 s each fire once, sometimes twice depending on where the
- * window falls, plus the initial load of each. Six is comfortable headroom for
- * that and nowhere near the ~30 the old intervals produced over the same
- * window, which is the gap that makes this assertion worth making.
+ * The polls run at three minutes each since the 2026-08-27 cost pass, so over a
+ * seventy-second window each endpoint fires at most once — usually not at all.
+ * Six is left as the ceiling rather than tightened to one: this exists to catch
+ * a poll that has crept back to seconds, and a bound that fails when somebody
+ * legitimately moves an interval from 180 s to 120 s is a bound that gets
+ * deleted. The gap that matters is against the ~30 the original intervals
+ * produced over the same window.
  */
 const MAX_REQUESTS_PER_ENDPOINT = 6;
 

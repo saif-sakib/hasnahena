@@ -41,8 +41,28 @@ const BRANCH_SELECT = {
   phone: true,
   isActive: true,
   createdAt: true,
-  _count: { select: { staff: true } },
+  // Members and staff counted apart.
+  //
+  // A branch's `users` are everyone attached to it since 2026-08-27, and the two
+  // numbers answer different questions: how many people bank here decides
+  // whether the office matters, how many work here decides whether it can be
+  // closed. One combined count would have quietly changed what the existing
+  // "N staff" label on the screen meant the moment members started carrying a
+  // branch — the same number, a different fact, no code change to notice.
+  _count: { select: { users: true } },
 } as const;
+
+/** Staff attached to a branch, which is what decides whether it can be deleted. */
+function countStaff(branchId: string) {
+  return prisma.user.count({
+    where: { assignedBranchId: branchId, role: { in: ['WORKER', 'ADMIN', 'SUPER_ADMIN'] } },
+  });
+}
+
+/** Members attached to a branch. */
+function countMembers(branchId: string) {
+  return prisma.user.count({ where: { assignedBranchId: branchId, role: 'MEMBER' } });
+}
 
 function isAdmin(auth: { role?: string | null }): boolean {
   return ['ADMIN', 'SUPER_ADMIN'].includes((auth.role || '').toUpperCase());
@@ -61,8 +81,8 @@ function fail(error: unknown, fallback: string) {
   return NextResponse.json({ ok: false, error: fallback }, { status: 500 });
 }
 
-/** Every branch, newest office last. Staff counts come along so the admin can
- *  see what deactivating one would affect. */
+/** Every branch, newest office last. Member and staff counts come along so the
+ *  admin can see what deactivating one would affect. */
 export async function GET(req: Request) {
   try {
     const auth = await requireActiveAuth(req);
@@ -71,6 +91,24 @@ export async function GET(req: Request) {
       select: BRANCH_SELECT,
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     });
+
+    // One grouped query for every branch rather than two per branch. There will
+    // be a handful of offices and hundreds of members, and this list is loaded
+    // by an admin screen against a metered database — 2N round trips for a
+    // number is the shape of query that is fine until it is not.
+    const grouped = await prisma.user.groupBy({
+      by: ['assignedBranchId', 'role'],
+      where: { assignedBranchId: { not: null } },
+      _count: { _all: true },
+    });
+    const tally = new Map<string, { staff: number; members: number }>();
+    for (const row of grouped) {
+      const key = row.assignedBranchId as string;
+      const entry = tally.get(key) ?? { staff: 0, members: 0 };
+      if (row.role === 'MEMBER') entry.members += row._count._all;
+      else entry.staff += row._count._all;
+      tally.set(key, entry);
+    }
     return NextResponse.json({
       ok: true,
       data: branches.map((b) => ({
@@ -80,7 +118,8 @@ export async function GET(req: Request) {
         address: b.address ?? '',
         phone: b.phone ?? '',
         isActive: b.isActive,
-        staffCount: b._count.staff,
+        staffCount: tally.get(b.id)?.staff ?? 0,
+        memberCount: tally.get(b.id)?.members ?? 0,
         createdAt: b.createdAt.toISOString(),
       })),
     });
@@ -127,7 +166,10 @@ export async function POST(req: Request) {
       details: `Created branch ${created.name} (${created.code})`,
     });
 
-    return NextResponse.json({ ok: true, data: { ...created, staffCount: 0 } }, { status: 201 });
+    return NextResponse.json(
+      { ok: true, data: { ...created, staffCount: 0, memberCount: 0 } },
+      { status: 201 },
+    );
   } catch (error) {
     return fail(error, 'Failed to create branch');
   }
@@ -183,7 +225,11 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: { ...updated, staffCount: updated._count.staff },
+      data: {
+        ...updated,
+        staffCount: await countStaff(updated.id),
+        memberCount: await countMembers(updated.id),
+      },
     });
   } catch (error) {
     return fail(error, 'Failed to update branch');
@@ -191,12 +237,17 @@ export async function PUT(req: Request) {
 }
 
 /**
- * Deactivates rather than deletes when staff are assigned.
+ * Deactivates rather than deletes when **anyone** is attached.
  *
- * `User.assignedBranch` is `onDelete: SetNull`, so deleting a branch with staff
+ * `User.assignedBranch` is `onDelete: SetNull`, so deleting a branch with people
  * on it silently unassigns them — a quiet loss of information that nothing in
  * the UI would report. Deactivating keeps the history and takes the branch out
  * of the picker, which is what "close an office" actually means.
+ *
+ * Members count for this as of 2026-08-27, and they are the more important half:
+ * unassigning a worker is an administrative annoyance, while unassigning three
+ * hundred members silently detaches every one of them from the office holding
+ * their passbook.
  */
 export async function DELETE(req: Request) {
   try {
@@ -209,13 +260,20 @@ export async function DELETE(req: Request) {
 
     const existing = await prisma.branch.findUnique({
       where: { id },
-      select: { id: true, name: true, code: true, _count: { select: { staff: true } } },
+      select: { id: true, name: true, code: true, _count: { select: { users: true } } },
     });
     if (!existing) {
       return NextResponse.json({ ok: false, error: 'Branch not found' }, { status: 404 });
     }
 
-    if (existing._count.staff > 0) {
+    if (existing._count.users > 0) {
+      const [staffCount, memberCount] = await Promise.all([countStaff(id), countMembers(id)]);
+      const attached = [
+        memberCount > 0 ? `${memberCount} member${memberCount === 1 ? '' : 's'}` : null,
+        staffCount > 0 ? `${staffCount} staff` : null,
+      ]
+        .filter(Boolean)
+        .join(' and ');
       const deactivated = await prisma.branch.update({
         where: { id },
         data: { isActive: false },
@@ -227,13 +285,13 @@ export async function DELETE(req: Request) {
         entityId: id,
         userId: auth.id,
         oldValue: { name: existing.name, code: existing.code },
-        details: `Deactivated branch ${existing.name} — ${existing._count.staff} staff still assigned`,
+        details: `Deactivated branch ${existing.name} — ${attached} still assigned`,
       });
       return NextResponse.json({
         ok: true,
         deactivated: true,
-        message: `${existing._count.staff} staff are assigned to this branch, so it was deactivated rather than deleted.`,
-        data: { ...deactivated, staffCount: deactivated._count.staff },
+        message: `${attached} are assigned to this branch, so it was deactivated rather than deleted.`,
+        data: { ...deactivated, staffCount, memberCount },
       });
     }
 

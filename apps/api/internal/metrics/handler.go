@@ -48,6 +48,13 @@ func Handler(token string) http.Handler {
 			return
 		}
 
+		// The business gauges are recomputed here rather than on a ticker, so
+		// the database is queried when somebody actually asks and not otherwise
+		// — see the note on businessRefresher. Bounded by its own floor, so a
+		// scraper set to five seconds still touches the database at most once
+		// per METRICS_REFRESH_INTERVAL.
+		RefreshBusinessIfStale(r.Context())
+
 		exposition.ServeHTTP(w, r)
 	})
 }

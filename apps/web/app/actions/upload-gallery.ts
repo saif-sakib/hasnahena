@@ -98,7 +98,7 @@ export async function uploadGalleryAction(
     const buffer = Buffer.from(bytes);
 
     // Upload to Cloudinary
-    const uploadResult = await uploadGalleryImage(buffer);
+    const uploadResult = await uploadGalleryImage(buffer, dateStr ? new Date(dateStr) : undefined);
 
     // Create gallery item in database
     const galleryItem = await prisma.galleryItem.create({
@@ -254,7 +254,7 @@ export async function updateGalleryImageAction(
     // Upload new image
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const uploadResult = await uploadGalleryImage(buffer);
+    const uploadResult = await uploadGalleryImage(buffer, dateStr ? new Date(dateStr) : undefined);
 
     // Update database
     const updatedItem = await prisma.galleryItem.update({

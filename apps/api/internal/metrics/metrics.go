@@ -222,20 +222,104 @@ type businessSnapshot struct {
 	PostedToday        map[string]int64
 }
 
-// StartBusinessRefresh keeps the business gauges current until ctx is done.
+// businessRefresher recomputes the business gauges, at most once per `minGap`.
 //
-// On a ticker rather than per scrape, deliberately: these are five aggregate
-// queries over `transactions` and `loans`, and Prometheus scrape intervals are
-// set by whoever runs the scraper. Tying database load to a stranger's config
-// is how a monitoring system becomes the outage.
+// **Lazy, with a floor** — and both halves matter.
+//
+// It used to be a ticker at one minute. The original reasoning was sound as far
+// as it went: these are five aggregate queries over `transactions` and `loans`,
+// Prometheus scrape intervals are set by whoever runs the scraper, and tying
+// database load to a stranger's configuration is how a monitoring system becomes
+// the outage. What that reasoning missed is that the alternative it chose ties
+// database load to *nothing at all* — it runs at full rate whether anybody is
+// scraping or not. This deployment is scraped **twice a day** by
+// `.github/workflows/monitor.yml`, so a one-minute ticker was issuing roughly
+// 43,000 aggregate queries a month to answer 60 questions, and — far more
+// expensive — was on its own enough to stop a scale-to-zero database from ever
+// suspending.
+//
+// Refreshing on scrape restores the connection between load and demand. The
+// floor is what keeps the original argument's teeth: however often a scraper
+// asks, the database is touched at most once per `minGap`, so a misconfigured
+// Prometheus gets cached numbers rather than a hammered ledger.
+//
+// The gauges are also refreshed **once at startup**, because an empty /metrics
+// immediately after a deploy looks like a broken exporter rather than a cold
+// one — and `hasnahena_business_metrics_last_refresh_timestamp_seconds` is what
+// tells a reader whether what they are looking at is live.
+type businessRefresher struct {
+	pool   *pgxpool.Pool
+	minGap time.Duration
+
+	mu   sync.Mutex
+	last time.Time
+}
+
+var business struct {
+	mu sync.Mutex
+	r  *businessRefresher
+}
+
+// RefreshBusinessIfStale recomputes the business gauges when they are older than
+// the configured floor. Called by the /metrics handler, before the exposition is
+// written — see handler.go.
+func RefreshBusinessIfStale(ctx context.Context) {
+	business.mu.Lock()
+	r := business.r
+	business.mu.Unlock()
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	if !r.last.IsZero() && time.Since(r.last) < r.minGap {
+		r.mu.Unlock()
+		return
+	}
+	// Stamped before the queries run, not after: two scrapes arriving together
+	// must not both decide the numbers are stale and both go to the database.
+	r.last = time.Now()
+	r.mu.Unlock()
+
+	r.refresh(ctx)
+}
+
+func (r *businessRefresher) refresh(ctx context.Context) {
+	refreshBusinessSnapshot(ctx, r.pool)
+}
+
+// StartBusinessRefresh registers the pool the gauges are computed from and
+// populates them once, immediately.
+//
+// `interval` is the **floor** between refreshes, not a tick. The ctx is kept for
+// the startup pass only; every later refresh is driven by a scrape and uses the
+// request's own context.
 func StartBusinessRefresh(ctx context.Context, pool *pgxpool.Pool, interval time.Duration) {
 	if pool == nil {
 		return
 	}
 	if interval <= 0 {
-		interval = time.Minute
+		interval = 10 * time.Minute
 	}
 
+	business.mu.Lock()
+	business.r = &businessRefresher{pool: pool, minGap: interval}
+	business.mu.Unlock()
+
+	// Populate immediately; an empty /metrics after a deploy is confusing.
+	go func() {
+		refreshBusinessSnapshot(ctx, pool)
+		business.mu.Lock()
+		if business.r != nil {
+			business.r.mu.Lock()
+			business.r.last = time.Now()
+			business.r.mu.Unlock()
+		}
+		business.mu.Unlock()
+	}()
+}
+
+func refreshBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) {
 	refresh := func() {
 		queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -257,19 +341,7 @@ func StartBusinessRefresh(ctx context.Context, pool *pgxpool.Pool, interval time
 		businessLastRefresh.Set(float64(time.Now().Unix()))
 	}
 
-	go func() {
-		refresh() // Populate immediately; an empty /metrics after a deploy is confusing.
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				refresh()
-			}
-		}
-	}()
+	refresh()
 }
 
 func readBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) (businessSnapshot, error) {

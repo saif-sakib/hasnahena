@@ -275,9 +275,32 @@ Three signals, deliberately split by what each is good at — and all on free ti
 
 | Question | Answered by | Cost |
 |---|---|---|
-| Is the API up? | UptimeRobot on `/v1/ready` | free, 1-minute checks |
+| Is the API up? | UptimeRobot on **`/v1/health`** | free, 1-minute checks |
+| Can it reach the database? | UptimeRobot on `/v1/ready`, **every 30–60 minutes** | free |
 | Did something throw? | Sentry, both apps | free tier |
 | Is a member waiting on money? | `/metrics` + the Monitor workflow | ~60 Actions minutes/month |
+
+### The endpoint the uptime check must use
+
+**`/v1/health`, not `/v1/ready`** — and this is a billing decision, not a
+preference.
+
+`/v1/health` deliberately touches nothing: it answers whether the process is up,
+which is what an uptime check is for, and it is what keeps a sleeping Render
+instance awake so a member's first request is not a fifty-second cold start.
+
+`/v1/ready` calls `dbPool.Ping()`. Pointed at it once a minute, an uptime check
+becomes a query a minute against a database that **suspends when idle and bills
+for the time it is awake** — so the monitor by itself pins the compute at a 100%
+duty cycle, for ever, including every night nobody is using the platform. That
+was live, and it cost roughly 182 compute-hours a month against an allowance of
+100.
+
+Keep a second, slow check on `/v1/ready` if you want the database covered:
+half-hourly is plenty for a fault you would otherwise hear about from Sentry
+within seconds of the first real request. `/v1/ready` remains the right probe for
+a load balancer, which is what it was written for — it is only an uptime *robot*
+that should not be holding it open.
 
 The third is the one nothing else can see. A transaction sitting unconfirmed for three days throws no exception and returns no error status — every technical monitor reports green while a member waits on their own savings. That is what `hasnahena_transactions_unconfirmed_over_48h` exists for.
 
@@ -293,7 +316,7 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.hasnahenafoundation.c
 
 Route labels are chi **route templates** (`/v1/dashboard/worker/members/{memberUserId}/deposit`), never resolved paths — one series per endpoint rather than one per member, which is both a cardinality and a privacy decision.
 
-Business gauges refresh on a ticker (`METRICS_REFRESH_INTERVAL`, default 1m) rather than per scrape, so database load does not depend on how often somebody else's scraper runs. `hasnahena_business_metrics_last_refresh_timestamp_seconds` tells you the numbers are live — a frozen gauge otherwise looks exactly like a calm system.
+Business gauges are recomputed **when the endpoint is scraped**, and at most once per `METRICS_REFRESH_INTERVAL` (default 10m). The floor is what stops database load depending on how often somebody else's scraper runs — a Prometheus set to five seconds gets cached numbers rather than a hammered ledger. It was a one-minute ticker until 2026-08-27, which issued around 43,000 aggregate queries a month to answer the 60 scrapes this deployment actually makes, and was on its own enough to stop the database ever suspending. `hasnahena_business_metrics_last_refresh_timestamp_seconds` tells you the numbers are live — a frozen gauge otherwise looks exactly like a calm system.
 
 To graph it, point **Grafana Cloud** (free tier) at the endpoint with bearer auth. Nothing here requires that; the Monitor workflow reads the same endpoint directly.
 

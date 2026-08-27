@@ -6,6 +6,11 @@ import {
   parseAccountSequence,
   isStandardAccountNo,
   NEXT_ACCOUNT_NO_SQL,
+  MEMBER_ID_ADVISORY_LOCK_SQL,
+  formatStaffNo,
+  parseStaffSequence,
+  NEXT_STAFF_NO_SQL,
+  STAFF_NO_ADVISORY_LOCK_SQL,
 } from './account-no';
 
 describe('member id formatting', () => {
@@ -85,5 +90,41 @@ describe('NEXT_ACCOUNT_NO_SQL', () => {
     expect(NEXT_ACCOUNT_NO_SQL).toContain('+ 1 AS next_seq');
     // COALESCE(..., 0) + 1 means an empty table yields 1, not null.
     expect(NEXT_ACCOUNT_NO_SQL).toContain('COALESCE');
+  });
+});
+
+describe('the staff series', () => {
+  it('pads to four digits and reads aloud', () => {
+    expect(formatStaffNo(1)).toBe('STF-0001');
+    expect(formatStaffNo(42)).toBe('STF-0042');
+    // Padding, not a limit: past 9999 it simply gets longer, the same way the
+    // member series behaves past 999.
+    expect(formatStaffNo(10_000)).toBe('STF-10000');
+  });
+
+  it('round-trips', () => {
+    for (const n of [1, 7, 250, 9999, 12345]) {
+      expect(parseStaffSequence(formatStaffNo(n))).toBe(n);
+    }
+  });
+
+  it('does not claim the numbers issued before this series existed', () => {
+    // `STF-MOB97EFH-A1B2C3` was the old shape. Casting one to an integer fails,
+    // which is why the allocator's SQL matches `^STF-[0-9]+$` and not `^STF-`.
+    // Existing staff keep the number they were given: renumbering a live account
+    // would move the folder their photograph lives in on the image host.
+    expect(parseStaffSequence('STF-MOB97EFH-A1B2C3')).toBeNull();
+    expect(parseStaffSequence('ACC-KH-33001')).toBeNull();
+    expect(parseStaffSequence(null)).toBeNull();
+  });
+
+  it('takes a different advisory lock from the member series', () => {
+    // They allocate from disjoint sets of rows, so one shared lock would make
+    // hiring a field worker queue behind every member registration.
+    expect(STAFF_NO_ADVISORY_LOCK_SQL).not.toBe(MEMBER_ID_ADVISORY_LOCK_SQL);
+  });
+
+  it('only ever matches its own series in SQL', () => {
+    expect(NEXT_STAFF_NO_SQL).toContain("'^STF-[0-9]+$'");
   });
 });

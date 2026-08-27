@@ -40,6 +40,28 @@ type Config struct {
 	MetricsToken string
 	// Environment tags Sentry events and separates local noise from production.
 	Environment         string
+	// Connection pool sizing — and the reason the idle end of it is tuned the
+	// way it is.
+	//
+	// **The database this runs against suspends its compute when nothing is
+	// connected, and bills for the time it is awake.** So an idle pool is not
+	// free: it is the whole bill. `DBMinConns` was 2 and `DBHealthCheckPeriod`
+	// was one minute, which means pgxpool held two connections open for ever and
+	// pinged them every sixty seconds — the compute never suspended once, on any
+	// night, in any week where nobody used the platform. That is a 100% duty
+	// cycle bought for nothing, and on a free tier it is the whole allowance.
+	//
+	// `DBMinConns: 0` lets the pool empty. `DBMaxConnIdleTime` is deliberately
+	// **shorter** than the host's suspend timer (5 minutes on Neon) so the
+	// connections are gone before the timer would have started, rather than
+	// resetting it. The health check then has nothing to keep alive, so its
+	// period is a backstop rather than a heartbeat.
+	//
+	// What this costs: the first query after an idle period waits for the
+	// compute to resume — a few hundred milliseconds, once, and only when
+	// nobody has used the platform for minutes. A field worker posting deposits
+	// pays it at most once a session. Keeping the *API* warm is a separate
+	// problem with a separate answer: ping `/v1/health`, which touches nothing.
 	DBMaxConns          int32
 	DBMinConns          int32
 	DBMaxConnIdleTime   time.Duration
@@ -58,17 +80,36 @@ type Config struct {
 	ServerShutdownTimeout time.Duration
 
 	// How often expired token_blacklist and rate_limits rows are swept (RUN-06).
+	//
+	// Daily, not hourly. Both tables are write-heavy and nothing else deletes
+	// from them, so they do have to be swept — but rows that expired eleven
+	// hours ago are harming nothing, and every tick is a database wake that
+	// keeps a suspended compute up for its whole idle timer. Twenty-four wakes a
+	// day to delete a handful of expired rate-limit buckets is the shape of
+	// waste that is invisible until a bill arrives.
 	CleanupInterval time.Duration
-	// MetricsRefreshInterval controls how often the business gauges are
-	// recomputed. They are aggregate queries, so this is DB load, not free.
+
+	// MetricsRefreshInterval is the **floor** between two refreshes of the
+	// business gauges, not a tick. See metrics.StartBusinessRefresh: they are
+	// recomputed lazily, when /metrics is actually scraped and the numbers are
+	// older than this. Five aggregate queries every sixty seconds, for ever, to
+	// serve sixty scrapes a month is what this replaced.
 	MetricsRefreshInterval time.Duration
 
 	// ReconcileInterval controls how often the ledger is summed and compared to
-	// the stored balances (WO-82). Hourly by default: the pass is a handful of
-	// full-table aggregates, and the question it answers — "do the totals still
-	// agree" — does not change minute to minute. Set RECONCILE_INTERVAL to 0 to
-	// switch it off, which should only ever be a temporary measure while a known
-	// drift is being corrected by hand.
+	// the stored balances (WO-82).
+	//
+	// **Daily since 2026-08-27, by the owner's ruling.** It was hourly, and the
+	// pass is a handful of full-table aggregates — which is cheap in query terms
+	// and expensive in the only term that is actually billed here, namely
+	// keeping the database awake. The question it answers is "do the totals
+	// still agree", drift is corrected by a human appending a posting rather
+	// than by anything automatic (ADR-027), and the paper passbook is the
+	// reconciling record besides. A day's latency on a check nobody acts on
+	// within the hour changes nothing operationally.
+	//
+	// Set RECONCILE_INTERVAL to 0 to switch it off, which should only ever be a
+	// temporary measure while a known drift is being corrected by hand.
 	ReconcileInterval time.Duration
 
 	// RetentionSweepInterval controls how often rejected applications past the
@@ -135,11 +176,15 @@ func Load() Config {
 		// Lowering this is therefore safe and only costs latency under load.
 		// Raising it past what Neon's plan allows is the failure worth
 		// avoiding, and it is a deploy-time decision, not a code one.
-		DBMaxConns:          int32(getEnvInt("DB_MAX_CONNS", 25)),
-		DBMinConns:          int32(getEnvInt("DB_MIN_CONNS", 2)),
-		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
+		DBMaxConns: int32(getEnvInt("DB_MAX_CONNS", 25)),
+		// Zero, so the pool can empty and the database can suspend. See the
+		// note on the struct field — this one number was the whole bill.
+		DBMinConns: int32(getEnvInt("DB_MIN_CONNS", 0)),
+		// Shorter than the host's suspend timer, so connections are gone before
+		// it would have started rather than continually resetting it.
+		DBMaxConnIdleTime:   getEnvDuration("DB_MAX_CONN_IDLE_TIME", 60*time.Second),
 		DBMaxConnLifetime:   getEnvDuration("DB_MAX_CONN_LIFETIME", 30*time.Minute),
-		DBHealthCheckPeriod: getEnvDuration("DB_HEALTH_CHECK_PERIOD", 1*time.Minute),
+		DBHealthCheckPeriod: getEnvDuration("DB_HEALTH_CHECK_PERIOD", 5*time.Minute),
 
 		ServerReadHeaderTimeout: getEnvDuration("SERVER_READ_HEADER_TIMEOUT", 10*time.Second),
 		ServerReadTimeout:       getEnvDuration("SERVER_READ_TIMEOUT", 30*time.Second),
@@ -148,9 +193,9 @@ func Load() Config {
 		ServerWriteTimeout:     getEnvDuration("SERVER_WRITE_TIMEOUT", 60*time.Second),
 		ServerIdleTimeout:      getEnvDuration("SERVER_IDLE_TIMEOUT", 120*time.Second),
 		ServerShutdownTimeout:  getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second),
-		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", 1*time.Hour),
-		MetricsRefreshInterval: getEnvDuration("METRICS_REFRESH_INTERVAL", 1*time.Minute),
-		ReconcileInterval:      getEnvDuration("RECONCILE_INTERVAL", 1*time.Hour),
+		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", 24*time.Hour),
+		MetricsRefreshInterval: getEnvDuration("METRICS_REFRESH_INTERVAL", 10*time.Minute),
+		ReconcileInterval:      getEnvDuration("RECONCILE_INTERVAL", 24*time.Hour),
 		RetentionSweepInterval: getEnvDuration("RETENTION_SWEEP_INTERVAL", 24*time.Hour),
 	}
 }

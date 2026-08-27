@@ -10,6 +10,11 @@ import { createAuditLog } from '@/lib/audit';
 import { RESET_SCOPE_FIRST_LOGIN, hashResetSecret } from '@/lib/reset-tokens';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { liveIdentityFilter } from '@/lib/rejected-application';
+import {
+  NEXT_STAFF_NO_SQL,
+  STAFF_NO_ADVISORY_LOCK_SQL,
+  formatStaffNo,
+} from '@/lib/account-no';
 
 /**
  * WO-72. Staff rows always come back with their branch joined, so no caller has
@@ -171,28 +176,42 @@ export async function POST(req: Request) {
 
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
-    // A millisecond is not unique. Two admins adding staff at the same moment
-    // produced the same `accountNo`, and `accountNo` is `@unique` — so the
-    // second create raised P2002 on a column neither caller had sent, and the
-    // 409 told them to change an email and phone that were both fine. Found by
-    // WO-90's concurrency test, which is about the collision the caller *can*
-    // cause; this is the one they cannot.
-    const accountNo = `STF-${Date.now().toString(36).toUpperCase()}-${randomBytes(3).toString('hex').toUpperCase()}`;
 
-    const created = await prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        phone: normalizedPhone,
-        passwordHash,
-        role: UserRole.WORKER,
-        status: UserStatus.ACTIVE,
-        accountNo,
-        nameEn: name.trim(),
-        fatherName: name.trim(),
-        motherName: name.trim(),
-        assignedBranchId: resolvedBranchId,
-      },
-      select: STAFF_SELECT,
+    // `STF-0001`, allocated the way a member's number is: under an advisory
+    // lock, from the highest already issued, inside the transaction that creates
+    // the row.
+    //
+    // It used to be `STF-<base36 millisecond>-<6 hex>`. That was unique — which
+    // was the whole requirement, because a millisecond alone is not: two admins
+    // adding staff in the same moment produced the same `accountNo`, `accountNo`
+    // is `@unique`, and the second create raised P2002 on a column neither
+    // caller had sent, so the 409 told them to change an email and phone that
+    // were both fine. Randomness solved that and bought a number nobody can read
+    // aloud, sort, or recognise — and which is now also the name of the folder
+    // holding that person's photograph on the image host.
+    //
+    // The lock gives the same guarantee without the cost. It is taken inside the
+    // transaction, so it is released by the commit or the rollback.
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(STAFF_NO_ADVISORY_LOCK_SQL);
+      const [{ next_seq: nextSeq }] =
+        await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_STAFF_NO_SQL);
+
+      return tx.user.create({
+        data: {
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          passwordHash,
+          role: UserRole.WORKER,
+          status: UserStatus.ACTIVE,
+          accountNo: formatStaffNo(Number(nextSeq)),
+          nameEn: name.trim(),
+          fatherName: name.trim(),
+          motherName: name.trim(),
+          assignedBranchId: resolvedBranchId,
+        },
+        select: STAFF_SELECT,
+      });
     });
 
     // The marker whose existence is `mustChangePassword`. Hashed and scoped

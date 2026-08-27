@@ -8,7 +8,8 @@ import {
   registerApiSchema,
   REGISTRATION_UPLOAD_LIMITS,
 } from '@/lib/validation/registration';
-import { uploadImage, deleteImage } from '@/lib/cloudinary';
+import { uploadImage, deleteImage, personFolder } from '@/lib/cloudinary';
+import { soleActiveBranchId } from '@/lib/default-branch';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 import {
   formatAccountNo,
@@ -411,8 +412,15 @@ export async function POST(req: Request) {
       const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_ACCOUNT_NO_SQL);
       const accountNo = formatAccountNo(Number(nextSeq));
 
+      // The office this member belongs to, when there is only one it could be.
+      // Members have carried a branch since 2026-08-27; the column was always
+      // there and nothing ever wrote it. See lib/default-branch.ts for why this
+      // declines to guess once a second office exists.
+      const assignedBranchId = await soleActiveBranchId(tx);
+
       return tx.user.create({
         data: {
+          assignedBranchId,
           email: normalizedEmail,
           phone: payload.phone,
           passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
@@ -502,13 +510,28 @@ export async function POST(req: Request) {
     try {
       const uploadResults = await Promise.all(
         validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
+          // `people/ACC-KH-33001/nid-front`, one folder per applicant, named
+          // after the identifier on their passbook — the same folder their
+          // avatar goes in, so everything the foundation holds about one person
+          // is in one place whoever is looking and whatever host it is on.
+          //
+          // The document slug is the **public id**, not another folder with a
+          // random filename inside it. A registration submits exactly one of
+          // each of the four, so the name is unique by construction, and the
+          // asset tree stays readable rather than becoming four folders of one
+          // file each.
+          //
+          // `preserveOriginal` stays: an NID scan must not be re-encoded, which
+          // is the one rule in this file that cannot be undone after the fact.
           const uploadResult = await uploadImage(
             buffer,
-            `registrations/members/${created.accountNo}/${requirement.folderSlug}`,
+            personFolder(created.accountNo, created.id),
             {
               preserveOriginal: true,
-              useFilename: true,
-              uniqueFilename: true,
+              publicId: requirement.folderSlug,
+              useFilename: false,
+              uniqueFilename: false,
+              overwrite: true,
             },
           );
 

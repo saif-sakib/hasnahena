@@ -10,15 +10,29 @@ name: Images
 #
 # Nothing in production consumes these yet: Vercel and Render build from source.
 # They are here so that the day something does, the history already exists.
+#
+# **And that is why this no longer runs on every push.** Building two images —
+# one of them a full Next.js production build — on every commit to `main` bought
+# a rollback path that nothing can currently roll back to: rolling back today is
+# redeploying an older commit on Render and Vercel, neither of which looks at
+# these. It was the single largest consumer of a metered Actions allowance, spent
+# on artefacts nobody pulled.
+#
+# Tags and manual runs instead. Cutting a release still produces the pair of
+# images, `workflow_dispatch` covers "I want one from this commit", and the
+# weekly build keeps the layer cache warm so the first real one is not a cold
+# fifteen minutes.
+#
+# **Put this back on `push: branches: [main]` when the VPS move (T-30) lands**,
+# because at that point the images *are* the deployment and a per-commit history
+# of them is worth the minutes.
 
 on:
   push:
-    branches: [main]
-    # Docs-only commits do not change an image. Skipping them keeps the registry
-    # readable and saves ~4 minutes of Actions time per docs push.
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
+    tags: ['v*']
+  schedule:
+    # Sunday 02:00 UTC — keeps the GHA layer cache from expiring (7 days).
+    - cron: '0 2 * * 0'
   workflow_dispatch:
 
 # Both images are built from the same commit, so a partial publish would leave
