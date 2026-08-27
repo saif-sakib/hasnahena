@@ -66,10 +66,6 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 	if days < 1 {
 		return errors.New("retention days must be at least 1")
 	}
-	id, err := newID("cfg")
-	if err != nil {
-		return err
-	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -77,11 +73,11 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 	defer tx.Rollback(ctx)
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO system_config (id, key, value, "updatedAt")
-		VALUES ($1, 'support.chatRetentionDays', $2, NOW())
+		INSERT INTO system_config (key, value, "updatedAt")
+		VALUES ('support.chatRetentionDays', $1, NOW())
 		ON CONFLICT (key)
 		DO UPDATE SET value = EXCLUDED.value, "updatedAt" = NOW()
-	`, id, strconv.Itoa(days)); err != nil {
+	`, strconv.Itoa(days)); err != nil {
 		return err
 	}
 

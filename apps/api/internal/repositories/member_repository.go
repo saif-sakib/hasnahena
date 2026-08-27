@@ -93,12 +93,9 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 				SELECT SUM(l."remainingAmount")::bigint
 				FROM loans l
 				WHERE l."borrowerId" = $1 AND l.status = 'ACTIVE'
-			), 0) as loan_balance,
-			COALESCE(a."maxLoanAmount", 0)::bigint as loan_eligibility
+			), 0) as loan_balance
 		FROM accounts a
 		WHERE a."userId" = $1
-		ORDER BY a."createdAt" DESC
-		LIMIT 1
 	`
 
 	data := &MemberDashboardData{
@@ -112,7 +109,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		&stats.CurrentBalance,
 		&stats.TotalDeposited,
 		&stats.LoanBalance,
-		&stats.LoanEligibility,
 	); err != nil {
 		// Returning zeros here was the shape of TEST-26's worst finding, on the
 		// server side rather than the client: a member whose savings are ৳73,500
@@ -128,6 +124,14 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			return nil, fmt.Errorf("member dashboard stats for %s: %w", userID, err)
 		}
 	}
+	// Derived, never stored. `accounts.maxLoanAmount` used to answer this and was
+	// written 0 at account creation and never updated again — so the headline
+	// tile on every member's home screen read "Loan Eligibility: ৳0" for ever,
+	// while the loans page two clicks away computed the real figure and showed
+	// it. One fact, two homes, kept equal by nobody (ADR-023). The column is gone;
+	// this is the same call `GetLoanEligibility` and the staff screens make.
+	_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
+	stats.LoanEligibility = money.MaxLoanAmount(stats.CurrentBalance, maxLoanMultiplier)
 	data.Stats = stats
 
 	const pendingQuery = `

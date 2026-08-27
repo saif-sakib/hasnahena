@@ -10,7 +10,7 @@ import { getPublicSettings } from '@/lib/system-config';
 import { StructuredData } from '@/components/seo/structured-data';
 import { LegalDocument } from '@/components/layout/legal-document';
 import { PRIVACY_LAST_UPDATED } from '@/lib/legal';
-import { rejectedRetentionDaysFrom } from '@/lib/retention-policy';
+import { AUDIT_RETENTION_DAYS, rejectedRetentionDaysFrom } from '@/lib/retention-policy';
 
 /**
  * WO-73. This page's content changes when an admin edits a setting, which is to
@@ -70,11 +70,18 @@ export default async function PrivacyPage({ params }: PageProps) {
         sections={Object.values(
           t.raw('privacy.sections') as Record<string, { title: string; content: string }>,
         )}
-        // The retention period is the foundation's setting, not a number in a
-        // sentence. It was 365 when this was written and an admin may change
-        // it; a policy that states a period the sweep does not use is a promise
-        // the platform breaks silently.
-        values={{ rejectedDays: String(rejectedRetentionDaysFrom(settings)) }}
+        // Every period this page states comes from the thing that enforces it.
+        // A policy naming a number the sweep does not use is a promise the
+        // platform breaks silently, and nobody would ever notice.
+        //
+        // `rejectedDays` is the foundation's own setting and an admin may change
+        // it; the audit tiers are constants, deliberately — see ADR-038 on why
+        // those are a code change with a review rather than a dial.
+        values={{
+          rejectedDays: String(rejectedRetentionDaysFrom(settings)),
+          securityDays: String(AUDIT_RETENTION_DAYS.long),
+          routineDays: String(AUDIT_RETENTION_DAYS.short),
+        }}
       />
       <Footer settings={settings} />
     </>

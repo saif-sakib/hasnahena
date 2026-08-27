@@ -85,7 +85,8 @@ left behind would pass or fail on package ordering.
 | **what an auth endpoint discloses** | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
 | a Next route handler | `apps/web/test/routes/*.test.ts` | Postgres |
 | **who owns a contact, and what a deletion takes with it** | `apps/web/test/routes/identity-integrity.test.ts` | Postgres |
-| **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` | Postgres |
+| **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` (the text half) and `apps/web/test/unit/audit-actions.test.ts` (the tiers, [ADR-038](decisions.md)) | Postgres / nothing |
+| **an action written into `audit_logs`** | `apps/web/test/unit/audit-actions.test.ts` — it reads both backends for audit writes and fails in **both** directions: an action nothing catalogues, and a catalogued action nothing writes | nothing |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
 | a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
 | **a journey that crosses roles** | `apps/web/e2e/entry-path.spec.ts` | the full stack. Registration → confirmation → an admin's decision → the applicant being told → first login, at 412 px in both languages. The distinction from `registration.spec.ts` matters: that one covers the **form** and passed throughout, because every defect Phase 1 found lived in the *gaps between* steps rather than inside one. A suite of per-screen specs cannot see "the applicant is never told" |

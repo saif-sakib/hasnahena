@@ -267,7 +267,7 @@ export default function RegisterPage() {
   // The account number allocated at submission — the applicant's reference for
   // the application, and the identifier the foundation will use for them
   // afterwards (ADR-023). Shown on the confirmation screen.
-  const [submittedAccountNo, setSubmittedAccountNo] = useState('');
+  const [submittedReference, setSubmittedReference] = useState('');
   const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
   const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
   const [documentFiles, setDocumentFiles] =
@@ -844,7 +844,7 @@ export default function RegisterPage() {
           fieldErrors?: Record<string, string[] | undefined>;
           formErrors?: string[];
         };
-        user?: { accountNo?: string };
+        user?: { formNumber?: string };
       } = {};
       try {
         json = responseText ? JSON.parse(responseText) : {};
@@ -953,11 +953,10 @@ export default function RegisterPage() {
       // so the applicant's receipt for twenty minutes of form-filling
       // disappeared on its own, and they were left standing on a login page
       // they cannot use, because an application has no password until an admin
-      // approves it. They were never shown the account number that had just
-      // been allocated to them, never told what happens next, and never told
-      // how long it takes.
-      setSubmittedAccountNo(
-        typeof json?.user?.accountNo === 'string' ? json.user.accountNo : '',
+      // approves it. They were never shown any reference at all, never told
+      // what happens next, and never told how long it takes.
+      setSubmittedReference(
+        typeof json?.user?.formNumber === 'string' ? json.user.formNumber : '',
       );
       setSubmitStage('submitted');
     } catch {
@@ -1278,17 +1277,22 @@ export default function RegisterPage() {
             </div>
 
             {/*
-              The account number, which the applicant had never been shown. It
-              is allocated the moment the application is stored, it is the one
-              identifier a member is ever given (ADR-023), and it is what the
-              office will ask them for on the telephone.
+              The application's number — `APP-2026-000001` — allocated the
+              moment the application is stored, and what the office will ask for
+              on the telephone.
+
+              This is NOT the member's account number. That is issued if and when
+              the application is approved, so that refusing an applicant does not
+              consume a number from the foundation's register; the applicant is
+              told their `ACC-` number in the approval email. The heading here
+              has always said "application reference", which is what this now is.
             */}
-            {submittedAccountNo && (
+            {submittedReference && (
               <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-center">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   {isBn ? 'আপনার আবেদন নম্বর' : 'Your application reference'}
                 </p>
-                <p className="mt-1 font-mono text-lg font-semibold">{submittedAccountNo}</p>
+                <p className="mt-1 font-mono text-lg font-semibold">{submittedReference}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {isBn
                     ? 'নম্বরটি লিখে রাখুন। ফাউন্ডেশনে যোগাযোগ করলে এটি লাগবে।'

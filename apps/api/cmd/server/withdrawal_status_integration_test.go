@@ -70,8 +70,8 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 	}
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
-		                      "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, $2, 0, true, 0, NOW(), NOW(), $1)
+		                      "createdAt", "updatedAt", "userId")
+		VALUES ('acct_' || $1, $2, 0, NOW(), NOW(), $1)
 		ON CONFLICT (id) DO UPDATE SET "savingsBalance" = EXCLUDED."savingsBalance", "loanBalance" = 0
 	`, memberID, savings); err != nil {
 		t.Fatalf("seed account: %v", err)

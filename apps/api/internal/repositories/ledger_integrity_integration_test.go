@@ -428,8 +428,8 @@ func seedDonationAccount(t *testing.T) string {
 
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
-			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 0, 0, false, 0, NOW(), NOW(), $1)
+			"createdAt", "updatedAt", "userId")
+		VALUES ('acct_' || $1, 0, 0, NOW(), NOW(), $1)
 	`, owner); err != nil {
 		t.Fatalf("seed donation account: %v", err)
 	}

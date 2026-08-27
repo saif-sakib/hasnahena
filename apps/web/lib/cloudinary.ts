@@ -323,15 +323,47 @@ function isCloudinaryUrl(url: string): boolean {
  * field worker keeps their account number and their folder; keying on the role
  * would have moved their files and orphaned the URL already stored on the row.
  *
- * `accountNo` is allocated before any of these uploads happen — at registration
- * for a member (`app/api/v1/registrations/route.ts`), at creation for staff — so
- * there is never a moment where a file has nowhere meaningful to go. The `id`
- * fallback exists only so a row that somehow has no account number still gets a
- * file rather than an exception; it is the pre-existing shape, not the intent.
+ * `accountNo` exists before any upload that uses this folder: staff get theirs
+ * when the account is created, and a member gets theirs at **approval** — which
+ * is also the first moment a member can have an avatar. The `id` fallback exists
+ * only so a row that somehow has no account number still gets a file rather than
+ * an exception; it is not the intent.
+ *
+ * **Registration documents do not go here** — see `applicationFolder`. They are
+ * submitted before anybody is a member, and an applicant has no account number
+ * to name a folder with.
  */
 export function personFolder(accountNo: string | null | undefined, fallbackId: string): string {
   const slug = (accountNo ?? '').trim();
   return `people/${slug || fallbackId}`;
+}
+
+/**
+ * Where the four registration documents live — `applications/APP-2026-000001`.
+ *
+ * A separate tree from `people/`, and deliberately so on both counts:
+ *
+ * **It is named after something the applicant has.** They have no account number
+ * — that is issued when they are admitted, not when they apply — so the only
+ * meaningful name available is their application's own number.
+ *
+ * **It is the unit that gets deleted.** An NID scan is the most damaging thing
+ * this foundation holds, and a refused applicant's scans serve no purpose the
+ * written decision does not serve better. One prefix per application means the
+ * whole set goes in one call, including anything a half-finished upload left
+ * behind, rather than one `destroy` per row that a `documents` table happens to
+ * still know about.
+ *
+ * An approved member's documents stay here rather than being moved. They belong
+ * to the application that was accepted, `documents.url` already points at them,
+ * and a cross-system move at approval time is a failure mode bought for tidiness.
+ */
+export function applicationFolder(
+  formNumber: string | null | undefined,
+  fallbackId: string,
+): string {
+  const slug = (formNumber ?? '').trim();
+  return `applications/${slug || fallbackId}`;
 }
 
 /**
@@ -388,6 +420,51 @@ export async function uploadGalleryImage(
       { quality: 'auto:good', fetch_format: 'auto' },
     ],
   });
+}
+
+/**
+ * Delete **everything** under one folder, and the folder itself.
+ *
+ * Why a prefix rather than a list of public ids: the `documents` table is a
+ * record of what was *recorded*, not of what is *stored*. An upload that
+ * succeeded and whose row insert then failed, a retry that wrote a second asset,
+ * a file put there by hand — none of those are in the table, and all of them are
+ * still served publicly by a URL that nobody has to guess. Erasure that only
+ * deletes what the database remembers is erasure that leaves behind exactly the
+ * assets nothing is tracking.
+ *
+ * Returns the number of assets Cloudinary reported deleting, or `null` when the
+ * call itself failed. `null` and `0` mean different things and the caller has to
+ * be able to tell them apart: nothing to delete is a success, and an unreachable
+ * image host is a member's NID scan still online after they were told it was
+ * gone.
+ *
+ * `delete_resources_by_prefix` caps at 1000 assets per call and this is used on
+ * folders holding at most five, so it is not paginated. Say so here rather than
+ * find out from a folder that half-emptied.
+ */
+export async function deleteFolder(folder: string): Promise<number | null> {
+  const prefix = `hasnahena/${folder}`;
+  try {
+    ensureCloudinaryConfigured();
+    const result = (await cloudinary.api.delete_resources_by_prefix(prefix)) as {
+      deleted?: Record<string, string>;
+    };
+    const deleted = Object.values(result.deleted ?? {}).filter((v) => v === 'deleted').length;
+    // The now-empty folder. Cloudinary keeps it listed otherwise, so the asset
+    // tree slowly fills with the names of people whose files were erased — which
+    // is itself a record of who applied and was refused.
+    try {
+      await cloudinary.api.delete_folder(prefix);
+    } catch {
+      // A folder that will not delete is cosmetic; the assets are what matter,
+      // and this throws routinely when the folder was already gone.
+    }
+    return deleted;
+  } catch (error) {
+    console.error(`Cloudinary prefix delete failed for ${prefix}:`, error);
+    return null;
+  }
 }
 
 /**

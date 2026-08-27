@@ -715,7 +715,14 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken); err != nil {
+	// The account number comes back from the approval rather than from
+	// `candidate`, which was read before it existed: an application has no
+	// account number, and admitting the member is what allocates one. Reading it
+	// from the earlier snapshot would put an empty string into the approval email
+	// — the one message that tells a member the number they will be asked for
+	// every time they walk into the office.
+	accountNo, err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken)
+	if err != nil {
 		slog.Error("approve registration failed", "userId", req.UserID, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve registration")
 		return
@@ -739,7 +746,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		deliveryError = "Email service is not configured"
 	} else if emailAddress == "" {
 		deliveryError = "Member email is not available"
-	} else if err := h.emailService.SendMemberApprovalEmail(r.Context(), emailAddress, candidate.NameEn, candidate.AccountNo, candidate.Phone, tempPassword, emailLocale); err != nil {
+	} else if err := h.emailService.SendMemberApprovalEmail(r.Context(), emailAddress, candidate.NameEn, accountNo, candidate.Phone, tempPassword, emailLocale); err != nil {
 		slog.Error("member approval email failed", "userId", req.UserID, "error", err)
 		deliveryError = summarizeEmailDeliveryError(err)
 	} else {
@@ -747,10 +754,15 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	utils.Success(w, http.StatusOK, map[string]interface{}{
-		"message":           "Registration approved successfully",
-		"emailDelivered":    emailDelivered,
-		"deliveryError":     deliveryError,
+		"message":        "Registration approved successfully",
+		"emailDelivered": emailDelivered,
+		"deliveryError":  deliveryError,
+		// Both are shown once, on the approvals screen, and stored nowhere the
+		// admin can go back to. Most members have no email address (ADR-036), so
+		// for them this response IS the delivery: the admin reads out the number
+		// and the password, and there is no second chance to see either.
 		"temporaryPassword": tempPassword,
+		"accountNo":         accountNo,
 	})
 }
 

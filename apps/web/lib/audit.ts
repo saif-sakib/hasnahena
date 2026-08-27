@@ -1,33 +1,19 @@
 import { prisma } from './prisma';
 import { headers } from 'next/headers';
 
-export type AuditAction =
-  | 'LOGIN'
-  | 'LOGOUT'
-  | 'PASSWORD_CHANGE'
-  | 'PASSWORD_RESET'
-  | 'REGISTRATION_APPROVED'
-  | 'REGISTRATION_REJECTED'
-  | 'LOAN_APPROVED'
-  | 'LOAN_REJECTED'
-  | 'DEPOSIT_CONFIRMED'
-  | 'WITHDRAWAL_APPROVED'
-  | 'WITHDRAWAL_REJECTED'
-  | 'USER_STATUS_CHANGED'
-  | 'WORKER_CREATED'
-  | 'WORKER_UPDATED'
-  | 'SETTINGS_UPDATED'
-  | 'TRANSACTION_DISPUTED'
-  // WO-72. Branches became a managed entity when `users.assignedBranch` stopped
-  // being a free string; closing an office reassigns staff, so it is audited.
-  | 'BRANCH_CREATED'
-  | 'BRANCH_UPDATED'
-  | 'BRANCH_DEACTIVATED'
-  | 'BRANCH_DELETED'
-  // WO-93 / FR-23. Erasing a member is the one irreversible thing an admin can
-  // do. The row records the account number, the counts and the reason — never
-  // what was erased, because this table is append-only (ADR-033).
-  | 'MEMBER_ERASED';
+/**
+ * The vocabulary lives in `lib/audit-actions.ts`, with both backends' actions in
+ * it and a census that keeps it honest.
+ *
+ * What was here before was a hand-written union that had drifted into describing
+ * a different system: it named `REGISTRATION_APPROVED`, `LOAN_APPROVED`,
+ * `DEPOSIT_CONFIRMED`, `WITHDRAWAL_APPROVED` and `SETTINGS_UPDATED` — none of
+ * which anything writes — and was missing every action the Go API does write. It
+ * compiled because the only thing it constrained was the ten call sites in this
+ * app, and nothing read the table.
+ */
+export type { AuditAction } from './audit-actions';
+import type { AuditAction } from './audit-actions';
 
 export type AuditEntityType =
   | 'USER'

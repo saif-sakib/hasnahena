@@ -110,8 +110,8 @@ func seedMember(t *testing.T, id, memberID string, savings int64) string {
 
 	_, err = testPool.Exec(ctx, `
 		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
-			"isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, $2, 0, true, 0, NOW(), NOW(), $1)
+			"createdAt", "updatedAt", "userId")
+		VALUES ('acct_' || $1, $2, 0, NOW(), NOW(), $1)
 	`, id, savings)
 	if err != nil {
 		t.Fatalf("seed account %s: %v", id, err)
@@ -206,8 +206,8 @@ func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAg
 func setConfig(t *testing.T, key, value string) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
-		INSERT INTO system_config (id, key, value, "updatedAt")
-		VALUES ('cfg_' || $1, $1, $2, NOW())
+		INSERT INTO system_config (key, value, "updatedAt")
+		VALUES ($1, $2, NOW())
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "updatedAt" = NOW()
 	`, key, value)
 	if err != nil {

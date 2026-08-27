@@ -141,7 +141,6 @@ Ordered by what a member notices.
 | `[ ]` **T-16** | **Guarantor-obligation withdrawal block** (FR-09) | 1 | A guarantor's savings back someone else's loan; today only the guarantor's *own* active loan blocks a withdrawal |
 | `[ ]` **T-17** | **Notifications in both languages** | 1–2 | Both surfaces hardcode English, against rule 5. The builders are already in one place each — `internal/notify/messages.go` and `lib/notify.ts` — with a census over both, so this is a translation job rather than a hunt |
 | `[ ]` **T-18** | **Member edits their nominee** (FR-06) | 1 | Captured at signup and never editable. A nominee is who receives the money if a member dies, so a stale one is the worst kind of stale record |
-| `[ ]` **T-19** | **Admin audit viewer** (FR-22, OBS-08) | 1–2 | The data is complete and `GET /api/v1/admin/audit-logs` exists and is called by nothing. Nobody can read the audit log without SQL, which makes it evidence nobody can produce |
 | `[ ]` **T-20** | **Admin correction flow for a disputed posting** (FR-18) | 1 | The freeze works; the correction is manual SQL today. Corrections append ([ADR-026](decisions.md), [runbook.md](runbook.md) §2) |
 | `[ ]` **T-21** | **Support SSE client** | 1 | The stream and its ticket endpoint are live and authenticated; the UI polls anyway. `EventSource` appears nowhere in `apps/web` |
 | `[ ]` **T-22** | **48-hour unconfirmed-transaction sweep** (OPS-08) | 1 | The Monitor workflow alerts on the backlog twice a day and nothing acts on it |
@@ -203,8 +202,10 @@ are clear.
 | FR-19 | Append-only audit log | `[x]` | written by both backends and **enforced by a database trigger** — UPDATE is rejected outright |
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
-| FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support done; **no audit viewer UI, no liquidity alerts** |
+| FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support and the audit viewer are done; **no liquidity alerts** |
 | FR-23 | Member erasure and rejected-application retention | `[x]` | admin erases from the member detail screen — anonymise if there are postings, delete if there are none; the Go sweep clears a rejected applicant's identity after `security.rejectedRetentionDays` |
+| FR-24 | Admin audit viewer | `[x]` | `dashboard/admin/audit` — a day-grouped timeline, searchable by account/receipt/loan number and name, filterable by category, severity and date range, coloured by severity, with sign-ins hidden until asked for |
+| FR-25 | Tiered retention | `[x]` | four tiers in `lib/audit-actions.ts` beside the action they describe (ADR-038); a refused applicant's identity **photographs** go at the decision, the ledger and every decision are permanent |
 
 **14 complete · 7 partial · 2 not started · 0 broken.**
 **This page cannot quietly fall behind the code.** A requirement not marked

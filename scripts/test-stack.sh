@@ -132,6 +132,7 @@ serve() {
   ( cd "$ROOT/apps/web" && \
     DATABASE_URL="$PGURL" TEST_DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" \
     NEXT_PUBLIC_API_URL="http://localhost:${API_PORT}" \
+    NEXT_DIST_DIR=".next-test" \
     npx next dev -p "$WEB_PORT" > "$RUNDIR/web.log" 2>&1 & echo $! > "$RUNDIR/web.pid" )
 
   for name in "API:http://localhost:${API_PORT}/v1/health" "web:http://localhost:${WEB_PORT}/en"; do

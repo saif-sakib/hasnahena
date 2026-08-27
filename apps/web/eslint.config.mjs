@@ -7,6 +7,11 @@ const config = [
   {
     ignores: [
       '.next/**',
+      // The test stack builds here so it can run beside `pnpm dev` — Next 16
+      // locks the output directory against a second dev server. Same generated
+      // code as `.next`, and linting it reports several hundred findings in
+      // somebody else's minified output.
+      '.next-test/**',
       'node_modules/**',
       'next-env.d.ts',
       'public/**',

@@ -351,8 +351,13 @@ export default function OverviewScreen() {
         )}
       </div>
 
-      {/* Audit trail. Admin only: the endpoint is the only source, and it is the
-          whole foundation's activity. */}
+      {/* **Not the audit trail** — see `dashboard/admin/audit` for that.
+          This is a `UNION` over `users`, `loans` and `transactions` that
+          *reconstructs* the last few events from current state, so it can only
+          show things that left a row behind: never a sign-in, a password reset,
+          a member erasure, a branch closure, a lockout or a ledger drift. It is
+          a summary on the way past, and the link at the bottom goes to the
+          record. Admin only, because it is the whole foundation's activity. */}
       {isAdmin && (
         <div className="bg-white border border-neutral-200/60 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-6 py-4 border-b border-neutral-100/80">
@@ -389,6 +394,16 @@ export default function OverviewScreen() {
               </div>
             )}
           </div>
+          {/* The way from the summary to the record. Without it the audit log is
+              a sidebar entry an admin has to already know exists, and this card
+              looks like the whole story. */}
+          <Link
+            href={`${basePath}/audit`}
+            className="flex items-center justify-between px-6 py-3.5 border-t border-neutral-100/80 text-sm font-medium text-neutral-600 hover:bg-neutral-50/50 transition-colors"
+          >
+            {locale === 'bn' ? 'সম্পূর্ণ নিরীক্ষা লগ দেখুন' : 'Open the full audit log'}
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
         </div>
       )}
     </div>

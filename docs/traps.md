@@ -145,6 +145,94 @@ that treats status as a proxy for "did this happen" has to decide about
   manual runs, with a note to put it back when the VPS move makes the images the
   deployment.
 
+## A column that stores what could be derived
+
+**A stored copy of a computed value is only correct at the instant it is
+written, and nothing tells you when it stops being.** `accounts.maxLoanAmount`
+was inserted as 0 with the account and never updated by anything — no deposit
+touched it, no admin screen set it, no migration backfilled it. Two production
+queries selected it, and one of them fed the "Loan Eligibility / Max loan limit"
+tile on the member dashboard, the first screen a member sees. So a member with
+50,000 taka saved was told they could borrow nothing, while the loans page two
+clicks away computed `savings x loan.maxLoanMultiplier` and showed the real
+number. Neither screen was wrong about its own inputs; they had different inputs.
+
+**A column nothing reads is a column nothing keeps honest.**
+`accounts.isLoanEligible` was written by both creation paths with *opposite*
+values — the Next registration route wrote `false`, the Go approval path wrote
+`true`, for the same member, minutes apart — and it had been that way for as long
+as both paths existed, because no query ever selected it. The disagreement was
+not the bug; it was the *evidence* that the column was dead. Look for this shape
+whenever two writers of one column have never been reconciled: usually it means
+nothing reads it.
+
+The rule that follows: **before adding a column, ask what recomputes it.** If the
+answer is "nothing, it is set once", it is only safe when the thing it describes
+also never changes. A balance changes. A multiplier in `system_config` changes.
+
+## Reading a schema built for machines
+
+Every table here is keyed on a `cuid()` and every join is between two of them, so
+reading the database by hand means copying opaque strings between queries. The
+reasonable-looking fix — make the account number the primary key, or copy the
+member's name onto `transactions` — is wrong in both directions:
+`users.accountNo` is **null until an application is approved** and a key cannot
+be null, and a copied name is [ADR-023](decisions.md) again.
+
+The answer is a **view**, which is the one construct free to be denormalised
+because it stores nothing. See [ADR-037](decisions.md) and the `v_*` views. The
+trap specific to them: Prisma's `migrate diff` does not model views, so
+`pnpm db:migrate:check` reports "No difference detected" whether they are healthy
+or reference three columns that no longer exist. The first thing that notices is
+a migration failing at deploy time. `apps/web/test/unit/database-views.test.ts`
+is what moves that to `pnpm test:unit`.
+
+## An identifier issued too early
+
+**A number is spent the moment it is issued, and a public form must not be able
+to spend one.** Registration allocated the *membership* number `ACC-KH-33001`
+when somebody submitted the form — before any admin had read the application —
+so refusing the first applicant put a permanent hole in the foundation's own
+register and made the next one `002`. Anybody who can open the registration page
+could have pushed the series into the hundreds.
+
+The fix is not to reuse the gap (two people would then be `ACC-KH-33001` in the
+paper trail) and not to renumber on rejection (the number names their folder on
+the image host). It is that **there are two numbers and there always were**: an
+application number issued on submission, a membership number issued on admission
+([ADR-039](decisions.md)). The paper process this platform replaces already
+worked that way.
+
+The trap generalises: before allocating a scarce, human-readable, permanent
+identifier, ask **what happens when this record is refused**. If the answer is "a
+gap", it is being issued at the wrong moment.
+
+Watch for the second half too. `ApproveRegistration` used to overwrite
+`formNumber` with `FORM-<accountNo>` on approval, which destroyed the reference
+the applicant was given and the name of the folder holding their four identity
+documents. And the handler read `candidate.AccountNo` from a snapshot taken
+*before* the approval that allocates it — an empty string in the one email that
+tells a member their number.
+
+## Deleting only what the database remembers
+
+`documents` records what was *recorded*; the image host holds what was *stored*,
+and those are not the same set. An upload that succeeded before its row insert
+failed, a retry that wrote a second asset, a file put there by hand — none has a
+row, all are still served from a public URL, and an erasure that iterates the
+table reaches exactly none of them.
+
+So erasure deletes **by prefix**, not by list: `hasnahena/people/ACC-KH-33001` and
+`hasnahena/applications/APP-2026-000001` are the units. That is most of the
+argument for one folder per person and one per application in the first place —
+the naming is for humans, the *scoping* is for deletion.
+
+Related: `deleteFolder` returns `null` on failure and `0` on "nothing there", and
+callers must tell them apart. Collapsing the two makes an unreachable image host
+indistinguishable from a clean erasure, which is the difference between a
+member's NID scan being gone and it still being online after they were told it
+was not.
+
 ## Connection pools and transactions
 
 - **Reading config from the pool inside a transaction deadlocks it.** With N

@@ -119,7 +119,12 @@ var rejectedApplicationPrefixed = strings.NewReplacer(
 var rejectedApplicantsSQL = `
 	SELECT
 		u.id,
-		u."accountNo",
+		-- The application's number first. A rejected applicant has **no account
+		-- number** — that is issued on admission and nowhere else (ADR-039) — so
+		-- COALESCE-ing the other way round would name every swept row after a
+		-- column that is always NULL, and the audit trail would record each
+		-- erasure against an internal cuid.
+		COALESCE(NULLIF(u."formNumber", ''), NULLIF(u."accountNo", '')),
 		u."avatarUrl" IS NOT NULL
 	FROM users u
 	WHERE (` + rejectedApplicationPrefixed + `)
@@ -208,8 +213,10 @@ func (r *UserRepository) SweepRejectedApplications(ctx context.Context) (Retenti
 	days := r.GetRejectedRetentionDays(ctx)
 
 	type candidate struct {
-		id        string
-		accountNo *string
+		id string
+		// The application number, falling back to an account number for the rows
+		// written before the two were separated. Never both, and often neither.
+		reference *string
 		hasAvatar bool
 	}
 
@@ -220,7 +227,7 @@ func (r *UserRepository) SweepRejectedApplications(ctx context.Context) (Retenti
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.id, &c.accountNo, &c.hasAvatar); err != nil {
+		if err := rows.Scan(&c.id, &c.reference, &c.hasAvatar); err != nil {
 			rows.Close()
 			return report, fmt.Errorf("scan rejected application: %w", err)
 		}
@@ -236,7 +243,7 @@ func (r *UserRepository) SweepRejectedApplications(ctx context.Context) (Retenti
 		if c.hasAvatar {
 			report.AvatarsFound++
 		}
-		addresses, nominees, err := r.clearRejectedApplicant(ctx, c.id, c.accountNo, days)
+		addresses, nominees, err := r.clearRejectedApplicant(ctx, c.id, c.reference, days)
 		if err != nil {
 			return report, err
 		}
@@ -252,7 +259,7 @@ func (r *UserRepository) SweepRejectedApplications(ctx context.Context) (Retenti
 func (r *UserRepository) clearRejectedApplicant(
 	ctx context.Context,
 	userID string,
-	accountNo *string,
+	reference *string,
 	days int,
 ) (addresses int, nominees int, err error) {
 	tx, err := r.db.Begin(ctx)
@@ -274,14 +281,14 @@ func (r *UserRepository) clearRejectedApplicant(
 		return 0, 0, fmt.Errorf("clear identity: %w", err)
 	}
 
-	// The account number, not the name, the NID or the address. `audit_logs` is
-	// append-only, so anything named here outlives the erasure — an audit row
-	// that recorded what it erased would be erasure that preserves what it
-	// erased (ADR-033). A rejected applicant may have no account number at all,
-	// in which case the row names the internal id and nothing about the person.
+	// The application's reference — not the name, the NID or the address.
+	// `audit_logs` is append-only, so anything named here outlives the erasure,
+	// and a row that recorded what it erased would be erasure that preserves what
+	// it erased (ADR-033). A row with neither reference names the internal id and
+	// nothing about the person.
 	identifier := userID
-	if accountNo != nil && *accountNo != "" {
-		identifier = *accountNo
+	if reference != nil && *reference != "" {
+		identifier = *reference
 	}
 	details := fmt.Sprintf(
 		"Retention sweep cleared the identity data of rejected application %s after %d days",

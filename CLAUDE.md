@@ -137,6 +137,10 @@ count that used to open this sentence is gone too. See
 | a **default in `scripts/seed.mjs`** that could already exist as a blank row | `apps/web/test/unit/localized-settings.test.ts` — `seedConfig` backfills an empty value and leaves a non-empty one alone. It used to refresh only the `description`, so a key the Content & Media screen had written blank could **never** be repaired by re-running the seed: the English half of every landing pair was created with its words while the Bengali half stayed empty, and the site fell back to `messages/bn.json` where nobody could see it was doing so |
 | a **public accessor that reads the database** | `apps/web/test/unit/public-content-fallback.test.ts` — it must not reject, and the `catch` goes **outside** `unstable_cache`. There are two (`getPublicSettings`, `getPublicGalleryItems`); a third belongs in that file rather than growing its own `try`. Inside the cache, one transient Neon blip memoises the empty fallback for the whole revalidate hour |
 | a way for the **web app** to reach the database in a test | `apps/web/test/unit/test-stack-database.test.ts` — go through `TEST_DATABASE_URL`. `DATABASE_URL` handed to `next dev` is overwritten from `apps/web/.env` before any of our code runs, which put the API and the web app of one browser run on **two different databases** — and `public-content.spec.ts` writing settings into a developer's live Neon |
+| a **`v_*` view**, or a rename of any column one names | `apps/web/test/unit/database-views.test.ts` — update the view in the same migration. Prisma's `migrate diff` does not model views, so `pnpm db:migrate:check` says "No difference detected" whether they are healthy or name three columns that no longer exist; the next thing to notice is a migration failing at deploy. Nothing in `apps/api` or `apps/web` may select from one — they are free to be denormalised only because no code depends on them ([ADR-037](docs/decisions.md)) |
+| a **column that stores a computed value** | the same test, and ask what recomputes it. `accounts.maxLoanAmount` was written 0 at creation and never updated, while the member dashboard's own "Loan Eligibility" tile selected it — so every member read ৳0 while the loans page computed the real figure from the same balance. Its neighbour `isLoanEligible` was written `false` by registration and `true` by approval **for the same member**, and that had always been true, because nothing read it: two writers who have never been reconciled usually means a dead column |
+| an **`audit_logs` row**, in either backend | `apps/web/test/unit/audit-actions.test.ts` — catalogue the action in `lib/audit-actions.ts` with a category, a severity, a **retention tier** and both languages. It fails in both directions: an uncatalogued action renders on the admin's audit screen as a raw `MARK_LOAN_DEFAULTED` with no colour and no Bengali, and a catalogued one nothing writes is a filter chip that can only return an empty list. `audit.ts` used to carry a hand-written union naming five events that never happen while missing every one of the twenty-two the Go API writes — it compiled, because it only constrained the ten call sites in the Next app |
+| anything that **deletes or expires data on a clock** | [ADR-038](docs/decisions.md) — the tier goes beside the action, never in the job that applies it. A refused applicant's identity **photographs** go at the decision, not on the text's clock: an NID scan is the most damaging thing here, it is served from a URL needing no login, and nothing that justifies keeping a refusal on file needs the picture. The erasure records are permanent, circularly — a policy that expired them would destroy the proof of its own compliance |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -347,10 +351,26 @@ apps/web/lib/auth-revocation.ts   the token_blacklist contract for the half Next
                                   revokeAllTokens() runs inside the caller's transaction and must
                                   match revokeAllUserTokensSQL row for row; the TTL is derived from
                                   JWT_EXPIRY_SECONDS on this host too (WO-85, WO-91)
+apps/web/lib/audit-actions.ts     every action either backend writes into audit_logs — category, severity,
+                                  retention tier and both languages. The ONE catalogue; audit.ts derives its
+                                  AuditAction from it. Read by the admin audit screen and by the retention sweep
+apps/web/app/api/v1/admin/retention/  the Cloudinary half of ADR-038. POST is admins-only and takes an
+                                  optional userId (the approvals screen calls it the moment an application is
+                                  refused); GET is the Vercel Cron, authenticated by CRON_SECRET and reachable
+                                  by NO signed-in role. An unset CRON_SECRET accepts nobody
+apps/web/lib/document-numbers.ts  DEP/WDR/LOAN/REP and APP — the gapless per-year allocator. `APP-2026-000001`
+                                  is the APPLICANT's number, issued at submission; ACC-KH-33001 is the MEMBER's,
+                                  issued at approval and nowhere else (ADR-039). Rejecting an application must
+                                  not burn a membership number
 apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member is given (ADR-023/029).
                                   `users.accountNo`; called memberId before 2026-08-19. The Go half is
                                   apps/api/internal/utils/account_no.go and the two must agree
 apps/web/prisma/schema.prisma     the data model
+apps/web/prisma/migrations/*_readable_views/  the v_* views — v_people, v_transactions, v_loans,
+                                  v_audit, v_pending_applications. For a human with a SQL console,
+                                  never for code: each leads with the account/receipt/loan number and
+                                  joins the names in, which is affordable ONLY because nothing reads
+                                  them. Invisible to db:migrate:check (ADR-037)
 apps/web/components/ui/logo.tsx   the lockup. `size` sets a HEIGHT, and the width follows the aspect
                                   ratio — never `h-auto w-auto`, which overrides the size prop entirely
                                   and renders every call site at the asset's intrinsic 192x108

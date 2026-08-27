@@ -4,7 +4,7 @@
 
 ## Invariants
 
-1. **All money is `BigInt`, whole taka.** `savingsBalance`, `loanBalance`, `amount`, `principalAmount`, `remainingAmount`, `installmentAmount`, `maxLoanAmount`. No paisa, no decimals, no floats ([ADR-002](decisions.md)).
+1. **All money is `BigInt`, whole taka.** `savingsBalance`, `loanBalance`, `amount`, `principalAmount`, `remainingAmount`, `installmentAmount`. No paisa, no decimals, no floats ([ADR-002](decisions.md)).
 2. **Balance changes and their `Transaction` row are written in one DB transaction**, and every transaction stores `savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted exactly.
 2a. **A balance is written relatively, or read `FOR UPDATE` inside the same transaction.** `SET "savingsBalance" = "savingsBalance" + $1` is always safe. Reading the balance first — especially from the pool, outside the transaction — and writing back a total computed in Go is a lost update: concurrent postings overwrite each other, the balance stops matching the sum of `transactions`, and the `savingsAfter` snapshots become wrong on paper. Fixed everywhere ([ADR-015](decisions.md)), and it has been violated twice: LEDGER-01 in `transaction_repository.go`, then LEDGER-05 in `AddMemberLoanPayment` — which the ADR-015 pass simply did not think of. A *check* against a balance belongs in the same statement as the write (`WHERE "remainingAmount" >= $1 RETURNING …`), not a line above it. `TestBalanceWritersAreEnumerated` now fails the build when a new method writes a balance without a concurrency test.
 3. **`audit_logs` is append-only.** Corrections append; nothing updates or deletes.
@@ -40,18 +40,18 @@
 |---|---|---|
 | `User` → `users` | identity, bilingual name, NID, role, status, `accountNo` (`ACC-KH-33001`…), avatar, approval trail | self-relation `approvedBy`; 1-1 nominee, permanent/present address |
 | `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User`. **Both foreign keys live here**, on `userPermanentId` and `userPresentId`, and both cascade — the present one used to point the other way, from `users`, which meant deleting a user orphaned it ([WO-72](changelog.md)) |
-| `Nominee` → `nominees` | name, relationship, NID, phone, photo | 1-1 `User`, cascade delete |
+| `Nominee` → `nominees` | name, relationship, NID, phone | 1-1 `User`, cascade delete. **No photo** — registration has never collected one |
 | `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | many-1 `User`, cascade |
-| `Account` → `accounts` | `savingsBalance`, `loanBalance`, `isLoanEligible`, `maxLoanAmount` | 1 per `User`, enforced — `userId` is unique. **No account number**: it held a copy of `users.memberId` ([ADR-023](decisions.md)) |
+| `Account` → `accounts` | `savingsBalance`, `loanBalance` | 1 per `User`, enforced — `userId` is unique. **No account number**, and **no stored loan eligibility**: all three were copies of a fact that lives elsewhere ([ADR-023](decisions.md), [ADR-037](decisions.md)). `maxLoanAmount` was written 0 at creation and never updated, so the member dashboard's own "Loan Eligibility" tile read ৳0 for every member while the loans page computed the real figure. It is `money.MaxLoanAmount(savings, loan.maxLoanMultiplier)` now, at every reader |
 | `Transaction` → `transactions` | type, amount, receipt no., status, dispute fields, balance snapshots, `processedBy` | `Account`, `User`, optional `Loan` |
 | `Loan` → `loans` | `loanNumber`, principal/remaining, installment plan, dates, purpose, status | borrower, optional guarantor, approver, `Account` |
 | `SupportThread` / `SupportMessage` | member↔staff chat, `deleteAt` TTL | member, processing staff |
 | `Notification` → `notifications` | typed alert targeted at a role or a user | — |
 | `AuditLog` → `audit_logs` | action, entityType/Id, old/new JSON, actor (`performedBy`), IP, UA | — |
-| `SystemConfig` → `system_config` | key/value policy store | — |
+| `SystemConfig` → `system_config` | key/value policy store | — . **Keyed on `key`**, like `document_sequences` is keyed on `(series, year)`: the surrogate `id` was never selected, joined or referenced, and filled the leftmost column of the most hand-read table in the schema with cuids |
 | `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
 | `GalleryItem` | public content | — |
-| `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `staff User[]` — a worker's assigned office. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
+| `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `users User[]` — **members as well as staff** since 2026-08-27. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 
 `PasswordResetToken` stores **no secrets**: `tokenHash` is `sha256(secret)` and
@@ -68,9 +68,13 @@ is not a column, it is `EXISTS` over an unused, unexpired one of them.
 - `TransactionType` DEPOSIT · WITHDRAWAL · LOAN_DISBURSEMENT · LOAN_REPAYMENT · DONATION · FEE
 - `TransactionStatus` PENDING · PROCESSED · CONFIRMED · REJECTED · DISPUTED · REVERSED
 - `LoanStatus` PENDING_GUARANTOR · PENDING_APPROVAL · ACTIVE · COMPLETED · SETTLED · DEFAULTED · REJECTED. The legacy `PENDING` and `APPROVED` labels are **gone** ([WO-71](changelog.md)) — `PENDING` had been the column default, so every new loan was written into the legacy vocabulary, which is why the guarantor panel never showed a request and the admin dashboard always reported zero pending loans
-- `RequestStatus`, `MaritalStatus`, `Gender`, `NotificationType`
+- `MaritalStatus`, `Gender`, `NotificationType`
 
-`FEE` exists in `TransactionType` and **nothing writes it**. It was reserved for a late-fee policy; the foundation ruled on 2026-08-25 that there is no late fee, and the printed loan agreement now says so ([T-05](changelog.md)). The label is kept rather than dropped because removing an enum label is a migration and `enum-literals.test.ts` work for a value no row holds — but a posting of this type would contradict the agreement every borrower signs.
+`RequestStatus` used to be here and was dropped on 2026-08-27: no column ever had that type and no source file named it. Loan applications use `LoanStatus`, deposit and withdrawal requests use `TransactionStatus`.
+
+`FEE` in `TransactionType` is **not** a fee charged to a member — there is no such thing (rule 3). The one writer is the default-recovery path in `loan_repository.go`, which posts the shortfall of a defaulted loan *out of the charity fund*. Nothing may ever write one against a member's own account; that would contradict the agreement every borrower signs ([T-05](changelog.md)).
+
+`REVERSED` in `TransactionStatus` is written by nothing, and by design: a correction is **appended as a new posting**, never applied by editing the status of an old one ([ADR-027](decisions.md), rule 6). `WITHDRAWAL_REQUEST` in `NotificationType` is likewise unused — that notification is sent as `SYSTEM_ALERT`. Both are kept rather than dropped because removing an enum label is a migration for a value no row holds.
 
 ## `system_config` keys
 
@@ -200,6 +204,28 @@ nothing reads is a note, not a setting.
 ## Indexes
 
 Hot paths are already indexed: `transactions` by `(type,status,createdAt)`, `(userId,createdAt)`, `(accountId,createdAt desc)`, `receiptNumber`; `loans` by `(status,createdAt)` and `(borrowerId,status)`; `users` by `(status,createdAt)` and `(role,status)`; `audit_logs` by actor, action and time. Match this pattern for any new foreign key.
+
+`support_messages` briefly had two indexes on `(threadId, createdAt)`, identical
+but for `DESC` on the trailing column. A btree is scannable in both directions,
+so the second answered no query the first could not and cost a write on every
+message. Before adding an index that differs from an existing one only in sort
+direction, check that it is not this.
+
+## Reading the database by hand
+
+Five read-only views exist for a human with a SQL console — `v_people`,
+`v_transactions`, `v_loans`, `v_audit`, `v_pending_applications`. Each leads with
+the identifier a person actually has (account number, receipt number, loan
+number) and joins the names in, so a question can be answered in one query
+instead of three passes copying cuids between them.
+
+**Nothing in `apps/api` or `apps/web` may select from one.** They are free to be
+denormalised precisely because they store nothing and no code depends on them;
+the moment application code reads one, it becomes a second schema
+([ADR-037](decisions.md)). `apps/web/test/unit/database-views.test.ts` fails when
+a view names a column `schema.prisma` no longer has, because neither the compiler
+nor `pnpm db:migrate:check` looks at a view — Prisma's `migrate diff` does not
+model them at all.
 
 ## Writing SQL by hand — two traps
 

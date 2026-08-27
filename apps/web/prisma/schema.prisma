@@ -83,12 +83,6 @@ enum LoanStatus {
   REJECTED
 }
 
-enum RequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
 // ============================================================
 // USER & AUTHENTICATION
 // ============================================================
@@ -286,7 +280,6 @@ model Nominee {
   relationship String // সম্পর্ক
   nidNumber    String // নমিনীর NID
   phone        String?
-  photoUrl     String?
 
   // Relation
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -339,9 +332,22 @@ model Account {
   savingsBalance BigInt @default(0) // সঞ্চয় স্থিতি
   loanBalance    BigInt @default(0) // ঋণ স্থিতি
 
-  // Eligibility
-  isLoanEligible Boolean @default(false)
-  maxLoanAmount  BigInt  @default(0)
+  /// There is no `maxLoanAmount` and no `isLoanEligible` here either, and for
+  /// the same reason there is no `accountNumber`: the answer already exists
+  /// somewhere it cannot go stale.
+  ///
+  /// `maxLoanAmount` was written 0 when the account was created and **never
+  /// updated by anything** — while two production queries selected it and one
+  /// of them fed the "Loan Eligibility / Max loan limit" tile on every member's
+  /// home screen. So every member was told they could borrow nothing, for ever,
+  /// while the loans page two clicks away computed `savings x multiplier` and
+  /// showed the real figure. `isLoanEligible` was worse in the quiet way: the
+  /// two creation paths disagreed about it (registration wrote `false`, admin
+  /// approval wrote `true`) and nothing noticed, because nothing read it.
+  ///
+  /// Both are derived from `savingsBalance` and `loan.maxLoanMultiplier` by
+  /// `money.MaxLoanAmount` / `money.CheckEligibility`, which is what the staff
+  /// screens and the loans page always used.
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -499,9 +505,19 @@ model Branch {
   @@map("branches")
 }
 
+/// The key IS the primary key.
+///
+/// This carried a `cuid()` surrogate as well, which nothing ever selected,
+/// joined or referenced — it was written and then never looked at again. What it
+/// did do was put 74 rows of `cmpbicztq00192zn69dh1j9w5` in front of anybody
+/// opening the table in a database console, in the leftmost column, on the table
+/// that is edited by hand more often than any other.
+///
+/// Same principle as `DocumentSequence` below, which has always been keyed on
+/// `(series, year)`: where a real identifier exists and nothing points at the
+/// row, the real identifier is the key.
 model SystemConfig {
-  id          String  @id @default(cuid())
-  key         String  @unique
+  key         String  @id
   value       String
   description String?
 
@@ -588,8 +604,10 @@ model SupportMessage {
   message      String
   createdAt    DateTime      @default(now()) @map("createdAt")
 
+  // One index, not two. There was a second, identical but for `DESC` on the
+  // trailing column; a btree is scannable in both directions, so it answered no
+  // query the ascending one could not and cost a write on every message.
   @@index([threadId, createdAt], map: "idx_support_messages_thread_created")
-  @@index([threadId, createdAt(sort: Desc)], map: "idx_support_messages_thread_created_desc")
   @@index([senderUserId, createdAt])
   @@map("support_messages")
 }

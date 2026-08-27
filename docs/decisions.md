@@ -46,6 +46,9 @@ still true.
 | [ADR-034](#adr-034--english-is-the-default-locale-and-the-default-has-no-prefix) | English is the default locale, and the default has no prefix | accepted |
 | [ADR-035](#adr-035--idle-behaviour-is-a-line-item-not-a-performance-detail) | Idle behaviour is a line item, not a performance detail | accepted |
 | [ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk) | A member with no email resets their password at the desk | accepted |
+| [ADR-037](#adr-037--a-row-has-a-key-for-machines-and-an-identifier-for-people-and-a-view-for-reading) | A row has a key for machines and an identifier for people, and a view for reading | accepted |
+| [ADR-038](#adr-038--retention-is-tiered-by-what-the-data-is-not-by-one-clock) | Retention is tiered by what the data is, not by one clock | accepted |
+| [ADR-039](#adr-039--an-account-number-is-issued-on-admission-an-application-number-on-submission) | An account number is issued on admission, an application number on submission | accepted |
 
 ---
 
@@ -1386,3 +1389,169 @@ temporary password is returned once and stored nowhere; the audit row names the
 account number and never the password. This does not close the door on SMS: if
 the volume of desk resets ever justifies the bill, this route stays and SMS
 becomes an additional path rather than a replacement.
+
+## ADR-037 — A row has a key for machines and an identifier for people, and a view for reading
+
+**Status:** accepted · 2026-08-27.
+
+**Context.** Every table in this schema is keyed on a `cuid()`, and every join is
+between two of them. Opening `users` in the Neon console shows a column of
+`cmob97efh00003zynz0as5knq`; answering "what did this member deposit last week"
+by hand means copying opaque strings between three queries. The reasonable
+reaction — and the one that prompted this — is that `users.id` and
+`users.accountNo` look like the same fact stored twice.
+
+**They are not the same fact.**
+
+- `accountNo` is **null until an application is approved.** A pending applicant
+  already has a row, an address, a nominee and four uploaded documents. A primary
+  key cannot be null, so the key cannot be this.
+- `accountNo` is a *business* identifier: `ACC-KH-33001`, continuing the
+  foundation's paper register, read aloud and written into passbooks
+  ([ADR-008](#adr-008--account-numbers-follow-the-foundations-own-series), [ADR-023](#adr-023--one-member-one-identifier)).
+  Business identifiers get **corrected** — a wrong branch prefix, a duplicate
+  found in the paper register. A key that changes has to cascade through every
+  foreign key that points at it, and through the Cloudinary folder named after it.
+- One column holds two series and a null: `ACC-…` for members, `STF-…` for staff,
+  nothing at all for an applicant. That is not a key, it is three things.
+
+So: **the surrogate key is for machines and never shown; the account number is
+for people and never joined on.** That is the standard split, and this schema
+already had it right.
+
+**Decision.** Keep both, and fix the *ergonomics* instead, which is what was
+actually missing. `prisma/migrations/20260827120100_readable_views` adds five
+read-only views — `v_people`, `v_transactions`, `v_loans`, `v_audit`,
+`v_pending_applications` — each leading with the identifier a human has and
+joining the names in. Nothing writes through them, no application code reads them,
+and Prisma's `migrate diff` does not model views, so they cost no drift.
+
+**Why a view rather than a change of key.** A view is the only answer here that
+is free to be denormalised. It can put the borrower's name, the guarantor's name
+and the approver's name on one row of `v_loans` precisely because it stores
+nothing and can never disagree with the table it reads. Every other way of making
+the database readable — a name column copied onto `transactions`, an account
+number copied onto `loans` — is [ADR-023](#adr-023--one-member-one-identifier)
+again, and this repository has paid for that shape at least four times.
+
+**Consequences.** `apps/web/test/unit/database-views.test.ts` reads the view
+bodies and fails when one names a column `schema.prisma` no longer has — because
+a view is checked by neither the compiler nor `pnpm db:migrate:check`, and the
+next place it would be noticed is a migration failing at deploy time. A rename
+must update the view in the same migration, the way a foreign key must.
+
+The views are a debugging tool, not an API. Nothing in `apps/api` or `apps/web`
+may select from one: the moment application code depends on a view, the view
+stops being free to change and becomes a second schema.
+
+## ADR-038 — Retention is tiered by what the data is, not by one clock
+
+**Status:** accepted · 2026-08-27.
+
+**Context.** [ADR-033](#adr-033--a-member-is-anonymised-a-rejected-applicant-expires)
+established *that* data expires. It did not say what, and in practice one clock
+was doing all the work: `security.rejectedRetentionDays` cleared a refused
+application's identity **text**, and nothing at all governed the **photographs**,
+the audit trail, or anything else. So a national identity card scanned by a
+nineteen-year-old whose application was turned down in an afternoon stayed on a
+public Cloudinary URL for as long as the account existed, which was for ever.
+
+Meanwhile the opposite mistake was available and would have been worse: sweeping
+everything on one clock deletes the ledger.
+
+**Decision.** Four tiers, and the tier is a property of *what the record is*.
+
+| Tier | What | Kept |
+|---|---|---|
+| **Permanent** | Every posting, loan and balance. Every audit row about money, about a decision made concerning a person, and about data being destroyed. | For ever |
+| **Long** | Security history — password changes, resets, lockouts. Profile edits. | 730 days |
+| **Short** | Operational noise — sign-ins, sign-outs, verification codes, reset requests for identifiers that are not members. | 180 days |
+| **Immediate** | A refused applicant's identity **photographs**. | Deleted at the decision |
+
+**Why the photographs go first and not last.** They are the highest-consequence
+item this platform holds: an NID scan is enough on its own to open an account
+somewhere else in that person's name, it is served from a URL that needs no
+login, and it is not needed by any of the purposes that justify keeping anything
+after a rejection. Those purposes are: explaining the decision, recognising a
+re-applicant, and answering a complaint — and the reason code, the date and the
+contact details serve all three. Deleting the *text* on a 90-day clock while
+keeping the *images* indefinitely had the tiering exactly upside down.
+
+**Why the erasure records are permanent.** `MEMBER_ERASED`,
+`APPLICATION_DOCUMENTS_ERASED`, `RETENTION_SWEEP` and `AUDIT_LOG_EXPIRED` are the
+evidence that the policy was applied. A retention rule that expired them would be
+a policy destroying the proof of its own compliance, which is the one thing a
+policy cannot do and remain one.
+
+**Why the tier lives beside the action.** In `lib/audit-actions.ts`, on the same
+line as the label and the severity — not in the job that applies it. "May this be
+deleted" is a property of what happened, and a new action added without a tier
+now fails `audit-actions.test.ts` rather than silently inheriting a default.
+
+**Why days in code and not a `system_config` key.** The privacy notice states
+these periods. A dial an admin can turn makes the notice a description of the
+current setting rather than a commitment, and shortening a retention period is
+exactly the change that should require a review — unlike
+`security.rejectedRetentionDays`, which stays configurable because it is the one
+period the foundation genuinely tunes.
+
+**Consequences.** The Cloudinary half of this cannot live in the Go retention
+sweep, because the image host is configured in the Next app and in one place —
+the same split as the member erasure. `POST /api/v1/admin/retention` does it, and
+is called twice over: by the approvals screen the moment an application is
+refused, and by a Vercel Cron `GET` every night. The immediate call is best
+effort by design; the nightly one is what makes it safe for a browser to be the
+trigger, because a closed tab then costs a delay rather than the deletion.
+
+An unset `CRON_SECRET` accepts **nobody**, rather than being treated as "no check
+configured" — a missing environment variable must not turn an erasure endpoint
+into an open one.
+
+## ADR-039 — An account number is issued on admission, an application number on submission
+
+**Status:** accepted · 2026-08-27 · reported by the owner.
+
+**Context.** The owner rejected the first application and watched the next
+applicant become `ACC-KH-33002`. The registration route was allocating a
+**membership number** at the moment a public form was submitted — before anybody
+had read the application — so every refusal punched a permanent hole in the
+foundation's own register, and anybody who can open the registration page could
+push the series wherever they liked.
+
+**Options considered.**
+
+- *Reuse the gap.* Allocate the lowest unused number instead of the highest
+  issued. Rejected: two people would then appear as `ACC-KH-33001` in the paper
+  trail, months apart, which is worse than a gap by a long way.
+- *Renumber on rejection.* Rejected: the number is also the name of a folder on
+  the image host, and re-sequencing live rows to close a hole is the kind of
+  operation that is correct exactly once.
+- *Issue nothing until approval.* Correct, but it takes away the reference the
+  applicant is told to write down and leaves their four identity documents with
+  no meaningful folder to go in.
+
+**Decision.** Two numbers, which is what the paper world this platform is
+replacing already does: you are given a **form number** when you apply, and a
+**membership number** when you are admitted.
+
+- `users.formNumber` — `APP-2026-000001`, allocated at submission from
+  `document_sequences`, the same gapless per-year allocator behind every receipt
+  and loan number. It costs nothing to burn, it is what the confirmation screen
+  shows (under the heading it already had — "your application reference"), and it
+  names the Cloudinary folder holding the four submitted documents.
+- `users.accountNo` — `ACC-KH-33001`, allocated by `ApproveRegistration` and by
+  nothing else. `ACC-KH-33001` now means *the first member*, rather than the
+  first person who opened the form.
+
+**Consequences.** `accountNo` is **null on a pending or rejected application**,
+which makes true a claim [ADR-037](#adr-037--a-row-has-a-key-for-machines-and-an-identifier-for-people-and-a-view-for-reading)
+already relied on and is why it cannot be the primary key. `ApproveRegistration`
+returns the number it allocated, because the handler reads the candidate row
+*before* approval and would otherwise put an empty string into the one email that
+tells a member their number — and the approvals screen now shows the number and
+the temporary password on success rather than only on email failure, since most
+members have no email at all ([ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk)).
+
+Approval must **not** touch `formNumber`. It used to overwrite it with
+`FORM-<accountNo>`, destroying the reference the applicant had been given and the
+name of the folder holding their documents.

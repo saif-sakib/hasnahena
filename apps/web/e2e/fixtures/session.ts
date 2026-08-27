@@ -73,6 +73,7 @@ export const PAGES: Record<'public' | SeededRole, string[]> = {
   ADMIN: [
     'dashboard/admin',
     'dashboard/admin/approvals',
+    'dashboard/admin/audit',
     'dashboard/admin/branches',
     'dashboard/admin/content',
     'dashboard/admin/deposits',

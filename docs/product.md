@@ -196,6 +196,31 @@ implementation detail: `audit_logs` is append-only, so anything written there
 survives the erasure. The row names the account number, the approving admin and
 the reason. It never names what was erased.
 
+### Retention is tiered, and the tier depends on what the record is
+
+Four tiers ([ADR-038](decisions.md)), because one clock cannot be right for both
+a ledger posting and a sign-in:
+
+| Tier | What | Kept |
+|---|---|---|
+| Permanent | Every posting, loan and balance; every audit row about money, about a decision concerning a person, and about data being destroyed | For ever |
+| Long | Security history — password changes, resets, lockouts; profile edits | 730 days |
+| Short | Operational noise — sign-ins, sign-outs, verification codes, reset requests for identifiers that are not members | 180 days |
+| Immediate | A **refused applicant's identity photographs** | Deleted at the decision |
+
+The last row is the one that changed a real exposure. A rejected application's
+identity *text* — NID number, parents' names, date of birth, addresses — expires
+on `security.rejectedRetentionDays`, and until 2026-08-27 the **scans** of the
+national identity card expired on nothing at all: they sat on a public Cloudinary
+URL indefinitely, for somebody the foundation had declined to admit. Nothing that
+justifies keeping anything after a refusal — explaining the decision, recognising
+a re-applicant, answering a complaint — needs the photograph, and it is the
+single most damaging item this platform holds. So it goes first, not last.
+
+The erasure records themselves are permanent, and circularly so: they are the
+proof that the policy was applied, and a rule that expired them would be a
+retention policy destroying the evidence of its own compliance.
+
 **All three rules are published.** `/privacy` describes them to the person they
 apply to, in both languages — including the part that is a limit rather than a
 right: a member with postings is anonymised, not deleted, and the page says so
@@ -217,7 +242,7 @@ green.
 
 The printed member passbook maps to `Account` + `Transaction`: each row carries date, receipt no. (রশিদ নম্বর), deposit/withdrawal amount, and running savings/loan balance — which is why every `Transaction` stores `savingsAfter` / `loanAfter` snapshots. Receipt PDFs are generated in `apps/web/lib/documents/receipt-generator.ts`.
 
-## Requirements register (FR-01…FR-22)
+## Requirements register (FR-01…FR-25)
 
 Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 
@@ -246,6 +271,8 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 | FR-21 | Worker dashboard: pending queues by SLA | High |
 | FR-22 | Admin dashboard: approvals, liquidity alerts, disputes, settings, audit viewer | High |
 | FR-23 | Erase a member's identity on request, and time-expire a rejected applicant's | High |
+| FR-24 | An admin can read the audit trail: searchable, filterable by category, severity and date, grouped as a timeline | High |
+| FR-25 | Tiered retention — the ledger and every decision kept permanently, security history 730 days, operational noise 180 days, a refused applicant's identity photographs deleted at the decision | High |
 
 ## Quality bars
 

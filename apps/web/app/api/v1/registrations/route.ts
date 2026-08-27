@@ -8,14 +8,10 @@ import {
   registerApiSchema,
   REGISTRATION_UPLOAD_LIMITS,
 } from '@/lib/validation/registration';
-import { uploadImage, deleteImage, personFolder } from '@/lib/cloudinary';
+import { uploadImage, deleteImage, applicationFolder } from '@/lib/cloudinary';
 import { soleActiveBranchId } from '@/lib/default-branch';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
-import {
-  formatAccountNo,
-  MEMBER_ID_ADVISORY_LOCK_SQL,
-  NEXT_ACCOUNT_NO_SQL,
-} from '@/lib/account-no';
+import { nextDocumentNumber, SERIES } from '@/lib/document-numbers';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 import { liveIdentityFilter, PENDING_APPROVAL_PASSWORD_HASH } from '@/lib/rejected-application';
 import { getPublicSettings } from '@/lib/system-config';
@@ -408,9 +404,20 @@ export async function POST(req: Request) {
     };
 
     const created = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(MEMBER_ID_ADVISORY_LOCK_SQL);
-      const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_ACCOUNT_NO_SQL);
-      const accountNo = formatAccountNo(Number(nextSeq));
+      // The **application's** number, not a member's.
+      //
+      // This route used to allocate `ACC-KH-33001` here, to a PENDING applicant,
+      // before anybody had read the application — so refusing the first one
+      // consumed the foundation's first membership number for ever and handed
+      // the next applicant `002`. A public form that anybody can submit was
+      // punching holes in the register.
+      //
+      // An account number is issued at **approval** and nowhere else now
+      // (`ApproveRegistration` already allocated one for a row that had none;
+      // that branch is simply the only one left). The applicant still gets a
+      // reference to quote, from the same gapless per-year allocator that backs
+      // every receipt and loan number — and one it costs nothing to burn.
+      const formNumber = await nextDocumentNumber(SERIES.application, tx);
 
       // The office this member belongs to, when there is only one it could be.
       // Members have carried a branch since 2026-08-27; the column was always
@@ -428,8 +435,8 @@ export async function POST(req: Request) {
           role: UserRole.MEMBER,
           status: UserStatus.PENDING,
 
-          accountNo,
-          formNumber: `FORM-${accountNo}`,
+          // `accountNo` is deliberately absent: null until approval.
+          formNumber,
 
           nameEn: payload.nameEn,
           nameBn: normalizeOptionalString(payload.nameBn),
@@ -478,8 +485,6 @@ export async function POST(req: Request) {
 
           account: {
             create: {
-              isLoanEligible: false,
-              maxLoanAmount: BigInt(0),
               savingsBalance: BigInt(0),
               loanBalance: BigInt(0),
             },
@@ -487,18 +492,18 @@ export async function POST(req: Request) {
         },
         select: {
           id: true,
-          accountNo: true,
+          formNumber: true,
           email: true,
           phone: true,
           role: true,
           status: true,
           nameEn: true,
         },
-        // `accountNo` is what the confirmation page shows the applicant. It is
-        // allocated here, at submission, and until 2026-08-26 the applicant was
-        // never told it — they got a two-second toast and a redirect to a login
-        // page they cannot use, with no reference for the thing they had just
-        // spent twenty minutes filling in.
+        // `formNumber` is what the confirmation page shows the applicant, under
+        // the heading it has always had — "Your application reference". Until
+        // 2026-08-26 they were told nothing at all: a two-second toast and a
+        // redirect to a login page they cannot use, with no reference for the
+        // thing they had just spent twenty minutes filling in.
       });
     });
 
@@ -510,10 +515,11 @@ export async function POST(req: Request) {
     try {
       const uploadResults = await Promise.all(
         validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
-          // `people/ACC-KH-33001/nid-front`, one folder per applicant, named
-          // after the identifier on their passbook — the same folder their
-          // avatar goes in, so everything the foundation holds about one person
-          // is in one place whoever is looking and whatever host it is on.
+          // `applications/APP-2026-000001/nid-front`, one folder per
+          // application, named after the reference the applicant was just given.
+          // Not `people/`: nobody is a member yet, and the folder that gets
+          // deleted when an application is refused should be the application's,
+          // not a person's.
           //
           // The document slug is the **public id**, not another folder with a
           // random filename inside it. A registration submits exactly one of
@@ -525,7 +531,7 @@ export async function POST(req: Request) {
           // is the one rule in this file that cannot be undone after the fact.
           const uploadResult = await uploadImage(
             buffer,
-            personFolder(created.accountNo, created.id),
+            applicationFolder(created.formNumber, created.id),
             {
               preserveOriginal: true,
               publicId: requirement.folderSlug,
@@ -584,7 +590,7 @@ export async function POST(req: Request) {
         targetRole: UserRole.ADMIN,
         data: {
           userId: created.id,
-          accountNo: created.accountNo,
+          formNumber: created.formNumber,
           name: created.nameEn,
           phone: created.phone,
         },

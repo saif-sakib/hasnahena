@@ -325,6 +325,8 @@ told — which is why `registration.spec.ts` stayed green throughout.
 | Who owns an email, phone or NID | [`lib/rejected-application.ts`](../apps/web/lib/rejected-application.ts) and `RejectedApplicationSQL` — **and the migration's index predicates** | `rejected-application.test.ts` fails. The indexes are what enforce it; the constants are what queries agree with |
 | The age floor | It is a **setting**, `membership.minimumAgeYears`. [`lib/membership-eligibility.ts`](../apps/web/lib/membership-eligibility.ts) is the only place that reads or judges it | The form and the API disagreeing means an applicant gets past the browser and is refused by the server with different words |
 | What the applicant is told | The approval and rejection builders in `email_service.go`, and the confirmation screen in the register page | Nothing else tells them. There is no in-app channel: an applicant has no account to log into |
+| The **numbers** | `APP-2026-000001` from `lib/document-numbers.ts` at submission; `ACC-KH-33001` from `generateNextAccountNo` at **approval, and nowhere else** ([ADR-039](decisions.md)) | Allocating a membership number to an applicant means every refusal punches a hole in the foundation's register. And `formNumber` must survive approval — overwriting it destroys the applicant's reference and the name of the Cloudinary folder holding their documents |
+| What is **deleted** when they are refused | `lib/application-documents.ts`, called by `POST /api/v1/admin/retention` — from the approvals screen at the moment of the decision, and from the nightly sweep for anything that missed | The identity photographs stay on a public URL. Delete **by folder prefix**, never by iterating `documents`: that table records what was *recorded*, and an upload that outlived a failed row insert is still stored |
 
 **Four things that will bite you:**
 
@@ -340,6 +342,12 @@ told — which is why `registration.spec.ts` stayed green throughout.
 4. **Email failure is reported, never fatal.** The decision is committed; an
    admin whose mail bounced has to telephone, and can only do that if the screen
    says so.
+5. **The approval response is the only time the account number and the temporary
+   password exist in readable form.** Most members have no email
+   ([ADR-036](decisions.md)), so for them that screen *is* the delivery. Both are
+   shown on success, not only when the email fails — and the account number comes
+   back from `ApproveRegistration`, not from the candidate row, which was read
+   before the number existed.
 
 **Prove it:** [`e2e/entry-path.spec.ts`](../apps/web/e2e/entry-path.spec.ts)
 walks the whole journey at 412 px in both languages.

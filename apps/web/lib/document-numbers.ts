@@ -20,6 +20,24 @@ export const SERIES = {
   withdrawal: 'WDR',
   loan: 'LOAN',
   loanRepayment: 'REP',
+  /**
+   * The application's own number — `APP-2026-000001`, stored in
+   * `users.formNumber` ("ফরম নং").
+   *
+   * An applicant needs a reference the moment they submit, and for a while that
+   * reference was their **account number**, allocated by the registration route
+   * before anybody had looked at the application. Rejecting the first applicant
+   * therefore consumed `ACC-KH-33001` for ever and gave the next one `002` — a
+   * hole in the foundation's own register, punched by a public form that anyone
+   * can submit.
+   *
+   * So there are two numbers, which is what the paper world already does: you
+   * are given a **form number** when you apply, and a **membership number** when
+   * you are admitted. `accountNo` is now issued by the approval path and by
+   * nothing else, so the register is continuous and `ACC-KH-33001` means "the
+   * first member" rather than "the first person who opened the form".
+   */
+  application: 'APP',
 } as const;
 
 export type Series = (typeof SERIES)[keyof typeof SERIES];

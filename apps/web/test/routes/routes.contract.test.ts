@@ -35,6 +35,7 @@ import * as adminWorkers from '@/app/api/v1/admin/workers/route';
 import * as adminBranches from '@/app/api/v1/admin/branches/route';
 import * as adminMemberErase from '@/app/api/v1/admin/members/[id]/erase/route';
 import * as adminMemberResetPassword from '@/app/api/v1/admin/members/[id]/reset-password/route';
+import * as adminRetention from '@/app/api/v1/admin/retention/route';
 import * as authLogin from '@/app/api/v1/auth/login/route';
 import * as supportProxy from '@/app/api/v1/dashboard/support/[...path]/route';
 import * as gallery from '@/app/api/v1/gallery/route';
@@ -154,6 +155,33 @@ const ROUTES: Array<{
       context: { params: Promise.resolve({ id: 'no-such-member' }) },
       body: { confirmAccountNo: 'ACC-KH-00000' },
     },
+  },
+  {
+    // The Cloudinary half of the retention policy (ADR-038). It erases the
+    // identity documents of refused applications, so it is admins only for the
+    // same reason erasure is — with one extra caller, the scheduled sweep, which
+    // presents `CRON_SECRET` instead of a token. That path is not exercised here:
+    // this suite asserts what a *signed-in role* may do, and the sweep is not a
+    // role. Its own guard is that an unset `CRON_SECRET` accepts nobody.
+    name: 'POST /api/v1/admin/retention',
+    file: 'v1/admin/retention',
+    method: 'POST',
+    handler: asHandler(adminRetention.POST),
+    path: '/api/v1/admin/retention',
+    contract: { roles: ADMINS, body: {} },
+  },
+  {
+    // The scheduled half. Vercel Cron sends a GET and attaches
+    // `Authorization: Bearer $CRON_SECRET` itself, so this method exists for it
+    // alone — **no signed-in role may reach it**, including a super admin, which
+    // is what `roles: []` asserts. A cron endpoint that also answered an admin
+    // token would be a second, unaudited way to expire the audit log.
+    name: 'GET /api/v1/admin/retention',
+    file: 'v1/admin/retention',
+    method: 'GET',
+    handler: asHandler(adminRetention.GET),
+    path: '/api/v1/admin/retention',
+    contract: { roles: [] },
   },
   {
     name: 'POST /api/v1/admin/workers',

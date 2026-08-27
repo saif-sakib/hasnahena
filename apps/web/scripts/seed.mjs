@@ -461,8 +461,6 @@ async function seedDonationPool(prisma) {
     data: {
       savingsBalance: BigInt(0),
       loanBalance: BigInt(0),
-      isLoanEligible: false,
-      maxLoanAmount: BigInt(0),
       userId: DONATION_OWNER_ID,
     },
   });

@@ -162,7 +162,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
 
   it('creates the member, stores four documents, and tells the admins', async () => {
     const res = await registrations.POST(submission());
-    const body = (await res.json()) as { ok: boolean; user?: { id: string; accountNo: string } };
+    const body = (await res.json()) as { ok: boolean; user?: { id: string; formNumber: string } };
 
     expect(res.status, JSON.stringify(body)).toBe(201);
     expect(body.ok).toBe(true);
@@ -172,7 +172,14 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
       include: { documents: true, nominee: true, account: true },
     });
     expect(user?.status).toBe('PENDING');
-    expect(user?.accountNo).toBeTruthy();
+    // **No account number.** It is allocated when the application is approved,
+    // by `ApproveRegistration` and nowhere else. Allocating it here meant
+    // refusing the first applicant consumed `ACC-KH-33001` for ever and handed
+    // the next one `002` — a hole in the foundation's register, punched by a
+    // public form. What the applicant gets is their application's own number.
+    expect(user?.accountNo).toBeNull();
+    expect(user?.formNumber).toMatch(/^APP-\d{4}-\d{6}$/);
+    expect(body.user?.formNumber).toBe(user?.formNumber);
     expect(user?.documents.map((d) => d.type).sort()).toEqual([
       'member_photo',
       'member_signature',

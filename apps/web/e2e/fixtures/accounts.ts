@@ -116,8 +116,6 @@ export async function seedAccounts(openingBalance = 50_000): Promise<void> {
     create: {
       savingsBalance: BigInt(openingBalance),
       loanBalance: BigInt(0),
-      isLoanEligible: true,
-      maxLoanAmount: BigInt(0),
       userId: ACCOUNTS.MEMBER.id,
     },
   });

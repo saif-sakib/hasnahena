@@ -185,8 +185,6 @@ export async function seedRoleUsers(): Promise<Record<TestRole, string>> {
         create: {
           savingsBalance: BigInt(50000),
           loanBalance: BigInt(0),
-          isLoanEligible: true,
-          maxLoanAmount: BigInt(0),
           userId: id,
         },
       });

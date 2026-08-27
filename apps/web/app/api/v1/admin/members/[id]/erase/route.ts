@@ -3,7 +3,14 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireActiveAuth, revokeAllTokens } from '@/lib/auth-revocation';
 import { createAuditLog } from '@/lib/audit';
-import { deleteOldAvatar, deleteImage, extractPublicId } from '@/lib/cloudinary';
+import {
+  deleteOldAvatar,
+  deleteImage,
+  extractPublicId,
+  deleteFolder,
+  personFolder,
+  applicationFolder,
+} from '@/lib/cloudinary';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { LoanStatus, UserRole, UserStatus } from '@prisma/client';
 
@@ -82,7 +89,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const member = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, accountNo: true, avatarUrl: true, email: true, phone: true },
+      select: {
+        id: true,
+        role: true,
+        accountNo: true,
+        // The application's number names the folder holding their four identity
+        // documents. Without it the erasure can only delete what `documents`
+        // happens to still record.
+        formNumber: true,
+        avatarUrl: true,
+        email: true,
+        phone: true,
+      },
     });
     if (!member) {
       return NextResponse.json({ ok: false, error: 'Member not found' }, { status: 404 });
@@ -205,20 +223,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // its own failure modes, and an image that will not delete must not roll
     // back an erasure that has already succeeded in the database. Every failure
     // logs — `deleteImage` is the only record that an asset was left behind.
+    // **Both folders, by prefix, and then anything left over by URL.**
+    //
+    // Deleting only the URLs in `documents` was erasure that trusted the
+    // database to be a complete inventory of the image host, and it is not: an
+    // upload that succeeded before a failed row insert, a retry that wrote a
+    // second asset, a file uploaded by hand — none of those have a row, all of
+    // them are still served from a public URL, and a prefix delete is the only
+    // thing that reaches them. `hasnahena/people/ACC-KH-33001` holds the avatar
+    // and `hasnahena/applications/APP-2026-000001` the identity documents.
+    //
+    // The URL pass still runs afterwards for anything filed before those two
+    // trees existed, and for the one case a prefix cannot cover: a document
+    // whose row points somewhere else entirely.
+    const folderResults = await Promise.all([
+      deleteFolder(personFolder(member.accountNo, member.id)),
+      deleteFolder(applicationFolder(member.formNumber, member.id)),
+    ]);
+    const folderFailures = folderResults.filter((r) => r === null).length;
+    let assetsDeleted = folderResults.reduce<number>((sum, r) => sum + (r ?? 0), 0);
+
     const assets = [
       ...documents.map((d) => d.url),
       ...(member.avatarUrl ? [member.avatarUrl] : []),
     ];
-    let assetsDeleted = 0;
     for (const url of assets) {
       const publicId = extractPublicId(url);
+      // A miss here is expected and is *not* counted as a failure: the prefix
+      // pass has usually already taken the file, so Cloudinary answers
+      // `not found`. The folder results above are what says whether anything is
+      // still online.
       const ok = publicId ? await deleteImage(publicId) : await deleteOldAvatar(url);
       if (ok) assetsDeleted += 1;
     }
-    if (assetsDeleted < assets.length) {
+
+    if (folderFailures > 0) {
       console.error(
-        `[Admin/EraseMember] ${assets.length - assetsDeleted} Cloudinary asset(s) for ` +
-          `${member.accountNo} were not deleted and are still served publicly. See docs/runbook.md.`,
+        `[Admin/EraseMember] Cloudinary would not empty ${folderFailures} folder(s) for ` +
+          `${member.accountNo}. Files may still be served publicly — see docs/runbook.md.`,
       );
     }
 

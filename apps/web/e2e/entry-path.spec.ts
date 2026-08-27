@@ -142,8 +142,9 @@ test.describe('the entry path', () => {
    * Every field here is one the decision path reads: `passwordHash` is the
    * sentinel that makes this a *rejected-able application* rather than a member
    * (`lib/rejected-application.ts`), `preferredLocale` decides which language the
-   * decision email goes out in, and `accountNo` is what the applicant was given
-   * as a reference. Getting any of them wrong would make these tests pass
+   * decision email goes out in, and `formNumber` is the reference the applicant
+   * was given — **not** an account number, which they do not have until they are
+   * admitted ([ADR-039](../../../docs/decisions.md)). Getting any of them wrong would make these tests pass
    * against a row the real flow never produces, which is the failure mode of
    * every hand-built fixture — so `applicationShapeMatchesTheRoute` below reads
    * the route and checks.
@@ -152,9 +153,10 @@ test.describe('the entry path', () => {
 
   async function seedApplication(tag: string, locale: 'en' | 'bn' = 'en') {
     const who = applicant(tag);
-    // `accountNo` is globally `@unique`, and a re-application is a **second
-    // row** holding the same email, phone and NID as the first. Deriving the
-    // number from the tag alone would collide on exactly the test that matters.
+    // `formNumber` is derived per seeded row rather than from the tag alone: a
+    // re-application is a **second row** holding the same email, phone and NID
+    // as the first, so a number derived from the tag would collide on exactly
+    // the test that matters.
     seededApplications += 1;
     const seq = (Math.abs(hash(tag)) % 90_000) + 9000 + seededApplications;
     return prisma.user.create({
@@ -165,8 +167,11 @@ test.describe('the entry path', () => {
         preferredLocale: locale,
         role: 'MEMBER',
         status: 'PENDING',
-        accountNo: `ACC-KH-${seq}`,
-        formNumber: `FORM-ACC-KH-${seq}`,
+        // **No account number.** An application does not have one — it is
+        // issued on approval and nowhere else ([ADR-039](../../../docs/decisions.md)),
+        // so that refusing somebody does not consume a number from the
+        // foundation's register. This mirrors what `POST /registrations` writes.
+        formNumber: `APP-2026-${String(seq).padStart(6, '0')}`,
         nameEn: who.nameEn,
         fatherName: 'Mohammad Ali',
         motherName: 'Fatema Begum',
@@ -175,8 +180,6 @@ test.describe('the entry path', () => {
         nidNumber: who.nidNumber,
         account: {
           create: {
-            isLoanEligible: false,
-            maxLoanAmount: BigInt(0),
             savingsBalance: BigInt(0),
             loanBalance: BigInt(0),
           },
@@ -297,8 +300,13 @@ test.describe('the entry path', () => {
       });
       await expect(heading).toBeVisible({ timeout: 30_000 });
 
-      // The account number, allocated at submission and never shown before.
-      await expect(page.getByText(/ACC-KH-\d+/)).toBeVisible();
+      // The **application's** reference — `APP-2026-000001` — allocated at
+      // submission. Not an account number: that is issued if and when the
+      // application is approved, and is in the approval email. This used to
+      // assert `ACC-KH-…`, which is what a public form allocating membership
+      // numbers looked like from the outside.
+      await expect(page.getByText(/APP-\d{4}-\d{6}/)).toBeVisible();
+      await expect(page.getByText(/ACC-KH-\d+/)).toHaveCount(0);
 
       // And it stays. A toast would be gone by now.
       await page.waitForTimeout(4000);

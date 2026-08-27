@@ -7,12 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"hasnahena/apps/api/internal/money"
 	"hasnahena/apps/api/internal/notify"
 )
 
@@ -433,7 +433,6 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			COALESCE(u."nameBn", ''),
 			l."principalAmount"::bigint,
 			COALESCE(a."savingsBalance", 0)::bigint,
-			COALESCE(a."maxLoanAmount", 0)::bigint,
 			COALESCE(g.id, ''),
 			COALESCE(g."nameEn", ''),
 			COALESCE(l.purpose, ''),
@@ -459,16 +458,22 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 	loanRows, err := r.db.Query(ctx, loanQuery)
 	if err == nil {
 		defer loanRows.Close()
+		// Derived per row rather than selected. The column this replaced
+		// (`accounts.maxLoanAmount`) was never updated after account creation, so
+		// every pending request on this screen carried `maxEligible: 0` — see the
+		// note in member_repository.GetMemberDashboardData.
+		_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 		loans := []map[string]interface{}{}
 		for loanRows.Next() {
 			var id, accountNo, memberName, memberNameBn, guarantorId, guarantorName, purpose, repaymentHistory string
-			var amount, currentDeposit, maxEligible int64
+			var amount, currentDeposit int64
 			var createdAt time.Time
 			var previousLoans int
-			if err := loanRows.Scan(&id, &accountNo, &memberName, &memberNameBn, &amount, &currentDeposit, &maxEligible,
+			if err := loanRows.Scan(&id, &accountNo, &memberName, &memberNameBn, &amount, &currentDeposit,
 				&guarantorId, &guarantorName, &purpose, &createdAt, &previousLoans, &repaymentHistory); err != nil {
 				continue
 			}
+			maxEligible := money.MaxLoanAmount(currentDeposit, maxLoanMultiplier)
 			loans = append(loans, map[string]interface{}{
 				"id":                id,
 				"accountNo":         accountNo,
@@ -588,17 +593,24 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 // "first-login-" prefix that this function validated and stored verbatim — the
 // prefix is a `scope` column now, so there is nothing left to validate beyond
 // the secret being present.
-func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret string) error {
+// ApproveRegistration admits a pending applicant and **returns the account
+// number they have just been given**.
+//
+// Returned rather than read back by the caller, because the caller reads the
+// candidate row *before* this runs: `accountNo` is null on an application and is
+// allocated here, so a handler that fetched it beforehand would put an empty
+// string into the one email that tells a member their number.
+func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret string) (string, error) {
 	if strings.TrimSpace(passwordHash) == "" {
-		return errors.New("password hash is required")
+		return "", errors.New("password hash is required")
 	}
 	if strings.TrimSpace(firstLoginSecret) == "" {
-		return errors.New("first login secret is required")
+		return "", errors.New("first login secret is required")
 	}
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
 
@@ -615,14 +627,14 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		FOR UPDATE
 	`, userID).Scan(&email, &phone, &memberID, &role, &status)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if strings.ToUpper(strings.TrimSpace(role)) != "MEMBER" {
-		return errors.New("user is not a member")
+		return "", errors.New("user is not a member")
 	}
 	if strings.ToUpper(strings.TrimSpace(status)) != "PENDING" {
-		return errors.New("user is not pending approval")
+		return "", errors.New("user is not pending approval")
 	}
 
 	const updateQuery = `
@@ -637,20 +649,38 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	`
 	result, err := tx.Exec(ctx, updateQuery, userID, approverID, passwordHash)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if result.RowsAffected() != 1 {
-		return errors.New("registration approval update failed")
+		return "", errors.New("registration approval update failed")
 	}
 
+	// **This is where a member's account number comes from, and the only place.**
+	//
+	// It used to be allocated by the registration route the moment a public form
+	// was submitted, so refusing the first applicant consumed `ACC-KH-33001` for
+	// ever and the next applicant became `002` — a hole in the foundation's own
+	// register, punched by a form anybody can fill in. The applicant's reference
+	// is their `formNumber` (`APP-2026-000001`), which is allocated at submission
+	// and costs nothing to burn.
+	//
+	// `formNumber` is deliberately NOT touched here. It used to be overwritten
+	// with `FORM-<accountNo>`, which destroyed the number the applicant had been
+	// given, was quoting on the telephone, and whose value names the Cloudinary
+	// folder holding their four identity documents.
+	//
+	// The empty check stays rather than becoming unconditional: re-approving is
+	// refused above, but if a row somehow already has a number it keeps it —
+	// renumbering a member would orphan their files and break the one identifier
+	// they were told to write down (ADR-023).
 	if strings.TrimSpace(memberID) == "" {
 		generatedMemberID, err := r.generateNextAccountNo(ctx, tx)
 		if err != nil {
-			return err
+			return "", err
 		}
 		memberID = generatedMemberID
-		if _, err := tx.Exec(ctx, `UPDATE users SET "accountNo" = $2, "formNumber" = $3, "updatedAt" = NOW() WHERE id = $1`, userID, memberID, fmt.Sprintf("FORM-%s", memberID)); err != nil {
-			return err
+		if _, err := tx.Exec(ctx, `UPDATE users SET "accountNo" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, memberID); err != nil {
+			return "", err
 		}
 	}
 
@@ -660,29 +690,29 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		  AND "usedAt" IS NULL
 		  AND (("email" = $1 AND $1 <> '') OR "phone" = $2)
 	`, email, phone, ResetScopeFirstLogin); err != nil {
-		return err
+		return "", err
 	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO password_reset_tokens (id, scope, "tokenHash", email, phone, "expiresAt", "createdAt")
 		VALUES (gen_random_uuid()::text, $4, $1, NULLIF($2, ''), $3, NOW() + INTERVAL '365 days', NOW())
 	`, hashResetSecret(firstLoginSecret), email, phone, ResetScopeFirstLogin); err != nil {
-		return err
+		return "", err
 	}
 
 	var accountExists bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE "userId" = $1)`, userID).Scan(&accountExists)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if !accountExists {
 		const createAccountQuery = `
-			INSERT INTO accounts (id, "savingsBalance", "loanBalance", "isLoanEligible", "maxLoanAmount", "createdAt", "updatedAt", "userId")
-			VALUES (gen_random_uuid()::text, 0, 0, true, 0, NOW(), NOW(), $1)
+			INSERT INTO accounts (id, "savingsBalance", "loanBalance", "createdAt", "updatedAt", "userId")
+			VALUES (gen_random_uuid()::text, 0, 0, NOW(), NOW(), $1)
 		`
 		if _, err := tx.Exec(ctx, createAccountQuery, userID); err != nil {
-			return err
+			return "", err
 		}
 	}
 	// Nothing to re-sync when the account already exists. It used to carry an
@@ -697,14 +727,14 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		INSERT INTO notifications (id, type, title, message, "targetUserId", "createdAt")
 		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', $2, $3, $1, NOW())
 	`, userID, memberTitle, memberMessage); err != nil {
-		return err
+		return "", err
 	}
 	staffTitle, staffMessage := notify.RegistrationApprovedForStaff()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO notifications (id, type, title, message, "targetRole", "createdAt")
 		VALUES (gen_random_uuid()::text, 'NEW_REGISTRATION', $1, $2, 'WORKER', NOW())
 	`, staffTitle, staffMessage); err != nil {
-		return err
+		return "", err
 	}
 
 	// Inside the transaction, and checked.
@@ -719,10 +749,13 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
 	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, notes); err != nil {
-		return err
+		return "", err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return memberID, nil
 }
 
 // ErrRegistrationNotPending is returned when the row named is not a pending

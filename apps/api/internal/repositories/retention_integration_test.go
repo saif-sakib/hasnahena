@@ -36,11 +36,11 @@ func seedRejectedApplicant(t *testing.T, id string, daysAgo int) string {
 			"childrenCount", "nidNumber", "dateOfBirth", "bloodGroup", profession,
 			"formNumber", "createdAt", "updatedAt")
 		VALUES ($1, $1 || '@applicant.test', '0195' || $4, '__PENDING_APPROVAL_NO_LOGIN__',
-			'MEMBER', 'INACTIVE', $2,
+			'MEMBER', 'INACTIVE', NULL,
 			'Applicant ' || $1, 'আবেদনকারী', 'Applicant Father', 'Applicant Mother',
 			'MALE', 'UNMARRIED', 0, $3, '1990-01-01', 'B+', 'Farmer',
-			'FORM-' || $1, NOW(), NOW())
-	`, id, "ACC-KH-"+phoneSuffix(id)[:5], retentionNID+phoneSuffix(id)[:4], phoneSuffix(id))
+			$2, NOW(), NOW())
+	`, id, "APP-2026-"+phoneSuffix(id)[:6], retentionNID+phoneSuffix(id)[:4], phoneSuffix(id))
 	if err != nil {
 		t.Fatalf("seed rejected applicant %s: %v", id, err)
 	}
@@ -280,9 +280,13 @@ func TestTheRetentionAuditRowNamesNothingItErased(t *testing.T) {
 			t.Errorf("the retention audit row names %s (%q): %q", name, value, details)
 		}
 	}
-	if !strings.Contains(details, "ACC-KH-") {
-		t.Errorf("the retention audit row names neither the account number nor anything else "+
-			"an operator can act on: %q", details)
+	// The **application's** number. A rejected applicant has no account number —
+	// it is issued on admission and nowhere else (ADR-039) — so a sweep that
+	// looked for one would name an internal cuid on every row it wrote, and the
+	// audit trail of every erasure would be unreadable.
+	if !strings.Contains(details, "APP-2026-") {
+		t.Errorf("the retention audit row names neither the application number nor anything "+
+			"else an operator can act on: %q", details)
 	}
 }
 
@@ -291,8 +295,8 @@ func TestTheRetentionWindowIsConfigurable(t *testing.T) {
 	seedRejectedApplicant(t, "retention-configured", 5)
 
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO system_config (id, key, value, "updatedAt")
-		VALUES ('cfg_retention_test', $1, '2', NOW())
+		INSERT INTO system_config (key, value, "updatedAt")
+		VALUES ($1, '2', NOW())
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
 	`, RejectedRetentionConfigKey); err != nil {
 		t.Fatalf("set retention config: %v", err)
@@ -316,8 +320,8 @@ func TestABadRetentionValueFallsBackToTheDefaultRatherThanStopping(t *testing.T)
 
 	for _, bad := range []string{"one year", "", "0", "-30"} {
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO system_config (id, key, value, "updatedAt")
-			VALUES ('cfg_retention_test', $1, $2, NOW())
+			INSERT INTO system_config (key, value, "updatedAt")
+			VALUES ($1, $2, NOW())
 			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
 		`, RejectedRetentionConfigKey, bad); err != nil {
 			t.Fatalf("set retention config to %q: %v", bad, err)

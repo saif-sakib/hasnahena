@@ -441,6 +441,46 @@
       "changePhoto": "Change profile photo",
       "removePhoto": "Remove profile photo",
       "close": "Close"
+    },
+    "audit": {
+      "title": "Audit Log",
+      "subtitle": "Every action anyone took, in order, kept permanently.",
+      "search": "Search",
+      "searchPlaceholder": "Account no, name, receipt or loan no",
+      "clear": "Clear",
+      "refresh": "Refresh",
+      "filters": "Filters",
+      "allCategories": "Everything",
+      "severity": "Importance",
+      "allSeverities": "Any",
+      "critical": "Critical",
+      "notable": "Notable",
+      "routine": "Routine",
+      "from": "From",
+      "to": "To",
+      "showRoutine": "Include sign-ins and other routine activity",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "system": "System",
+      "by": "by",
+      "noResults": "Nothing matches these filters.",
+      "noResultsHint": "Try a wider date range, or turn on routine activity.",
+      "loading": "Loading the trail…",
+      "loadFailed": "The audit trail could not be loaded.",
+      "showing": "Showing {from}–{to} of {total}",
+      "previous": "Previous",
+      "next": "Next",
+      "details": "Details",
+      "hideDetails": "Hide details",
+      "ipAddress": "IP address",
+      "record": "Record",
+      "before": "Before",
+      "after": "After",
+      "appendOnly": "This log cannot be edited or deleted. Corrections are appended.",
+      "retention": "Retention",
+      "retentionPermanent": "Kept permanently",
+      "retentionLong": "Kept {days} days",
+      "retentionShort": "Kept {days} days"
     }
   },
   "footer": {
@@ -475,7 +515,7 @@
         },
         "retention": {
           "title": "How long we keep it",
-          "content": "The financial record is permanent. It has to be: a posting whose owner has vanished does not make the accounts smaller, it makes them permanently wrong. Identity details are not permanent. If your application is refused, the decision and its reason are kept, and your national ID number, your parents’ names, your date of birth and your addresses are erased {rejectedDays} days after the refusal. If you leave and your account was never used, your record is deleted outright. If you leave and money has moved through your account, your record is anonymised instead — your name, contact details, ID number and photographs are removed and the postings remain, attached to an account number that no longer identifies anybody."
+          "content": "The financial record is permanent. It has to be: a posting whose owner has vanished does not make the accounts smaller, it makes them permanently wrong. Identity details are not permanent. If your application is refused, the photograph of your national ID and the photograph of you are deleted straight away, when the decision is made; the decision and its reason are kept, and your national ID number, your parents’ names, your date of birth and your addresses are erased {rejectedDays} days after the refusal. If you leave and your account was never used, your record is deleted outright. If you leave and money has moved through your account, your record is anonymised instead — your name, contact details, ID number and photographs are removed and the postings remain, attached to an account number that no longer identifies anybody. The record of who did what is kept to match: anything about money or about a decision made concerning you is kept permanently, our record of password changes and failed sign-in attempts for {securityDays} days, and routine entries such as an ordinary sign-in for {routineDays} days."
         },
         "rights": {
           "title": "Your rights, and where they stop",
@@ -483,7 +523,7 @@
         },
         "security": {
           "title": "How it is protected",
-          "content": "Passwords are stored only as a one-way hash, so nobody at the foundation can read yours. Sessions expire, and changing your password ends every other session immediately. Access needs a signed-in account with a role that permits it. Every change to a balance is written to an audit log that cannot be edited or deleted, only added to — the database itself refuses an attempt to alter one."
+          "content": "Passwords are stored only as a one-way hash, so nobody at the foundation can read yours. Sessions expire, and changing your password ends every other session immediately. Access needs a signed-in account with a role that permits it. Every change to a balance is written to an audit log that cannot be edited, only added to — the database itself refuses an attempt to alter one — and those entries are never deleted."
         },
         "contact": {
           "title": "Asking us about this",

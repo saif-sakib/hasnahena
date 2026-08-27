@@ -194,10 +194,10 @@ const REQUIREMENTS: Record<string, Coverage> = {
     absent: /slaColou?r|SLA_THRESHOLD|slaBucket/i,
   },
   'FR-22': {
-    gap: 'approvals, reports, settings and support are done; no audit-viewer UI and no liquidity alerts',
-    // The audit *data* is complete and the API serves it; nobody can read it
-    // without SQL. OBS-08.
-    absent: /AuditViewer|liquidityAlert|LiquidityAlert/,
+    // The audit viewer landed 2026-08-27 (FR-24). What is still missing here is
+    // the liquidity alerting.
+    gap: 'approvals, reports, settings, support and the audit viewer are done; no liquidity alerts',
+    absent: /liquidityAlert|LiquidityAlert|liquidityThreshold/,
   },
   // WO-93 / ADR-033, added 2026-08-25 from the owner review. Two halves and two
   // backends: the admin-triggered erasure is a Next route, because it has to
@@ -206,6 +206,22 @@ const REQUIREMENTS: Record<string, Coverage> = {
   'FR-23': {
     covered:
       'apps/web/test/routes/identity-integrity.test.ts (anonymise vs delete, the refusals, the audit row that names nothing it erased) + apps/api/internal/repositories/retention_integration_test.go (the window, what it must not touch) + cmd/server/wiring_test.go (the loop is actually started)',
+  },
+  // The audit trail had been complete data that nobody could read: the table was
+  // written by both backends, the endpoint existed, and no screen called it. The
+  // catalogue is what makes a screen possible at all — before it, `audit.ts`
+  // carried a hand-written union naming five events that never happen and
+  // missing every one the Go API writes.
+  'FR-24': {
+    covered:
+      'apps/web/test/unit/audit-actions.test.ts (every action either backend writes is catalogued, and nothing is catalogued that nothing writes) + routes.contract.test.ts (admins only) + e2e/matrix.spec.ts (the screen at 412px in both languages)',
+  },
+  // ADR-038. The tier lives beside the action rather than in the job that
+  // applies it, so a new action with no tier fails the census instead of
+  // silently inheriting a default.
+  'FR-25': {
+    covered:
+      'apps/web/test/unit/audit-actions.test.ts (money, lending, membership, staff and erasure are permanent; no critical row on the short clock) + routes.contract.test.ts (the sweep is admins-only on POST and scheduler-only on GET)',
   },
 };
 

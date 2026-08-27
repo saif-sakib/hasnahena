@@ -6,6 +6,7 @@ import { IMAGE_PRESETS, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 import { PUBLIC_CONFIG_KEYS } from '@/lib/system-config';
 import {
   personFolder,
+  applicationFolder,
   settingsImagePublicId,
   settingsImageTransformation,
 } from '@/lib/cloudinary';
@@ -195,17 +196,41 @@ describe('every asset is stored under a name a human can look up', () => {
 
   it('still files somebody with no account number somewhere', () => {
     // The fallback is so a row that somehow has no number gets a file rather
-    // than an exception — not the intended path. `accountNo` is allocated at
-    // registration, before any of these uploads happen.
+    // than an exception — not the intended path. Every upload into `people/`
+    // happens after the account number exists: staff get one at creation, a
+    // member at approval, which is also the first moment they can have an avatar.
     expect(personFolder(null, 'cmob97efh0000')).toBe('people/cmob97efh0000');
     expect(personFolder('   ', 'cmob97efh0000')).toBe('people/cmob97efh0000');
+  });
+
+  /**
+   * Registration documents are filed under the **application**, not the person.
+   *
+   * An applicant has no account number — that is issued if they are admitted —
+   * so `people/` had nothing meaningful to name a folder with, and the fallback
+   * put four NID scans under a cuid. The application's own number is the
+   * identifier that exists at the moment the files arrive.
+   *
+   * It is also the unit that gets deleted: one prefix per application means a
+   * refused applicant's scans go in one call, including anything a half-finished
+   * upload left behind that no `documents` row knows about.
+   */
+  it('files registration documents under the application number', () => {
+    expect(applicationFolder('APP-2026-000001', 'cmob97efh0000')).toBe(
+      'applications/APP-2026-000001',
+    );
+    expect(applicationFolder(null, 'cmob97efh0000')).toBe('applications/cmob97efh0000');
+    // The two trees must not collide: an application folder is never a person
+    // folder, whatever either is named.
+    expect(applicationFolder('X', 'y').startsWith('people/')).toBe(false);
+    expect(personFolder('X', 'y').startsWith('applications/')).toBe(false);
   });
 
   it('gives the avatar and the four registration documents fixed names', () => {
     const cloudinary = read('lib', 'cloudinary.ts');
     expect(cloudinary).toMatch(/publicId: 'avatar'/);
     const registrations = read('app', 'api', 'v1', 'registrations', 'route.ts');
-    expect(registrations).toContain('personFolder(created.accountNo, created.id)');
+    expect(registrations).toContain('applicationFolder(created.formNumber, created.id)');
     expect(registrations).toMatch(/publicId: requirement\.folderSlug/);
     // An NID scan must never be re-encoded, whatever else changes here.
     expect(registrations).toContain('preserveOriginal: true');

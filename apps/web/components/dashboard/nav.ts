@@ -2,6 +2,7 @@ import {
   Building2,
   ClipboardList,
   FileText,
+  ScrollText,
   HandCoins,
   Image as ImageIcon,
   LayoutDashboard,
@@ -209,6 +210,19 @@ export const DASHBOARD_NAV: readonly DashboardNavItem[] = [
     group: 'management',
     blurbEn: 'Offices members and workers are assigned to',
     blurbBn: 'সদস্য ও কর্মীদের নির্ধারিত অফিস',
+  },
+  {
+    // Last in the management group, beside Settings: it is the screen an admin
+    // goes to when something has already happened, not one they work from.
+    name: 'audit',
+    href: '/audit',
+    icon: ScrollText,
+    en: 'Audit Log',
+    bn: 'নিরীক্ষা লগ',
+    roles: ADMIN_ONLY,
+    group: 'management',
+    blurbEn: 'Who did what, when — kept permanently',
+    blurbBn: 'কে কখন কী করেছেন — স্থায়ীভাবে সংরক্ষিত',
   },
   {
     name: 'settings',

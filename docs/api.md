@@ -148,12 +148,11 @@ settlement, administering staff, reading the audit trail.
 
 Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
 
-Thirteen handlers, 26 exported methods. The "called by" column is the audited
-answer, not an intention — grep every `/api/v1/...` literal in `app/`,
-`components/`, `lib/`, `hooks/` and `e2e/` if you change it. Only
-`admin/audit-logs` has no caller, and it is OBS-08's backend waiting on its
-viewer UI. An uncalled route is not automatically dead, but it is never
-exercised, so treat it as untested.
+Fourteen handlers. The "called by" column is the audited answer, not an
+intention — grep every `/api/v1/...` literal in `app/`, `components/`, `lib/`,
+`hooks/` and `e2e/` if you change it. Every route now has one: `admin/audit-logs`
+was the exception for a long time, complete data with no reader, which is what
+made it possible for the endpoint to ship without selecting `details`.
 
 | Methods | Path | Purpose | Called by |
 |---|---|---|---|
@@ -167,7 +166,8 @@ exercised, so treat it as untested.
 | POST | `/api/v1/loans/applications` | member loan application | `components/dashboard/loan-application-form.tsx` |
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | `components/dashboard/guarantor-requests.tsx` |
 | GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branch CRUD — offices staff are assigned to. `DELETE` **deactivates** rather than deletes when staff are assigned, because `assignedBranch` is `SetNull` and deleting would silently unassign them ([WO-72](changelog.md)) | admin branches page, worker branch picker |
-| GET | `/api/v1/admin/audit-logs` | audit viewer feed | **nothing** — OBS-08's missing UI |
+| GET | `/api/v1/admin/audit-logs` | **FR-24.** The audit trail. Filters: `q` (free text — matched against `details`, the action, and the *ids* of any member, loan or transaction whose account number, application number, name, loan number or receipt number contains it), `category`, `severity`, `action`, `from`, `to`, `includeNoise`, `page`, `limit` (max 100). Resolves each row's `entityId` into a readable **subject** and its `userId` into an **actor**, batched per entity type rather than per row. Hides the `noise` actions — sign-ins and the like — unless `includeNoise=true` or the caller named an action or category. The vocabulary, the colours and the retention tier all come from `lib/audit-actions.ts` | admin audit screen |
+| GET·POST | `/api/v1/admin/retention` | **FR-25 / [ADR-038](decisions.md).** The Cloudinary half of the retention policy. **POST** is admins-only: with `{ userId }` it erases one refused application's identity photographs — the approvals screen calls it the instant a rejection is committed — and with `{}` it sweeps every refused application *and* removes audit rows past their tier. **GET** is the scheduler's, authenticated by `CRON_SECRET` and reachable by **no signed-in role**, including a super admin; an unset `CRON_SECRET` accepts nobody rather than everybody. Deletes **by folder prefix**, because `documents` records what was recorded and Cloudinary holds what was stored | admin approvals screen; Vercel Cron, nightly (`apps/web/vercel.json`) |
 | POST | `/api/v1/admin/members/{id}/erase` | **FR-23 / [ADR-033](decisions.md).** Erase a member: **anonymise** if they have any posting (identity columns cleared, contact tombstoned, documents / addresses / nominee and their Cloudinary assets deleted — `accountNo`, the account and every `Transaction` and `Loan` untouched), **delete** outright if they have none. The route counts references and decides; the caller does not choose. Refuses **409** while a loan or a guarantee is unsettled, **400** unless the caller echoes the member's own `accountNo`. Writes the revoke-all marker in the same transaction, and an audit row naming the account number, the counts and the admin's reason — never what it erased. Here rather than in Go because it must delete the Cloudinary assets; the *rejected-applicant* half of FR-23 is a Go background sweep instead | admin member detail screen |
 
 **Five handlers were removed** once it was clear none had a caller: two that

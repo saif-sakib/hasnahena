@@ -13,6 +13,9 @@ vendor/
 # Build outputs
 # ------------------------------------------------------------
 .next/
+# The test stack builds into its own directory so it can run beside `pnpm dev`
+# (Next 16 locks the output directory against a second dev server).
+.next-test/
 out/
 build/
 dist/

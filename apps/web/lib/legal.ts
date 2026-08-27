@@ -22,8 +22,17 @@
  * this repository has. `messages.test.ts` reads the message files.
  */
 
-/** Rewritten 2026-08-26 (T-10) to describe what the platform actually does. */
-export const PRIVACY_LAST_UPDATED = '2026-08-26';
+/**
+ * Rewritten 2026-08-26 (T-10) to describe what the platform actually does.
+ *
+ * Revised 2026-08-27 for the tiered retention policy ([ADR-038](../../../docs/decisions.md)):
+ * a refused applicant's photographs are now deleted at the decision rather than
+ * kept indefinitely, and the periods the audit trail is kept for are stated. Both
+ * are commitments a reader can hold the foundation to, so the date moves with
+ * them — a policy whose wording changes under an unchanged date is one nobody can
+ * tell has changed.
+ */
+export const PRIVACY_LAST_UPDATED = '2026-08-27';
 
 /**
  * 2026-08-26 (T-10). The loan clause itself last changed on 2026-08-25, when

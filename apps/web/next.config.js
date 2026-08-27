@@ -5,6 +5,19 @@ const { withSentryConfig } = require('@sentry/nextjs');
 const withNextIntl = createNextIntlPlugin('./i18n.ts');
 
 const nextConfig = {
+  // Where the build output goes — `.next` unless told otherwise.
+  //
+  // Next 16 takes a lock on this directory and refuses to start a second dev
+  // server against it, which broke `scripts/test-stack.sh up --serve` for anyone
+  // who happened to have `pnpm dev` running: the rig reported "web did not come
+  // up" and the reason was in a log file, three lines down. Pointing the test
+  // stack at its own directory lets the browser suite run beside a development
+  // server instead of demanding the developer stop working.
+  //
+  // Unset in every normal invocation, including production, so the deployed
+  // build is unaffected.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // Enable React strict mode for better development experience
   reactStrictMode: true,
 

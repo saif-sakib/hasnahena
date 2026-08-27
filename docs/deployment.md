@@ -42,9 +42,32 @@ CLOUDINARY_CLOUD_NAME=…
 CLOUDINARY_API_KEY=…
 CLOUDINARY_API_SECRET=…
 NEXT_PUBLIC_SENTRY_DSN=…
+CRON_SECRET=<a long random string, Vercel only>
 ```
 
 No Brevo keys here — email is backend-only. Cloudinary keys are Vercel-only too: the Go API contains no Cloudinary code.
+
+### `CRON_SECRET` and the nightly retention sweep
+
+`apps/web/vercel.json` declares one cron job: a `GET` to
+`/api/v1/admin/retention` at 19:00 UTC, which is 01:00 in Dhaka. Vercel attaches
+`Authorization: Bearer $CRON_SECRET` to it automatically, so setting the variable
+is the whole configuration — there is nothing to wire.
+
+**Without it the sweep never runs, and nothing says so.** The route answers `401`
+to a caller it cannot authenticate, and an unset `CRON_SECRET` authenticates
+nobody on purpose: treating a missing variable as "no check configured" would
+turn an erasure endpoint into an open one. So the failure is silent by design at
+the endpoint and must not be silent here.
+
+What it does, nightly ([ADR-038](decisions.md)): deletes the identity
+photographs of refused applications the approvals screen did not manage to clear
+at the moment of the decision, and removes audit entries past their retention
+tier. Both are reported in the response body and in the Vercel cron log; a night
+with nothing to do reports zeroes rather than staying quiet.
+
+It is **one** database wake per day, which is the budget ADR-035 sets for a
+background job. Do not add a second cron without counting it against that.
 
 **`CSP_ENFORCE` is deliberately not in that list.** The Content-Security-Policy
 ships **report-only** until it is set to `1`, so a policy that turns out to be

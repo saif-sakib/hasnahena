@@ -116,6 +116,8 @@ interface ApproveRegistrationResult {
   emailDelivered?: boolean;
   deliveryError?: string;
   temporaryPassword?: string;
+  /** Allocated by the approval itself — an application has none. */
+  accountNo?: string;
 }
 
 function inferDocumentLabel(document: RegistrationDocument, index: number, locale: string): string {
@@ -442,6 +444,26 @@ export default function ApprovalsScreen() {
   // Approving or rejecting fails for its own reasons — a stale request, a
   // balance that moved — and must not be confused with a failure to load.
   const [actionError, setActionError] = useState<string | null>(null);
+  /**
+   * What the admin has to pass on, shown until they dismiss it.
+   *
+   * Both halves are returned once and stored nowhere: the temporary password is
+   * only ever a bcrypt hash after this, and the account number — which the
+   * approval has just allocated — is on a screen the admin has already left by
+   * the time they think to look for it.
+   *
+   * It used to appear only when the approval *email* failed, which reads as
+   * "the happy path told the member". Most members of this cooperative have no
+   * email address at all (ADR-036), so for them the happy path told nobody, and
+   * the number they will be asked for at the counter for the rest of their
+   * membership went to a bcrypt hash and a log line.
+   */
+  const [approvedMember, setApprovedMember] = useState<{
+    name: string;
+    accountNo: string;
+    temporaryPassword: string;
+    emailDelivered: boolean;
+  } | null>(null);
   const error = actionError ?? loadError;
 
   const loanRepaymentRequests = useMemo(
@@ -516,6 +538,34 @@ export default function ApprovalsScreen() {
         },
       );
       closeRejectDialog();
+
+      // Erase the four identity documents now, not on a clock.
+      //
+      // A scan of a national identity card is the single most damaging thing
+      // this platform stores, it is served from a URL that needs no login, and
+      // the moment the foundation decides not to admit somebody it has no
+      // remaining use for it — the written decision, the reason code and the
+      // retention sweep's own clock cover every purpose keeping the images
+      // would serve (ADR-038).
+      //
+      // Best effort, and deliberately so: this is a browser-initiated call, and
+      // a closed tab or a Cloudinary outage must not leave the admin looking at
+      // a rejection that appears to have failed. What makes that safe is that
+      // the same route sweeps every refused application on a schedule, so
+      // anything missed here is picked up rather than lost.
+      void fetch('/api/v1/admin/retention', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(typeof window !== 'undefined' && localStorage.getItem('hn_access_token')
+            ? { Authorization: `Bearer ${localStorage.getItem('hn_access_token')}` }
+            : {}),
+        },
+        body: JSON.stringify({ userId: rejectTarget.id }),
+      }).catch(() => {
+        // The scheduled sweep is the guarantee; this call is only the hurry.
+      });
+
       // The rejection is committed either way. An admin whose email did not go
       // out has to telephone instead, and needs to be told that rather than
       // assuming the applicant has been informed.
@@ -548,17 +598,18 @@ export default function ApprovalsScreen() {
           notes: '',
           locale,
         });
-        if (approvalResult.emailDelivered === false) {
-          const fallbackMessage = locale === 'bn'
-            ? 'সদস্য অনুমোদিত হয়েছে, কিন্তু অনুমোদন ইমেইল পাঠানো যায়নি। প্রদত্ত অস্থায়ী পাসওয়ার্ডটি সদস্যকে নিরাপদভাবে জানিয়ে দিন।'
-            : 'Member was approved, but approval email was not delivered. Share the temporary password securely with the member.';
-          const details = approvalResult.deliveryError
-            ? ` ${locale === 'bn' ? 'কারণ:' : 'Reason:'} ${approvalResult.deliveryError}.`
-            : '';
-          const passwordHint = approvalResult.temporaryPassword
-            ? ` ${locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড:' : 'Temporary password:'} ${approvalResult.temporaryPassword}`
-            : '';
-          setActionError(`${fallbackMessage}${details}${passwordHint}`);
+        setApprovedMember({
+          name: registrations.find((item) => item.id === id)?.name ?? '',
+          accountNo: approvalResult.accountNo ?? '',
+          temporaryPassword: approvalResult.temporaryPassword ?? '',
+          emailDelivered: approvalResult.emailDelivered !== false,
+        });
+        if (approvalResult.emailDelivered === false && approvalResult.deliveryError) {
+          setActionError(
+            locale === 'bn'
+              ? `অনুমোদন ইমেইল পাঠানো যায়নি। কারণ: ${approvalResult.deliveryError}`
+              : `The approval email could not be sent. Reason: ${approvalResult.deliveryError}`,
+          );
         }
       }
       await loadApprovals();
@@ -669,6 +720,55 @@ export default function ApprovalsScreen() {
       {error && (
         <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200">
           {error}
+        </div>
+      )}
+
+      {approvedMember && (
+        <div
+          role="status"
+          className="border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="font-semibold">
+              {locale === 'bn'
+                ? `${approvedMember.name} এখন সদস্য`
+                : `${approvedMember.name} is now a member`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setApprovedMember(null)}
+              className="shrink-0 rounded-sm border border-emerald-300 px-2 py-1 text-xs font-medium hover:bg-emerald-100"
+            >
+              {locale === 'bn' ? 'বন্ধ করুন' : 'Done'}
+            </button>
+          </div>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-emerald-700">
+                {locale === 'bn' ? 'গ্রাহক আই.ডি' : 'Account No'}
+              </dt>
+              <dd className="mt-0.5 font-mono text-base font-semibold break-all">
+                {approvedMember.accountNo || '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-emerald-700">
+                {locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড' : 'Temporary password'}
+              </dt>
+              <dd className="mt-0.5 font-mono text-base font-semibold break-all">
+                {approvedMember.temporaryPassword || '—'}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs">
+            {approvedMember.emailDelivered
+              ? locale === 'bn'
+                ? 'এগুলো ইমেইলেও পাঠানো হয়েছে। এই পর্দা ছাড়লে আর দেখা যাবে না — প্রয়োজনে এখনই লিখে রাখুন।'
+                : 'These were emailed as well. They cannot be shown again once you leave this screen — write them down now if the member needs them read out.'
+              : locale === 'bn'
+                ? 'সদস্যকে এখনই এগুলো পড়ে শোনান। এই পর্দা ছাড়লে আর দেখা যাবে না।'
+                : 'Read these to the member now. They cannot be shown again once you leave this screen.'}
+          </p>
         </div>
       )}
 
