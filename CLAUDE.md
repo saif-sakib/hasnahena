@@ -17,6 +17,8 @@ pnpm test:go    # Go unit tests, no DB needed  pnpm test:stack # bring the whole
 pnpm test:integration   # Go + real Postgres: repositories, the 64-route contract, hostile input
 pnpm test:routes        # the Next route methods + real Postgres; no browser, no server
 pnpm db:migrate:check   # the migrated database still matches schema.prisma (CI runs this)
+pnpm db:migrate:adopt   # `_prisma_migrations` was emptied but the schema is current — record
+                        # every migration as applied, run none (docs/runbook.md §5b)
 pnpm test:bundle        # first-load JS per route vs bundle-budget.json; needs a prior `pnpm build`
 cd apps/api && go build ./... && gofmt -l .    # Go check. gofmt MUST print nothing —
                                                # CI formats the whole tree with no exclusions
@@ -123,6 +125,7 @@ count that used to open this sentence is gone too. See
 | a **field to `users` that a seed fills in** | `apps/web/test/unit/purge-script.test.ts` — add it to the scrub in `go-live-purge.mjs`. A seed writes *plausible* values into required columns and plausible is what nobody re-reads: both launch admins went to production with `Admin Father`, a 1985 birthday and an NID of `9876543210987` — and `users_nid_live_key` is unique over live rows, so that last one is a real member refused at registration with nothing able to explain why |
 | a **recurring database touch** — a ticker, a poll, a health check, a pool minimum | `apps/api/internal/config/idle_cost_test.go` — this database suspends when nothing is connected and bills for the time it is awake, so **the idle behaviour of the process is a line item** ([ADR-035](docs/decisions.md)). Four separately reasonable settings held it at a 100% duty cycle: `DB_MIN_CONNS=2`, a one-minute health check, a one-minute metrics ticker, and an uptime robot on `/v1/ready`. Count wakes per day, not queries per pass |
 | an **uptime or liveness check** | point it at `/v1/health`, which touches nothing — never `/v1/ready`, which pings the pool. Keeping the API warm and keeping the database warm are different problems ([docs/deployment.md](docs/deployment.md) § the endpoint the uptime check must use) |
+| a **row that a person is** | `users.id` **is** their number — `STF-0001`, `APP-2026-000001`, then `ACC-KH-33001` at approval ([ADR-043](docs/decisions.md)). There is no `@default`, so the compiler names any writer that forgets. It changes once, at admission, and anything holding an id across that moment must re-read it: the approvals screen filed the new member's documents against the application id and got a 404 |
 | a **staff or member account number** | `apps/web/lib/account-no.test.ts` — allocate from the highest issued under an advisory lock, never from a timestamp plus randomness. `ACC-KH-33001` continues the foundation's own paper register; `STF-0001` replaced `STF-MOB97EFH-A1B2C3`. One series per kind of person and never per role, because the number is also the name of their folder on the image host and a promotion must not orphan it |
 | a **file uploaded on somebody's behalf** | `apps/web/test/unit/image-uploads.test.ts` — file it under `personFolder(accountNo, id)` with a fixed public id. The asset tree is the only description of the image host that survives leaving it, and `profiles/super_admin/cmob97efh0000.../bqs94z5ywwgj` names nothing a human can look up |
 | an **image upload**, anywhere | `apps/web/test/unit/image-uploads.test.ts` — compress in the browser with an `IMAGE_PRESETS` preset **before** validating, and keep every `UPLOAD_SIZE_LIMITS` entry at or below `serverActions.bodySizeLimit`. A Server Action body over that limit is rejected by Next before any of our code runs, so the admin gets a failure naming no size and no field: that is how Content & Media's brand uploader accepted 5 MB into a 1 MB cap and simply did not work |
@@ -144,6 +147,8 @@ count that used to open this sentence is gone too. See
 | a **document uploaded before somebody is a member** | `apps/web/test/unit/image-uploads.test.ts` — it goes under the application, and the **approval moves it** into `people/<accountNo>` beside the avatar ([ADR-040](docs/decisions.md)). Two meaningful folder names are still worse than one when nothing joins them: "delete everything about this member" then needs a database join, which is the thing the erasure destroys. Move with `moveAsset` (a rename — an NID scan must never be re-encoded) and clean up with `deleteEmptyFolder`, never `deleteFolder`, which would finish a half-done move by deleting the half that did not move |
 | a **credential to an API response** | `apps/web/test/unit/approval-credentials.test.ts` — and ask where it will be read. Approving a registration returned the temporary password and the approvals screen printed it, because most members have no email ([ADR-036](docs/decisions.md)) so the screen was the only delivery. An account number is a *name*; a password is a *key*, and a queue screen in a shared office is where the owner of the account is usually not standing. The member with no email gets one from `reset-password` on their own page ([ADR-042](docs/decisions.md)). The test fails in both directions — a field returned with no screen to show it, and a screen reading a field nothing sends |
 | a **list that only grows** | don't `COUNT(*)` it. `/api/v1/admin/audit-logs` ran a full scan per keystroke of the search box, against a database that bills for being awake ([ADR-035](docs/decisions.md)), to render the word "of". Ask for `limit + 1` rows and answer `hasMore` |
+| a **date field for something that happened long ago** | use `components/ui/date-of-birth-input.tsx`, not `type="date"`. The platform calendar opens on this month, so a member born in 1985 is asked to travel there — tens of taps on a low-end Android, and several vendors hide the year list behind an unlabelled caret. A calendar is the right control for dates near today and a birthday is never near today |
+| a **column to `users`** | `apps/web/test/routes/identity-integrity.test.ts` — the erasure must clear it, or it must be on that test's `KEPT` list with the reason written down. "Erase everything" is a promise that decays one schema change at a time: the first version cleared the name, the NID and the address and left gender, marital status, children, language and office standing, and nothing failed |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -293,6 +298,10 @@ apps/web/lib/structured-data.ts   the JSON-LD builders. Type is NGO, never Finan
                                   interestRate and fee properties that misrepresent a Qard al-Hasan fund
 apps/web/lib/system-config.ts     every system_config key, split into public / member / admin tiers,
                                   plus the cached getPublicSettings() every marketing page renders from
+apps/web/components/ui/date-of-birth-input.tsx  day / month / year selects. The one date in this
+                                  application that is decades in the past, and therefore the one that
+                                  must not be a calendar. Value in and out is the same ISO string the
+                                  form and the API already used
 apps/web/components/ui/count-up.tsx  the hero figures, counting up from zero. Takes the admin's STRING
                                   (`৳২৫ লক্ষ+`), finds the number inside it and puts the ৳, the word and
                                   the + back — because a figure here is copy with a number in it, in
@@ -370,6 +379,9 @@ apps/web/lib/document-numbers.ts  DEP/WDR/LOAN/REP and APP — the gapless per-y
                                   is the APPLICANT's number, issued at submission; ACC-KH-33001 is the MEMBER's,
                                   issued at approval and nowhere else (ADR-039). Rejecting an application must
                                   not burn a membership number
+apps/web/scripts/lib/account-no.mjs  the staff series, restated for `seed.mjs` and `go-live-purge.mjs`,
+                                  which run under plain node with no TypeScript loader. ONE copy for both,
+                                  pinned against lib/account-no.ts by test/unit/purge-script.test.ts
 apps/web/lib/account-no.ts        ACC-KH-33001 — the ONE identifier a member is given (ADR-023/029).
                                   `users.accountNo`; called memberId before 2026-08-19. The Go half is
                                   apps/api/internal/utils/account_no.go and the two must agree

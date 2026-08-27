@@ -59,7 +59,7 @@ Four flags, all on `apps/web/scripts/go-live-purge.mjs`:
 | Flag | For |
 |---|---|
 | `--confirm` | actually apply. Without it the script is a dry run and changes nothing |
-| `--keep-passwords` | leave `passwordHash` and the first-login markers alone. Use it once the admins have signed in and chosen their own — re-running the scrub must not cost somebody the password they are using |
+| `--reset-passwords` | generate a new password per admin and force a change at first login. **Off by default** — the admins keep the passwords they are already using. Rotating a *config* secret at cutover is right and the procedure below does it; rotating a person's own password generates a replacement that travels through a terminal and a chat log, which is the journey the rotation was for. `--keep-passwords` still parses and now does nothing |
 | `--admins-only` | scrub the admin rows and **delete nothing**. Safe against a database in use, which a cutover purge never is |
 | `--keep-images` | leave Cloudinary alone. Only for a run where the assets are being dealt with some other way |
 

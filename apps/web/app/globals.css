@@ -319,3 +319,25 @@
     }
   }
 }
+
+/*
+ * One eye per password field.
+ *
+ * Every password input in this application draws its own show/hide button —
+ * consistently placed, translated, and reachable by keyboard. Edge (and older
+ * IE-derived engines) *also* draw a native reveal control inside the field, so a
+ * user typing a new password saw two eyes side by side and had to guess which
+ * one was ours.
+ *
+ * Hidden globally rather than per field, because the failure is per *browser*
+ * and not per screen: any password input this application ever adds has the same
+ * problem, and a rule somebody has to remember to apply is a rule that gets
+ * missed on the next form. `::-ms-clear` goes for the same reason on text inputs
+ * beside it — a second clear affordance next to a field that already has one.
+ */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+  width: 0;
+  height: 0;
+}

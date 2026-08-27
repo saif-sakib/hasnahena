@@ -588,6 +588,40 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 	return &candidate, nil
 }
 
+// renameUser moves a user row to a new primary key and carries with it every
+// reference that a foreign key does not.
+//
+// The four are `audit_logs.entityId` (for USER rows), `audit_logs.performedBy`,
+// `token_blacklist.userId` and `notifications.data->>'userId'`. They are joined
+// to a user by value rather than by constraint, so nothing in the database will
+// complain when one is left behind — the symptom is an audit screen that cannot
+// find the application it is describing, months later.
+//
+// The self-referential `users.approvedBy` needs no special handling here,
+// because its own FK cascades and this renames one row rather than the table.
+func renameUser(ctx context.Context, tx pgx.Tx, oldID, newID string) error {
+	if oldID == newID {
+		return nil
+	}
+	statements := []string{
+		`UPDATE audit_logs SET "entityId" = $2 WHERE "entityType" = 'USER' AND "entityId" = $1`,
+		`UPDATE audit_logs SET "performedBy" = $2 WHERE "performedBy" = $1`,
+		`UPDATE token_blacklist SET "userId" = $2 WHERE "userId" = $1`,
+		`UPDATE notifications SET data = jsonb_set(data, '{userId}', to_jsonb($2::text)) WHERE data ? 'userId' AND data->>'userId' = $1`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(ctx, statement, oldID, newID); err != nil {
+			return err
+		}
+	}
+	// Last, so the statements above still match on the value they were written
+	// with. The cascade fires from here.
+	if _, err := tx.Exec(ctx, `UPDATE users SET id = $2 WHERE id = $1`, oldID, newID); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ApproveRegistration activates a pending member and plants the first-login
 // marker whose existence is `mustChangePassword`.
 //
@@ -690,6 +724,26 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		if _, err := tx.Exec(ctx, `UPDATE users SET "accountNo" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, memberID); err != nil {
 			return "", err
 		}
+
+		// **And the row's id, which IS the account number** (ADR-043).
+		//
+		// This is the one moment in a member's life that their id changes, and
+		// it is deliberately this moment: until now they are an applicant known
+		// by `APP-2026-000001`, and nothing outside this database holds that
+		// value. An applicant's password hash is a sentinel bcrypt can never
+		// match, so they have never signed in — there is no token carrying the
+		// old id, no session to break, and no third party to tell.
+		//
+		// Every foreign key referencing `users.id` is ON UPDATE CASCADE, so the
+		// account, the addresses, the nominee and the documents follow in the
+		// same statement. The four columns that hold a user id *without* a
+		// foreign key are remapped by hand below — miss one and the audit trail
+		// silently loses the rows describing this person's own application,
+		// which is the trail's whole subject at this point.
+		if err := renameUser(ctx, tx, userID, memberID); err != nil {
+			return "", err
+		}
+		userID = memberID
 	}
 
 	// **Which office this member belongs to, decided by the admin admitting them.**

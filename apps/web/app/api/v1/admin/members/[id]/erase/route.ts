@@ -12,7 +12,7 @@ import {
   applicationFolder,
 } from '@/lib/cloudinary';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
-import { LoanStatus, UserRole, UserStatus } from '@prisma/client';
+import { Gender, LoanStatus, MaritalStatus, UserRole, UserStatus } from '@prisma/client';
 
 /**
  * Erase a member — WO-93, FR-23, [ADR-033](../../../../../../../../../docs/decisions.md).
@@ -188,10 +188,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       });
       await tx.nominee.deleteMany({ where: { userId: id } });
 
+      // The support conversation, which is free text the member typed: their
+      // circumstances, their family, sometimes a photograph of a document. It
+      // cascades when a member is *deleted* and was simply left behind when one
+      // was anonymised — so the most narrative thing this platform holds about
+      // somebody survived an erasure that cleared their name.
+      //
+      // Messages before threads: `senderUserId` cascades from the user and
+      // `threadId` from the thread, and deleting the thread first would take a
+      // staff reply with it while leaving nothing to say why.
+      const threads = await tx.supportThread.findMany({
+        where: { memberUserId: id },
+        select: { id: true },
+      });
+      if (threads.length > 0) {
+        const threadIds = threads.map((t) => t.id);
+        await tx.supportMessage.deleteMany({ where: { threadId: { in: threadIds } } });
+        await tx.supportThread.deleteMany({ where: { id: { in: threadIds } } });
+      }
+      // A message they sent into somebody else's thread — there is no such path
+      // today, and this is here so that adding one does not quietly reopen this.
+      await tx.supportMessage.deleteMany({ where: { senderUserId: id } });
+
+      // Live stream tickets. They cascade on delete and are short-lived, but an
+      // anonymised member with a valid ticket is a subscription belonging to
+      // nobody for as long as it lasts.
+      await tx.sseTicket.deleteMany({ where: { userId: id } });
+
       await tx.user.update({
         where: { id },
         data: {
-          // The person.
+          // **Every column on `users` that describes the person**, and the list
+          // is deliberately exhaustive rather than "the obvious ones": the first
+          // version cleared the name, the NID and the address and left gender,
+          // marital status, number of children, language and office — five facts
+          // about a human being, on a row whose whole purpose after this is to be
+          // the owner of a number in the ledger.
+          // `test/routes/identity-integrity.test.ts` enumerates the model and
+          // fails on a column that is neither cleared here nor on the keep-list.
           nidNumber: null,
           avatarUrl: null,
           dateOfBirth: null,
@@ -201,6 +235,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           nameBn: null,
           fatherName: '',
           motherName: '',
+          // Enums with a NOT NULL default, so they go back to the default rather
+          // than to null. `MALE` and `UNMARRIED` then mean "not recorded" for an
+          // erased row, which is what they already mean on a row nobody filled in.
+          gender: Gender.MALE,
+          maritalStatus: MaritalStatus.UNMARRIED,
+          childrenCount: 0,
+          preferredLocale: null,
+          // Which office held the account is a fact about the person, not about
+          // the money: no posting carries a branch, so nothing downstream needs it.
+          assignedBranchId: null,
+          // A member cannot have been rejected, but the columns exist on the row
+          // and an erasure that leaves any door open leaves this one.
+          rejectionReasonCode: null,
+          rejectionReasonNote: null,
+          rejectedAt: null,
           // `nameEn` is NOT NULL and is what every past audit row and every
           // generated document refers to. It becomes the account number, which
           // is the one identifier this member ever had (ADR-023) and the only

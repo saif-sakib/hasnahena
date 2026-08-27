@@ -216,6 +216,18 @@ tells a member their number.
 
 ## Deleting only what the database remembers
 
+- **"Erase this person" written as a list of columns is a promise that decays one
+  schema change at a time.** The member erasure cleared the name, the NID, the
+  date of birth, the parents, the addresses, the nominee and the documents — and
+  left gender, marital status, number of children, preferred language and branch
+  standing on the row, plus the entire support conversation, which is the most
+  narrative thing the platform holds about anybody. Nothing failed. Nothing could
+  fail: a column nobody scrubs looks exactly like a column nobody has. The fix is
+  not a longer list, it is a **census** — enumerate the model and require every
+  column to be either cleared or on a keep-list with the reason written beside
+  it, so the next column added to `users` fails a test instead of quietly
+  surviving an erasure.
+
 - **Two meaningful folder names are still worse than one, if nothing joins
   them.** A member's avatar was under `people/ACC-KH-33001` and their four
   identity documents under `applications/APP-2026-000001`. Both names are
@@ -261,6 +273,32 @@ was not.
   away from hanging.
 
 ## Prisma and migrations
+
+- **A primary key that changes has exactly one hazard, and it is the caller
+  holding the old value across the change.** `users.id` became the person's own
+  number, which means it moves once — from `APP-2026-000001` to `ACC-KH-33001` —
+  at approval. Every foreign key cascades, so the database is consistent the
+  instant the statement commits, and every test over the database passed. What
+  broke was a *browser*: the approvals screen approves, then immediately files
+  the new member's documents at `/api/v1/admin/members/{id}/refile-documents`
+  using the `id` it read from the queue before the approval. 404, silently, into
+  a `void` promise. Nothing in the schema, the compiler or any unit test could
+  see it; the end-to-end journey that spans the rename is what found it. If a key
+  can move, the thing to audit is not the foreign keys — those look after
+  themselves — it is every value already in flight when it moves.
+
+- **`_prisma_migrations` is a table like any other, and emptying it turns a
+  deploy into a replay from zero.** It can be cleared by hand in a database
+  console, by a restore that did not include it, or by copying a database
+  without it. Prisma then believes nothing has been applied and `migrate deploy`
+  starts at the first migration, failing on `CREATE TABLE "users"` against a
+  database that obviously has `users` — an error about a table, for a problem
+  about history. The two-command diagnosis is `db:migrate:status` saying none are
+  applied while `db:migrate:check` says "No difference detected": everything ran,
+  nothing was recorded. `pnpm db:migrate:adopt` records them all and executes
+  none, and refuses if the drift check disagrees — because marking migrations
+  applied against a schema that is genuinely behind converts a loud failure into
+  a database Prisma believes is current and that is missing columns.
 
 - **A view depends on the columns it names, and nothing you run before a deploy
   will tell you.** `branches.code` was dropped in favour of making the code the
@@ -817,6 +855,30 @@ answered 500.
   in a way a production build never is.
 
 ## Interface
+
+- **A calendar widget is the wrong control for a birthday, and the platform gives
+  you one by default.** `<input type="date">` is what every form reaches for and
+  it opens on *this month*. A member born in 1985 is then asked to travel there;
+  on the Android pickers this application's users actually have, that is between
+  forty taps and a hunt for an unlabelled caret beside the month name that turns
+  the header into a year list. The control is right for "when is your next
+  appointment" and wrong for anything decades old, and the distinction is not
+  about dates at all — it is about *distance from today*. Day/month/year selects
+  are three taps and no travel, and the year list starts at the oldest plausible
+  member rather than the youngest, because a village cooperative's next member is
+  far more likely to be sixty than eighteen.
+
+- **A CSS property that only applies to one input type, applied to another, is a
+  no-op that looks like a mechanism.** `data-no-native-password-toggle` set
+  `-webkit-text-security: disc` on an input that was already `type="password"`.
+  That property masks *text* inputs; on a password input it does nothing at all.
+  So the attribute existed, was applied at five call sites, was named after
+  exactly the right problem — and every password field still showed two eyes on
+  Edge, ours and the browser's. Nobody re-checked because the marker was there.
+  The actual fix is one rule in the global stylesheet (`input::-ms-reveal`),
+  which is also the right *scope*: the failure is per browser, not per screen, so
+  a mechanism somebody has to remember to apply is one that gets missed on the
+  next form.
 
 - **A canvas re-encode to JPEG destroys transparency, and JPEG is the obvious
   default.** `downscaleImageFile` filled the canvas white before drawing —

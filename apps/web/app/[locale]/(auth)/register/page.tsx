@@ -32,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DateOfBirthInput } from '@/components/ui/date-of-birth-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
@@ -355,6 +356,9 @@ export default function RegisterPage() {
   const watchedEmail = watch('email');
   const watchedPhone = watch('phone');
   const maritalStatus = watch('maritalStatus');
+  // The birthdate control is not an `<input>`, so its value comes from the form
+  // rather than from the DOM. Everything else about the field is unchanged.
+  const watchedDateOfBirth = watch('dateOfBirth');
 
   const stepTitles = isBn
     ? ['ব্যক্তিগত তথ্য', 'ঠিকানা', 'নমিনী', 'নথি ও চুক্তি']
@@ -1664,13 +1668,22 @@ export default function RegisterPage() {
 
                       <div className="space-y-2">
                         <Label htmlFor="dateOfBirth">{isBn ? 'জন্ম তারিখ *' : 'Date of Birth *'}</Label>
-                        <Input
-                          className={FIELD}
+                        {/*
+                          Three dropdowns rather than `type="date"`. The platform
+                          calendar opens on this month and asks somebody born in
+                          1985 to travel there — see components/ui/date-of-birth-input.tsx.
+                          `register` still owns the value; the control only writes
+                          the same ISO string the field always held.
+                        */}
+                        <DateOfBirthInput
                           id="dateOfBirth"
-                          type="date"
-                          max={new Date().toISOString().slice(0, 10)}
-                          aria-invalid={Boolean(errors.dateOfBirth)}
-                          {...register('dateOfBirth')}
+                          locale={isBn ? 'bn' : 'en'}
+                          minimumAge={minimumAge}
+                          invalid={Boolean(errors.dateOfBirth)}
+                          value={watchedDateOfBirth ?? ''}
+                          onChange={(next) =>
+                            setValue('dateOfBirth', next, { shouldValidate: true, shouldDirty: true })
+                          }
                         />
                         <FieldError message={errors.dateOfBirth?.message} />
                       </div>

@@ -480,7 +480,12 @@ export default function ApprovalsScreen() {
     accountNo: string;
     branchName: string;
     emailDelivered: boolean;
+    /** `null` while the documents are still being filed; `false` if they were not. */
+    filed: boolean | null;
   } | null>(null);
+  // Cleared on the next approval, and by the admin. Small enough to sit above
+  // the queue without pushing it off a 412 px screen.
+
   const error = actionError ?? loadError;
 
   const loanRepaymentRequests = useMemo(
@@ -666,6 +671,7 @@ export default function ApprovalsScreen() {
         accountNo: approvalResult.accountNo ?? '',
         branchName: activeBranches.find((b) => b.id === approveBranchId)?.name ?? '',
         emailDelivered: approvalResult.emailDelivered !== false,
+        filed: null,
       });
 
       // File the four identity documents under the account number the approval
@@ -673,20 +679,44 @@ export default function ApprovalsScreen() {
       // instead of `applications/APP-2026-000001` where they were uploaded by
       // somebody who had no account number yet.
       //
-      // Best effort, exactly like the rejection's purge below, and safe for the
-      // same reason: the nightly sweep files anything this call missed. A
-      // failure here changes nothing anybody can see — the stored URLs still
-      // point at files that still exist — so it must not make a successful
-      // approval look like a failed one.
-      void fetch(`/api/v1/admin/members/${id}/refile-documents`, {
-        method: 'POST',
-        headers:
-          typeof window !== 'undefined' && localStorage.getItem('hn_access_token')
-            ? { Authorization: `Bearer ${localStorage.getItem('hn_access_token')}` }
-            : {},
-      }).catch(() => {
-        // The scheduled sweep is the guarantee; this call is only the hurry.
-      });
+      // **Awaited, and reported.** This was fire-and-forget on the reasoning
+      // that a failure changes nothing anybody can see — which is true, and is
+      // exactly why nobody would ever find out. The one person who can tell that
+      // the documents did not move is the admin standing in front of the screen
+      // that moved them, and only while they are still looking at it.
+      //
+      // It still cannot fail the approval: that is already committed, and the
+      // stored URLs still resolve either way. What it does is put a word in the
+      // notice, and the nightly sweep remains the guarantee.
+      // **The member's id, not the application's.** Admission renames the row
+      // from `APP-2026-000001` to the account number (ADR-043), so `id` — read
+      // from the queue before the approval — no longer addresses anybody. This
+      // is the one call in the application that holds a user id across the
+      // rename, and it answered 404 until it stopped.
+      const memberId = approvalResult.accountNo ?? id;
+      void (async () => {
+        try {
+          const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+          const res = await fetch(`/api/v1/admin/members/${memberId}/refile-documents`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const payload = await res.json().catch(() => null);
+          const data = payload?.data as { moved?: number; failed?: number } | undefined;
+          const ok = res.ok && payload?.ok === true && (data?.failed ?? 0) === 0;
+          setApprovedMember((current) =>
+            current && current.accountNo === (approvalResult.accountNo ?? '')
+              ? { ...current, filed: ok }
+              : current,
+          );
+        } catch {
+          setApprovedMember((current) =>
+            current && current.accountNo === (approvalResult.accountNo ?? '')
+              ? { ...current, filed: false }
+              : current,
+          );
+        }
+      })();
 
       if (approvalResult.emailDelivered === false && approvalResult.deliveryError) {
         setActionError(
@@ -809,49 +839,43 @@ export default function ApprovalsScreen() {
       {approvedMember && (
         <div
           role="status"
-          className="border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
         >
-          <div className="flex items-start justify-between gap-3">
-            <p className="font-semibold">
-              {locale === 'bn'
-                ? `${approvedMember.name} এখন সদস্য`
-                : `${approvedMember.name} is now a member`}
-            </p>
-            <button
-              type="button"
-              onClick={() => setApprovedMember(null)}
-              className="shrink-0 rounded-sm border border-emerald-300 px-2 py-1 text-xs font-medium hover:bg-emerald-100"
-            >
-              {locale === 'bn' ? 'বন্ধ করুন' : 'Done'}
-            </button>
-          </div>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-emerald-700">
-                {locale === 'bn' ? 'গ্রাহক আই.ডি' : 'Account No'}
-              </dt>
-              <dd className="mt-0.5 font-mono text-base font-semibold break-all">
-                {approvedMember.accountNo || '—'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-emerald-700">
-                {locale === 'bn' ? 'শাখা' : 'Office'}
-              </dt>
-              <dd className="mt-0.5 text-base font-semibold break-words">
-                {approvedMember.branchName || (locale === 'bn' ? 'নির্ধারিত হয়নি' : 'Not assigned')}
-              </dd>
-            </div>
-          </dl>
-          <p className="mt-3 text-xs">
+          <span className="font-medium">
+            {locale === 'bn'
+              ? `${approvedMember.name} এখন সদস্য`
+              : `${approvedMember.name} is now a member`}
+          </span>
+          <span className="font-mono font-semibold">{approvedMember.accountNo || '—'}</span>
+          {approvedMember.branchName && (
+            <span className="text-emerald-700">· {approvedMember.branchName}</span>
+          )}
+          <span className="text-emerald-700">
+            {'· '}
             {approvedMember.emailDelivered
               ? locale === 'bn'
-                ? 'সদস্যকে ইমেইলে অস্থায়ী পাসওয়ার্ড পাঠানো হয়েছে। গ্রাহক আই.ডি তাকে লিখে দিন।'
-                : 'A temporary password was emailed to the member. Give them their account number — it is the number they will be asked for at the counter.'
+                ? 'অস্থায়ী পাসওয়ার্ড ইমেইলে পাঠানো হয়েছে'
+                : 'temporary password emailed'
               : locale === 'bn'
-                ? 'এই সদস্যের ইমেইল নেই, তাই পাসওয়ার্ড পাঠানো যায়নি। তার নিজের পাতায় গিয়ে “পাসওয়ার্ড রিসেট” দিয়ে একটি অস্থায়ী পাসওয়ার্ড তৈরি করুন এবং সরাসরি পড়ে শোনান।'
-                : 'This member has no email, so no password was sent. Open their page and use “Reset password” to issue one, and read it to them there.'}
-          </p>
+                ? 'ইমেইল নেই — সদস্যের পাতা থেকে পাসওয়ার্ড রিসেট করুন'
+                : 'no email — issue a password from their page'}
+          </span>
+          {approvedMember.filed === false && (
+            <span className="text-amber-700">
+              {'· '}
+              {locale === 'bn'
+                ? 'নথিগুলো এখনও আবেদনের ফোল্ডারে — রাতের কাজ আবার চেষ্টা করবে'
+                : 'documents still in the application folder — the nightly sweep will retry'}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setApprovedMember(null)}
+            className="ml-auto shrink-0 text-emerald-700 hover:text-emerald-900"
+            aria-label={locale === 'bn' ? 'বন্ধ করুন' : 'Dismiss'}
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
         </div>
       )}
 

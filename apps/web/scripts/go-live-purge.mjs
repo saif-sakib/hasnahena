@@ -81,22 +81,32 @@
 //
 // THE PASSWORDS
 // -------------
-// Generated here, printed once, and never stored anywhere this script can read
-// back. Each admin also gets a `first-login` marker, which is the platform's own
-// forced-password-change mechanism (see FindByIdentifier's mustChangePassword) —
-// so the password below gets them in, and the application makes them replace it
-// before they can do anything else. That matters because a password that has
-// travelled through a chat log is a password somebody else has seen.
+// **Left alone by default.** The admin accounts survive this purge, and so do
+// the passwords their owners have already chosen and are already using. Taking
+// one away is not part of clearing test data, and a first-login marker planted
+// over a password somebody set themselves demands they change it again for no
+// reason at all.
 //
-// `--keep-passwords` skips all of that. Use it when the admins have already
-// signed in and chosen their own: re-running the scrub should not cost somebody
-// the password they are using, and a first-login marker planted over a password
-// they set themselves would demand they change it again for no reason.
+// This was the other way round, on the reasoning that a cutover is the moment to
+// rotate everything. That reasoning holds for secrets that live in a config
+// store — the JWT secret, the database URL, the Brevo key, all of which the
+// go-live procedure does rotate. It does not hold for a person's own password:
+// the risk it addresses is a password that has travelled through a chat log,
+// and the fix generates a *new* one and prints it to a terminal, which is the
+// same journey.
+//
+// `--reset-passwords` asks for the old behaviour: a generated password per
+// admin, printed once, stored nowhere this script can read back, plus a
+// `first-login` marker — the platform's own forced-change mechanism (see
+// FindByIdentifier's mustChangePassword) — so the printed password gets them in
+// and the application makes them replace it before they can do anything else.
+// Reach for it on a database whose admin passwords nobody trusts.
 //
 // FLAGS
 // -----
 //   --confirm          actually do it; without this the script is a dry run
-//   --keep-passwords   leave passwordHash and the first-login markers alone
+//   --reset-passwords  generate a new password per admin and force a change at
+//                      first login. Off by default: the admins keep theirs
 //   --admins-only      scrub the admin rows and delete NOTHING. Safe to run at
 //                      any time, including against a database in use
 //   --keep-images      leave Cloudinary alone
@@ -122,6 +132,7 @@ import bcrypt from 'bcryptjs';
 import { v2 as cloudinary } from 'cloudinary';
 import { PrismaClient, MaritalStatus, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv, redactUrl } from './lib/env.mjs';
+import { allocateStaffNo, parseStaffSequence } from './lib/account-no.mjs';
 
 /**
  * The accounts this foundation is launching with.
@@ -151,41 +162,6 @@ const DONATION_OWNER_ID = 'system_donation_fund';
 
 /** Scope of the marker whose existence *is* `mustChangePassword`. */
 const FIRST_LOGIN_SCOPE = 'first-login';
-
-// The staff account-number series, restated.
-//
-// The source of truth is `apps/web/lib/account-no.ts`, and this is a copy —
-// which this repository normally refuses. It is here because these scripts run
-// under plain `node`, not under Next: there is no TypeScript loader and no `@/`
-// alias resolution, which is why every one of them imports nothing but
-// `./lib/env.mjs`. Restating four lines is the lesser evil against making the
-// cutover script depend on a build step.
-//
-// `test/unit/purge-script.test.ts` reads both files and fails if they drift, so
-// the copy is checked rather than trusted.
-const STAFF_NO_ADVISORY_LOCK_SQL = `SELECT pg_advisory_xact_lock(873922)`;
-
-const NEXT_STAFF_NO_SQL = `
-  SELECT COALESCE(
-    MAX(CAST(SUBSTRING("accountNo" FROM 'STF-([0-9]+)$') AS INTEGER)),
-    0
-  ) + 1 AS next_seq
-  FROM users
-  WHERE "accountNo" ~ '^STF-[0-9]+$'
-`;
-
-const STAFF_NO_REGEX = /^STF-(\d+)$/;
-
-function formatStaffNo(sequence) {
-  return `STF-${sequence.toString().padStart(4, '0')}`;
-}
-
-function parseStaffSequence(accountNo) {
-  const match = accountNo?.match(STAFF_NO_REGEX);
-  if (!match) return null;
-  const parsed = Number.parseInt(match[1], 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 /**
  * The office to attach the admins to, when there is only one it could be.
@@ -338,7 +314,10 @@ async function main() {
   }
 
   const confirmed = process.argv.includes('--confirm');
-  const keepPasswords = process.argv.includes('--keep-passwords');
+  // `--keep-passwords` is still accepted and does nothing, because it is what
+  // the go-live procedure told people to type for months. A flag that has become
+  // the default should be a no-op, not an error.
+  const keepPasswords = !process.argv.includes('--reset-passwords');
   const adminsOnly = process.argv.includes('--admins-only');
   const keepImages = process.argv.includes('--keep-images');
 
@@ -348,7 +327,11 @@ async function main() {
       ? `mode:     CONFIRMED — ${adminsOnly ? 'scrubbing the admin rows only, deleting nothing' : 'this will delete data'}`
       : 'mode:     dry run (pass --confirm to apply)',
   );
-  if (keepPasswords) console.log('          --keep-passwords: existing passwords and first-login markers left alone');
+  console.log(
+    keepPasswords
+      ? '          passwords: left alone (pass --reset-passwords to generate new ones)'
+      : '          --reset-passwords: a new password per admin, change forced at first login',
+  );
   if (keepImages) console.log('          --keep-images: Cloudinary is left untouched');
   console.log('');
 
@@ -494,9 +477,7 @@ async function main() {
           // orphan their photograph.
           let accountNo = existing.accountNo;
           if (parseStaffSequence(accountNo) === null) {
-            await tx.$executeRawUnsafe(STAFF_NO_ADVISORY_LOCK_SQL);
-            const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe(NEXT_STAFF_NO_SQL);
-            accountNo = formatStaffNo(Number(nextSeq));
+            accountNo = await allocateStaffNo(tx);
           }
 
           await tx.user.update({
@@ -506,6 +487,12 @@ async function main() {
               role: UserRole.SUPER_ADMIN,
               status: UserStatus.ACTIVE,
               accountNo,
+              // The id **is** the account number ([ADR-043](../../../docs/decisions.md)),
+              // so renumbering a reused admin row moves both. Every foreign key
+              // referencing it is `ON UPDATE CASCADE`, so the children follow;
+              // there are none at this point in a cutover anyway, because
+              // everything else is about to be deleted.
+              id: accountNo,
               assignedBranchId: branchId,
 
               // Everything below is member-shaped and has no business on a
@@ -595,7 +582,7 @@ async function main() {
         // it is the only row for each account. Its *existence* is what
         // `mustChangePassword` reads; the secret behind it is never presented.
         //
-        // Skipped under --keep-passwords: demanding a change of a password the
+        // Only under --reset-passwords. Demanding a change of a password the
         // admin chose themselves, because a script ran, is a prompt with no
         // reason behind it.
         for (const c of keepPasswords ? [] : credentials) {

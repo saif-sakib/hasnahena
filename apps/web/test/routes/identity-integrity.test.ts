@@ -18,6 +18,10 @@
 //   pnpm --filter @hasnahena/web test:routes
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 
 import {
   routeRequest,
@@ -255,6 +259,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       // distinguishes an application from a deactivated member.
       await db().user.create({
         data: {
+          id: `${NS}refused`,
           email,
           phone: theirPhone,
           passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
@@ -313,6 +318,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const email = `${NS}deactivated${EMAIL_DOMAIN}`;
       await db().user.create({
         data: {
+          id: `${NS}deactivated`,
           email,
           phone: phone(22),
           passwordHash: 'a-real-bcrypt-hash-would-be-here',
@@ -588,6 +594,10 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           nidNumber: `19901${String(n).padStart(8, '0')}`,
           bloodGroup: 'B+',
           profession: 'Farmer',
+          gender: 'FEMALE',
+          maritalStatus: 'MARRIED',
+          childrenCount: 3,
+          preferredLocale: 'bn',
           approvedAt: new Date(),
           account: { create: { savingsBalance: BigInt(50000), loanBalance: BigInt(0) } },
           permanentAddress: {
@@ -602,6 +612,27 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const account = await db().account.findUniqueOrThrow({
         where: { userId: id },
         select: { id: true },
+      });
+
+      // The support conversation. This is the most narrative thing the platform
+      // holds about a member — free text they typed about their circumstances —
+      // and it used to survive an erasure that cleared their name.
+      const thread = await db().supportThread.create({
+        data: {
+          id: `${id}-thread`,
+          memberUserId: id,
+          status: 'OPEN',
+          deleteAt: new Date(Date.now() + 86_400_000),
+        },
+        select: { id: true },
+      });
+      await db().supportMessage.create({
+        data: {
+          id: `${id}-msg`,
+          threadId: thread.id,
+          senderUserId: id,
+          message: 'My husband lost his job last month.',
+        },
       });
 
       if (opts.posting) {
@@ -700,6 +731,87 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           where: { OR: [{ userPermanentId: m.id }, { userPresentId: m.id }] },
         }),
       ).toBe(0);
+      expect(await db().supportThread.count({ where: { memberUserId: m.id } })).toBe(0);
+      expect(await db().supportMessage.count({ where: { senderUserId: m.id } })).toBe(0);
+
+      // The five that were quietly left behind: gender, marital status, number
+      // of children, language and office are facts about a human being, on a row
+      // whose only remaining purpose is to own a number in the ledger. Enums are
+      // NOT NULL with a default, so "not recorded" is the default — which is
+      // what they already mean on a row nobody filled in.
+      const rest = await db().user.findUniqueOrThrow({
+        where: { id: m.id },
+        select: {
+          gender: true, maritalStatus: true, childrenCount: true,
+          preferredLocale: true, assignedBranchId: true, avatarUrl: true,
+          dateOfBirth: true, formNumber: true,
+        },
+      });
+      expect(rest).toEqual({
+        gender: 'MALE',
+        maritalStatus: 'UNMARRIED',
+        childrenCount: 0,
+        preferredLocale: null,
+        assignedBranchId: null,
+        avatarUrl: null,
+        dateOfBirth: null,
+        formNumber: null,
+      });
+    });
+
+    /**
+     * Every column on `users`, enumerated — because "erase everything" is a
+     * promise that decays one schema change at a time.
+     *
+     * The first version of this erasure cleared the name, the NID and the
+     * address and left five other facts about the person standing. Nothing
+     * failed; nobody could have noticed without reading the row. So the model is
+     * the list, and a column that is neither cleared by the route nor named
+     * below as a deliberate survivor fails here rather than in a year.
+     */
+    it('leaves nothing on the row that describes the person', () => {
+      const schema = readFileSync(
+        join(WEB_ROOT, 'prisma', 'schema.prisma'),
+        'utf8',
+      );
+      const model = /model User \{[\s\S]*?\n\}/.exec(schema)?.[0] ?? '';
+      expect(model.length).toBeGreaterThan(200);
+
+      const columns = [...model.matchAll(/^\s{2}([a-zA-Z][A-Za-z0-9]*)\s+\S/gm)]
+        .map((m) => m[1])
+        // Relation fields and back-references are not columns.
+        .filter((name) => !/^(permanentAddress|presentAddress|nominee|account|transactions|processedTransactions|loans|guaranteedLoans|approvedLoans|documents|supportThreads|processedSupportThreads|supportMessages|sseTickets|notifications|assignedBranch|approvedByUser|approvedUsers)$/.test(name));
+
+      /** Columns that survive an erasure on purpose, each for a stated reason. */
+      const KEPT: Record<string, string> = {
+        id: 'the primary key; every posting points at it',
+        accountNo: 'the ledger still needs an owner, and this is all it needs (ADR-023)',
+        nameEn: 'NOT NULL, and rewritten to "Erased member <accountNo>" — not the person',
+        phone: 'NOT NULL and unique; tombstoned so the next holder of the number inherits nothing',
+        passwordHash: 'unchanged and unusable — the revoke-all marker is what ends the session',
+        role: 'MEMBER, which is what the row is',
+        status: 'set to INACTIVE by the erasure; it is the erasure’s own state',
+        createdAt: 'when the account existed from — a fact about the ledger, not the member',
+        updatedAt: 'maintained by Prisma',
+        approvedAt: 'when the account began. Kept for the same reason as createdAt',
+        approvedBy: 'cleared by the route',
+      };
+
+      const route = readFileSync(
+        join(WEB_ROOT, 'app', 'api', 'v1', 'admin', 'members', '[id]', 'erase', 'route.ts'),
+        'utf8',
+      );
+      const scrub = route.slice(route.indexOf('await tx.user.update('));
+
+      const unaccounted = columns.filter(
+        (name) => !(name in KEPT) && !new RegExp(`^\\s+${name}:`, 'm').test(scrub),
+      );
+      expect(
+        unaccounted,
+        'these columns on `users` are neither cleared by the erasure nor listed as ' +
+          'deliberate survivors. A column that describes the person must be cleared; ' +
+          'one that describes the ledger belongs in KEPT with the reason written down',
+      ).toEqual([]);
     });
 
     it('ends the erased member\'s session', async () => {

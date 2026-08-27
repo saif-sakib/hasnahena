@@ -51,6 +51,7 @@
 | `SystemConfig` → `system_config` | key/value policy store | — . **Keyed on `key`**, like `document_sequences` is keyed on `(series, year)`: the surrogate `id` was never selected, joined or referenced, and filled the leftmost column of the most hand-read table in the schema with cuids |
 | `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
 | `GalleryItem` | public content | — |
+| `User` → `users` | **`id` is the number the person is known by** since 2026-08-27 — `STF-0001`, `APP-2026-000001` while applying, `ACC-KH-33001` once admitted ([ADR-043](decisions.md)). No `@default`: every writer names it. It changes once, at approval, when nothing outside the database holds it | every foreign key in the schema |
 | `Branch` → `branches` | an office: name, address, phone, `isActive`. **The code IS the `id`** (`KH`) since 2026-08-27 — it carried a `cuid()` as well, one fact in two required unique columns ([ADR-041](decisions.md)) | `users User[]` — **members as well as staff** since 2026-08-27, assigned by the admin at approval. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 

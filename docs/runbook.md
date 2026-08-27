@@ -302,6 +302,39 @@ well as in the console.
 
 ---
 
+## 5b. `migrate deploy` says a table already exists
+
+The symptom is a deploy failing on `CREATE TABLE "users"` — or on any early
+migration — against a database that plainly has that table. Prisma is not
+confused about the schema; it has lost its **history**. `_prisma_migrations` is
+a plain table and can be emptied by hand in a database console, by a restore
+that did not include it, or by copying a database without it. With no rows in it
+Prisma believes nothing has been applied and starts from the beginning.
+
+Check before doing anything:
+
+```bash
+pnpm db:migrate:status   # "12 migrations found ... none applied" against a full schema
+pnpm db:migrate:check    # "No difference detected" — the schema IS current
+```
+
+Those two answers together are the whole diagnosis: everything has run, nothing
+is recorded. Repair it with
+
+```bash
+pnpm db:migrate:adopt
+```
+
+which marks every migration in `prisma/migrations` as applied and **executes
+none of them** — each step is a row inserted into `_prisma_migrations`. It runs
+the drift check itself first and refuses if the schema is genuinely behind,
+because marking migrations applied against a database that is missing columns
+turns a loud failure into a silent one.
+
+If the drift check *does* report a difference, stop. Some of those migrations
+really do still need to run, and the fix is to restore `_prisma_migrations` from
+a backup (§4) rather than to guess which ones.
+
 ## 6. Where every credential lives
 
 | Store | Holds | Who can reach it |

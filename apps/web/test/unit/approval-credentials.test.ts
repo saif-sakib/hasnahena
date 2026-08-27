@@ -98,7 +98,7 @@ describe('the approvals screen', () => {
   it('tells the admin what to do for a member with no email', () => {
     // Without this the screen is a dead end for the majority case: the member
     // has no email, no password was sent, and nothing says where one comes from.
-    expect(APPROVALS_SCREEN).toMatch(/Reset password/);
+    expect(APPROVALS_SCREEN).toMatch(/issue a password from their page/);
   });
 });
 

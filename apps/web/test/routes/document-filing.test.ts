@@ -75,6 +75,9 @@ d('filing an admitted member’s documents', () => {
   async function makeUser(opts: { accountNo: string | null; formNumber: string; docs: string[] }) {
     const user = await testPrisma().user.create({
       data: {
+        // The id is the number the person is known by (ADR-043): the account
+        // number once they are admitted, the application number until then.
+        id: opts.accountNo ?? opts.formNumber,
         email: `${TAG}-${opts.formNumber}@example.test`,
         phone: `01${TAG}${opts.formNumber.slice(-4)}`,
         passwordHash: 'x'.repeat(60),

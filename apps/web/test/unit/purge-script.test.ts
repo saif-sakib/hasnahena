@@ -20,19 +20,23 @@ import { NEXT_STAFF_NO_SQL, STAFF_NO_ADVISORY_LOCK_SQL, formatStaffNo } from '@/
  */
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 const PURGE = readFileSync(join(WEB_ROOT, 'scripts', 'go-live-purge.mjs'), 'utf8');
+// The staff-number series the scripts restate. One copy for all of them since
+// 2026-08-27 — `seed.mjs` allocates one too, and a second restatement would have
+// been a copy of a copy.
+const SCRIPT_ACCOUNT_NO = readFileSync(join(WEB_ROOT, 'scripts', 'lib', 'account-no.mjs'), 'utf8');
 
 describe('the purge script agrees with lib/account-no.ts', () => {
   it('uses the same advisory lock', () => {
     // A different lock id would let the script and the application allocate the
     // same number concurrently — the exact collision the lock exists to stop.
-    expect(PURGE).toContain(STAFF_NO_ADVISORY_LOCK_SQL);
+    expect(SCRIPT_ACCOUNT_NO).toContain(STAFF_NO_ADVISORY_LOCK_SQL);
   });
 
   it('selects the next sequence with the same predicate', () => {
     // Compared with whitespace collapsed: the two are formatted for their own
     // files and the SQL is what has to match, not the indentation.
     const normalise = (sql: string) => sql.replace(/\s+/g, ' ').trim();
-    const copied = /const NEXT_STAFF_NO_SQL = `([\s\S]*?)`;/.exec(PURGE)?.[1];
+    const copied = /const NEXT_STAFF_NO_SQL = `([\s\S]*?)`;/.exec(SCRIPT_ACCOUNT_NO)?.[1];
     expect(copied, 'NEXT_STAFF_NO_SQL is not a template literal this test can read').toBeTruthy();
     expect(normalise(copied as string)).toBe(normalise(NEXT_STAFF_NO_SQL));
   });
@@ -40,7 +44,7 @@ describe('the purge script agrees with lib/account-no.ts', () => {
   it('formats a number the same way', () => {
     // Re-derived from the script's own source rather than assumed, so a change
     // to the padding in either file fails here.
-    const padding = /padStart\((\d+), '0'\)/.exec(PURGE)?.[1];
+    const padding = /padStart\((\d+), '0'\)/.exec(SCRIPT_ACCOUNT_NO)?.[1];
     expect(padding).toBe('4');
     expect(formatStaffNo(1)).toBe('STF-0001');
   });
@@ -88,18 +92,29 @@ describe('the purge scrubs a reused admin row rather than only re-roling it', ()
     expect(PURGE).toMatch(/parseStaffSequence\(accountNo\) === null/);
   });
 
-  it('never touches the row id, the email or the phone', () => {
-    // Identity that other rows may reference, and the two things a person logs
-    // in with. A cutover that changed them would be a new account wearing an old
-    // one's history.
+  it('never touches the email or the phone, and moves the id only with the number', () => {
+    // Email and phone are the two things a person logs in with. A cutover that
+    // changed them would be a new account wearing an old one's history.
     const updateBlock = /tx\.user\.update\(\{[\s\S]*?\n {10}\}\);/.exec(PURGE)?.[0] ?? '';
     expect(updateBlock.length).toBeGreaterThan(200);
     expect(updateBlock).not.toMatch(/^\s+email:/m);
     expect(updateBlock).not.toMatch(/^\s+phone:/m);
-    expect(updateBlock).not.toMatch(/^\s+id:/m);
+
+    // The id **is** the account number (ADR-043), so a row that gets renumbered
+    // gets a new id — and it must be that number and nothing else. Written as
+    // `id: accountNo` rather than as its own expression, so the two cannot drift
+    // into naming different things.
+    expect(updateBlock).toMatch(/^\s+id: accountNo,$/m);
+    expect(updateBlock).toMatch(/^\s+accountNo,$/m);
   });
 
-  it('leaves the password alone under --keep-passwords', () => {
+  it('leaves the password alone unless --reset-passwords is asked for', () => {
+    // The default, since 2026-08-27. The admin accounts survive the purge and so
+    // do the passwords their owners are already using; taking one away is not
+    // part of clearing test data, and the replacement travels through a terminal
+    // and a chat log exactly like the one it was protecting against.
+    expect(PURGE).toContain("!process.argv.includes('--reset-passwords')");
+
     // Both admins have already signed in and chosen their own. Re-running the
     // scrub must not cost somebody the password they are using, and a
     // first-login marker planted over one they set themselves would demand they

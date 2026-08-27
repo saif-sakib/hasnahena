@@ -197,14 +197,20 @@ export async function POST(req: Request) {
       const [{ next_seq: nextSeq }] =
         await tx.$queryRawUnsafe<Array<{ next_seq: bigint }>>(NEXT_STAFF_NO_SQL);
 
+      const staffNo = formatStaffNo(Number(nextSeq));
       return tx.user.create({
         data: {
+          // The id **is** the account number ([ADR-043](../../../../../../docs/decisions.md)).
+          // There is no `@default(cuid())` to fall back on, on purpose: a writer
+          // that forgets fails on a NOT NULL primary key rather than quietly
+          // inventing an opaque one.
+          id: staffNo,
+          accountNo: staffNo,
           email: normalizedEmail,
           phone: normalizedPhone,
           passwordHash,
           role: UserRole.WORKER,
           status: UserStatus.ACTIVE,
-          accountNo: formatStaffNo(Number(nextSeq)),
           nameEn: name.trim(),
           fatherName: name.trim(),
           motherName: name.trim(),

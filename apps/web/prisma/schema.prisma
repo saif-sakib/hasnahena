@@ -87,8 +87,21 @@ enum LoanStatus {
 // USER & AUTHENTICATION
 // ============================================================
 
+/// The row's id is the number this person is known by.
+///
+/// `STF-0001` for staff, `APP-2026-000001` while an application is pending, and
+/// `ACC-KH-33001` once they are admitted — so `users.id = users.accountNo` for
+/// every member, and `transactions.userId` reads the number printed on the
+/// passbook instead of a cuid ([ADR-043](../../../docs/decisions.md)).
+///
+/// **There is no default, deliberately.** Every writer names the id; one that
+/// forgets fails on a NOT NULL primary key rather than quietly inventing an
+/// opaque one. The id changes exactly once in a member's life, at approval, at
+/// the one moment when nothing outside the database holds it — an applicant's
+/// password hash is a sentinel bcrypt can never match, so they have never signed
+/// in and no token carries the old value.
 model User {
-  id           String     @id @default(cuid())
+  id           String     @id
   /// **`email`, `phone` and `nidNumber` are unique, and this file cannot say
   /// so.** All three carry *partial* unique indexes that Prisma can express
   /// neither the predicate nor (for email) the expression of, so they are

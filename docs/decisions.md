@@ -52,6 +52,7 @@ still true.
 | [ADR-040](#adr-040--a-persons-files-live-in-one-folder-named-after-them) | A person's files live in one folder, named after them | accepted |
 | [ADR-041](#adr-041--a-branchs-code-is-its-primary-key) | A branch's code is its primary key | accepted |
 | [ADR-042](#adr-042--admission-hands-out-a-number-a-password-is-issued-separately) | Admission hands out a number; a password is issued separately | accepted |
+| [ADR-043](#adr-043--a-persons-row-id-is-the-number-they-are-known-by) | A person's row id is the number they are known by | accepted |
 
 ---
 
@@ -1617,7 +1618,11 @@ approval look like a failed one.
 **Consequences.** The call is idempotent and has a backstop: the nightly
 retention sweep files anything whose `documents.url` still names
 `/applications/`, which covers the browser that was closed between the two
-requests. Erasing a member is then one prefix, `hasnahena/people/ACC-KH-33001`,
+requests. The approvals screen also *waits* for it and says so in its notice —
+it was fire-and-forget at first, on the correct observation that a failure
+changes nothing anybody can see, which is precisely why nobody would ever find
+out. The only person who can tell is the admin in front of the screen, and only
+while they are still looking at it. Erasing a member is then one prefix, `hasnahena/people/ACC-KH-33001`,
 and the application prefix is kept in the erasure only for rows filed before this.
 A **refused** application's documents are not moved — they are deleted at the
 decision ([ADR-038](#adr-038--retention-is-tiered-by-what-the-data-is-not-by-one-clock)).
@@ -1704,3 +1709,70 @@ The same dialog is where the member's **office** is now chosen. Registration use
 to assign the sole active branch and assign nothing once a second office existed,
 so a member's branch was either an inference or blank — neither of them anybody's
 decision, and per-branch reporting counted from it.
+
+---
+
+## ADR-043 — A person's row id is the number they are known by
+
+**Status.** accepted · 2026-08-27
+
+**Context.** `users.id` was a `cuid()`, and every foreign key in the schema
+points at it — so `transactions.userId` read `cmob97efh00003zynz0as5knq` in the
+column an operator reading the ledger by hand looks at most, beside a
+`receiptNumber` and an `accountNo` that are both perfectly readable. The owner
+raised it three times. Twice it was refused, and the refusals were right about
+the reasons they gave and wrong about the conclusion.
+
+**What the refusals actually said.** That an account number cannot be a key
+because it is null until approval; that renumbering a live row orphans a
+Cloudinary folder; that a surrogate key is what lets a business identifier be
+corrected. All three are about *changing an id after it has been handed out*.
+None of them is about the id being unreadable, which was the complaint.
+
+**Decision.** The id holds the number the person already has:
+
+| | |
+|---|---|
+| staff | `STF-0001`, allocated when the account is created |
+| an applicant | `APP-2026-000001`, allocated when the form is submitted |
+| a member | `ACC-KH-33001`, allocated when they are admitted |
+| the donation pool | `system_donation_fund`, which it already was |
+
+So `users.id = users.accountNo` for everybody who has been admitted, and the
+two-columns-for-one-fact that started the schema audit is gone. There is **no
+`@default`**: every writer names the id, and one that forgets fails on a NOT NULL
+primary key rather than quietly inventing an opaque one. The TypeScript compiler
+enumerates the writers for free, which is why this needed no census test.
+
+**Why it is safe, checked rather than assumed.** All sixteen foreign keys
+referencing `users.id` are `ON UPDATE CASCADE`, verified against the live
+catalogue. Exactly four columns hold a user id *without* a foreign key —
+`audit_logs.entityId`, `audit_logs.performedBy`, `token_blacklist.userId` and
+`notifications.data->>'userId'` — and all four are remapped, by the migration and
+again by `renameUser` in the Go approval.
+
+The id changes **once**, at approval, and that moment is the whole argument: an
+applicant's password hash is a sentinel bcrypt can never match, so they have
+never signed in. There is no token carrying the old value, no session to break,
+no third party holding it. After admission it is fixed for ever, which is what
+keeps the earlier refusals' reasoning intact — a member is never renumbered, and
+their Cloudinary folder is never orphaned.
+
+**Consequences.** Anything holding a user id *across* the rename must re-read it.
+There is exactly one such caller — the approvals screen, which files the new
+member's documents immediately afterwards — and it answered 404 until it used
+the account number the approval returns. `e2e/entry-path.spec.ts` walks the
+rename and asserts the cascade: the member is addressable by their account
+number, their `Account` followed, the application reference survived, and the old
+id addresses nobody.
+
+`transactions.id` was considered for the same treatment and refused:
+`receiptNumber` is nullable and not unique, and four inserts in
+`loan_repository.go` write none. Making it a key would mean issuing receipt
+numbers for the default-recovery legs, which is a change to what a receipt
+*means* rather than to how a row is named. `loans.loanNumber` would work and was
+left alone as out of scope.
+
+The seeded admin now gets a staff number too. It had none — nothing failed,
+because the column is nullable, but it meant the foundation's first account was
+the one account with no number, and only the cutover purge noticed.

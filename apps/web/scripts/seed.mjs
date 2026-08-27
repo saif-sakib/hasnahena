@@ -27,6 +27,7 @@
 import bcrypt from 'bcryptjs';
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv } from './lib/env.mjs';
+import { allocateStaffNo } from './lib/account-no.mjs';
 
 // Only keys the application actually reads. Defaults match the fallbacks
 // hardcoded in the Go repository (repositories/repository.go) and lib/documents/theme.ts
@@ -326,19 +327,33 @@ async function seedAdmin(prisma) {
   // member's savings record.
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const created = await prisma.user.create({
-    data: {
-      email,
-      phone,
-      passwordHash,
-      role: UserRole.SUPER_ADMIN,
-      status: UserStatus.ACTIVE,
-      nameEn: process.env.SEED_ADMIN_NAME?.trim() || 'System Administrator',
-      fatherName: 'N/A',
-      motherName: 'N/A',
-      approvedAt: new Date(),
-    },
-    select: { id: true },
+  // A staff number, from the same series every other staff account is issued
+  // from — and the row's id, because the id **is** the account number
+  // ([ADR-043](../../../docs/decisions.md)).
+  //
+  // The seeded admin used to have no `accountNo` at all. Nothing failed, because
+  // the column is nullable; what it meant was that the foundation's first
+  // account was the one account with no number, and the cutover purge had to
+  // notice and allocate one. Allocating it here makes a seeded database and a
+  // purged one describe the same thing.
+  const created = await prisma.$transaction(async (tx) => {
+    const accountNo = await allocateStaffNo(tx);
+    return tx.user.create({
+      data: {
+        id: accountNo,
+        accountNo,
+        email,
+        phone,
+        passwordHash,
+        role: UserRole.SUPER_ADMIN,
+        status: UserStatus.ACTIVE,
+        nameEn: process.env.SEED_ADMIN_NAME?.trim() || 'System Administrator',
+        fatherName: 'N/A',
+        motherName: 'N/A',
+        approvedAt: new Date(),
+      },
+      select: { id: true },
+    });
   });
 
   console.log(`admin: created SUPER_ADMIN ${email} (phone ${phone})`);

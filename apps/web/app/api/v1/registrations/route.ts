@@ -409,6 +409,13 @@ export async function POST(req: Request) {
 
       return tx.user.create({
         data: {
+          // The id **is** the number this person is known by
+          // ([ADR-043](../../../../../docs/decisions.md)). An applicant is known
+          // by their application number until they are admitted, when
+          // `ApproveRegistration` moves the id to `ACC-KH-33001` — the one
+          // moment it ever changes, and the one moment when nothing outside the
+          // database holds it, because an applicant has never signed in.
+          id: formNumber,
           email: normalizedEmail,
           phone: payload.phone,
           passwordHash: PENDING_APPROVAL_PASSWORD_HASH,

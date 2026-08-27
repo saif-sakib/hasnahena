@@ -337,7 +337,6 @@ export function PasswordChangeDialog({
               <div className="relative">
                 <Input
                   type={showCurrentPassword ? 'text' : 'password'}
-                  data-no-native-password-toggle
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder={locale === 'bn' ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current password'}
@@ -380,7 +379,6 @@ export function PasswordChangeDialog({
                 <Label>{locale === 'bn' ? 'নতুন পাসওয়ার্ড' : 'New Password'}</Label>
                 <Input
                   type="password"
-                  data-no-native-password-toggle
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড লিখুন' : 'Enter new password'}
@@ -390,7 +388,6 @@ export function PasswordChangeDialog({
                 <Label>{locale === 'bn' ? 'নতুন পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm New Password'}</Label>
                 <Input
                   type="password"
-                  data-no-native-password-toggle
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder={locale === 'bn' ? 'নতুন পাসওয়ার্ড আবার লিখুন' : 'Confirm new password'}

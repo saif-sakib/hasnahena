@@ -159,8 +159,12 @@ test.describe('the entry path', () => {
     // the test that matters.
     seededApplications += 1;
     const seq = (Math.abs(hash(tag)) % 90_000) + 9000 + seededApplications;
+    const formNumber = `APP-2026-${String(seq).padStart(6, '0')}`;
     return prisma.user.create({
       data: {
+        // The applicant's own number, which is also their row id since
+        // [ADR-043](../../docs/decisions.md).
+        id: formNumber,
         email: who.email,
         phone: who.phone,
         passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
@@ -171,7 +175,7 @@ test.describe('the entry path', () => {
         // issued on approval and nowhere else ([ADR-039](../../../docs/decisions.md)),
         // so that refusing somebody does not consume a number from the
         // foundation's register. This mirrors what `POST /registrations` writes.
-        formNumber: `APP-2026-${String(seq).padStart(6, '0')}`,
+        formNumber,
         nameEn: who.nameEn,
         fatherName: 'Mohammad Ali',
         motherName: 'Fatema Begum',
@@ -248,7 +252,12 @@ test.describe('the entry path', () => {
     await page.fill('#email', who.email);
     await page.fill('#nidNumber', who.nidNumber);
     await page.fill('#profession', 'Farmer');
-    await page.fill('#dateOfBirth', overrides.dateOfBirth ?? '1990-04-12');
+    // Three selects, not a date input — the platform calendar was unusable for a
+    // birthday on the phones this is for. The value the form holds is unchanged.
+    const [dobYear, dobMonth, dobDay] = (overrides.dateOfBirth ?? '1990-04-12').split('-');
+    await page.selectOption('#dateOfBirth', String(Number(dobDay)));
+    await page.selectOption('#dateOfBirthMonth', String(Number(dobMonth)));
+    await page.selectOption('#dateOfBirthYear', dobYear);
     await page.getByRole('button', { name: next, exact: true }).click();
 
     await expect(page.locator('#permanentHouseNo')).toBeVisible();
@@ -392,6 +401,23 @@ test.describe('the entry path', () => {
     expect(approval.accountNo, 'the approval must hand back the account number it allocated')
       .toMatch(/^ACC-KH-\d+$/);
 
+    // **The row id moved with it** (ADR-043). Admission is the one moment a
+    // person's id changes, and it is safe only because nothing outside the
+    // database holds the old one: an applicant has never signed in. Asserted
+    // here rather than in a unit test because the thing that could go wrong is a
+    // cascade — the account, the addresses, the nominee and the documents all
+    // follow, and a foreign key that did not cascade would leave a member whose
+    // own savings account belongs to an id that no longer exists.
+    const renamed = await prisma.user.findUnique({
+      where: { id: approval.accountNo },
+      select: { id: true, formNumber: true, account: { select: { userId: true } } },
+    });
+    expect(renamed, 'the member must now be addressable by their account number').not.toBeNull();
+    expect(renamed?.formNumber, 'the application reference survives the rename')
+      .toMatch(/^APP-\d{4}-\d{6}$/);
+    expect(renamed?.account?.userId).toBe(approval.accountNo);
+    expect(await prisma.user.findUnique({ where: { id: application.id } })).toBeNull();
+
     // **The password comes from the staff-assisted reset, not from the
     // approval.** The approval used to return a temporary password and the
     // admin screen displayed it; it does not any more, because a working
@@ -399,7 +425,11 @@ test.describe('the entry path', () => {
     // shared office. Most members of this cooperative have no email (ADR-036),
     // so this route *is* how they are given one — which makes it part of the
     // entry path, and this is the test that walks it.
-    const temporaryPassword = await resetPasswordViaApi(page, application.id, approval.accountNo);
+    // `approval.accountNo`, not `application.id` — admission renamed the row
+    // (ADR-043), and a caller holding the old id addresses nobody. That is the
+    // whole hazard of a mutable key, so the journey that spans the rename is
+    // where it is asserted.
+    const temporaryPassword = await resetPasswordViaApi(page, approval.accountNo, approval.accountNo);
     expect(temporaryPassword, 'an admin must be able to issue a password to a member with no email')
       .toBeTruthy();
 
