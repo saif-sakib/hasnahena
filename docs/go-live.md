@@ -50,20 +50,45 @@ One deliberate session, not spread over a week.
 ### 1.1 Freeze and clear
 
 ```bash
-cd apps/web
-node scripts/go-live-purge.mjs            # dry run: prints what it would delete
-node scripts/go-live-purge.mjs --confirm  # does it
+pnpm db:purge           # dry run: prints what it would delete, field by field
+pnpm db:purge:confirm   # does it
 ```
+
+Three flags, all on `apps/web/scripts/go-live-purge.mjs`:
+
+| Flag | For |
+|---|---|
+| `--confirm` | actually apply. Without it the script is a dry run and changes nothing |
+| `--keep-passwords` | leave `passwordHash` and the first-login markers alone. Use it once the admins have signed in and chosen their own — re-running the scrub must not cost somebody the password they are using |
+| `--admins-only` | scrub the admin rows and **delete nothing**. Safe against a database in use, which a cutover purge never is |
 
 **Not `pnpm db:clear`.** That script resets a *development* environment and keeps
 whichever admin it happens to find. This one runs once, against the database
 that is about to hold real savings, and **names** the accounts that survive —
 so a test admin nobody remembers creating cannot be the account it preserves.
-It keeps `system_config`, `gallery_items` and the donation pool (at zero),
-deletes everything else, **resets `document_sequences`**, sets a generated
-password on each named admin and plants a first-login marker so the application
-forces a change before either can do anything. The passwords are printed once
-and are not recoverable.
+It keeps `system_config`, `gallery_items`, `branches` and the donation pool (at
+zero), deletes everything else, and **resets `document_sequences`**.
+
+**It also scrubs the admin rows, which is not the same as re-roling them.** The
+first version set the role and the password and left everything else, and both
+launch accounts carried an old seed's test data into production: `HN-A-001` and
+`STF-MOB97EFH` (two dead numbering schemes), an invented NID of
+`9876543210987`, a made-up 1985 birthday, and parents called `Admin Father` and
+`Admin Mother`. The NID is the one that would have hurt — that column is
+uniquely indexed on live rows, so a fabricated value on an admin account is a
+real member refused at registration one day with nothing able to explain why.
+
+So each row gets a number from the live `STF-####` series, is attached to the
+sole active branch if there is one, and has every member-shaped field cleared.
+What is **never** touched: the row id, the email, the phone (identity other rows
+may reference, and what people log in with) and the display name — only the
+person can tell you that one, and inventing it is how `Admin` got there. The
+script says out loud when a name still looks like a placeholder.
+
+Unless `--keep-passwords` is given, it also sets a generated password on each
+admin and plants a first-login marker so the application forces a change before
+either can do anything. Those passwords are printed once and are not
+recoverable.
 
 Take a backup first — `scripts/backup.sh` — because none of this is reversible.
 

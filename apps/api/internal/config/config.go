@@ -39,7 +39,7 @@ type Config struct {
 	// the exposition carries business figures, so it is not public.
 	MetricsToken string
 	// Environment tags Sentry events and separates local noise from production.
-	Environment         string
+	Environment string
 	// Connection pool sizing — and the reason the idle end of it is tuned the
 	// way it is.
 	//

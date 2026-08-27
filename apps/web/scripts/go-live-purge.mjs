@@ -52,6 +52,33 @@
 // DEP-2026-000001. Reference numbers are printed on what a member is handed;
 // starting at 000247 because of testing is harmless and unexplainable.
 //
+// WHAT "RESET" MEANS FOR AN ADMIN ROW
+// -----------------------------------
+// The row is **reused, and scrubbed** — not re-roled and left otherwise as it
+// was, which is what the first version did and which left both launch accounts
+// carrying test data into production:
+//
+//   accountNo    `HN-A-001` and `STF-MOB97EFH` — two dead numbering schemes,
+//                neither of them the `STF-0001` series staff are issued from now
+//   nidNumber    `9876543210987`, invented by an old seed. That column is
+//                **uniquely indexed**, so a fabricated value on a live account
+//                is a real member's registration refused one day with "that NID
+//                is already in use" and nobody able to explain why
+//   dateOfBirth  a made-up 1985 birthday on a real person's record
+//   fatherName / motherName
+//                `Admin Father`, `Admin Mother`
+//
+// None of that is dangerous the day it is written and all of it is permanent
+// once members exist, which is exactly the shape of thing a cutover is for. So
+// every member-shaped field is cleared, a number is allocated from the live
+// series, and the account is attached to the sole active branch if there is one.
+//
+// What is **not** touched: the row id, the email, the phone, and the display
+// name. The first three are identity that other rows may reference; the last is
+// something only the person can tell you, and inventing one is how `Admin` got
+// there in the first place. The script says out loud when a name still looks
+// like a placeholder.
+//
 // THE PASSWORDS
 // -------------
 // Generated here, printed once, and never stored anywhere this script can read
@@ -60,10 +87,22 @@
 // so the password below gets them in, and the application makes them replace it
 // before they can do anything else. That matters because a password that has
 // travelled through a chat log is a password somebody else has seen.
+//
+// `--keep-passwords` skips all of that. Use it when the admins have already
+// signed in and chosen their own: re-running the scrub should not cost somebody
+// the password they are using, and a first-login marker planted over a password
+// they set themselves would demand they change it again for no reason.
+//
+// FLAGS
+// -----
+//   --confirm          actually do it; without this the script is a dry run
+//   --keep-passwords   leave passwordHash and the first-login markers alone
+//   --admins-only      scrub the admin rows and delete NOTHING. Safe to run at
+//                      any time, including against a database in use
 
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
+import { PrismaClient, MaritalStatus, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv, redactUrl } from './lib/env.mjs';
 
 /**
@@ -94,6 +133,57 @@ const DONATION_OWNER_ID = 'system_donation_fund';
 
 /** Scope of the marker whose existence *is* `mustChangePassword`. */
 const FIRST_LOGIN_SCOPE = 'first-login';
+
+// The staff account-number series, restated.
+//
+// The source of truth is `apps/web/lib/account-no.ts`, and this is a copy —
+// which this repository normally refuses. It is here because these scripts run
+// under plain `node`, not under Next: there is no TypeScript loader and no `@/`
+// alias resolution, which is why every one of them imports nothing but
+// `./lib/env.mjs`. Restating four lines is the lesser evil against making the
+// cutover script depend on a build step.
+//
+// `test/unit/purge-script.test.ts` reads both files and fails if they drift, so
+// the copy is checked rather than trusted.
+const STAFF_NO_ADVISORY_LOCK_SQL = `SELECT pg_advisory_xact_lock(873922)`;
+
+const NEXT_STAFF_NO_SQL = `
+  SELECT COALESCE(
+    MAX(CAST(SUBSTRING("accountNo" FROM 'STF-([0-9]+)$') AS INTEGER)),
+    0
+  ) + 1 AS next_seq
+  FROM users
+  WHERE "accountNo" ~ '^STF-[0-9]+$'
+`;
+
+const STAFF_NO_REGEX = /^STF-(\d+)$/;
+
+function formatStaffNo(sequence) {
+  return `STF-${sequence.toString().padStart(4, '0')}`;
+}
+
+function parseStaffSequence(accountNo) {
+  const match = accountNo?.match(STAFF_NO_REGEX);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * The office to attach the admins to, when there is only one it could be.
+ *
+ * Mirrors `apps/web/lib/default-branch.ts` for the same reason as above, and
+ * declines to choose for the same reason: with several offices, guessing is
+ * wrong in a way nothing would report.
+ */
+async function soleActiveBranchId(tx) {
+  const active = await tx.branch.findMany({
+    where: { isActive: true },
+    select: { id: true },
+    take: 2,
+  });
+  return active.length === 1 ? active[0].id : null;
+}
 
 const TABLES = [
   'users',
@@ -163,8 +253,17 @@ async function main() {
   }
 
   const confirmed = process.argv.includes('--confirm');
+  const keepPasswords = process.argv.includes('--keep-passwords');
+  const adminsOnly = process.argv.includes('--admins-only');
+
   console.log(`database: ${redactUrl(process.env.DATABASE_URL)}`);
-  console.log(confirmed ? 'mode:     CONFIRMED — this will delete data\n' : 'mode:     dry run (pass --confirm to apply)\n');
+  console.log(
+    confirmed
+      ? `mode:     CONFIRMED — ${adminsOnly ? 'scrubbing the admin rows only, deleting nothing' : 'this will delete data'}`
+      : 'mode:     dry run (pass --confirm to apply)',
+  );
+  if (keepPasswords) console.log('          --keep-passwords: existing passwords and first-login markers left alone');
+  console.log('');
 
   const prisma = new PrismaClient();
   try {
@@ -172,20 +271,63 @@ async function main() {
 
     const survivors = await prisma.user.findMany({
       where: { email: { in: ADMINS.map((a) => a.email) } },
-      select: { id: true, email: true, role: true, status: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        nameEn: true,
+        accountNo: true,
+        fatherName: true,
+        motherName: true,
+        nidNumber: true,
+        dateOfBirth: true,
+        formNumber: true,
+        avatarUrl: true,
+        assignedBranchId: true,
+      },
     });
     const byEmail = new Map(survivors.map((u) => [u.email, u]));
 
     console.log('admin accounts:');
     for (const admin of ADMINS) {
       const found = byEmail.get(admin.email);
-      console.log(
-        found
-          ? `  ${admin.email} — exists (${found.role}/${found.status}), row reused, password reset`
-          : `  ${admin.email} — not found, will be created as SUPER_ADMIN/ACTIVE`,
-      );
+      if (!found) {
+        console.log(`  ${admin.email} — NOT FOUND. This script will refuse to run.`);
+        continue;
+      }
+      console.log(`  ${admin.email} — ${found.role}/${found.status}, "${found.nameEn}"`);
+
+      // Say what the scrub would actually change, field by field, rather than
+      // "row reused". The first version of this script printed that and left
+      // both accounts carrying an invented NID into production.
+      const willChange = [];
+      if (parseStaffSequence(found.accountNo) === null) {
+        willChange.push(`accountNo ${found.accountNo ?? '(none)'} -> a new STF-#### number`);
+      }
+      if (found.nidNumber) willChange.push(`nidNumber ${found.nidNumber} -> cleared`);
+      if (found.fatherName !== found.nameEn || found.motherName !== found.nameEn) {
+        willChange.push(
+          `parents "${found.fatherName}" / "${found.motherName}" -> the person's own name ` +
+            '(staff have no parents recorded; both columns are NOT NULL)',
+        );
+      }
+      if (found.dateOfBirth) willChange.push('dateOfBirth -> cleared');
+      if (found.formNumber) willChange.push(`formNumber ${found.formNumber} -> cleared`);
+      if (found.avatarUrl) willChange.push('avatarUrl -> cleared (old opaque Cloudinary path)');
+      if (!found.assignedBranchId) willChange.push('branch -> the sole active one, if there is one');
+      if (!keepPasswords) willChange.push('password -> newly generated, change forced at first login');
+
+      for (const line of willChange) console.log(`      ${line}`);
+      if (willChange.length === 0) console.log('      already clean');
     }
     console.log('');
+
+    if (!confirmed && adminsOnly) {
+      console.log('Nothing was changed, and --admins-only deletes nothing at all.');
+      console.log('Re-run with --confirm to apply the changes listed above.');
+      return;
+    }
 
     if (!confirmed) {
       console.log('would delete (before -> after):');
@@ -208,11 +350,13 @@ async function main() {
     // takes ~200ms each at cost 12 — is never computed while holding locks.
     const credentials = ADMINS.map((admin) => ({
       ...admin,
-      password: generatePassword(),
+      password: keepPasswords ? null : generatePassword(),
       firstLoginSecret: crypto.randomBytes(32).toString('hex'),
     }));
-    for (const c of credentials) {
-      c.passwordHash = await bcrypt.hash(c.password, 12);
+    if (!keepPasswords) {
+      for (const c of credentials) {
+        c.passwordHash = await bcrypt.hash(c.password, 12);
+      }
     }
 
     const keptIds = [];
@@ -227,39 +371,97 @@ async function main() {
         // neighbouring pooled connection.
         await tx.$executeRawUnsafe("SET LOCAL hasnahena.allow_audit_purge = 'on'");
 
-        // Ensure both admins exist, and collect the ids that survive. Done
-        // FIRST so the delete below can be expressed as "everything else".
+        // Scrub the admin rows, and collect the ids that survive. Done FIRST so
+        // the delete below can be expressed as "everything else".
+        //
+        // The branch is read once, outside the loop: both admins belong to the
+        // same office and there is no sense asking twice.
+        const branchId = await soleActiveBranchId(tx);
+
         for (const c of credentials) {
           const existing = await tx.user.findFirst({
             where: { email: c.email },
-            select: { id: true, phone: true },
+            select: { id: true, phone: true, nameEn: true, accountNo: true },
           });
 
-          if (existing) {
-            await tx.user.update({
-              where: { id: existing.id },
-              data: {
-                passwordHash: c.passwordHash,
-                role: UserRole.SUPER_ADMIN,
-                status: UserStatus.ACTIVE,
-                // Self-referential: an admin approved by a member who is about
-                // to be deleted would fail the foreign key.
-                approvedBy: null,
-                rejectionReasonCode: null,
-                rejectionReasonNote: null,
-                rejectedAt: null,
-              },
-            });
-            keptIds.push(existing.id);
-            c.id = existing.id;
-            c.phone = existing.phone;
-          } else {
+          if (!existing) {
             throw new Error(
               `${c.email} does not exist and this script will not invent a phone number ` +
                 'for it. Create the account first, or add it to seed.mjs.',
             );
           }
+
+          // A number from the live series, unless the row already holds one.
+          // Re-running must not renumber somebody: the account number is also
+          // the name of their folder on the image host, so a second number would
+          // orphan their photograph.
+          let accountNo = existing.accountNo;
+          if (parseStaffSequence(accountNo) === null) {
+            await tx.$executeRawUnsafe(STAFF_NO_ADVISORY_LOCK_SQL);
+            const [{ next_seq: nextSeq }] = await tx.$queryRawUnsafe(NEXT_STAFF_NO_SQL);
+            accountNo = formatStaffNo(Number(nextSeq));
+          }
+
+          await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              ...(keepPasswords ? {} : { passwordHash: c.passwordHash }),
+              role: UserRole.SUPER_ADMIN,
+              status: UserStatus.ACTIVE,
+              accountNo,
+              assignedBranchId: branchId,
+
+              // Everything below is member-shaped and has no business on a
+              // staff row. Left alone, an old seed's invented values follow the
+              // account into production — see the header.
+              //
+              // `nidNumber` is the one that matters most: it is uniquely
+              // indexed, so a fabricated value here is a real member refused at
+              // registration one day with no way to work out why.
+              nidNumber: null,
+              dateOfBirth: null,
+              bloodGroup: null,
+              profession: null,
+              childrenCount: 0,
+              maritalStatus: MaritalStatus.UNMARRIED,
+              formNumber: null,
+
+              // Staff do not have parents recorded — the foundation has no
+              // reason to hold them and never asks. Both columns are NOT NULL,
+              // so they carry the person's own name, which is what
+              // `POST /api/v1/admin/workers` already writes when hiring.
+              fatherName: existing.nameEn,
+              motherName: existing.nameEn,
+
+              // An avatar uploaded before 2026-08-27 lives under a cuid and a
+              // random filename. Clearing the pointer means the next upload
+              // files it under `people/<accountNo>/avatar` like everyone else's;
+              // the orphaned asset is reported at the end for deletion by hand,
+              // because this script has no Cloudinary credentials by design.
+              avatarUrl: null,
+
+              // Self-referential: an admin approved by a member who is about to
+              // be deleted would fail the foreign key.
+              approvedBy: null,
+              approvedAt: null,
+              rejectionReasonCode: null,
+              rejectionReasonNote: null,
+              rejectedAt: null,
+            },
+          });
+
+          keptIds.push(existing.id);
+          c.id = existing.id;
+          c.phone = existing.phone;
+          c.nameEn = existing.nameEn;
+          c.accountNo = accountNo;
+          c.previousAccountNo = existing.accountNo;
         }
+
+        // --admins-only stops here: the scrub is the whole job and nothing is
+        // deleted. It is the mode to reach for against a database somebody is
+        // using, which a cutover purge never is.
+        if (adminsOnly) return;
 
         // Everything that hangs off a user, oldest dependency last.
         await tx.supportMessage.deleteMany({});
@@ -295,7 +497,11 @@ async function main() {
         // The first-login marker, written after the token table was emptied so
         // it is the only row for each account. Its *existence* is what
         // `mustChangePassword` reads; the secret behind it is never presented.
-        for (const c of credentials) {
+        //
+        // Skipped under --keep-passwords: demanding a change of a password the
+        // admin chose themselves, because a script ran, is a prompt with no
+        // reason behind it.
+        for (const c of keepPasswords ? [] : credentials) {
           await tx.passwordResetToken.create({
             data: {
               scope: FIRST_LOGIN_SCOPE,
@@ -314,24 +520,62 @@ async function main() {
       { timeout: 120_000, maxWait: 30_000 },
     );
 
-    const after = await counts(prisma);
-    console.log('counts (before -> after):');
-    for (const table of Object.keys(after)) {
-      const changed = before[table] !== after[table] ? '' : '   (unchanged)';
-      console.log(`  ${table}: ${before[table]} -> ${after[table]}${changed}`);
+    if (!adminsOnly) {
+      const after = await counts(prisma);
+      console.log('counts (before -> after):');
+      for (const table of Object.keys(after)) {
+        const changed = before[table] !== after[table] ? '' : '   (unchanged)';
+        console.log(`  ${table}: ${before[table]} -> ${after[table]}${changed}`);
+      }
+      console.log('');
     }
 
-    console.log('\n' + '='.repeat(66));
-    console.log('ADMIN CREDENTIALS — shown once, not stored, not recoverable');
-    console.log('='.repeat(66));
+    console.log('='.repeat(70));
+    console.log('ADMIN ACCOUNTS');
+    console.log('='.repeat(70));
     for (const c of credentials) {
       console.log(`  ${c.email}`);
-      console.log(`    password: ${c.password}`);
-      console.log(`    phone:    ${c.phone}   (also works as a login identifier)`);
+      console.log(`    name:       ${c.nameEn}`);
+      const renumbered =
+        c.previousAccountNo && c.previousAccountNo !== c.accountNo
+          ? `   (was ${c.previousAccountNo})`
+          : '';
+      console.log(`    accountNo:  ${c.accountNo}${renumbered}`);
+      console.log(`    phone:      ${c.phone}   (also works as a login identifier)`);
+      if (c.password) {
+        console.log(`    password:   ${c.password}`);
+      } else {
+        console.log('    password:   unchanged');
+      }
     }
-    console.log('='.repeat(66));
-    console.log('Both accounts are SUPER_ADMIN and must change this password at');
-    console.log('first login — the application will not let them past it.');
+    console.log('='.repeat(70));
+
+    if (credentials.some((c) => c.password)) {
+      console.log('Shown once — not stored, not recoverable. Both accounts are');
+      console.log('SUPER_ADMIN and must change this password at first login;');
+      console.log('the application will not let them past it.');
+    }
+
+    // A display name that still looks like a placeholder is worth saying out
+    // loud rather than guessing at. `Admin` is what an old seed wrote, and it is
+    // what every generated document's "prepared by" line would print.
+    const placeholders = credentials.filter((c) =>
+      /^(admin|super ?admin|staff|user|test)$/i.test((c.nameEn ?? '').trim()),
+    );
+    if (placeholders.length > 0) {
+      console.log('');
+      console.log('Names still to set — this script will not invent one:');
+      for (const c of placeholders) {
+        console.log(`  ${c.email} is called "${c.nameEn}". Set the real name on the profile screen.`);
+      }
+    }
+
+    console.log('');
+    console.log('Scrubbed on each admin row: nidNumber, dateOfBirth, bloodGroup,');
+    console.log('profession, formNumber, marital status, children count and any');
+    console.log('avatar pointer. An avatar uploaded before 2026-08-27 lives under a');
+    console.log('cuid on the image host and is now unreferenced — delete it there,');
+    console.log('or simply upload a new one, which files it under people/<accountNo>/.');
   } finally {
     await prisma.$disconnect();
   }

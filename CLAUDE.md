@@ -18,7 +18,8 @@ pnpm test:integration   # Go + real Postgres: repositories, the 64-route contrac
 pnpm test:routes        # the Next route methods + real Postgres; no browser, no server
 pnpm db:migrate:check   # the migrated database still matches schema.prisma (CI runs this)
 pnpm test:bundle        # first-load JS per route vs bundle-budget.json; needs a prior `pnpm build`
-cd apps/api && go build ./...                  # Go check
+cd apps/api && go build ./... && gofmt -l .    # Go check. gofmt MUST print nothing —
+                                               # CI formats the whole tree with no exclusions
 ```
 
 `pnpm lint` exits 0 with **1 warning** — do not let the count grow.
@@ -119,6 +120,7 @@ count that used to open this sentence is gone too. See
 | a `system_config` value that is **prose** | add it to `LOCALIZED_SETTING_PAIRS` in `apps/web/lib/localized-settings.ts` as `key`/`keyEn`, and read it through `localizedSetting()`. `apps/web/test/unit/localized-settings.test.ts` reads every source line and fails on a pair key named anywhere that does not also call the resolver — an index read *or* a `trimmed(settings, 'org.name')`, which is the shape that got past the first version of the census. One box is shown to both audiences, so whichever script an admin types goes to everybody: the foundation's Bengali address sat under an English "Address" heading on every public page and on the English-only letterhead of every generated document ([ADR-012](docs/decisions.md)). **It has been found four times because each fix took the reported key** — `org.address`, then `org.description` four months later, then eleven more on 2026-08-26. The list is the fix; adding one key is not |
 | a **new prose pair** | the same test — both halves must be in `SYSTEM_CONFIG_KEYS`, in `PUBLIC_CONFIG_KEYS`, and on the **same** admin screen. Split across Content and Settings, an admin gets one language on each; missing from PUBLIC, the page reads `undefined` and renders its fallback for ever. `apps/web/e2e/public-content.spec.ts` then proves it end to end — it PUTs a marker per language and asserts the other one is **not** on the page |
 | a control on **Content & Media** or **Settings** | `apps/web/test/unit/settings-keys-read.test.ts` — something must read the key, in either backend. A control nothing reads is worse than none, because it gets trusted: that is what `UNIMPLEMENTED_CONFIG_KEYS` is a list of, and this refuses an *undeclared* addition to it |
+| a **field to `users` that a seed fills in** | `apps/web/test/unit/purge-script.test.ts` — add it to the scrub in `go-live-purge.mjs`. A seed writes *plausible* values into required columns and plausible is what nobody re-reads: both launch admins went to production with `Admin Father`, a 1985 birthday and an NID of `9876543210987` — and `users_nid_live_key` is unique over live rows, so that last one is a real member refused at registration with nothing able to explain why |
 | a **recurring database touch** — a ticker, a poll, a health check, a pool minimum | `apps/api/internal/config/idle_cost_test.go` — this database suspends when nothing is connected and bills for the time it is awake, so **the idle behaviour of the process is a line item** ([ADR-035](docs/decisions.md)). Four separately reasonable settings held it at a 100% duty cycle: `DB_MIN_CONNS=2`, a one-minute health check, a one-minute metrics ticker, and an uptime robot on `/v1/ready`. Count wakes per day, not queries per pass |
 | an **uptime or liveness check** | point it at `/v1/health`, which touches nothing — never `/v1/ready`, which pings the pool. Keeping the API warm and keeping the database warm are different problems ([docs/deployment.md](docs/deployment.md) § the endpoint the uptime check must use) |
 | a **staff or member account number** | `apps/web/lib/account-no.test.ts` — allocate from the highest issued under an advisory lock, never from a timestamp plus randomness. `ACC-KH-33001` continues the foundation's own paper register; `STF-0001` replaced `STF-MOB97EFH-A1B2C3`. One series per kind of person and never per role, because the number is also the name of their folder on the image host and a promotion must not orphan it |
@@ -304,7 +306,10 @@ apps/web/components/dashboard/branding.tsx  branding.dashboardLogo for the shell
                                   key, deliberately — reading it in the dashboard's server layout put a
                                   database round trip on every navigation and logged the reader out
 apps/web/scripts/go-live-purge.mjs  the cutover purge. Names its survivors rather than finding them, and
-                                  is a dry run without --confirm. NOT pnpm db:clear (docs/go-live.md §1.1)
+                                  is a dry run without --confirm. SCRUBS a reused admin row rather than
+                                  re-roling it — a seed's invented NID on an admin is a real member refused
+                                  at registration. --keep-passwords once they have chosen their own,
+                                  --admins-only to change nothing else. NOT pnpm db:clear (docs/go-live.md §1.1)
 apps/web/lib/settings-client.ts   the ONLY way the browser may read /api/v1/settings — it attaches the
                                   token, and without one the caller silently gets the public subset
 apps/web/proxy.ts                 locale routing, the dashboard cookie gate, and the per-request CSP nonce.
