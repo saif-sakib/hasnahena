@@ -54,13 +54,28 @@ pnpm db:purge           # dry run: prints what it would delete, field by field
 pnpm db:purge:confirm   # does it
 ```
 
-Three flags, all on `apps/web/scripts/go-live-purge.mjs`:
+Four flags, all on `apps/web/scripts/go-live-purge.mjs`:
 
 | Flag | For |
 |---|---|
 | `--confirm` | actually apply. Without it the script is a dry run and changes nothing |
 | `--keep-passwords` | leave `passwordHash` and the first-login markers alone. Use it once the admins have signed in and chosen their own — re-running the scrub must not cost somebody the password they are using |
 | `--admins-only` | scrub the admin rows and **delete nothing**. Safe against a database in use, which a cutover purge never is |
+| `--keep-images` | leave Cloudinary alone. Only for a run where the assets are being dealt with some other way |
+
+**It clears the image host too.** Deleting the rows is half of an erasure: every
+member this deletes has a folder — `hasnahena/people/ACC-KH-33002` for their
+avatar and identity documents, `hasnahena/applications/APP-2026-000004` for
+anything filed before they were admitted — served from URLs that need no login. A
+cutover that empties the database and leaves a hundred test members' NID scans
+online has not cleared the test data, it has only stopped being able to find it.
+
+The folders are **named from the rows being deleted**, never found by listing the
+host, because a prefix delete of `people/` would take the two surviving admins'
+files with it. Cloudinary credentials are optional here, as they always were: the
+script's one hard requirement is a database URL. When they are absent nothing is
+deleted and **every folder is printed** so it can be cleared by hand — silence
+would read exactly like success.
 
 **Not `pnpm db:clear`.** That script resets a *development* environment and keeps
 whichever admin it happens to find. This one runs once, against the database

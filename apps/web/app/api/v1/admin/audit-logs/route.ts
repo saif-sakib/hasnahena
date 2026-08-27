@@ -214,7 +214,7 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
     const limit = Math.min(
       MAX_LIMIT,
-      Math.max(1, Number.parseInt(searchParams.get('limit') || '30', 10) || 30),
+      Math.max(1, Number.parseInt(searchParams.get('limit') || '20', 10) || 20),
     );
     const category = searchParams.get('category') as AuditCategory | null;
     const action = searchParams.get('action');
@@ -266,29 +266,36 @@ export async function GET(req: Request) {
 
     const where: Prisma.AuditLogWhereInput = filters.length ? { AND: filters } : {};
 
-    const [logs, total] = await Promise.all([
-      prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true,
-          action: true,
-          entityType: true,
-          entityId: true,
-          // The sentence the writer composed. Not selected before this, which is
-          // why every row arrived saying nothing.
-          details: true,
-          oldValue: true,
-          newValue: true,
-          userIp: true,
-          createdAt: true,
-          userId: true,
-        },
-      }),
-      prisma.auditLog.count({ where }),
-    ]);
+    // **One page, and one row past it.** There is no `count()` here on purpose.
+    //
+    // The screen shows the most recent entries and loads more when the reader
+    // asks. A total needs a second query that scans every row the filter
+    // matches — on every keystroke of the search box, against a database that
+    // bills for being awake (ADR-035) — to produce a number whose only use is
+    // the word "of". Asking for `limit + 1` rows answers the question the
+    // button actually needs, which is whether there is anything after this.
+    const rows = await prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit + 1,
+      select: {
+        id: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        // The sentence the writer composed. Not selected before this, which is
+        // why every row arrived saying nothing.
+        details: true,
+        oldValue: true,
+        newValue: true,
+        userIp: true,
+        createdAt: true,
+        userId: true,
+      },
+    });
+    const hasMore = rows.length > limit;
+    const logs = hasMore ? rows.slice(0, limit) : rows;
 
     const actorIds = [...new Set(logs.map((l) => l.userId).filter((id): id is string => !!id))];
     const [actors, subjects] = await Promise.all([
@@ -334,7 +341,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       data,
-      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+      pagination: { page, limit, hasMore },
     });
   } catch (error) {
     const authStatus = authErrorStatus(error);

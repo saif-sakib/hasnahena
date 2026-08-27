@@ -10,6 +10,7 @@ import {
   XCircle,
   ChevronDown,
   ChevronUp,
+  Building2,
   Eye,
   Download,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
 } from '@/lib/rejection-reasons';
 import { apiPost } from '@/lib/api';
 import { useApi } from '@/lib/use-api';
+import useSWR from 'swr';
 import { downloadDocumentFile, guessFileNameFromUrl, isImageDocument } from '@/lib/document-files';
 import { formatCurrency } from '@/lib/utils';
 import { useDashboardRole } from '@/components/dashboard/role';
@@ -115,9 +117,23 @@ interface ApproveRegistrationResult {
   message?: string;
   emailDelivered?: boolean;
   deliveryError?: string;
-  temporaryPassword?: string;
-  /** Allocated by the approval itself — an application has none. */
+  /**
+   * Allocated by the approval itself — an application has none.
+   *
+   * The temporary password used to come back beside it and be shown here. It
+   * does not any more: a working credential for a brand-new account does not
+   * belong on a queue screen in a shared office. A member with no email address
+   * is given one deliberately, from **Reset password** on their own page
+   * (ADR-036), which is also where an admin is when they are actually with them.
+   */
   accountNo?: string;
+}
+
+/** The offices an admin can admit somebody to. */
+interface BranchOption {
+  id: string;
+  name: string;
+  isActive: boolean;
 }
 
 function inferDocumentLabel(document: RegistrationDocument, index: number, locale: string): string {
@@ -447,21 +463,22 @@ export default function ApprovalsScreen() {
   /**
    * What the admin has to pass on, shown until they dismiss it.
    *
-   * Both halves are returned once and stored nowhere: the temporary password is
-   * only ever a bcrypt hash after this, and the account number — which the
-   * approval has just allocated — is on a screen the admin has already left by
-   * the time they think to look for it.
+   * The account number, which the approval has just allocated and which nothing
+   * else shows the admin who allocated it: they are on a queue screen they will
+   * have left by the time they think to look for it, and most members of this
+   * cooperative have no email address (ADR-036) so no message went out either.
    *
-   * It used to appear only when the approval *email* failed, which reads as
-   * "the happy path told the member". Most members of this cooperative have no
-   * email address at all (ADR-036), so for them the happy path told nobody, and
-   * the number they will be asked for at the counter for the rest of their
-   * membership went to a bcrypt hash and a log line.
+   * **The temporary password is deliberately not here.** It was, on the same
+   * reasoning — and it is a different kind of thing. An account number is a
+   * name; a password is a key, and putting a working key for a fresh account on
+   * a shared office screen at the moment somebody is working through a queue is
+   * not the same act as showing them a number. The member who needs one gets it
+   * from **Reset password** on their own page, when they are there to be told.
    */
   const [approvedMember, setApprovedMember] = useState<{
     name: string;
     accountNo: string;
-    temporaryPassword: string;
+    branchName: string;
     emailDelivered: boolean;
   } | null>(null);
   const error = actionError ?? loadError;
@@ -493,6 +510,49 @@ export default function ApprovalsScreen() {
   // confirmation and no reason — `reason: ''` was hardcoded at the call site —
   // and it is irreversible. On a 412 px screen those buttons are 28 px apart,
   // which made a mis-tap enough to refuse somebody's membership.
+  /**
+   * Which application the admin is admitting, and to which office.
+   *
+   * Approving used to fire straight off an icon button. It now asks one
+   * question first, because there is one to ask: a member's branch is a
+   * decision the foundation makes about them and there was nowhere to make it.
+   * Registration guessed — it assigned the sole active office and assigned
+   * nothing once a second one existed, so a member's branch was either an
+   * inference or blank, and neither was anybody's answer.
+   */
+  const [approveTarget, setApproveTarget] = useState<RegistrationRequest | null>(null);
+  const [approveBranchId, setApproveBranchId] = useState<string>('');
+
+  // The offices, from the Next route rather than the Go API — `useApi` talks to
+  // Go, and branches are a Next resource. Loaded once for the screen rather than
+  // per dialog: an admin working through a queue opens this repeatedly.
+  const { data: branches } = useSWR<BranchOption[], Error>(
+    canApproveRegistrations ? '/api/v1/admin/branches' : null,
+    async (url: string) => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.ok) throw new Error(payload?.error || 'Failed to load offices');
+      return payload.data as BranchOption[];
+    },
+  );
+
+  const activeBranches = useMemo(
+    () => (branches ?? []).filter((b) => b.isActive),
+    [branches],
+  );
+
+  const openApproveDialog = (item: RegistrationRequest) => {
+    setApproveTarget(item);
+    // Pre-selected when there is exactly one office it could be, which is the
+    // foundation's situation today and keeps the common case one extra click
+    // rather than a decision. With several, nothing is chosen: guessing between
+    // them is the wrong answer that nothing would ever report.
+    setApproveBranchId(activeBranches.length === 1 ? activeBranches[0].id : '');
+  };
+
   const [rejectTarget, setRejectTarget] = useState<RegistrationRequest | null>(null);
   const [rejectCode, setRejectCode] = useState<RejectionReasonCode | ''>('');
   const [rejectNote, setRejectNote] = useState('');
@@ -586,31 +646,54 @@ export default function ApprovalsScreen() {
     }
   };
 
-  // Approval only. Rejection goes through the dialog above, because it needs a
-  // reason and a confirmation before it can be sent.
-  const runRegistrationAction = async (id: string, action: 'approve') => {
+  // Approval. Rejection goes through its own dialog, because it needs a reason;
+  // this one needs an office.
+  const submitApproval = async () => {
+    if (!approveTarget) return;
+    const id = approveTarget.id;
     setIsActionLoading(true);
     setActionError(null);
     try {
-      if (action === 'approve') {
-        const approvalResult = await apiPost<ApproveRegistrationResult>('/v1/dashboard/admin/approvals/registration', {
-          userId: id,
-          notes: '',
-          locale,
-        });
-        setApprovedMember({
-          name: registrations.find((item) => item.id === id)?.name ?? '',
-          accountNo: approvalResult.accountNo ?? '',
-          temporaryPassword: approvalResult.temporaryPassword ?? '',
-          emailDelivered: approvalResult.emailDelivered !== false,
-        });
-        if (approvalResult.emailDelivered === false && approvalResult.deliveryError) {
-          setActionError(
-            locale === 'bn'
-              ? `অনুমোদন ইমেইল পাঠানো যায়নি। কারণ: ${approvalResult.deliveryError}`
-              : `The approval email could not be sent. Reason: ${approvalResult.deliveryError}`,
-          );
-        }
+      const approvalResult = await apiPost<ApproveRegistrationResult>('/v1/dashboard/admin/approvals/registration', {
+        userId: id,
+        notes: '',
+        locale,
+        branchId: approveBranchId,
+      });
+      setApproveTarget(null);
+      setApprovedMember({
+        name: registrations.find((item) => item.id === id)?.name ?? '',
+        accountNo: approvalResult.accountNo ?? '',
+        branchName: activeBranches.find((b) => b.id === approveBranchId)?.name ?? '',
+        emailDelivered: approvalResult.emailDelivered !== false,
+      });
+
+      // File the four identity documents under the account number the approval
+      // has just issued — `hasnahena/people/ACC-KH-33001`, beside the avatar,
+      // instead of `applications/APP-2026-000001` where they were uploaded by
+      // somebody who had no account number yet.
+      //
+      // Best effort, exactly like the rejection's purge below, and safe for the
+      // same reason: the nightly sweep files anything this call missed. A
+      // failure here changes nothing anybody can see — the stored URLs still
+      // point at files that still exist — so it must not make a successful
+      // approval look like a failed one.
+      void fetch(`/api/v1/admin/members/${id}/refile-documents`, {
+        method: 'POST',
+        headers:
+          typeof window !== 'undefined' && localStorage.getItem('hn_access_token')
+            ? { Authorization: `Bearer ${localStorage.getItem('hn_access_token')}` }
+            : {},
+      }).catch(() => {
+        // The scheduled sweep is the guarantee; this call is only the hurry.
+      });
+
+      if (approvalResult.emailDelivered === false && approvalResult.deliveryError) {
+        setActionError(
+          locale === 'bn'
+            ? `অনুমোদন ইমেইল পাঠানো যায়নি। কারণ: ${approvalResult.deliveryError}`
+            : `The approval email could not be sent. Reason: ${approvalResult.deliveryError}`,
+        );
       }
       await loadApprovals();
     } catch (e: any) {
@@ -753,21 +836,21 @@ export default function ApprovalsScreen() {
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wide text-emerald-700">
-                {locale === 'bn' ? 'অস্থায়ী পাসওয়ার্ড' : 'Temporary password'}
+                {locale === 'bn' ? 'শাখা' : 'Office'}
               </dt>
-              <dd className="mt-0.5 font-mono text-base font-semibold break-all">
-                {approvedMember.temporaryPassword || '—'}
+              <dd className="mt-0.5 text-base font-semibold break-words">
+                {approvedMember.branchName || (locale === 'bn' ? 'নির্ধারিত হয়নি' : 'Not assigned')}
               </dd>
             </div>
           </dl>
           <p className="mt-3 text-xs">
             {approvedMember.emailDelivered
               ? locale === 'bn'
-                ? 'এগুলো ইমেইলেও পাঠানো হয়েছে। এই পর্দা ছাড়লে আর দেখা যাবে না — প্রয়োজনে এখনই লিখে রাখুন।'
-                : 'These were emailed as well. They cannot be shown again once you leave this screen — write them down now if the member needs them read out.'
+                ? 'সদস্যকে ইমেইলে অস্থায়ী পাসওয়ার্ড পাঠানো হয়েছে। গ্রাহক আই.ডি তাকে লিখে দিন।'
+                : 'A temporary password was emailed to the member. Give them their account number — it is the number they will be asked for at the counter.'
               : locale === 'bn'
-                ? 'সদস্যকে এখনই এগুলো পড়ে শোনান। এই পর্দা ছাড়লে আর দেখা যাবে না।'
-                : 'Read these to the member now. They cannot be shown again once you leave this screen.'}
+                ? 'এই সদস্যের ইমেইল নেই, তাই পাসওয়ার্ড পাঠানো যায়নি। তার নিজের পাতায় গিয়ে “পাসওয়ার্ড রিসেট” দিয়ে একটি অস্থায়ী পাসওয়ার্ড তৈরি করুন এবং সরাসরি পড়ে শোনান।'
+                : 'This member has no email, so no password was sent. Open their page and use “Reset password” to issue one, and read it to them there.'}
           </p>
         </div>
       )}
@@ -815,7 +898,7 @@ export default function ApprovalsScreen() {
                       item={item}
                       locale={locale}
                       isActionLoading={isActionLoading}
-                      onApprove={() => void runRegistrationAction(item.id, 'approve')}
+                      onApprove={() => openApproveDialog(item)}
                       onReject={() => openRejectDialog(item)}
                     />
                   ))
@@ -980,6 +1063,78 @@ export default function ApprovalsScreen() {
           </div>
         </div>
       )}
+
+      {/*
+        Approving asks one question: which office the member belongs to.
+
+        Not a "are you sure?" step — those train people to tap through. The
+        branch has to be decided by somebody and this is the moment somebody who
+        knows is looking at the application. The office is pre-selected when
+        there is only one, so the foundation's situation today is one extra tap.
+      */}
+      <Dialog open={approveTarget !== null} onOpenChange={(open) => { if (!open) setApproveTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {locale === 'bn' ? 'সদস্য হিসেবে অনুমোদন করবেন?' : 'Admit this applicant?'}
+            </DialogTitle>
+            <DialogDescription>
+              {approveTarget
+                ? locale === 'bn'
+                  ? `${approveTarget.name} একটি গ্রাহক আই.ডি পাবেন এবং সদস্য হিসেবে সক্রিয় হবেন।`
+                  : `${approveTarget.name} will be given an account number and activated as a member.`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="approve-branch" className="text-sm">
+              {locale === 'bn' ? 'শাখা' : 'Office'}
+            </Label>
+            {activeBranches.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                {locale === 'bn'
+                  ? 'কোনো সক্রিয় শাখা নেই। সদস্য শাখা ছাড়াই অনুমোদিত হবেন; পরে সদস্যের পাতা থেকে নির্ধারণ করা যাবে।'
+                  : 'There are no active offices. The member will be admitted without one, and it can be set later from their page.'}
+              </p>
+            ) : (
+              <>
+                <select
+                  id="approve-branch"
+                  value={approveBranchId}
+                  onChange={(e) => setApproveBranchId(e.target.value)}
+                  className="h-10 w-full rounded-sm border border-gray-300 bg-white px-3 text-sm"
+                >
+                  <option value="">
+                    {locale === 'bn' ? 'নির্ধারণ করবেন না' : 'Do not assign yet'}
+                  </option>
+                  {activeBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} ({branch.id})
+                    </option>
+                  ))}
+                </select>
+                <p className="flex items-start gap-1.5 text-xs text-gray-500">
+                  <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {locale === 'bn'
+                    ? 'শাখা অনুযায়ী রিপোর্ট এখান থেকেই আসে। পরে সদস্যের পাতা থেকে পরিবর্তন করা যাবে।'
+                    : 'Per-office reports are counted from this. It can be changed later from the member’s page.'}
+                </p>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveTarget(null)} disabled={isActionLoading}>
+              {locale === 'bn' ? 'বাতিল' : 'Cancel'}
+            </Button>
+            <Button onClick={() => void submitApproval()} disabled={isActionLoading}>
+              {isActionLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              {locale === 'bn' ? 'অনুমোদন করুন' : 'Admit member'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/*
         Rejecting an application is irreversible and, since 2026-08-26, sends the

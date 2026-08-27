@@ -681,6 +681,10 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		UserID string `json:"userId"`
 		Notes  string `json:"notes"`
 		Locale string `json:"locale"`
+		// The office the admin is admitting them to. Optional — a foundation
+		// that has not set its branches up yet must still be able to admit
+		// members, and "no office yet" is a state the member list already shows.
+		BranchID string `json:"branchId"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
@@ -721,8 +725,15 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 	// from the earlier snapshot would put an empty string into the approval email
 	// — the one message that tells a member the number they will be asked for
 	// every time they walk into the office.
-	accountNo, err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken)
+	accountNo, err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken, req.BranchID)
 	if err != nil {
+		// An office that does not exist or has been closed is the admin picking
+		// from a stale list, not a fault (rule 2b). Reported as such, so the
+		// screen can say which half of the request was wrong.
+		if errors.Is(err, repositories.ErrBranchNotAssignable) {
+			utils.Error(w, http.StatusBadRequest, "BRANCH_NOT_AVAILABLE", "That office is not available. Refresh and choose another.")
+			return
+		}
 		slog.Error("approve registration failed", "userId", req.UserID, "error", err)
 		utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve registration")
 		return
@@ -757,12 +768,27 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		"message":        "Registration approved successfully",
 		"emailDelivered": emailDelivered,
 		"deliveryError":  deliveryError,
-		// Both are shown once, on the approvals screen, and stored nowhere the
-		// admin can go back to. Most members have no email address (ADR-036), so
-		// for them this response IS the delivery: the admin reads out the number
-		// and the password, and there is no second chance to see either.
-		"temporaryPassword": tempPassword,
-		"accountNo":         accountNo,
+		// **The temporary password is deliberately not here.** It is generated,
+		// hashed, emailed if there is an address, and then forgotten.
+		//
+		// It used to be returned and displayed on the approvals screen, on the
+		// reasoning that most members of this cooperative have no email address
+		// (ADR-036) so the screen was the only delivery. That put a working
+		// credential for a brand-new account onto a shared office screen at the
+		// moment an admin is looking at a queue, in a response body that every
+		// proxy and browser cache between here and there can hold — for an
+		// account whose owner is usually not in the room.
+		//
+		// The member with no email gets one on purpose instead, from
+		// `POST /api/v1/admin/members/{id}/reset-password` — the staff-assisted
+		// reset (ADR-036), which an admin runs from that member's own page when
+		// they are actually there to be told. Same secret, issued deliberately,
+		// on a screen that is about one person.
+		//
+		// `accountNo` stays: it is not a credential, it is the member's name at
+		// the counter for the rest of their membership, this is the moment it is
+		// allocated, and nothing else shows it to the admin who just admitted them.
+		"accountNo": accountNo,
 	})
 }
 

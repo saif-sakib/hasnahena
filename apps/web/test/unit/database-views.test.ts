@@ -22,10 +22,30 @@ const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 const SCHEMA = readFileSync(join(WEB_ROOT, 'prisma', 'schema.prisma'), 'utf8');
 
 const MIGRATIONS = join(WEB_ROOT, 'prisma', 'migrations');
-const VIEWS_SQL = readdirSync(MIGRATIONS)
-  .filter((d) => d.includes('readable_views'))
-  .map((d) => readFileSync(join(MIGRATIONS, d, 'migration.sql'), 'utf8'))
-  .join('\n');
+
+/**
+ * The **current** definition of each view.
+ *
+ * Read from every migration in order and keyed by view name, so the last
+ * `CREATE OR REPLACE VIEW v_people` wins — which is exactly what the database
+ * ends up with. Reading only the `_readable_views` migration was the first
+ * version, and it is wrong the moment a later migration replaces a view: it
+ * would report a column as missing that the view stopped naming, and, worse,
+ * would keep passing for a view that a later migration broke.
+ */
+const VIEW_BODIES = new Map<string, string>();
+for (const dir of readdirSync(MIGRATIONS).filter((d) => !d.endsWith('.toml')).sort()) {
+  let sql: string;
+  try {
+    sql = readFileSync(join(MIGRATIONS, dir, 'migration.sql'), 'utf8');
+  } catch {
+    continue;
+  }
+  for (const [whole, name] of sql.matchAll(/CREATE OR REPLACE VIEW (v_\w+) AS[\s\S]*?;/g)) {
+    VIEW_BODIES.set(name, whole);
+  }
+}
+const VIEWS_SQL = [...VIEW_BODIES.values()].join('\n');
 
 describe('the readable views', () => {
   it('are actually defined', () => {
@@ -38,9 +58,12 @@ describe('the readable views', () => {
     // Every column this schema declares is quoted camelCase in SQL, because
     // Prisma maps the model field name straight through (CONTRIBUTING.md). So
     // the quoted identifiers in the view bodies are exactly the set that a
-    // rename would invalidate — and a bare lowercase column (`phone`, `role`,
-    // `details`) cannot be checked this way and does not need to be, since
-    // Postgres folds it and a rename of one would fail every other query too.
+    // rename would invalidate. The bare lowercase ones are checked separately
+    // below — this test used to argue they did not need to be, on the grounds
+    // that a rename would break every other query too. That was wrong, and
+    // `branches.code` is how: nothing else selected it, so dropping it broke
+    // exactly one thing, and that one thing is invisible to the compiler and to
+    // `pnpm db:migrate:check`.
     const quoted = new Set(
       [...VIEWS_SQL.matchAll(/"([a-z][A-Za-z0-9]*)"/g)].map((m) => m[1]),
     );
@@ -63,6 +86,31 @@ describe('the readable views', () => {
       `these view columns are no longer in schema.prisma — update ` +
         `prisma/migrations/*_readable_views/migration.sql in the same migration ` +
         `that renamed them, or the next deploy fails on a view that cannot be built`,
+    ).toEqual([]);
+  });
+
+  it('name only lowercase columns that still exist either', () => {
+    // `b.code`, `u.phone`, `a."savingsBalance"`. The unquoted half is the one
+    // that got away: a column whose name is already lowercase needs no quotes,
+    // so it does not appear in the check above, and `branches.code` was dropped
+    // while `v_people` still selected it. That fails at `prisma migrate deploy`
+    // — during a deployment, on the migration *after* the one that broke it.
+    const referenced = new Set(
+      [...VIEWS_SQL.matchAll(/\b[a-z]\.([a-z][a-z0-9_]*)\b/g)].map((m) => m[1]),
+    );
+    const mapped = new Set(
+      [...SCHEMA.matchAll(/@map\("([^"]+)"\)/g)].map((m) => m[1]),
+    );
+    const missing = [...referenced].filter((name) => {
+      if (mapped.has(name)) return false;
+      return !new RegExp(`^\\s+${name}\\s`, 'm').test(SCHEMA);
+    });
+
+    expect(
+      missing,
+      `these view columns are no longer declared in schema.prisma — a view ` +
+        `depends on the columns it names, so the migration that drops one has to ` +
+        `CREATE OR REPLACE the view in the same file`,
     ).toEqual([]);
   });
 

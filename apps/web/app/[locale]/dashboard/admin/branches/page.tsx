@@ -20,6 +20,8 @@ import { toast } from '@/hooks/use-toast';
  * connected. This screen is the missing half: branches are rows, and a worker is
  * assigned to one by id.
  *
+ * The code IS the branch's primary key since 2026-08-27, so the "Code" column
+ * below renders `branch.id` — there is no second column holding the same fact.
  * Note that a branch code does **not** drive member IDs. Those come from the
  * hardcoded `utils.MemberIDPrefix` ("ACC-KH-33") in the Go API, because the
  * identifier is read aloud and written into paper passbooks and its format is
@@ -29,7 +31,6 @@ import { toast } from '@/hooks/use-toast';
 interface Branch {
   id: string;
   name: string;
-  code: string;
   address: string;
   phone: string;
   isActive: boolean;
@@ -93,7 +94,7 @@ export default function BranchesPage() {
     setForm({
       id: branch.id,
       name: branch.name,
-      code: branch.code,
+      code: branch.id,
       address: branch.address,
       phone: branch.phone,
     });
@@ -238,7 +239,7 @@ export default function BranchesPage() {
               {sorted.map((branch) => (
                 <tr key={branch.id} className="border-t border-gray-100 dark:border-zinc-800">
                   <td className="px-4 py-3 font-medium">{branch.name}</td>
-                  <td className="px-4 py-3 font-mono">{branch.code}</td>
+                  <td className="px-4 py-3 font-mono">{branch.id}</td>
                   <td className="px-4 py-3 hidden md:table-cell text-gray-600 dark:text-zinc-400">
                     {branch.address || '-'}
                   </td>

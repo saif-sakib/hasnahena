@@ -9,7 +9,7 @@ import {
   REGISTRATION_UPLOAD_LIMITS,
 } from '@/lib/validation/registration';
 import { uploadImage, deleteImage, applicationFolder } from '@/lib/cloudinary';
-import { soleActiveBranchId } from '@/lib/default-branch';
+import { APPLICATION_DOCUMENTS } from '@/lib/application-documents';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 import { nextDocumentNumber, SERIES } from '@/lib/document-numbers';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
@@ -33,32 +33,11 @@ function parseOptionalDate(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-const REQUIRED_DOCUMENT_FIELDS = [
-  {
-    formKey: 'nidFrontImage',
-    documentType: 'nid_front',
-    folderSlug: 'nid-front',
-    label: 'NID front image',
-  },
-  {
-    formKey: 'nidBackImage',
-    documentType: 'nid_back',
-    folderSlug: 'nid-back',
-    label: 'NID back image',
-  },
-  {
-    formKey: 'memberPhotoImage',
-    documentType: 'member_photo',
-    folderSlug: 'member-photo',
-    label: 'Member photo',
-  },
-  {
-    formKey: 'signatureImage',
-    documentType: 'member_signature',
-    folderSlug: 'signature',
-    label: 'Member signature',
-  },
-] as const;
+// The four documents, their form fields and the name each asset is given, are
+// declared once in `lib/application-documents.ts` — because the *approval* has
+// to re-derive those names when it moves the files into the member's own folder,
+// and two lists that must agree and live in different layers do not stay equal.
+const REQUIRED_DOCUMENT_FIELDS = APPLICATION_DOCUMENTS;
 
 // The sentinel and the rejected-application predicate live in
 // `lib/rejected-application.ts` now, because the database's partial unique
@@ -419,15 +398,17 @@ export async function POST(req: Request) {
       // every receipt and loan number — and one it costs nothing to burn.
       const formNumber = await nextDocumentNumber(SERIES.application, tx);
 
-      // The office this member belongs to, when there is only one it could be.
-      // Members have carried a branch since 2026-08-27; the column was always
-      // there and nothing ever wrote it. See lib/default-branch.ts for why this
-      // declines to guess once a second office exists.
-      const assignedBranchId = await soleActiveBranchId(tx);
+      // **No branch is assigned here.** Which office a member belongs to is a
+      // decision the foundation makes about them, not a property of the form
+      // they filled in — a public applicant has no idea which office exists, and
+      // this route ran before anybody had read the application. It is chosen by
+      // the admin on the approvals screen, alongside the account number that is
+      // issued at the same moment ([ADR-042](../../../../../docs/decisions.md));
+      // the dialog pre-selects the sole active office, so the foundation's
+      // situation today is still one click.
 
       return tx.user.create({
         data: {
-          assignedBranchId,
           email: normalizedEmail,
           phone: payload.phone,
           passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
@@ -534,7 +515,7 @@ export async function POST(req: Request) {
             applicationFolder(created.formNumber, created.id),
             {
               preserveOriginal: true,
-              publicId: requirement.folderSlug,
+              publicId: requirement.slug,
               useFilename: false,
               uniqueFilename: false,
               overwrite: true,
@@ -548,7 +529,7 @@ export async function POST(req: Request) {
 
           return {
             userId: created.id,
-            type: requirement.documentType,
+            type: requirement.type,
             url: uploadResult.url,
             fileName: fileEntry.name,
             mimeType: fileEntry.type,

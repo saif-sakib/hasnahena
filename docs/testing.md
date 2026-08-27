@@ -85,6 +85,8 @@ left behind would pass or fail on package ordering.
 | **what an auth endpoint discloses** | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
 | a Next route handler | `apps/web/test/routes/*.test.ts` | Postgres |
 | **who owns a contact, and what a deletion takes with it** | `apps/web/test/routes/identity-integrity.test.ts` | Postgres |
+| **where a member's files are stored, and what moves them** | `apps/web/test/routes/document-filing.test.ts` (the route, with Cloudinary stubbed at the module boundary — that account holds real NID scans and CI has no credentials for it) and `apps/web/test/unit/image-uploads.test.ts` (the folder names, [ADR-040](decisions.md)) | Postgres / nothing |
+| **what an approval hands out** | `apps/web/test/unit/approval-credentials.test.ts` — the account number, never the password ([ADR-042](decisions.md)). Fails in **both** directions: a handler returning a credential with no screen to show it, and a screen reading a field nothing sends | nothing |
 | **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` (the text half) and `apps/web/test/unit/audit-actions.test.ts` (the tiers, [ADR-038](decisions.md)) | Postgres / nothing |
 | **an action written into `audit_logs`** | `apps/web/test/unit/audit-actions.test.ts` — it reads both backends for audit writes and fails in **both** directions: an action nothing catalogues, and a catalogued action nothing writes | nothing |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |

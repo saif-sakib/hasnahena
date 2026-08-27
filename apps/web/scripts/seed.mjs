@@ -481,25 +481,26 @@ async function seedDonationPool(prisma) {
  * (ADR-008) rather than derived from whatever rows happen to be in this table.
  * The match is a convention for humans reading both.
  *
- * Idempotent on `code`, so re-seeding never creates a second Bhekutia and never
- * overwrites an address an admin has corrected.
+ * Idempotent on the code, which is the primary key, so re-seeding never creates
+ * a second Bhekutia and never overwrites an address an admin has corrected.
  */
 async function seedBranches(prisma) {
-  const existing = await prisma.branch.findUnique({ where: { code: 'KH' }, select: { id: true } });
+  const existing = await prisma.branch.findUnique({ where: { id: 'KH' }, select: { id: true } });
   if (existing) {
     console.log('branches: already present, leaving alone');
     return;
   }
   const branch = await prisma.branch.create({
     data: {
+      // The code IS the key now, so it is written here rather than generated.
+      id: 'KH',
       name: 'Bhekutia',
-      code: 'KH',
       address: 'Bhekutia, Sadar, Jashore, Bangladesh',
       isActive: true,
     },
-    select: { id: true, name: true, code: true },
+    select: { id: true, name: true },
   });
-  console.log(`branches: created ${branch.name} (${branch.code})`);
+  console.log(`branches: created ${branch.name} (${branch.id})`);
 }
 
 async function main() {

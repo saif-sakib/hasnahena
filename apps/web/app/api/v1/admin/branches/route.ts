@@ -14,7 +14,11 @@ import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-e
  * every worker pointing at the old name, and a typo created a branch that
  * existed on exactly one row.
  *
- * A note on the branch *code*: it is the human-readable prefix (`KH`), but
+ * A note on the branch *code*: since 2026-08-27 it **is** the primary key, so
+ * `users.assignedBranchId` reads `KH` rather than a cuid. The request body still
+ * calls it `code`, because that is the word for the thing an admin types; the
+ * row calls it `id`, because that is what it is. It is the human-readable prefix
+ * (`KH`), but
  * member IDs are **not** generated from it. They come from the hardcoded
  * `utils.AccountNoPrefix` ("ACC-KH-33") in the Go API, because that identifier is
  * read aloud and written into paper passbooks and its format is fixed
@@ -36,7 +40,6 @@ const updateSchema = branchSchema.partial().extend({ id: z.string().trim().min(1
 const BRANCH_SELECT = {
   id: true,
   name: true,
-  code: true,
   address: true,
   phone: true,
   isActive: true,
@@ -114,7 +117,6 @@ export async function GET(req: Request) {
       data: branches.map((b) => ({
         id: b.id,
         name: b.name,
-        code: b.code,
         address: b.address ?? '',
         phone: b.phone ?? '',
         isActive: b.isActive,
@@ -141,15 +143,18 @@ export async function POST(req: Request) {
     }
     const code = parsed.data.code.toUpperCase();
 
-    const clash = await prisma.branch.findUnique({ where: { code }, select: { id: true } });
+    const clash = await prisma.branch.findUnique({ where: { id: code }, select: { id: true } });
     if (clash) {
       return NextResponse.json({ ok: false, error: 'A branch with this code already exists' }, { status: 409 });
     }
 
     const created = await prisma.branch.create({
       data: {
+        // The code is the key. There is no `@default(cuid())` to fall back on,
+        // which is deliberate: a branch with an invented identifier is exactly
+        // the opaque row this replaced.
+        id: code,
         name: parsed.data.name,
-        code,
         address: parsed.data.address || null,
         phone: parsed.data.phone || null,
         isActive: parsed.data.isActive ?? true,
@@ -162,8 +167,8 @@ export async function POST(req: Request) {
       entityType: 'BRANCH',
       entityId: created.id,
       userId: auth.id,
-      newValue: { name: created.name, code: created.code },
-      details: `Created branch ${created.name} (${created.code})`,
+      newValue: { name: created.name, code: created.id },
+      details: `Created branch ${created.name} (${created.id})`,
     });
 
     return NextResponse.json(
@@ -188,14 +193,19 @@ export async function PUT(req: Request) {
     }
     const { id, ...changes } = parsed.data;
 
-    const existing = await prisma.branch.findUnique({ where: { id }, select: { id: true, name: true, code: true } });
+    const existing = await prisma.branch.findUnique({ where: { id }, select: { id: true, name: true } });
     if (!existing) {
       return NextResponse.json({ ok: false, error: 'Branch not found' }, { status: 404 });
     }
 
+    // Renaming the code renames the key, and every member and worker attached to
+    // this office follows: the foreign key is `ON UPDATE CASCADE`. That is the
+    // whole reason it is safe to let an admin correct a typo in an office code
+    // — the alternative, with a surrogate key, was a code that could be changed
+    // freely and a row nobody could find by it.
     const code = changes.code ? changes.code.toUpperCase() : undefined;
-    if (code && code !== existing.code) {
-      const clash = await prisma.branch.findUnique({ where: { code }, select: { id: true } });
+    if (code && code !== existing.id) {
+      const clash = await prisma.branch.findUnique({ where: { id: code }, select: { id: true } });
       if (clash) {
         return NextResponse.json({ ok: false, error: 'A branch with this code already exists' }, { status: 409 });
       }
@@ -205,7 +215,7 @@ export async function PUT(req: Request) {
       where: { id },
       data: {
         ...(changes.name !== undefined ? { name: changes.name } : {}),
-        ...(code !== undefined ? { code } : {}),
+        ...(code !== undefined ? { id: code } : {}),
         ...(changes.address !== undefined ? { address: changes.address || null } : {}),
         ...(changes.phone !== undefined ? { phone: changes.phone || null } : {}),
         ...(changes.isActive !== undefined ? { isActive: changes.isActive } : {}),
@@ -218,9 +228,9 @@ export async function PUT(req: Request) {
       entityType: 'BRANCH',
       entityId: updated.id,
       userId: auth.id,
-      oldValue: existing,
-      newValue: { name: updated.name, code: updated.code, isActive: updated.isActive },
-      details: `Updated branch ${updated.name} (${updated.code})`,
+      oldValue: { name: existing.name, code: existing.id },
+      newValue: { name: updated.name, code: updated.id, isActive: updated.isActive },
+      details: `Updated branch ${updated.name} (${updated.id})`,
     });
 
     return NextResponse.json({
@@ -260,7 +270,7 @@ export async function DELETE(req: Request) {
 
     const existing = await prisma.branch.findUnique({
       where: { id },
-      select: { id: true, name: true, code: true, _count: { select: { users: true } } },
+      select: { id: true, name: true, _count: { select: { users: true } } },
     });
     if (!existing) {
       return NextResponse.json({ ok: false, error: 'Branch not found' }, { status: 404 });
@@ -284,7 +294,7 @@ export async function DELETE(req: Request) {
         entityType: 'BRANCH',
         entityId: id,
         userId: auth.id,
-        oldValue: { name: existing.name, code: existing.code },
+        oldValue: { name: existing.name, code: existing.id },
         details: `Deactivated branch ${existing.name} — ${attached} still assigned`,
       });
       return NextResponse.json({
@@ -301,8 +311,8 @@ export async function DELETE(req: Request) {
       entityType: 'BRANCH',
       entityId: id,
       userId: auth.id,
-      oldValue: { name: existing.name, code: existing.code },
-      details: `Deleted branch ${existing.name} (${existing.code})`,
+      oldValue: { name: existing.name, code: existing.id },
+      details: `Deleted branch ${existing.name} (${existing.id})`,
     });
 
     return NextResponse.json({ ok: true, deactivated: false });

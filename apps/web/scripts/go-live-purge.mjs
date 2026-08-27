@@ -99,9 +99,27 @@
 //   --keep-passwords   leave passwordHash and the first-login markers alone
 //   --admins-only      scrub the admin rows and delete NOTHING. Safe to run at
 //                      any time, including against a database in use
+//   --keep-images      leave Cloudinary alone
+//
+// THE IMAGES
+// ----------
+// Deleting the rows is half of an erasure. Every member deleted here has a
+// folder on the image host — `hasnahena/people/ACC-KH-33002` for their avatar
+// and identity documents, `hasnahena/applications/APP-2026-000004` for anything
+// filed before they were admitted — and those are served from URLs that need no
+// login. A cutover that empties the database and leaves the scans of a hundred
+// test members' national identity cards online has not cleared the test data;
+// it has only stopped being able to find it.
+//
+// So the folders of everybody being deleted go too, when Cloudinary credentials
+// are present. When they are not — this script's only hard requirement is a
+// database URL, deliberately — nothing is deleted and every folder is **printed**
+// so it can be dealt with by hand. Silence is the one outcome that is not
+// allowed here.
 
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { v2 as cloudinary } from 'cloudinary';
 import { PrismaClient, MaritalStatus, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv, redactUrl } from './lib/env.mjs';
 
@@ -172,7 +190,12 @@ function parseStaffSequence(accountNo) {
 /**
  * The office to attach the admins to, when there is only one it could be.
  *
- * Mirrors `apps/web/lib/default-branch.ts` for the same reason as above, and
+ * Assigns automatically ONLY when there is exactly one active office — guessing
+ * between several is wrong in a way nothing would report, and a member filed
+ * under the wrong branch is discovered when a per-branch report does not add up.
+ * Two rows are requested rather than one because `findFirst` cannot tell "the
+ * only office" from "the first of several", which is the distinction this exists
+ * to make. Restated here rather than imported for the same reason as above, and
  * declines to choose for the same reason: with several offices, guessing is
  * wrong in a way nothing would report.
  */
@@ -246,6 +269,68 @@ function hashResetSecret(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex');
 }
 
+/**
+ * Whether the image host can be reached from here.
+ *
+ * The script's one hard requirement is a database URL. Cloudinary credentials
+ * are optional and usually present in `apps/web/.env`; when they are not, the
+ * folders are printed instead of deleted, which is the only acceptable
+ * alternative to doing it.
+ */
+function cloudinaryConfigured() {
+  const ok =
+    process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET;
+  if (ok) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+  }
+  return Boolean(ok);
+}
+
+/**
+ * The Cloudinary folders belonging to the people this purge deletes.
+ *
+ * Named from the row rather than found by listing the host: a folder is
+ * `people/<accountNo>` when they were admitted and `people/<id>` for anything
+ * filed before account numbers named folders, plus `applications/<formNumber>`
+ * for documents submitted and never moved. Listing instead would be shorter and
+ * would also sweep up the two surviving admins, which is the one thing this
+ * must not do.
+ */
+function foldersFor(users) {
+  const folders = new Set();
+  for (const u of users) {
+    folders.add(`people/${u.accountNo || u.id}`);
+    if (u.formNumber) folders.add(`applications/${u.formNumber}`);
+  }
+  return [...folders];
+}
+
+/** Empty one folder and remove it. Returns the number of assets deleted, or null. */
+async function purgeFolder(folder) {
+  const prefix = `hasnahena/${folder}`;
+  try {
+    const result = await cloudinary.api.delete_resources_by_prefix(prefix);
+    const deleted = Object.values(result.deleted ?? {}).filter((v) => v === 'deleted').length;
+    try {
+      await cloudinary.api.delete_folder(prefix);
+    } catch {
+      // Cosmetic: the assets are what matter, and this throws when the folder
+      // was already gone.
+    }
+    return deleted;
+  } catch (error) {
+    console.error(`  ! ${prefix}: ${error?.message ?? error}`);
+    return null;
+  }
+}
+
+
 async function main() {
   loadDatabaseEnv();
   if (!process.env.DATABASE_URL) {
@@ -255,6 +340,7 @@ async function main() {
   const confirmed = process.argv.includes('--confirm');
   const keepPasswords = process.argv.includes('--keep-passwords');
   const adminsOnly = process.argv.includes('--admins-only');
+  const keepImages = process.argv.includes('--keep-images');
 
   console.log(`database: ${redactUrl(process.env.DATABASE_URL)}`);
   console.log(
@@ -263,6 +349,7 @@ async function main() {
       : 'mode:     dry run (pass --confirm to apply)',
   );
   if (keepPasswords) console.log('          --keep-passwords: existing passwords and first-login markers left alone');
+  if (keepImages) console.log('          --keep-images: Cloudinary is left untouched');
   console.log('');
 
   const prisma = new PrismaClient();
@@ -360,6 +447,16 @@ async function main() {
     }
 
     const keptIds = [];
+
+    // Read before the delete, because after it there is nothing left to ask.
+    // Only the people who are actually going: the two admins and the donation
+    // pool are excluded here by the same rule the delete uses below.
+    const doomed = adminsOnly
+      ? []
+      : await prisma.user.findMany({
+          where: { email: { notIn: ADMINS.map((a) => a.email) }, id: { not: DONATION_OWNER_ID } },
+          select: { id: true, accountNo: true, formNumber: true },
+        });
 
     await prisma.$transaction(
       async (tx) => {
@@ -519,6 +616,37 @@ async function main() {
       // looks exactly like the script having done nothing.
       { timeout: 120_000, maxWait: 30_000 },
     );
+
+    // The image host, after the database — a folder that will not delete must
+    // not roll back a purge that has already succeeded, and the folder names
+    // were read before the rows went.
+    if (!adminsOnly && doomed.length > 0) {
+      const folders = foldersFor(doomed);
+      console.log('');
+      if (keepImages) {
+        console.log(`images:   --keep-images, so ${folders.length} folder(s) were left on Cloudinary.`);
+      } else if (!confirmed) {
+        console.log(`images:   would delete ${folders.length} Cloudinary folder(s).`);
+      } else if (!cloudinaryConfigured()) {
+        console.log('images:   Cloudinary is NOT configured here, so nothing was deleted.');
+        console.log('          These folders still hold members\' photographs and NID scans.');
+        console.log('          Delete them by hand in the Cloudinary console:');
+        for (const folder of folders) console.log(`            hasnahena/${folder}`);
+      } else {
+        let assets = 0;
+        let failed = 0;
+        for (const folder of folders) {
+          const deleted = await purgeFolder(folder);
+          if (deleted === null) failed += 1;
+          else assets += deleted;
+        }
+        console.log(`images:   ${assets} asset(s) deleted from ${folders.length} folder(s).`);
+        if (failed > 0) {
+          console.log(`          ${failed} folder(s) would not delete — see the errors above and`);
+          console.log('          clear them in the Cloudinary console. Files are still public.');
+        }
+      }
+    }
 
     if (!adminsOnly) {
       const after = await counts(prisma);

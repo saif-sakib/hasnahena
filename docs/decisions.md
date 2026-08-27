@@ -49,6 +49,9 @@ still true.
 | [ADR-037](#adr-037--a-row-has-a-key-for-machines-and-an-identifier-for-people-and-a-view-for-reading) | A row has a key for machines and an identifier for people, and a view for reading | accepted |
 | [ADR-038](#adr-038--retention-is-tiered-by-what-the-data-is-not-by-one-clock) | Retention is tiered by what the data is, not by one clock | accepted |
 | [ADR-039](#adr-039--an-account-number-is-issued-on-admission-an-application-number-on-submission) | An account number is issued on admission, an application number on submission | accepted |
+| [ADR-040](#adr-040--a-persons-files-live-in-one-folder-named-after-them) | A person's files live in one folder, named after them | accepted |
+| [ADR-041](#adr-041--a-branchs-code-is-its-primary-key) | A branch's code is its primary key | accepted |
+| [ADR-042](#adr-042--admission-hands-out-a-number-a-password-is-issued-separately) | Admission hands out a number; a password is issued separately | accepted |
 
 ---
 
@@ -1548,10 +1551,156 @@ which makes true a claim [ADR-037](#adr-037--a-row-has-a-key-for-machines-and-an
 already relied on and is why it cannot be the primary key. `ApproveRegistration`
 returns the number it allocated, because the handler reads the candidate row
 *before* approval and would otherwise put an empty string into the one email that
-tells a member their number — and the approvals screen now shows the number and
-the temporary password on success rather than only on email failure, since most
-members have no email at all ([ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk)).
+tells a member their number — and the approvals screen shows the number on
+success rather than only on email failure, since most members have no email at
+all ([ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk)).
+It shows the **number** and not the password; see
+[ADR-042](#adr-042--admission-hands-out-a-number-a-password-is-issued-separately).
 
 Approval must **not** touch `formNumber`. It used to overwrite it with
 `FORM-<accountNo>`, destroying the reference the applicant had been given and the
 name of the folder holding their documents.
+
+---
+
+## ADR-040 — A person's files live in one folder, named after them
+
+**Status.** accepted · 2026-08-27
+
+**Context.** A member's images were in two trees. Their avatar was
+`hasnahena/people/ACC-KH-33001/avatar`; the four identity documents they
+submitted when applying were `hasnahena/applications/APP-2026-000001/nid-front`
+and its siblings. Both names are meaningful and neither says the two belong to
+the same human being.
+
+That split is only visible when it matters. "Delete everything you hold about
+this member" has to reach both, so the erasure needs the join between the
+account number and the application number — which lives in the database, which
+is the thing the erasure destroys. The same is true of a migration off
+Cloudinary, of an audit of what is stored about somebody, and of anyone staring
+at a bucket trying to work out what they are looking at.
+
+They cannot simply be uploaded to the right place. The documents arrive from a
+**public form**, before anybody is a member and therefore before an account
+number exists at all — it is issued at approval and nowhere else
+([ADR-039](#adr-039--an-account-number-is-issued-on-admission-an-application-number-on-submission)).
+The upload can only name the folder after the application; the folder can only
+be named after the person once there is a person.
+
+**Options considered.**
+
+- *Leave them split and join in code.* This is what it was. Every consumer then
+  has to know both trees, and an erasure is correct only while the database row
+  survives long enough to tell it where to look.
+- *Copy at approval.* Rejected: two copies of an NID scan is strictly worse than
+  one in the wrong place.
+- *Re-upload from the stored URL.* Rejected: the documents are uploaded with
+  `preserveOriginal` precisely so an identity card is never re-encoded, and a
+  round trip through the uploader would undo that silently.
+
+**Decision.** Approval **moves** them. A Cloudinary rename is a metadata
+operation — the bytes are not touched — and `applications/APP-2026-000001/*`
+becomes `people/ACC-KH-33001/*`, beside the avatar, with `documents.url`
+rewritten per row as each asset actually lands. The emptied application folder is
+removed, but only when nothing failed: `deleteEmptyFolder` refuses a folder with
+contents, so a half-finished move can never be "finished" by deleting the half
+that did not move.
+
+It is a separate call from the approval itself
+(`POST /api/v1/admin/members/{id}/refile-documents`), for the same reason the
+member erasure is a Next route: the approval is the transaction that flips the
+status, issues the number and writes the audit row, and it must not acquire a
+dependency on a third-party image host. A failure there changes nothing anybody
+can see — the stored URLs still resolve — so it must not make a successful
+approval look like a failed one.
+
+**Consequences.** The call is idempotent and has a backstop: the nightly
+retention sweep files anything whose `documents.url` still names
+`/applications/`, which covers the browser that was closed between the two
+requests. Erasing a member is then one prefix, `hasnahena/people/ACC-KH-33001`,
+and the application prefix is kept in the erasure only for rows filed before this.
+A **refused** application's documents are not moved — they are deleted at the
+decision ([ADR-038](#adr-038--retention-is-tiered-by-what-the-data-is-not-by-one-clock)).
+
+---
+
+## ADR-041 — A branch's code is its primary key
+
+**Status.** accepted · 2026-08-27
+
+**Context.** `branches` carried a `cuid()` id *and* a unique, required `code`.
+Two columns, each uniquely identifying a branch, one of them typed in by an admin
+and printed beside the office name, the other never used for anything except
+being the target of one foreign key. `users.assignedBranchId` therefore read
+`cmob97efh00003zynz0as5knq` in a console, which is the complaint that started the
+schema audit.
+
+**Decision.** The code **is** the key. `branches.id = 'KH'`, and the `code`
+column is dropped. The request body of the admin API still calls it `code`,
+because that is the word for the thing a person types; the row calls it `id`,
+because that is what it is.
+
+**Why this is safe here and is not safe for `users`.** A branch has exactly one
+inbound foreign key, a handful of rows, and its id has never been written into an
+audit row, a document, a Cloudinary folder or a token. A member's id has all
+four. That asymmetry is the whole decision: `users.id` stays a cuid and the `v_*`
+views exist instead
+([ADR-037](#adr-037--a-row-has-a-key-for-machines-and-an-identifier-for-people-and-a-view-for-reading)).
+
+**Consequences.** The foreign key is `ON UPDATE CASCADE`, so correcting a typo in
+an office code rewrites every member and worker attached to it in the same
+statement — a capability the surrogate key did not have, because the code could
+be changed freely and then named a row nobody could find by it.
+
+`v_people` selected `b.code`, and a view depends on the columns it names, so the
+migration replaces the view in the same file. That dependency is invisible to
+`pnpm db:migrate:check` — Prisma's `migrate diff` does not model views — and it
+was invisible to `test/unit/database-views.test.ts` too, which checked only
+*quoted* identifiers on the argument that a bare lowercase column would break
+every other query as well. `branches.code` disproved it: nothing else selected
+it, so dropping it broke exactly one thing, at `prisma migrate deploy`, during a
+deployment. That test now checks the unquoted half, and reads the **latest**
+definition of each view rather than the migration that first created them.
+
+---
+
+## ADR-042 — Admission hands out a number; a password is issued separately
+
+**Status.** accepted · 2026-08-27
+
+**Context.** Approving a registration generates a temporary password, hashes it,
+emails it if there is an address, and forgets it. It also returned it, and the
+approvals screen printed it — on the reasoning that most members of this
+cooperative have no email address at all
+([ADR-036](#adr-036--a-member-with-no-email-resets-their-password-at-the-desk)),
+so for them that screen was the only delivery there was.
+
+The problem is right and the place is wrong. An account number is a **name**: it
+is read aloud at the counter for the rest of a membership, this is the moment it
+is allocated, and the admin who allocated it is the only person who can see it. A
+password is a **key**. Putting a working key for a brand-new account on a queue
+screen in a shared office, in a response body every proxy between here and there
+can hold, at a moment when its owner is usually not in the room, is a different
+act from showing somebody a number.
+
+**Decision.** The approval response carries `accountNo` and not
+`temporaryPassword`, and the screen shows the number and the office. The member
+with no email is served deliberately instead, from
+`POST /api/v1/admin/members/{id}/reset-password` — the staff-assisted reset
+(ADR-036) — which an admin runs from that member's own page, which revokes every
+session in the same transaction as the password, and which shows it once on a
+screen that is about one person.
+
+**Consequences.** For a member with an email nothing changes: the password is in
+the approval email as it always was. For a member without one, admission and
+credential become two deliberate steps, and the success panel says so rather than
+leaving an admin looking at an account nobody can sign in to. Both halves are
+pinned by `test/unit/approval-credentials.test.ts`, in both directions — a
+handler that returns the field again with no screen to show it is a secret in a
+response nobody reads, and a screen reaching for a field the handler no longer
+sends is an empty box under the heading "Temporary password".
+
+The same dialog is where the member's **office** is now chosen. Registration used
+to assign the sole active branch and assign nothing once a second office existed,
+so a member's branch was either an inference or blank — neither of them anybody's
+decision, and per-branch reporting counted from it.

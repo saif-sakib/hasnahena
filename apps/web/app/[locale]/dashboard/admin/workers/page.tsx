@@ -57,7 +57,7 @@ interface WorkerApiResponse {
   email: string;
   phone: string;
   status: 'ACTIVE' | 'INACTIVE';
-  branch: { id: string; name: string; code: string } | null;
+  branch: { id: string; name: string } | null;
   joinDate: string;
 }
 
@@ -75,7 +75,7 @@ function normalizeWorker(worker: any): Worker {
     processedDeposits: Number(worker.currentDeposit || worker.processedDeposits || 0),
     processedLoans: Number(worker.activeLoan || worker.processedLoans || 0),
     branchId: worker.branch?.id || '',
-    assignedArea: worker.branch ? `${worker.branch.name} (${worker.branch.code})` : '',
+    assignedArea: worker.branch ? `${worker.branch.name} (${worker.branch.id})` : '',
     joinDate: worker.joinDate || worker.createdAt || new Date().toISOString(),
     lastActive: worker.lastActive || worker.joinDate || new Date().toISOString(),
   };

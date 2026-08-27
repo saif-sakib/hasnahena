@@ -468,6 +468,66 @@ export async function deleteFolder(folder: string): Promise<number | null> {
 }
 
 /**
+ * Move one asset to a new public id, keeping the bytes.
+ *
+ * Cloudinary has no "move a folder": a public id *is* the path, so relocating
+ * `applications/APP-2026-000001/nid-front` to `people/ACC-KH-33001/nid-front` is
+ * a rename of each asset. It is a metadata operation — the stored image is not
+ * re-encoded, which matters here because these are NID scans uploaded with
+ * `preserveOriginal` and re-uploading them would undo that.
+ *
+ * `overwrite` is deliberately **on**. The destination is a fixed name inside one
+ * person's folder, so the only thing that can already be there is an earlier
+ * attempt at this same move; refusing would leave the pair half-migrated with no
+ * way to finish. `invalidate` clears the CDN copy of whatever it replaced.
+ *
+ * Returns the new secure URL, or `null` when the move did not happen. The caller
+ * must be able to tell those apart: writing a `documents.url` that points at a
+ * public id Cloudinary never created is a broken image on the approvals screen
+ * and, worse, a row that no longer names where the file actually is.
+ *
+ * A missing source is `null` and not an exception. This is called after an
+ * approval and is safe to call again, so "already moved" and "was never there"
+ * are both ordinary — the caller checks the URL it already holds before asking.
+ */
+export async function moveAsset(fromPublicId: string, toPublicId: string): Promise<string | null> {
+  if (fromPublicId === toPublicId) return null;
+  try {
+    ensureCloudinaryConfigured();
+    const result = (await cloudinary.uploader.rename(fromPublicId, toPublicId, {
+      overwrite: true,
+      invalidate: true,
+    })) as { secure_url?: string };
+    return result.secure_url ?? null;
+  } catch (error) {
+    console.error(`Cloudinary rename failed for ${fromPublicId} -> ${toPublicId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Delete a folder that is expected to be empty, and say nothing if it is not.
+ *
+ * `deleteFolder` empties a folder as an act of erasure. This one is the tail of
+ * a *move*: the assets are already somewhere else, and all that is left is the
+ * directory entry, which Cloudinary keeps listing until it is told not to. An
+ * asset tree that accumulates the application numbers of every member ever
+ * admitted is a second, unmanaged record of who applied.
+ *
+ * Deliberately does **not** delete resources. If anything is still inside, this
+ * fails and leaves it alone — the one outcome that must never happen here is a
+ * half-finished move being finished by deleting the half that did not move.
+ */
+export async function deleteEmptyFolder(folder: string): Promise<void> {
+  try {
+    ensureCloudinaryConfigured();
+    await cloudinary.api.delete_folder(`hasnahena/${folder}`);
+  } catch {
+    // Routine: the folder is gone already, or something is still in it.
+  }
+}
+
+/**
  * Upload settings image (logo, hero, etc.)
  * @param fileBuffer File buffer
  * @param imageType Type of settings image (logo, hero, partner, etc.)

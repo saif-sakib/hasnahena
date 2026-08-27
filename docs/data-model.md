@@ -51,7 +51,7 @@
 | `SystemConfig` → `system_config` | key/value policy store | — . **Keyed on `key`**, like `document_sequences` is keyed on `(series, year)`: the surrogate `id` was never selected, joined or referenced, and filled the leftmost column of the most hand-read table in the schema with cuids |
 | `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
 | `GalleryItem` | public content | — |
-| `Branch` → `branches` | an office: name, `code`, address, phone, `isActive` | `users User[]` — **members as well as staff** since 2026-08-27. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
+| `Branch` → `branches` | an office: name, address, phone, `isActive`. **The code IS the `id`** (`KH`) since 2026-08-27 — it carried a `cuid()` as well, one fact in two required unique columns ([ADR-041](decisions.md)) | `users User[]` — **members as well as staff** since 2026-08-27, assigned by the admin at approval. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
 
 `PasswordResetToken` stores **no secrets**: `tokenHash` is `sha256(secret)` and

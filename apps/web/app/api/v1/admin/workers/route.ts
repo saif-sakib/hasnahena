@@ -30,10 +30,10 @@ const STAFF_SELECT = {
   status: true,
   accountNo: true,
   createdAt: true,
-  assignedBranch: { select: { id: true, name: true, code: true } },
+  assignedBranch: { select: { id: true, name: true } },
 } as const;
 
-type BranchSummary = { id: string; name: string; code: string } | null;
+type BranchSummary = { id: string; name: string } | null;
 
 function toBranchSummary(branch: BranchSummary): BranchSummary {
   return branch ?? null;

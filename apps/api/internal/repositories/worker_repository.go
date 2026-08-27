@@ -94,7 +94,8 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 			-- user. Joined rather than selected so a renamed office is renamed
 			-- everywhere at once, which is the whole point of the change.
 			COALESCE(b.name, ''),
-			COALESCE(b.code, ''),
+			-- The branch id IS its code since 2026-08-27.
+			COALESCE(b.id, ''),
 			u."createdAt",
 			COALESCE((SELECT COUNT(*)::int FROM transactions WHERE "processedBy" = u.id), 0) as transactions_processed
 		FROM users u

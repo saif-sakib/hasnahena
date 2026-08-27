@@ -48,7 +48,9 @@ describe('the purge script agrees with lib/account-no.ts', () => {
   it('declines to guess a branch when there is more than one', () => {
     // `take: 2` is the whole mechanism: `findFirst` cannot tell "the only
     // office" from "the first of several", and those are the two cases this
-    // separates. Mirrors lib/default-branch.ts.
+    // separates: `findFirst` cannot tell "the only office" from "the first of
+    // several", and a member filed under the wrong branch is found when a
+    // per-branch report does not add up.
     expect(PURGE).toMatch(/take:\s*2/);
     expect(PURGE).toMatch(/active\.length === 1/);
   });
@@ -110,5 +112,46 @@ describe('the purge scrubs a reused admin row rather than only re-roling it', ()
     // The mode to reach for against a database somebody is using, which a
     // cutover purge never is.
     expect(PURGE).toMatch(/if \(adminsOnly\) return;/);
+  });
+});
+
+describe('the purge takes the image host with it', () => {
+  /**
+   * Deleting the rows is half of an erasure.
+   *
+   * Every member this script deletes has a folder on Cloudinary — their avatar
+   * and, since they were admitted, the four identity documents filed beside it
+   * — and each of those is served from a URL that needs no login. A cutover that
+   * empties the database and leaves a hundred test members' NID scans online has
+   * not cleared the test data. It has only stopped being able to find it.
+   *
+   * The one thing this must never do is delete the surviving admins' files, so
+   * the folders are **named from the rows being deleted** rather than found by
+   * listing the host.
+   */
+  it('collects the folders of the people it is about to delete', () => {
+    expect(PURGE).toContain('const doomed');
+    // Read before the delete, because afterwards there is nothing left to ask.
+    expect(PURGE.indexOf('const doomed')).toBeLessThan(PURGE.indexOf('await prisma.$transaction'));
+    // Named, not listed: a prefix delete of `people/` would take both admins'
+    // avatars with it.
+    expect(PURGE).toContain('function foldersFor');
+    expect(PURGE).toContain('`people/${u.accountNo || u.id}`');
+    expect(PURGE).toContain('`applications/${u.formNumber}`');
+  });
+
+  it('excludes the survivors from that list by the same rule the delete uses', () => {
+    const doomed = PURGE.slice(PURGE.indexOf('const doomed'), PURGE.indexOf('await prisma.$transaction'));
+    expect(doomed).toContain('ADMINS.map((a) => a.email)');
+    expect(doomed).toContain('DONATION_OWNER_ID');
+  });
+
+  it('prints the folders rather than saying nothing when Cloudinary is unconfigured', () => {
+    // The script's only hard requirement is a database URL, deliberately. When
+    // the image credentials are absent the folders have to be *named* — silence
+    // is the one outcome that is not allowed, because it reads exactly like
+    // having deleted them.
+    expect(PURGE).toContain('function cloudinaryConfigured');
+    expect(PURGE).toContain('Delete them by hand in the Cloudinary console');
   });
 });

@@ -35,6 +35,7 @@ import * as adminWorkers from '@/app/api/v1/admin/workers/route';
 import * as adminBranches from '@/app/api/v1/admin/branches/route';
 import * as adminMemberErase from '@/app/api/v1/admin/members/[id]/erase/route';
 import * as adminMemberResetPassword from '@/app/api/v1/admin/members/[id]/reset-password/route';
+import * as adminMemberRefileDocuments from '@/app/api/v1/admin/members/[id]/refile-documents/route';
 import * as adminRetention from '@/app/api/v1/admin/retention/route';
 import * as authLogin from '@/app/api/v1/auth/login/route';
 import * as supportProxy from '@/app/api/v1/dashboard/support/[...path]/route';
@@ -154,6 +155,21 @@ const ROUTES: Array<{
       roles: ADMINS,
       context: { params: Promise.resolve({ id: 'no-such-member' }) },
       body: { confirmAccountNo: 'ACC-KH-00000' },
+    },
+  },
+  {
+    // Filing an admitted member's identity documents under their account number.
+    // It moves NID scans around on the image host, so it draws the same line
+    // erasure does: a worker who can *see* an application must not be able to
+    // relocate what is in it.
+    name: 'POST /api/v1/admin/members/[id]/refile-documents',
+    file: 'v1/admin/members/[id]/refile-documents',
+    method: 'POST',
+    handler: asHandler(adminMemberRefileDocuments.POST),
+    path: '/api/v1/admin/members/no-such-member/refile-documents',
+    contract: {
+      roles: ADMINS,
+      context: { params: Promise.resolve({ id: 'no-such-member' }) },
     },
   },
   {

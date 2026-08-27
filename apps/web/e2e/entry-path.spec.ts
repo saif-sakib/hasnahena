@@ -384,19 +384,28 @@ test.describe('the entry path', () => {
 
     // Approve through the API rather than the admin screen: this test is about
     // the *applicant's* half of the journey, and admin-dashboard.spec.ts owns
-    // the screen. Going through the endpoint also gets us the temporary
-    // password, which is the thing the applicant would have received by email.
-    // No pre-check that an admin exists: `adminToken()` logs one in and asserts
-    // on the response, which proves the same thing without guessing at the
-    // seeded account's role — the seeded admin is SUPER_ADMIN, and the only row
-    // with role ADMIN is the inactive donation-fund system account.
+    // the screen. No pre-check that an admin exists: `adminToken()` logs one in
+    // and asserts on the response, which proves the same thing without guessing
+    // at the seeded account's role — the seeded admin is SUPER_ADMIN, and the
+    // only row with role ADMIN is the inactive donation-fund system account.
     const approval = await approveViaApi(page, application.id);
-    expect(approval.temporaryPassword, 'the approval must hand back a password to hand over')
+    expect(approval.accountNo, 'the approval must hand back the account number it allocated')
+      .toMatch(/^ACC-KH-\d+$/);
+
+    // **The password comes from the staff-assisted reset, not from the
+    // approval.** The approval used to return a temporary password and the
+    // admin screen displayed it; it does not any more, because a working
+    // credential for a fresh account does not belong on a queue screen in a
+    // shared office. Most members of this cooperative have no email (ADR-036),
+    // so this route *is* how they are given one — which makes it part of the
+    // entry path, and this is the test that walks it.
+    const temporaryPassword = await resetPasswordViaApi(page, application.id, approval.accountNo);
+    expect(temporaryPassword, 'an admin must be able to issue a password to a member with no email')
       .toBeTruthy();
 
     await page.goto('/login');
     await page.fill('input[name="identifier"]', applicant(tag).email);
-    await page.fill('input[name="password"]', approval.temporaryPassword);
+    await page.fill('input[name="password"]', temporaryPassword);
     await page.click('button[type="submit"]');
 
     // The forced password change, which is the last step of the entry path and
@@ -495,8 +504,30 @@ test.describe('the entry path', () => {
     const body = await response.json();
     return {
       ok: response.ok(),
-      temporaryPassword: body?.data?.temporaryPassword as string,
+      accountNo: body?.data?.accountNo as string,
     };
+  }
+
+  /**
+   * The staff-assisted reset (ADR-036), through the Next route that owns it.
+   *
+   * `E2E_BASE_URL` rather than `apiBase`: this half lives in the web app, not
+   * the Go API, because it revokes every session in the same transaction as the
+   * password.
+   */
+  async function resetPasswordViaApi(page: Page, userId: string, confirmAccountNo: string) {
+    const token = await adminToken(page);
+    const base = process.env.E2E_BASE_URL || 'http://localhost:3000';
+    const response = await page.request.post(
+      `${base}/api/v1/admin/members/${userId}/reset-password`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { confirmAccountNo },
+      },
+    );
+    const body = await response.json();
+    expect(response.ok(), `reset-password failed: ${JSON.stringify(body)}`).toBe(true);
+    return (body?.data?.temporaryPassword ?? body?.temporaryPassword) as string;
   }
 
   async function rejectViaApi(page: Page, userId: string, reasonCode: string, reasonNote: string) {

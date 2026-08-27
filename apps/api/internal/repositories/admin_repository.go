@@ -69,9 +69,12 @@ func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]
 			-- free-text users."assignedBranch" that only the Next create/update
 			-- responses ever read, and a branches table nothing touched at all.
 			-- The branch is now a row, and it is returned as one.
+			-- The id IS the code since 2026-08-27: branches carried both, which
+			-- was one fact in two required unique columns. Both fields are still
+			-- returned because the response shape has two and callers read each.
 			COALESCE(b.id::text, ''),
 			COALESCE(b.name, ''),
-			COALESCE(b.code, '')
+			COALESCE(b.id::text, '')
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
 		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
@@ -600,7 +603,12 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 // candidate row *before* this runs: `accountNo` is null on an application and is
 // allocated here, so a handler that fetched it beforehand would put an empty
 // string into the one email that tells a member their number.
-func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret string) (string, error) {
+// ErrBranchNotAssignable is an expected refusal, not a fault (rule 2b): the admin
+// named an office that does not exist or has been closed. It reaches the caller
+// as a 400 naming the branch, rather than a 500 naming a foreign key.
+var ErrBranchNotAssignable = errors.New("branch is not available for assignment")
+
+func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret, branchID string) (string, error) {
 	if strings.TrimSpace(passwordHash) == "" {
 		return "", errors.New("password hash is required")
 	}
@@ -680,6 +688,32 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		}
 		memberID = generatedMemberID
 		if _, err := tx.Exec(ctx, `UPDATE users SET "accountNo" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, memberID); err != nil {
+			return "", err
+		}
+	}
+
+	// **Which office this member belongs to, decided by the admin admitting them.**
+	//
+	// Registration used to set it: the public form assigned the sole active
+	// branch and left it null once a second office existed, so a member's office
+	// was either a guess or nothing, and neither was anybody's decision. It is
+	// asked for on the approvals screen now, beside the approval itself, because
+	// that is the moment somebody who knows the answer is looking at the
+	// application.
+	//
+	// Empty is allowed and means "not yet" — a legitimate, visible state that the
+	// member list already renders as a dash. A named branch must exist and be
+	// active: assigning somebody to a closed office is a per-branch report that
+	// is quietly wrong rather than an error anybody sees.
+	if branchID = strings.TrimSpace(branchID); branchID != "" {
+		var active bool
+		if err := tx.QueryRow(ctx, `SELECT "isActive" FROM branches WHERE id = $1`, branchID).Scan(&active); err != nil {
+			return "", ErrBranchNotAssignable
+		}
+		if !active {
+			return "", ErrBranchNotAssignable
+		}
+		if _, err := tx.Exec(ctx, `UPDATE users SET "assignedBranchId" = $2, "updatedAt" = NOW() WHERE id = $1`, userID, branchID); err != nil {
 			return "", err
 		}
 	}

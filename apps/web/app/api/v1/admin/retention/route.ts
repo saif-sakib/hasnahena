@@ -12,7 +12,7 @@ import {
   AUDIT_RETENTION_DAYS,
   type AuditRetention,
 } from '@/lib/audit-actions';
-import { purgeApplicationDocuments } from '@/lib/application-documents';
+import { fileApplicationDocuments, purgeApplicationDocuments } from '@/lib/application-documents';
 import { routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 /**
@@ -91,6 +91,31 @@ async function refusedApplicationsWithDocuments(limit: number) {
     },
     select: { id: true, accountNo: true, formNumber: true },
     orderBy: { rejectedAt: 'asc' },
+    take: limit,
+  });
+}
+
+/**
+ * Admitted members whose documents are still filed under their application.
+ *
+ * The approvals screen files them into `people/ACC-KH-33001` the moment an
+ * approval succeeds, and that call is the one that normally does it. This is the
+ * backstop for the request that never happened: an admin whose browser was
+ * closed between the approval and the follow-up, a network that dropped, a
+ * Cloudinary that was briefly unavailable. Without it, the recovery would be a
+ * person noticing — and nobody browses an asset tree.
+ *
+ * Matched on the URL rather than on a flag, because the URL is the fact. A row
+ * whose `url` still names `/applications/` is a document that is still there,
+ * whatever any column claims, and a row that has moved cannot match by accident.
+ */
+async function admittedMembersWithUnfiledDocuments(limit: number) {
+  return prisma.user.findMany({
+    where: {
+      accountNo: { not: null },
+      documents: { some: { url: { contains: '/applications/' } } },
+    },
+    select: { id: true, accountNo: true },
     take: limit,
   });
 }
@@ -234,6 +259,18 @@ async function runSweep(
       });
     }
 
+    // Also only on the scheduled pass, and for the same reason: this is the
+    // policy catching up, not something an admin asked for. See
+    // `admittedMembersWithUnfiledDocuments` — the approvals screen does this
+    // itself, and this exists for the time it could not.
+    let filed = 0;
+    if (!userId) {
+      for (const member of await admittedMembersWithUnfiledDocuments(50)) {
+        const outcome = await fileApplicationDocuments(member.id);
+        filed += outcome.moved;
+      }
+    }
+
     // Only on the scheduled pass. Expiring audit rows is the policy running, not
     // something an admin does to one application, and doing it inside a
     // per-rejection call would make the two indistinguishable in the trail.
@@ -266,6 +303,7 @@ async function runSweep(
         purged,
         assetsDeleted,
         failed: failures.length,
+        filed,
         auditExpired,
       },
     });

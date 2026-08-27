@@ -482,10 +482,20 @@ model Loan {
 /// change in `account_no.go` as well as a row here. That is recorded rather than
 /// fixed: making the prefix dynamic would change the format of an identifier
 /// members read aloud and write into paper passbooks (ADR-008).
+/// The code IS the primary key.
+///
+/// This carried a `cuid()` as well, and the pair was the same redundancy
+/// `system_config` had: two required, uniquely-identifying columns for one
+/// thing. `KH` is what an admin types into the form, what is printed beside the
+/// office name, and what `users.assignedBranchId` now reads in a console.
+///
+/// Safe here and not for `users`: a branch has one inbound foreign key, a
+/// handful of rows, and its id has never been written into an audit row, a
+/// document, a Cloudinary folder or a token. Set explicitly on create — there is
+/// no default, because inventing a code is the one thing this must not do.
 model Branch {
-  id      String  @id @default(cuid())
+  id      String  @id
   name    String
-  code    String  @unique
   address String?
   phone   String?
 

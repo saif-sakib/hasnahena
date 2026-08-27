@@ -216,6 +216,21 @@ tells a member their number.
 
 ## Deleting only what the database remembers
 
+- **Two meaningful folder names are still worse than one, if nothing joins
+  them.** A member's avatar was under `people/ACC-KH-33001` and their four
+  identity documents under `applications/APP-2026-000001`. Both names are
+  readable; neither says the two are the same person. The join lived in the
+  database — which is the thing an erasure destroys — so "delete everything you
+  hold about this member" was correct only for as long as the row survived to
+  say where to look, and an audit of what is stored about somebody needed a query
+  to answer. The fix is not a better name, it is **one** name: approval renames
+  the documents into the person's folder, so the erasure is a single prefix.
+  Renaming and not re-uploading, because these are NID scans stored with
+  `preserveOriginal` and a round trip through the uploader would re-encode them
+  silently. And the emptied folder is removed with `deleteEmptyFolder`, which
+  refuses a folder that still has contents — reaching for `deleteFolder` there
+  would "finish" a half-completed move by deleting the half that did not move.
+
 `documents` records what was *recorded*; the image host holds what was *stored*,
 and those are not the same set. An upload that succeeded before its row insert
 failed, a retry that wrote a second asset, a file put there by hand — none has a
@@ -246,6 +261,25 @@ was not.
   away from hanging.
 
 ## Prisma and migrations
+
+- **A view depends on the columns it names, and nothing you run before a deploy
+  will tell you.** `branches.code` was dropped in favour of making the code the
+  primary key. `v_people` selected `b.code`. Prisma's `migrate diff` does not
+  model views at all, so `pnpm db:migrate:check` said "No difference detected";
+  the compiler cannot see inside a SQL string; and `test/unit/database-views.test.ts`
+  — which exists for exactly this — passed, because it checked only the
+  **quoted** camelCase identifiers, on the argument that a bare lowercase column
+  would break every other query too. That argument is wrong for a column nothing
+  else selects: dropping `code` broke precisely one thing, and the place it broke
+  was `prisma migrate deploy`, during a deployment, on the migration *after* the
+  one that caused it. What caught it was bringing the test stack up, because that
+  applies every migration to a real database. Two fixes: the migration
+  `CREATE OR REPLACE`s the view in the same file (same output column name and
+  type, so a replace stands in for a drop and rebuild), and the views test now
+  checks unquoted `alias.column` references as well — and reads the **latest**
+  definition of each view rather than only the migration that first created them,
+  which was its own quiet bug: it would have kept passing for a view a later
+  migration broke.
 
 - **An idempotent seed that refuses to touch an existing value cannot repair a
   row that exists and is blank — and a settings screen creates those by the

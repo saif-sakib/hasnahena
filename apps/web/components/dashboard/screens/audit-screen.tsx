@@ -1,13 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import useSWR from 'swr';
+import useSWRInfinite from 'swr/infinite';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Activity,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   HandCoins,
   Lock,
   RefreshCw,
@@ -125,12 +123,22 @@ interface AuditRow {
 interface AuditResponse {
   ok: boolean;
   data: AuditRow[];
-  pagination: { page: number; limit: number; total: number; totalPages: number };
+  pagination: { page: number; limit: number; hasMore: boolean };
 }
 
 const CATEGORIES = Object.keys(AUDIT_CATEGORY_LABELS) as AuditCategory[];
 const SEVERITIES: AuditSeverity[] = ['critical', 'notable', 'routine'];
-const PAGE_SIZE = 30;
+/**
+ * How many entries the screen asks for at a time.
+ *
+ * Twenty, and more only when the reader asks. The trail grows for ever — it is
+ * append-only by construction (DATA-08) and most of it is kept permanently — so
+ * "how many entries are there" is a question whose answer only gets larger and
+ * whose only use was the word "of" in a caption. What an admin opening this
+ * screen wants is the last few things that happened, on a phone, over a
+ * connection in Jessore.
+ */
+const PAGE_SIZE = 20;
 
 async function fetchAudit(url: string): Promise<AuditResponse> {
   // Same-origin Next route, so a plain fetch rather than `useApi`, which
@@ -163,38 +171,64 @@ export default function AuditScreen() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [includeNoise, setIncludeNoise] = useState(false);
-  const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const url = useMemo(() => {
-    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-    if (query) params.set('q', query);
-    if (category !== 'all') params.set('category', category);
-    if (severity !== 'all') params.set('severity', severity);
-    if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString());
-    // Inclusive of the whole end day. A reader picking the same date for both
-    // means "that day", not "the first instant of it".
-    if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString());
-    if (includeNoise) params.set('includeNoise', 'true');
-    return `/api/v1/admin/audit-logs?${params.toString()}`;
-  }, [page, query, category, severity, from, to, includeNoise]);
+  const urlForPage = useMemo(() => {
+    return (pageNumber: number) => {
+      const params = new URLSearchParams({ page: String(pageNumber), limit: String(PAGE_SIZE) });
+      if (query) params.set('q', query);
+      if (category !== 'all') params.set('category', category);
+      if (severity !== 'all') params.set('severity', severity);
+      if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString());
+      // Inclusive of the whole end day. A reader picking the same date for both
+      // means "that day", not "the first instant of it".
+      if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString());
+      if (includeNoise) params.set('includeNoise', 'true');
+      return `/api/v1/admin/audit-logs?${params.toString()}`;
+    };
+  }, [query, category, severity, from, to, includeNoise]);
 
-  const { data, error, isLoading, mutate } = useSWR<AuditResponse, Error>(url, fetchAudit, {
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
-  });
+  /**
+   * Pages, appended — not replaced.
+   *
+   * Prev/Next was the first version and it is the wrong shape for a trail: an
+   * admin reading down a timeline and reaching the end of Tuesday does not want
+   * Tuesday to disappear, and each page cost a `COUNT(*)` over every matching
+   * row to render "of 4,182". `useSWRInfinite` keeps what has been read and asks
+   * for one more page when the button is pressed; the route returns `hasMore`
+   * from one extra row instead of counting.
+   */
+  const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite<
+    AuditResponse,
+    Error
+  >(
+    (index, previous) => {
+      // `null` stops SWR asking for a page that cannot exist.
+      if (previous && !previous.pagination.hasMore) return null;
+      return urlForPage(index + 1);
+    },
+    fetchAudit,
+    {
+      revalidateOnFocus: false,
+      revalidateFirstPage: false,
+      shouldRetryOnError: false,
+    },
+  );
 
-  // Memoised, not `data?.data ?? []`: a fresh array literal every render makes
-  // the grouping below re-run on every keystroke in the search box.
-  const rows = useMemo(() => data?.data ?? [], [data]);
-  const pagination = data?.pagination;
+  // Memoised, not a fresh literal every render: the grouping below would then
+  // re-run on every keystroke in the search box.
+  const rows = useMemo(() => (data ?? []).flatMap((p) => p.data), [data]);
+  const hasMore = data ? (data[data.length - 1]?.pagination.hasMore ?? false) : false;
+  // Only the *extra* page is loading; the pages already on screen stay put.
+  const isLoadingMore = Boolean(data && size > data.length) || (isValidating && size > 1);
 
-  /** Reset to page 1 whenever the filter set changes, or page 4 of the old
-   *  result set silently becomes an empty page of the new one. */
+  /** Back to the first page whenever the filter set changes. Without this,
+   *  changing a filter would keep however many pages were open and quietly ask
+   *  for that many again. */
   const applyFilter = <T,>(setter: (value: T) => void) => (value: T) => {
     setter(value);
-    setPage(1);
+    void setSize(1);
     setExpanded(null);
   };
 
@@ -276,7 +310,7 @@ export default function AuditScreen() {
         onSubmit={(e) => {
           e.preventDefault();
           setQuery(searchInput.trim());
-          setPage(1);
+          void setSize(1);
         }}
         className="flex gap-2"
       >
@@ -404,7 +438,7 @@ export default function AuditScreen() {
                   setSeverity('all');
                   setFrom('');
                   setTo('');
-                  setPage(1);
+                  void setSize(1);
                 }}
                 className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
               >
@@ -566,43 +600,25 @@ export default function AuditScreen() {
         ))}
       </div>
 
-      {pagination && pagination.total > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
-          <p className="text-xs text-slate-500">
-            {t('showing', {
-              from: (pagination.page - 1) * pagination.limit + 1,
-              to: Math.min(pagination.page * pagination.limit, pagination.total),
-              total: pagination.total,
-            })}
-          </p>
-          <div className="flex gap-2">
+      {rows.length > 0 && (
+        <div className="flex flex-col items-center gap-2 border-t border-slate-200 pt-3">
+          <p className="text-xs text-slate-500">{t('shown', { count: rows.length })}</p>
+          {hasMore ? (
             <button
               type="button"
-              disabled={pagination.page <= 1}
-              onClick={() => {
-                setPage((p) => Math.max(1, p - 1));
-                setExpanded(null);
-              }}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+              disabled={isLoadingMore}
+              onClick={() => void setSize((n) => n + 1)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-4 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
             >
-              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-              {t('previous')}
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              {isLoadingMore ? t('loadingMore') : t('loadMore')}
             </button>
-            <button
-              type="button"
-              disabled={pagination.page >= pagination.totalPages}
-              onClick={() => {
-                setPage((p) => p + 1);
-                setExpanded(null);
-              }}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
-            >
-              {t('next')}
-              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-            </button>
-          </div>
+          ) : (
+            <p className="text-xs text-slate-400">{t('allLoaded')}</p>
+          )}
         </div>
       )}
+
     </div>
   );
 }

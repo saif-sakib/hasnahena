@@ -231,9 +231,64 @@ describe('every asset is stored under a name a human can look up', () => {
     expect(cloudinary).toMatch(/publicId: 'avatar'/);
     const registrations = read('app', 'api', 'v1', 'registrations', 'route.ts');
     expect(registrations).toContain('applicationFolder(created.formNumber, created.id)');
-    expect(registrations).toMatch(/publicId: requirement\.folderSlug/);
+    expect(registrations).toMatch(/publicId: requirement\.slug/);
     // An NID scan must never be re-encoded, whatever else changes here.
     expect(registrations).toContain('preserveOriginal: true');
+  });
+
+  /**
+   * An admitted member's files end up in **one** folder.
+   *
+   * They cannot start there: the four documents are uploaded by a public form,
+   * before anybody is a member and therefore before `ACC-KH-33001` exists — it
+   * is issued at approval and nowhere else (ADR-039). So the upload names the
+   * folder after the application, and the approval moves it.
+   *
+   * Left split, a member's files are their avatar under `people/…` and their
+   * NID scans under `applications/…`, with nothing in either name saying they
+   * are the same person. "Delete everything you hold about this member" then
+   * depends on the database still holding the join — which is precisely what an
+   * erasure destroys.
+   */
+  it('moves an admitted member’s documents into their own folder', () => {
+    const filing = read('lib', 'application-documents.ts');
+    expect(filing).toContain('export async function fileApplicationDocuments');
+    // Into `people/<accountNo>`, derived from the same helper every other
+    // person-scoped upload uses, so the two can never disagree about the name.
+    expect(filing).toContain('personFolder(member.accountNo, member.id)');
+    // A rename, not a re-upload: these are NID scans stored with
+    // `preserveOriginal`, and re-uploading them would re-encode them.
+    expect(filing).toContain('moveAsset(source, target)');
+    // Idempotent. This runs from a browser after an approval and again from the
+    // nightly sweep, so "already filed" has to be an outcome, not a failure.
+    expect(filing).toMatch(/alreadyFiled/);
+    // Nothing is deleted while anything is unaccounted for. `deleteEmptyFolder`
+    // refuses a folder with contents; calling `deleteFolder` here instead would
+    // finish a half-completed move by destroying the half that did not move.
+    expect(filing).toContain('deleteEmptyFolder(');
+    expect(
+      /deleteFolder\(applicationFolder\([^)]*\)\)/.test(
+        filing.slice(filing.indexOf('export async function fileApplicationDocuments')),
+      ),
+      'filing must never delete assets — only purging does',
+    ).toBe(false);
+
+    // The document names are declared once. Three layers have to agree about
+    // them: the upload, the `documents` row, and the move.
+    expect(filing).toContain('export const APPLICATION_DOCUMENTS');
+    const registrations = read('app', 'api', 'v1', 'registrations', 'route.ts');
+    expect(registrations).toContain("from '@/lib/application-documents'");
+  });
+
+  it('has a backstop for the filing call that never arrived', () => {
+    // The approvals screen fires it from a browser, so a closed tab between the
+    // approval and the follow-up would otherwise leave the documents where they
+    // were, permanently, with nobody looking at an asset tree to notice.
+    const retention = read('app', 'api', 'v1', 'admin', 'retention', 'route.ts');
+    expect(retention).toContain('fileApplicationDocuments');
+    // Matched on the URL, because the URL is the fact — a row whose `url` still
+    // names the applications tree is a file that is still there.
+    expect(retention).toContain("url: { contains: '/applications/' }");
   });
 
   it('dates a gallery photograph, which has no identifier of its own', () => {
