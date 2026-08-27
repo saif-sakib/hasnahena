@@ -591,29 +591,50 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 // renameUser moves a user row to a new primary key and carries with it every
 // reference that a foreign key does not.
 //
-// The four are `audit_logs.entityId` (for USER rows), `audit_logs.performedBy`,
-// `token_blacklist.userId` and `notifications.data->>'userId'`. They are joined
-// to a user by value rather than by constraint, so nothing in the database will
-// complain when one is left behind — the symptom is an audit screen that cannot
-// find the application it is describing, months later.
+// Two of those are rewritten here — `token_blacklist.userId` and
+// `notifications.data->>'userId'`. The other two are `audit_logs.entityId` and
+// `audit_logs.performedBy`, and they are **deliberately left alone**: that table
+// is append-only at the database level (DATA-08) and its trigger refuses UPDATE
+// unconditionally, with an escape hatch that covers DELETE only.
 //
-// The self-referential `users.approvedBy` needs no special handling here,
-// because its own FK cascades and this renames one row rather than the table.
+// That refusal is correct and is not worked around. An audit row saying who the
+// subject was called at the time is the more truthful record, and rewriting
+// history so it agrees with the present is the exact thing the trigger exists to
+// stop. `user_id_history` is how the audit reader gets from the old name to the
+// person instead.
+//
+// The self-referential `users.approvedBy` needs no special handling, because its
+// own FK cascades and this renames one row rather than the table.
 func renameUser(ctx context.Context, tx pgx.Tx, oldID, newID string) error {
 	if oldID == newID {
 		return nil
 	}
-	statements := []string{
-		`UPDATE audit_logs SET "entityId" = $2 WHERE "entityType" = 'USER' AND "entityId" = $1`,
-		`UPDATE audit_logs SET "performedBy" = $2 WHERE "performedBy" = $1`,
-		`UPDATE token_blacklist SET "userId" = $2 WHERE "userId" = $1`,
-		`UPDATE notifications SET data = jsonb_set(data, '{userId}', to_jsonb($2::text)) WHERE data ? 'userId' AND data->>'userId' = $1`,
+
+	// One hop, never a chain. If something already maps to the id being
+	// retired, it is re-pointed at the new one in the same breath, so a reader
+	// never has to walk a sequence of renames.
+	if _, err := tx.Exec(ctx,
+		`UPDATE user_id_history SET "newId" = $2, "changedAt" = NOW() WHERE "newId" = $1`,
+		oldID, newID); err != nil {
+		return err
 	}
-	for _, statement := range statements {
-		if _, err := tx.Exec(ctx, statement, oldID, newID); err != nil {
-			return err
-		}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO user_id_history ("oldId", "newId", "changedAt") VALUES ($1, $2, NOW())
+		 ON CONFLICT ("oldId") DO UPDATE SET "newId" = EXCLUDED."newId", "changedAt" = NOW()`,
+		oldID, newID); err != nil {
+		return err
 	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE token_blacklist SET "userId" = $2 WHERE "userId" = $1`, oldID, newID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE notifications SET data = jsonb_set(data, '{userId}', to_jsonb($2::text))
+		 WHERE data ? 'userId' AND data->>'userId' = $1`, oldID, newID); err != nil {
+		return err
+	}
+
 	// Last, so the statements above still match on the value they were written
 	// with. The cascade fires from here.
 	if _, err := tx.Exec(ctx, `UPDATE users SET id = $2 WHERE id = $1`, oldID, newID); err != nil {

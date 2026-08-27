@@ -565,6 +565,79 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
   // WO-93 — a member can be erased
   // -------------------------------------------------------------------------
 
+  describe('ADR-043 — a rename does not rewrite the trail', () => {
+    /**
+     * Admission moves a person's id from `APP-2026-000001` to `ACC-KH-33001`.
+     * Audit rows written before that keep the id they were written with, because
+     * `audit_logs` is append-only at the database level and its trigger refuses
+     * UPDATE unconditionally — the escape hatch covers DELETE only.
+     *
+     * That refusal is right, and the first version of this migration tried to
+     * work around it and was rejected by the database on live data. So the
+     * *reader* resolves instead, through `user_id_history`.
+     */
+    const OLD_ID = `${NS}rename-old`;
+    const NEW_ID = `${NS}rename-new`;
+
+    beforeEach(async () => {
+      await db().auditLog.deleteMany({ where: { entityId: { in: [OLD_ID, NEW_ID] } } }).catch(() => {});
+      await db().userIdHistory.deleteMany({ where: { oldId: OLD_ID } });
+      await db().user.deleteMany({ where: { id: NEW_ID } });
+    });
+
+    it('still names the person on a row written under their old id', async () => {
+      await db().user.create({
+        data: {
+          id: NEW_ID,
+          phone: phone(61),
+          email: `${NS}rename${EMAIL_DOMAIN}`,
+          passwordHash: 'x-not-a-valid-bcrypt-hash',
+          role: 'MEMBER',
+          status: 'ACTIVE',
+          accountNo: 'ACC-KH-96001',
+          formNumber: 'APP-2026-096001',
+          nameEn: 'Renamed Member',
+          fatherName: 'F',
+          motherName: 'M',
+        },
+      });
+      await db().userIdHistory.create({ data: { oldId: OLD_ID, newId: NEW_ID } });
+      await db().auditLog.create({
+        data: {
+          action: 'APPROVE_REGISTRATION',
+          entityType: 'USER',
+          entityId: OLD_ID,
+          details: 'approved during the rename test',
+        },
+      });
+
+      const res = await auditLogs.GET(
+        routeRequest('/api/v1/admin/audit-logs?q=ACC-KH-96001', { token: adminToken }),
+      );
+      const { status, json } = await readBody(res);
+      expect(status).toBe(200);
+      const rows = (json as { data: Array<{ entityId: string; subject: { label: string } | null }> }).data;
+
+      // Found by the *new* account number even though the row holds the old id:
+      // admission must not be a hole in a member's own history.
+      const row = rows.find((r) => r.entityId === OLD_ID);
+      expect(row, 'searching the account number must reach rows written before admission')
+        .toBeTruthy();
+      expect(row?.subject?.label).toContain('Renamed Member');
+      expect(row?.subject?.label).toContain('ACC-KH-96001');
+    });
+
+    it('leaves the audit row itself byte-identical', async () => {
+      // The whole point. If a future change reaches for an UPDATE here, the
+      // database refuses it — this asserts nothing has taught itself to ask.
+      await expect(
+        db().auditLog.updateMany({ where: { entityType: 'USER' }, data: { entityId: 'anything' } }),
+      ).rejects.toThrow(/append-only/i);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+
   describe('WO-93 — erasure keeps the money and loses the person', () => {
     /** A member with an account, and optionally the history that decides the outcome. */
     async function seedMember(

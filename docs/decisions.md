@@ -1746,10 +1746,25 @@ enumerates the writers for free, which is why this needed no census test.
 
 **Why it is safe, checked rather than assumed.** All sixteen foreign keys
 referencing `users.id` are `ON UPDATE CASCADE`, verified against the live
-catalogue. Exactly four columns hold a user id *without* a foreign key —
-`audit_logs.entityId`, `audit_logs.performedBy`, `token_blacklist.userId` and
-`notifications.data->>'userId'` — and all four are remapped, by the migration and
-again by `renameUser` in the Go approval.
+catalogue. Four columns hold a user id *without* a foreign key. Two —
+`token_blacklist.userId` and `notifications.data->>'userId'` — are rewritten, by
+the migration and again by `renameUser` in the Go approval.
+
+The other two are `audit_logs.entityId` and `audit_logs.performedBy`, and they
+are **not touched**. The first version of this migration rewrote them and the
+database refused it on live data: `audit_logs` carries an append-only trigger
+(DATA-08) whose comment says UPDATE is never allowed *under any circumstances*,
+and whose escape hatch covers DELETE only. That refusal is correct, and weakening
+it to make a rename tidy would have spent the guarantee the table exists for on
+cosmetics. An audit row saying who the subject was called **at the time** is the
+better record anyway.
+
+So the reader resolves instead. `user_id_history` records that one id became
+another — one hop by construction, because a rename re-points any mapping that
+already pointed at the retired id — and the audit endpoint consults it for any
+`entityId` that resolves to nobody. Searching an account number also reaches the
+rows written before admission, which is exactly the period somebody investigating
+a registration wants to read.
 
 The id changes **once**, at approval, and that moment is the whole argument: an
 applicant's password hash is a sentinel bcrypt can never match, so they have

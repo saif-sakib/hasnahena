@@ -80,6 +80,43 @@ async function resolveSubjects(
       where: { id: { in: userIds } },
       select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
     });
+
+    // **Ids that resolve to nobody, resolved through the rename history.**
+    //
+    // `users.id` is the number a person is known by (ADR-043), so it moves once
+    // — from `APP-2026-000001` to `ACC-KH-33001` — when they are admitted. Rows
+    // written before that keep the id they were written with, because
+    // `audit_logs` is append-only at the database level and its trigger refuses
+    // UPDATE unconditionally. Rewriting the trail so it agreed with the present
+    // is the exact thing that trigger exists to stop, and it is right: a record
+    // of who somebody was called at the time is worth more than one that has
+    // been tidied.
+    //
+    // So the *reader* does the work. `user_id_history` is one hop by
+    // construction, so this is a second query and never a walk.
+    const unresolved = userIds.filter((id) => !users.some((u) => u.id === id));
+    if (unresolved.length) {
+      const renames = await prisma.userIdHistory.findMany({
+        where: { oldId: { in: unresolved } },
+        select: { oldId: true, newId: true },
+      });
+      if (renames.length) {
+        const renamed = await prisma.user.findMany({
+          where: { id: { in: renames.map((r) => r.newId) } },
+          select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
+        });
+        for (const rename of renames) {
+          const person = renamed.find((u) => u.id === rename.newId);
+          if (!person) continue;
+          const identifier = person.accountNo || person.formNumber || '';
+          out.set(key('USER', rename.oldId), {
+            label: identifier ? `${person.nameEn} (${identifier})` : person.nameEn,
+            kind: person.role,
+          });
+        }
+      }
+    }
+
     for (const u of users) {
       // The account number first, because that is what the office says out loud.
       // An applicant has none, so their application number stands in — and
@@ -191,9 +228,22 @@ async function idsMatchingQuery(q: string): Promise<{ userIds: string[]; entityI
     }),
   ]);
   const userIds = users.map((u) => u.id);
+  // Searching `ACC-KH-33001` must also find what that person did while they were
+  // `APP-2026-000001`. Without this, admission is a hole in their own history —
+  // and the application period is exactly the part somebody investigating a
+  // registration wants to read.
+  const priorIds = userIds.length
+    ? (
+        await prisma.userIdHistory.findMany({
+          where: { newId: { in: userIds } },
+          select: { oldId: true },
+        })
+      ).map((r) => r.oldId)
+    : [];
+  const allUserIds = [...userIds, ...priorIds];
   return {
-    userIds,
-    entityIds: [...userIds, ...loans.map((l) => l.id), ...transactions.map((t) => t.id)],
+    userIds: allUserIds,
+    entityIds: [...allUserIds, ...loans.map((l) => l.id), ...transactions.map((t) => t.id)],
   };
 }
 

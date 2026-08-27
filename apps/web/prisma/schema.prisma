@@ -87,6 +87,31 @@ enum LoanStatus {
 // USER & AUTHENTICATION
 // ============================================================
 
+/// One user id that became another.
+///
+/// `users.id` is the number a person is known by ([ADR-043](../../../docs/decisions.md)),
+/// so it moves once — from `APP-2026-000001` to `ACC-KH-33001` — when somebody
+/// is admitted. Every foreign key cascades, but `audit_logs` holds user ids in
+/// `entityId` and `performedBy` and is **append-only at the database level**
+/// (DATA-08): UPDATE is refused unconditionally, and the escape hatch covers
+/// DELETE only.
+///
+/// Rewriting history to follow a rename is exactly what that trigger exists to
+/// prevent, and the trigger is right — an audit row saying who the subject was
+/// *called at the time* is the more truthful record. This table is how a reader
+/// gets from that name to the person.
+///
+/// Each row is one hop, never a chain: renaming re-points any mapping that
+/// already pointed at the old id, so a resolver never has to walk.
+model UserIdHistory {
+  oldId     String   @id
+  newId     String
+  changedAt DateTime @default(now())
+
+  @@index([newId])
+  @@map("user_id_history")
+}
+
 /// The row's id is the number this person is known by.
 ///
 /// `STF-0001` for staff, `APP-2026-000001` while an application is pending, and

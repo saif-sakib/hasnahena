@@ -274,6 +274,35 @@ was not.
 
 ## Prisma and migrations
 
+- **A migration that fails leaves Prisma's advisory lock on an idle pooled
+  backend, and every later `migrate` blames the server.** After the
+  `user_id_history` migration was rejected by the append-only trigger, the next
+  `pnpm db:migrate` said *"Please make sure your database server is running"* and
+  *"Timed out trying to acquire a postgres advisory lock"* — against a database
+  that answered `SELECT 1` immediately. The holder was a session whose
+  `application_name` was **pgbouncer**, idle, still owning `72707369`. The
+  message names the wrong thing twice: the server is fine and the timeout is not
+  a cold start. Find it and kill it:
+
+  ```sql
+  SELECT l.pid, a.state, a.application_name
+    FROM pg_locks l JOIN pg_stat_activity a USING (pid)
+   WHERE l.locktype = 'advisory' AND l.objid = 72707369;
+  SELECT pg_terminate_backend(<pid>);
+  ```
+
+  Then `prisma migrate resolve --rolled-back <name>` before re-running, or Prisma
+  refuses to start with the failed migration still recorded.
+
+- **A migration that is only ever run against an empty database is only ever
+  tested against an empty database.** The `audit_logs` UPDATE in the first
+  version of the user-id migration passed the entire test stack — because the
+  stack builds from zero and every migration runs before a single audit row
+  exists, so the trigger never fired. It failed on the first database that had
+  history in it, which was the owner's. When a migration rewrites *data* rather
+  than shape, the suite that proves it works is the one run against a database
+  with rows in it.
+
 - **A primary key that changes has exactly one hazard, and it is the caller
   holding the old value across the change.** `users.id` became the person's own
   number, which means it moves once — from `APP-2026-000001` to `ACC-KH-33001` —

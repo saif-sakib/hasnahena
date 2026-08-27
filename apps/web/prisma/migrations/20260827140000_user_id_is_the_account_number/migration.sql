@@ -24,9 +24,14 @@
 --   * Every foreign key referencing `users.id` is `ON UPDATE CASCADE` (verified
 --     against the live catalogue, sixteen of them), so the children follow in
 --     the same statement. Nothing has to be detached.
---   * Exactly four columns hold a user id WITHOUT a foreign key —
---     `audit_logs.entityId`, `audit_logs.performedBy`, `token_blacklist.userId`
---     and `notifications.data->>'userId'` — and all four are remapped below.
+--   * Four columns hold a user id WITHOUT a foreign key. Two of them —
+--     `token_blacklist.userId` and `notifications.data->>'userId'` — are
+--     rewritten below. The other two are in `audit_logs`, which is **append-only
+--     at the database level** (DATA-08): UPDATE is refused unconditionally, and
+--     the escape hatch that exists covers DELETE only. That is deliberate and it
+--     is not weakened here. Instead `user_id_history` records that one id became
+--     another, and the audit reader resolves through it — history stays byte
+--     identical and stays readable, which is what the trigger is for.
 --   * The id changes **once**, at approval, and at that moment nothing outside
 --     this database holds it: an applicant's password hash is a sentinel that
 --     bcrypt can never match, so they have never signed in, so there is no token
@@ -69,18 +74,8 @@ END $$;
 
 ALTER TABLE "users" DROP CONSTRAINT "users_approvedBy_fkey";
 
--- The four columns that hold a user id and are not foreign keys. Done BEFORE
--- the ids move, so each still matches on the value it was written with.
-UPDATE audit_logs a
-   SET "entityId" = m.new_id
-  FROM user_id_map m
- WHERE a."entityType" = 'USER' AND a."entityId" = m.old_id AND m.old_id <> m.new_id;
-
-UPDATE audit_logs a
-   SET "performedBy" = m.new_id
-  FROM user_id_map m
- WHERE a."performedBy" = m.old_id AND m.old_id <> m.new_id;
-
+-- The two rewritable columns that hold a user id and are not foreign keys. Done
+-- BEFORE the ids move, so each still matches on the value it was written with.
 UPDATE token_blacklist t
    SET "userId" = m.new_id
   FROM user_id_map m
@@ -90,6 +85,24 @@ UPDATE notifications n
    SET data = jsonb_set(n.data, '{userId}', to_jsonb(m.new_id))
   FROM user_id_map m
  WHERE n.data ? 'userId' AND n.data->>'userId' = m.old_id AND m.old_id <> m.new_id;
+
+-- `audit_logs` is not touched. Every row keeps the id it was written with, which
+-- is the more truthful record anyway: it says who the subject was called at the
+-- time. This table is how a reader gets from that to the person.
+--
+-- Append-only in the same spirit as the trail it serves — a rename inserts, and
+-- an existing mapping that pointed at the old id is re-pointed so every row is
+-- one hop from the current id rather than a chain to walk.
+CREATE TABLE "user_id_history" (
+  "oldId"     TEXT NOT NULL,
+  "newId"     TEXT NOT NULL,
+  "changedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "user_id_history_pkey" PRIMARY KEY ("oldId")
+);
+CREATE INDEX "user_id_history_newId_idx" ON "user_id_history"("newId");
+
+INSERT INTO "user_id_history" ("oldId", "newId")
+SELECT old_id, new_id FROM user_id_map WHERE old_id <> new_id;
 
 -- The keys themselves. Every FK cascades from here.
 UPDATE users u
