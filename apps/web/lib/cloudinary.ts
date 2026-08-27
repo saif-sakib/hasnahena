@@ -17,6 +17,10 @@ export interface UploadOptions {
   uniqueFilename?: boolean;
   overwrite?: boolean;
   preserveOriginal?: boolean;
+  /** Fixed name within the folder, so a replacement overwrites rather than orphans. */
+  publicId?: string;
+  /** Purge the CDN copy when overwriting an existing public id. */
+  invalidate?: boolean;
 }
 
 export interface UploadResult {
@@ -67,6 +71,8 @@ export function buildUploadOptions(folder: string, options: UploadOptions = {}):
     use_filename: options.useFilename,
     unique_filename: options.uniqueFilename,
     overwrite: options.overwrite,
+    public_id: options.publicId,
+    invalidate: options.invalidate,
   };
   if (!options.preserveOriginal) {
     uploadOptions.quality = options.quality || 'auto';
@@ -87,6 +93,78 @@ export function settingsImageFolder(imageType: string): string {
   if (imageType.includes('logo')) return 'settings/logo';
   if (imageType.includes('hero')) return 'settings/hero';
   return 'settings/icons';
+}
+
+/**
+ * The stored size ceiling for each brand image, applied at upload time.
+ *
+ * The browser compresses before sending (`IMAGE_PRESETS` in lib/image-utils.ts)
+ * and this repeats the ceiling on the server, because the two are answering
+ * different questions. The browser's job is to get the file *through* — under
+ * the Server Action body cap, over a phone connection in Jessore. This one's job
+ * is that what ends up **stored** is bounded no matter what path it arrived by,
+ * including a future admin API or a re-upload from a desktop with a fast link.
+ *
+ * `crop: 'limit'` never enlarges: a 300px logo stays 300px. Together with
+ * `fetch_format: 'auto'` the delivered bytes are then WebP or AVIF to whoever
+ * can read them, which is most of the Android phones this is for.
+ *
+ * Transparency is preserved throughout. There is deliberately no `format` here —
+ * naming one would flatten a transparent PNG logo onto whatever background
+ * Cloudinary chose, which is the same mistake the browser-side compressor avoids
+ * by encoding WebP rather than JPEG for the `alpha` presets.
+ */
+export function settingsImageTransformation(imageType: string): Record<string, unknown>[] {
+  if (imageType.includes('favicon')) {
+    return [
+      { width: 512, height: 512, crop: 'limit' },
+      { quality: 'auto:good', fetch_format: 'auto' },
+    ];
+  }
+  if (imageType.includes('partner')) {
+    return [
+      { width: 600, height: 600, crop: 'limit' },
+      { quality: 'auto:good', fetch_format: 'auto' },
+    ];
+  }
+  if (imageType.includes('logo')) {
+    return [
+      { width: 800, height: 800, crop: 'limit' },
+      // `auto:best` for the logo alone. It is the one brand image rendered at a
+      // known small size on every single page, so the bytes are cheap and the
+      // artefacts around a leaf's edges are not.
+      { quality: 'auto:best', fetch_format: 'auto' },
+    ];
+  }
+  if (imageType.includes('hero')) {
+    return [
+      { width: 2000, height: 2000, crop: 'limit' },
+      { quality: 'auto:good', fetch_format: 'auto' },
+    ];
+  }
+  return [{ quality: 'auto:good', fetch_format: 'auto' }];
+}
+
+/**
+ * One asset per settings key, at a name that says what it is.
+ *
+ * `hasnahena/settings/logo/branding-logo`, not
+ * `hasnahena/settings/logo/kf3n8xqz9vbt2p`. Two reasons, and the second is the
+ * one that was asked for:
+ *
+ *  - **Replacing is replacing.** With a random public id, every re-upload left
+ *    the previous asset behind and relied on a delete that runs after the fact
+ *    and whose result nobody reads. With a fixed id and `overwrite`, the new
+ *    image *is* the old one; there is nothing to orphan. `invalidate` clears the
+ *    CDN copy, and the version segment in the returned URL changes anyway, so a
+ *    reader never sees a stale image.
+ *  - **Migrating off Cloudinary stays a copy.** The asset tree is then a
+ *    readable directory of this application's own vocabulary, so moving to a VPS
+ *    is `rsync` plus a rewrite of the URL prefix in `system_config` — rather
+ *    than a reconciliation between opaque ids and the rows that point at them.
+ */
+export function settingsImagePublicId(imageType: string): string {
+  return imageType.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
 }
 
 /**
@@ -243,7 +321,10 @@ export async function uploadGalleryImage(
 ): Promise<UploadResult> {
   return uploadImage(fileBuffer, 'gallery', {
     transformation: [
-      { width: 1200, crop: 'limit' },
+      // Height as well as width. A width-only limit lets a portrait photo
+      // through at its full height — a phone shooting 3024x4032 stored 1200x1600
+      // where the grid draws it at 400px, which is the case this misses.
+      { width: 1600, height: 1600, crop: 'limit' },
       { quality: 'auto:good', fetch_format: 'auto' },
     ],
   });
@@ -259,9 +340,12 @@ export async function uploadSettingsImage(
   imageType: string
 ): Promise<UploadResult> {
   return uploadImage(fileBuffer, settingsImageFolder(imageType), {
-    transformation: [
-      { quality: 'auto:best', fetch_format: 'auto' },
-    ],
+    transformation: settingsImageTransformation(imageType),
+    publicId: settingsImagePublicId(imageType),
+    overwrite: true,
+    invalidate: true,
+    uniqueFilename: false,
+    useFilename: false,
   });
 }
 

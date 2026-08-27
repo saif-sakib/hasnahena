@@ -32,6 +32,7 @@ import Image from 'next/image';
 import { Input } from '@/components/ui/input';
 import { navFor, type DashboardNavItem } from '@/components/dashboard/nav';
 import { DashboardRoleProvider } from '@/components/dashboard/role';
+import { useDashboardBranding } from '@/components/dashboard/branding';
 import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
 
 interface NotificationItem {
@@ -155,6 +156,7 @@ const SUPPORT_SIGNAL_POLL_MS = 60_000;
 const SUPPORT_THREAD_POLL_MS = 60_000;
 
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
+  const { dashboardLogo } = useDashboardBranding();
   const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
@@ -749,7 +751,15 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Logo Section - Compact */}
           <div className="flex items-center justify-between h-14 px-5 border-b border-[#E5E7EB]/60">
             <Link href={localePath(locale)} className="flex items-center gap-2">
-              <Logo size="sm" />
+              {/*
+                `branding.dashboardLogo` when an admin has uploaded one, the
+                shipped lockup otherwise. A separate key from `branding.logo` on
+                purpose: the public header gives a logo 48-80px of height, this
+                sidebar strip gives it 36-40, and a lockup legible in the first
+                is often not in the second — see the note in components/ui/logo.tsx
+                about how small the Bengali tagline gets.
+              */}
+              <Logo size="sm" src={dashboardLogo || undefined} />
             </Link>
             <Button
               variant="ghost"

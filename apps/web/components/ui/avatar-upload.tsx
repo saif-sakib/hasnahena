@@ -7,7 +7,15 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { deleteAvatarAction, uploadAvatarAction } from '@/app/actions/upload-avatar';
-import { validateImage, getInitials, getAvatarColor } from '@/lib/image-utils';
+import {
+  validateImage,
+  getInitials,
+  getAvatarColor,
+  compressImageFile,
+  IMAGE_PRESETS,
+  UPLOAD_TYPES,
+  UPLOAD_SIZE_LIMITS,
+} from '@/lib/image-utils';
 
 interface AvatarUploadProps {
   currentAvatarUrl?: string | null;
@@ -48,13 +56,24 @@ export function AvatarUpload({
   const avatarColor = getAvatarColor(userName);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+
+    // Compress before validating, and before sending.
+    //
+    // This is a **Server Action**, so the request body is capped at 4 MB by
+    // next.config.js and was capped at Next's default 1 MB before that — while
+    // this control accepted 5 MB. A member changing their profile photo from
+    // their phone was uploading a 3-8 MB camera file straight into that limit
+    // and getting a failure that named nothing. Cloudinary crops the result to
+    // 400x400 (AVATAR_TRANSFORMATION) regardless, so every one of those bytes
+    // was thrown away on arrival even when it did fit.
+    const file = await compressImageFile(picked, IMAGE_PRESETS.avatar);
 
     // Validate
     const validation = await validateImage(file, {
-      maxSizeMB: 5,
-      acceptedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
+      maxSizeMB: UPLOAD_SIZE_LIMITS.avatar,
+      acceptedTypes: [...UPLOAD_TYPES.avatar],
     });
 
     if (!validation.valid) {

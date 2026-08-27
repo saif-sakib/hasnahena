@@ -1,11 +1,19 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { validateImage, formatFileSize, createImagePreview, revokeImagePreview } from '@/lib/image-utils';
+import {
+  validateImage,
+  formatFileSize,
+  createImagePreview,
+  revokeImagePreview,
+  compressImageFile,
+  IMAGE_PRESETS,
+  type ImagePresetName,
+} from '@/lib/image-utils';
 
 interface ImageUploadProps {
   label?: string;
@@ -21,7 +29,63 @@ interface ImageUploadProps {
   showPreview?: boolean;
   autoUpload?: boolean;
   onFileSelected?: (file: File) => void;
+  /**
+   * Which compression preset to shrink the picked file with before it leaves the
+   * browser. See IMAGE_PRESETS — a preset is a ceiling, never an enlargement.
+   *
+   * Not optional in practice: every caller passes one. It has a default only so
+   * that a future uploader cannot be added with no compression at all by
+   * forgetting a prop, which is how Content & Media came to post 5 MB logos into
+   * a Server Action that caps a body at 1 MB.
+   */
+  preset?: ImagePresetName;
+  /** Description shown under the control: where this image will appear. */
+  hint?: string;
+  /**
+   * How the preview fills its box. `contain` for anything with a shape of its
+   * own — a logo, a favicon, a partner mark — because `cover` crops, and an
+   * admin judging a logo from a preview that has cut its edges off will crop the
+   * source file to compensate for a crop that only ever existed in this box.
+   */
+  fit?: 'cover' | 'contain';
+  /**
+   * The uploader's own chrome, in the reader's language.
+   *
+   * These were English string literals in the JSX, so the Bengali dashboard
+   * showed "Drag and drop your image here / or click to browse / Choose Image /
+   * Uploading..." under headings and descriptions that were all in Bengali.
+   * Passed in rather than read from `next-intl` here because this is a generic
+   * primitive and its two call sites already know the locale — and because a
+   * component that reaches for a translation namespace cannot be used outside
+   * one.
+   */
+  labels?: Partial<UploadLabels>;
 }
+
+export interface UploadLabels {
+  dropHere: string;
+  orBrowse: string;
+  choose: string;
+  uploading: string;
+  /** `(types) · Max (n)MB` — takes the formatted type list and the limit. */
+  constraints: (types: string, maxSizeMB: number) => string;
+  dropAnImage: string;
+  invalidImage: string;
+  uploadFailed: string;
+  removeImage: string;
+}
+
+const DEFAULT_LABELS: UploadLabels = {
+  dropHere: 'Drag and drop your image here',
+  orBrowse: 'or click to browse',
+  choose: 'Choose Image',
+  uploading: 'Uploading...',
+  constraints: (types, maxSizeMB) => `${types} · Max ${maxSizeMB}MB`,
+  dropAnImage: 'Please drop an image file',
+  invalidImage: 'Invalid image',
+  uploadFailed: 'Upload failed',
+  removeImage: 'Remove image',
+};
 
 export function ImageUpload({
   label = 'Upload Image',
@@ -33,17 +97,43 @@ export function ImageUpload({
   maxSizeMB = 10,
   aspectRatio,
   className = '',
-  buttonText = 'Choose Image',
+  buttonText,
   showPreview = true,
   autoUpload = true,
   onFileSelected,
+  preset = 'gallery',
+  hint,
+  fit = 'cover',
+  labels: labelOverrides,
 }: ImageUploadProps) {
+  const labels: UploadLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const [preview, setPreview] = useState<string | null>(currentImage || null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [savedBytes, setSavedBytes] = useState<{ from: number; to: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // The stored image arrives *after* the first render.
+  //
+  // `preview` was seeded from `currentImage` in useState and then never looked
+  // at it again, so on Content & Media — where the settings are fetched with SWR
+  // — every brand field mounted with `currentImage === undefined` and kept the
+  // empty drop zone for the rest of the session. An admin with a logo already
+  // uploaded saw a screen that said there was none, uploaded it again, and got
+  // the same empty box back. The guard is `blob:`: a preview the reader is
+  // partway through choosing must not be replaced by a server value landing
+  // behind them.
+  const lastSyncedRef = useRef<string | undefined>(currentImage);
+  useEffect(() => {
+    if (currentImage === lastSyncedRef.current) return;
+    lastSyncedRef.current = currentImage;
+    setPreview((existing) => {
+      if (existing?.startsWith('blob:')) return existing;
+      return currentImage || null;
+    });
+  }, [currentImage]);
 
   const handleUpload = useCallback(async (file: File) => {
     setIsUploading(true);
@@ -63,22 +153,34 @@ export function ImageUpload({
         }
         setPreview(result.imageUrl);
       } else {
-        const errorMsg = result.error || 'Upload failed';
+        const errorMsg = result.error || labels.uploadFailed;
         setError(errorMsg);
         if (onUploadError) onUploadError(errorMsg);
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Upload failed';
+      const errorMsg = error instanceof Error ? error.message : labels.uploadFailed;
       setError(errorMsg);
       if (onUploadError) onUploadError(errorMsg);
     } finally {
       setIsUploading(false);
     }
-  }, [onUpload, onUploadComplete, preview, currentImage, onUploadError]);
+  }, [onUpload, onUploadComplete, preview, currentImage, onUploadError, labels.uploadFailed]);
 
   const processFile = useCallback(
-    async (file: File) => {
+    async (picked: File) => {
       setError(null);
+      setSavedBytes(null);
+
+      // Compress FIRST, then validate.
+      //
+      // In that order the size limit is a statement about what is stored rather
+      // than about what a phone camera happens to produce, and a member is only
+      // ever shown a size error for a file nothing could rescue. It is also what
+      // keeps a Server Action body under Next's cap — see compressImageFile.
+      const file = await compressImageFile(picked, IMAGE_PRESETS[preset]);
+      if (file !== picked) {
+        setSavedBytes({ from: picked.size, to: file.size });
+      }
       setSelectedFile(file);
 
       // Validate image
@@ -88,8 +190,8 @@ export function ImageUpload({
       });
 
       if (!validation.valid) {
-        setError(validation.error || 'Invalid image');
-        if (onUploadError) onUploadError(validation.error || 'Invalid image');
+        setError(validation.error || labels.invalidImage);
+        if (onUploadError) onUploadError(validation.error || labels.invalidImage);
         return;
       }
 
@@ -107,7 +209,7 @@ export function ImageUpload({
         await handleUpload(file);
       }
     },
-    [maxSizeMB, acceptedTypes, preview, currentImage, onUploadError, autoUpload, onFileSelected, handleUpload]
+    [maxSizeMB, acceptedTypes, preview, currentImage, onUploadError, autoUpload, onFileSelected, handleUpload, preset, labels.invalidImage]
   );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,7 +237,7 @@ export function ImageUpload({
     if (file && file.type.startsWith('image/')) {
       processFile(file);
     } else {
-      setError('Please drop an image file');
+      setError(labels.dropAnImage);
     }
   };
 
@@ -145,6 +247,7 @@ export function ImageUpload({
     }
     setPreview(null);
     setSelectedFile(null);
+    setSavedBytes(null);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -158,6 +261,9 @@ export function ImageUpload({
   return (
     <div className={`space-y-3 ${className}`}>
       {label && <Label className="text-sm font-medium">{label}</Label>}
+      {hint && (
+        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">{hint}</p>
+      )}
 
       {/* Preview */}
       {showPreview && preview && (
@@ -168,7 +274,7 @@ export function ImageUpload({
               alt="Preview"
               fill
               sizes="(max-width: 768px) 100vw, 640px"
-              className="object-cover"
+              className={fit === 'contain' ? 'object-contain p-2' : 'object-cover'}
               unoptimized={preview.startsWith('blob:')}
             />
           </div>
@@ -179,6 +285,7 @@ export function ImageUpload({
               size="icon"
               className="absolute top-2 right-2 h-8 w-8 rounded-full shadow-none"
               onClick={handleRemove}
+              aria-label={labels.removeImage}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -187,7 +294,7 @@ export function ImageUpload({
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <div className="text-center text-white">
                 <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
-                <p className="text-sm">Uploading...</p>
+                <p className="text-sm">{labels.uploading}</p>
               </div>
             </div>
           )}
@@ -210,7 +317,7 @@ export function ImageUpload({
             {isUploading ? (
               <>
                 <Loader2 className="h-12 w-12 text-emerald-600 animate-spin" />
-                <p className="text-sm text-slate-600 dark:text-slate-400">Uploading...</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">{labels.uploading}</p>
               </>
             ) : (
               <>
@@ -218,17 +325,18 @@ export function ImageUpload({
                   <Upload className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium mb-1">Drag and drop your image here</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    or click to browse
-                  </p>
+                  <p className="text-sm font-medium mb-1">{labels.dropHere}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{labels.orBrowse}</p>
                 </div>
                 <Button type="button" variant="outline" onClick={handleButtonClick}>
                   <ImageIcon className="mr-2 h-4 w-4" />
-                  {buttonText}
+                  {buttonText ?? labels.choose}
                 </Button>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {acceptedTypes.map(t => t.split('/')[1].toUpperCase()).join(', ')} · Max {maxSizeMB}MB
+                  {labels.constraints(
+                    acceptedTypes.map((t) => t.split('/')[1].toUpperCase()).join(', '),
+                    maxSizeMB,
+                  )}
                 </p>
               </>
             )}
@@ -238,10 +346,16 @@ export function ImageUpload({
 
       {/* File Info */}
       {selectedFile && !isUploading && (
-        <div className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
-          <ImageIcon className="h-3 w-3" />
-          <span>{selectedFile.name}</span>
-          <span>({formatFileSize(selectedFile.size)})</span>
+        <div className="text-xs text-slate-600 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <ImageIcon className="h-3 w-3 shrink-0" />
+          <span className="min-w-0 break-all">{selectedFile.name}</span>
+          {savedBytes ? (
+            <span className="text-emerald-700 dark:text-emerald-400">
+              {formatFileSize(savedBytes.from)} &rarr; {formatFileSize(savedBytes.to)}
+            </span>
+          ) : (
+            <span>({formatFileSize(selectedFile.size)})</span>
+          )}
         </div>
       )}
 

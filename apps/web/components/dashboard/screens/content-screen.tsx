@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { UPLOAD_TYPES, UPLOAD_SIZE_LIMITS, type ImagePresetName } from '@/lib/image-utils';
 import { toast } from '@/hooks/use-toast';
 import { useDraft } from '@/lib/use-api';
 import { fetchSettings as readSettings } from '@/lib/settings-client';
@@ -342,22 +343,69 @@ export default function ContentScreen() {
     { key: 'brand', label: locale === 'bn' ? 'ব্র্যান্ড ও ছবি' : 'Brand & Images' },
   ];
 
+  /** The uploader's own chrome, in the reader's language. */
+  const uploadLabels =
+    locale === 'bn'
+      ? {
+          dropHere: 'ছবিটি এখানে টেনে আনুন',
+          orBrowse: 'অথবা ক্লিক করে বেছে নিন',
+          choose: 'ছবি বেছে নিন',
+          uploading: 'আপলোড হচ্ছে...',
+          constraints: (types: string, maxSizeMB: number) =>
+            `${types} · সর্বোচ্চ ${maxSizeMB}MB`,
+          dropAnImage: 'একটি ছবি ফাইল দিন',
+          invalidImage: 'ছবিটি গ্রহণযোগ্য নয়',
+          uploadFailed: 'আপলোড ব্যর্থ হয়েছে',
+          removeImage: 'ছবিটি সরান',
+        }
+      : undefined;
+
+  /**
+   * Every brand image, with the one thing this screen never said: **where it
+   * shows up**.
+   *
+   * Seven upload boxes labelled "Site Logo", "Dashboard Logo", "Favicon" and
+   * three numbered partner slots, and nothing on the screen distinguished them.
+   * An admin had no way to tell which one the header uses, whether the favicon
+   * was the browser tab or something else, or that leaving a partner slot empty
+   * simply removes that logo from the row rather than leaving a gap. So each
+   * field now states the page it appears on, the shape it should be, and what
+   * happens when it is empty.
+   *
+   * `preset` is the compression applied in the browser before the file is sent,
+   * and it is not cosmetic: without it these uploads exceeded the Server Action
+   * body limit and failed with no message. `fit` is `contain` for everything
+   * with a shape of its own, because a cropped preview makes an admin crop the
+   * source to compensate.
+   */
   const imageField = (
     key: SettingImageType,
     label: string,
+    hint: string,
     aspectRatio: string,
+    preset: ImagePresetName,
+    fit: 'cover' | 'contain' = 'contain',
   ) => (
     <div className="space-y-2">
       <Label>{label}</Label>
       <ImageUpload
+        // The field already has its own <Label> above; ImageUpload's default
+        // "Upload Image" underneath it made every one of the seven read
+        // "Site Logo / Upload Image / Shows in the header…".
+        label=""
         currentImage={content[key] || undefined}
         onUpload={handleImageUpload(key)}
         onUploadComplete={(url) => setContent((prev) => ({ ...prev, [key]: url }))}
         onUploadError={(error) =>
           toast({ title: 'Upload Error', description: error, variant: 'destructive' })
         }
-        maxSizeMB={5}
+        maxSizeMB={key.includes('favicon') ? UPLOAD_SIZE_LIMITS.favicon : UPLOAD_SIZE_LIMITS.default}
+        acceptedTypes={[...UPLOAD_TYPES.settings]}
         aspectRatio={aspectRatio}
+        preset={preset}
+        fit={fit}
+        hint={hint}
+        labels={uploadLabels}
       />
       {content[key] && (
         <Button
@@ -740,8 +788,8 @@ export default function ContentScreen() {
             </CardTitle>
             <CardDescription>
               {locale === 'bn'
-                ? 'লোগো, ফেভিকন, হিরো ছবি এবং পার্টনার লোগো'
-                : 'Logos, favicon, hero image and partner logos'}
+                ? 'প্রতিটি ছবির নিচে লেখা আছে সেটি কোথায় দেখা যাবে। আপলোডের আগে ছবি ব্রাউজারেই ছোট করা হয়, তাই ফোন থেকে তোলা ছবিও দেওয়া যাবে।'
+                : 'Each field says where its image appears. Pictures are shrunk in your browser before they are sent, so a photo straight off a phone is fine.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -755,17 +803,29 @@ export default function ContentScreen() {
                   {imageField(
                     'branding.logo',
                     locale === 'bn' ? 'সাইট লোগো' : 'Site Logo',
+                    locale === 'bn'
+                      ? 'প্রতিটি পাবলিক পেজের উপরের হেডারে এবং ফুটারে দেখা যায়। চওড়া লকআপ (লোগো + নাম), স্বচ্ছ PNG সবচেয়ে ভালো। খালি রাখলে সাথে দেওয়া হাসনাহেনা লোগোটি ব্যবহার হবে।'
+                      : 'Shows in the header at the top of every public page, and again in the footer. A wide lockup (mark + wordmark) works best; a transparent PNG is ideal. Leave it empty to use the Hasnahena logo shipped with the site.',
                     'aspect-3/1',
+                    'logo',
                   )}
                   {imageField(
                     'branding.dashboardLogo',
                     locale === 'bn' ? 'ড্যাশবোর্ড লোগো' : 'Dashboard Logo',
+                    locale === 'bn'
+                      ? 'সদস্য, কর্মী ও অ্যাডমিন ড্যাশবোর্ডের বাঁ পাশের সাইডবারের উপরে দেখা যায়। জায়গাটি সরু, তাই সাইট লোগোর চেয়ে ছোট বা শুধু প্রতীক ভালো মানায়। খালি রাখলে সাইটের নিজস্ব লোগো ব্যবহার হবে।'
+                      : 'Shows at the top of the left sidebar on the member, worker and admin dashboards. That strip is short, so a compact mark often reads better there than the full site logo. Leave it empty to use the shipped logo.',
                     'aspect-3/1',
+                    'logo',
                   )}
                   {imageField(
                     'branding.favicon',
                     locale === 'bn' ? 'ফেভিকন' : 'Favicon',
+                    locale === 'bn'
+                      ? 'ব্রাউজারের ট্যাবে, বুকমার্কে এবং ফোনের হোম স্ক্রিনে শর্টকাটের আইকন হিসেবে দেখা যায়। বর্গাকার ছবি দিন — ছোট আকারে দেখা যাবে, তাই লেখা নয়, শুধু প্রতীক ব্যবহার করুন।'
+                      : "Shows as the small icon on the browser tab, in bookmarks, and on a phone's home screen if a member adds a shortcut. Use a square image — it is drawn at about 16px, so a mark reads and words do not.",
                     'aspect-square',
+                    'favicon',
                   )}
                 </div>
 
@@ -774,26 +834,49 @@ export default function ContentScreen() {
                 {imageField(
                   'hero.backgroundImage',
                   locale === 'bn' ? 'হিরো ব্যাকগ্রাউন্ড ইমেজ' : 'Hero Background Image',
+                  locale === 'bn'
+                    ? 'হোম পেজের একদম উপরের অংশের পেছনের ছবি, লেখার নিচে ম্লান হয়ে দেখা যায়। চওড়া (ল্যান্ডস্কেপ) ছবি দিন; ছবির মাঝের অংশটুকুই ফোনে দেখা যাবে। খালি রাখলে শুধু রঙের ব্যাকগ্রাউন্ড থাকবে।'
+                    : 'The photograph behind the top section of the home page, dimmed under the headline. Use a wide landscape image — on a phone only the middle of it is visible. Leave it empty for the plain colour background.',
                   'aspect-video',
+                  'hero',
+                  'cover',
                 )}
 
                 <div className="border-t border-gray-200 my-4" />
+
+                <p className="text-xs text-gray-500">
+                  {locale === 'bn'
+                    ? 'হোম পেজের হিরো অংশের নিচে সহযোগী প্রতিষ্ঠানের লোগোর সারি। যে স্লট খালি থাকবে সেটি বাদ পড়বে — তিনটিই খালি থাকলে সারিটি দেখাবেই না।'
+                    : 'The row of partner logos under the hero on the home page. An empty slot is skipped rather than left blank, and with all three empty the row does not appear at all.'}
+                </p>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   {imageField(
                     'hero.partnerLogo1',
                     locale === 'bn' ? 'পার্টনার লোগো ১' : 'Partner Logo 1',
+                    locale === 'bn'
+                      ? 'সারির প্রথম লোগো।'
+                      : 'First logo in the row.',
                     'aspect-4/3',
+                    'partner',
                   )}
                   {imageField(
                     'hero.partnerLogo2',
                     locale === 'bn' ? 'পার্টনার লোগো ২' : 'Partner Logo 2',
+                    locale === 'bn'
+                      ? 'দ্বিতীয় লোগো।'
+                      : 'Second logo in the row.',
                     'aspect-4/3',
+                    'partner',
                   )}
                   {imageField(
                     'hero.partnerLogo3',
                     locale === 'bn' ? 'পার্টনার লোগো ৩' : 'Partner Logo 3',
+                    locale === 'bn'
+                      ? 'তৃতীয় লোগো।'
+                      : 'Third logo in the row.',
                     'aspect-4/3',
+                    'partner',
                   )}
                 </div>
               </>
@@ -830,9 +913,12 @@ export default function ContentScreen() {
               onUploadComplete={setPreviewUrl}
               onFileSelected={setSelectedFile}
               onUploadError={(e) => toast({ title: 'Error', description: e, variant: 'destructive' })}
-              maxSizeMB={10}
+              maxSizeMB={UPLOAD_SIZE_LIMITS.gallery}
+              acceptedTypes={[...UPLOAD_TYPES.gallery]}
               aspectRatio="aspect-video"
+              preset="gallery"
               autoUpload={false}
+              labels={uploadLabels}
             />
             <div>
               <Label className="text-sm">Caption (English)</Label>

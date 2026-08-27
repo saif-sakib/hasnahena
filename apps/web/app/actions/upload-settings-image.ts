@@ -77,9 +77,15 @@ export async function uploadSettingsImageAction(
       return { success: false, error: 'No file provided' };
     }
 
-    // Validate file using shared utilities
-    const maxSizeMB = imageType.includes('favicon') 
-      ? UPLOAD_SIZE_LIMITS.favicon 
+    // Validate file using shared utilities.
+    //
+    // The browser has already compressed to the matching preset in
+    // IMAGE_PRESETS, so anything still over these limits is a file
+    // `compressImageFile` declined to touch. Kept as a server-side check
+    // regardless: a Server Action is a public endpoint and cannot trust that its
+    // own form ran.
+    const maxSizeMB = imageType.includes('favicon')
+      ? UPLOAD_SIZE_LIMITS.favicon
       : UPLOAD_SIZE_LIMITS.default;
     const validation = validateImageFile(file, {
       acceptedTypes: UPLOAD_TYPES.settings,
@@ -113,10 +119,21 @@ export async function uploadSettingsImageAction(
       },
     });
 
-    // Delete old image from Cloudinary (async, don't wait)
+    // Delete the old image — but only when it is genuinely a different asset.
+    //
+    // Since WO-97 a settings image is uploaded to a *fixed* public id derived
+    // from its key, with `overwrite`, so replacing one is an overwrite and there
+    // is nothing left behind to remove. Without this guard the delete below
+    // would name the id we have just written and destroy the new image seconds
+    // after storing its URL — a setting pointing at a 404, with the upload
+    // reported as successful.
+    //
+    // The comparison is still worth making rather than dropping the delete
+    // entirely: rows written before that change hold URLs with random ids, and
+    // those assets do need removing the first time each one is replaced.
     if (existingSetting?.value) {
       const oldPublicId = extractPublicId(existingSetting.value);
-      if (oldPublicId) {
+      if (oldPublicId && oldPublicId !== uploadResult.publicId) {
         deleteImage(oldPublicId).catch(error => {
           console.error('Failed to delete old settings image:', error);
         });
@@ -174,9 +191,17 @@ export async function deleteSettingsImageAction(
       return { success: false, error: 'Setting not found' };
     }
 
-    // Delete from database
-    await prisma.systemConfig.delete({
+    // Blank the value; do not delete the row.
+    //
+    // "No image" and "no such setting" are different states, and only one of
+    // them is true here. Deleting the row also disagreed with the other way this
+    // value gets cleared: pressing Save on Content & Media posts `''` for a
+    // cleared field, which upserts the row back — so Remove and Save left the
+    // database in two different shapes for one outcome. Blank is the shape the
+    // seed writes for an unset image and the shape every reader already handles.
+    await prisma.systemConfig.update({
       where: { key: imageType },
+      data: { value: '' },
     });
 
     // Delete from Cloudinary (async)

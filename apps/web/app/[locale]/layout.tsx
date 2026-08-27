@@ -13,6 +13,7 @@ import {
   siteBaseUrl,
   siteTitle,
 } from '@/lib/seo';
+import { getPublicSettings } from '@/lib/system-config';
 import '../globals.css';
 
 const inter = Inter({
@@ -59,8 +60,46 @@ export const viewport: Viewport = {
   themeColor: '#059669',
 };
 
+/**
+ * The tab icon, and the one an Android home-screen shortcut gets.
+ *
+ * `branding.favicon` had a control on Content & Media and **no reader anywhere**
+ * — an admin could upload one, see it stored, and watch the tab keep the shipped
+ * leaf forever. It is read here, which is the only place a document's `<head>`
+ * is decided for every route on the site.
+ *
+ * Falls back to the files in `public/`. The fallback is not decoration: the
+ * settings read can legitimately return `{}` (a fresh database, a transient Neon
+ * blip — see getPublicSettings), and a site whose favicon disappears when the
+ * database hiccups would be a strange thing to have built.
+ *
+ * The uploaded value goes in `shortcut` and `apple` as well as `icon` because
+ * those are three separate `<link rel>`s and a browser that reads only one of
+ * them would otherwise still show the old mark.
+ */
+function iconsFor(faviconUrl: string | undefined): Metadata['icons'] {
+  const uploaded = faviconUrl?.trim();
+  if (uploaded) {
+    return {
+      icon: [{ url: uploaded }],
+      shortcut: [{ url: uploaded }],
+      apple: [{ url: uploaded }],
+    };
+  }
+  return {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    shortcut: [{ url: '/favicon.ico' }],
+    apple: [{ url: '/apple-icon.png' }],
+  };
+}
+
 export async function generateMetadata({ params }: RootLayoutProps): Promise<Metadata> {
   const { locale } = await params;
+  const settings = await getPublicSettings();
   const activeLocale = normalizeLocale(locale);
   const localizedMetadata = createLocalizedMetadata({
     locale: activeLocale,
@@ -95,6 +134,7 @@ export async function generateMetadata({ params }: RootLayoutProps): Promise<Met
     ],
     applicationName: SITE_NAME,
     authors: [{ name: 'Md Saif Ahmed' }],
+    icons: iconsFor(settings['branding.favicon']),
     // The manifest carries the icons a phone uses for a home-screen shortcut,
     // and one more crawlable statement of the site's name. See app/manifest.ts.
     manifest: '/manifest.webmanifest',

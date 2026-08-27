@@ -330,6 +330,42 @@ database** — [ADR-028](decisions.md).
 
 ## Next, React and the build
 
+- **A Server Action's request body is capped at 1 MB, and exceeding it is
+  silent.** Next enforces `experimental.serverActions.bodySizeLimit` *before* the
+  action runs, so nothing in the action executes and nothing logs. Content &
+  Media's brand uploader validated a file up to 5 MB and posted it uncompressed:
+  every logo off a phone or out of a design tool was refused by the framework,
+  and the admin saw a Server Action failure naming no size, no field and no
+  remedy — an uploader that simply did not work. The gallery (10 MB) and avatar
+  (5 MB) uploaders had the same ceiling. **The general form: a size limit
+  enforced by infrastructure produces no message a user can act on, so the
+  application's own validator must be the stricter of the two.** Compress in the
+  browser first and validate the *compressed* file; then the limit describes what
+  gets stored, and a rejection only happens for a file nothing could rescue.
+  `test/unit/image-uploads.test.ts` compares `bodySizeLimit` against every entry
+  in `UPLOAD_SIZE_LIMITS` so the two cannot drift apart again. Note the platform
+  in front of the app has its own cap (4.5 MB on Vercel) which is lower than the
+  10 MB one validator used to claim.
+
+- **A reader census that greps for a key name is satisfied by the writer.**
+  `branding.favicon` and `branding.dashboardLogo` each had an admin control and
+  **no reader anywhere**, and passed `settings-keys-read.test.ts` because the
+  uploader that writes them names them as string literals. So an admin uploaded
+  a favicon and a dashboard logo, saw both stored, and watched the browser tab
+  and the sidebar keep the shipped assets for ever — the exact failure
+  `UNIMPLEMENTED_CONFIG_KEYS` exists to make honest. A census over "is this
+  string present" cannot tell a read from a write; where that distinction is the
+  whole point, assert the *reader* by name and by file.
+
+- **Awaiting in a layout changes when everything below it mounts.** Reading
+  `getPublicSettings()` in the dashboard's server layout — to hand a logo down —
+  put a database round trip on every dashboard navigation *and* tripped a race in
+  the client shell's mount-time effects, so every navigation logged the reader
+  out. Neither cost was visible in the diff. A value that only decorates belongs
+  on a path that cannot delay or break the page: this one is a client fetch of a
+  key that is in `PUBLIC_CONFIG_KEYS`, so it needs no token and its worst failure
+  is a missing logo.
+
 - **A single click can fire a handler and then submit the form, when a
   conditional swaps a button's `type` in place.** `{!isLastStep ? <Button
   type="button" onClick={next}/> : <Button type="submit"/>}` is one `<button>` in
@@ -594,6 +630,32 @@ answered 500.
   in a way a production build never is.
 
 ## Interface
+
+- **A canvas re-encode to JPEG destroys transparency, and JPEG is the obvious
+  default.** `downscaleImageFile` filled the canvas white before drawing —
+  correct for a photograph of an NID, and the reason a transparent signature did
+  not come back on a black background. Reused for brand images it would have
+  baked a **white rectangle behind every logo**, visible the moment one sat on a
+  coloured header. Alpha is a property of the *purpose*, not of the compressor:
+  `IMAGE_PRESETS` marks which uploads keep it, and those encode WebP. Never name
+  an output `format` in a Cloudinary transformation for the same reason.
+
+- **`useState(prop)` is a one-time seed, and on a screen that fetches its data
+  the prop arrives afterwards.** `ImageUpload` seeded its preview from
+  `currentImage` and never looked again, so on Content & Media — which loads
+  settings with SWR — every brand field mounted with `undefined` and kept the
+  empty drop zone for the rest of the session. An admin with a logo already
+  uploaded saw a screen telling them there was none, and uploaded it again. Sync
+  in an effect, and guard the case the reader is mid-edit (here: a `blob:`
+  preview must not be replaced by a server value landing behind them).
+
+- **A generic UI primitive with English string literals is invisible to the
+  translation census.** `ImageUpload` said "Drag and drop your image here", "or
+  click to browse", "Choose Image" and "Uploading..." — so the Bengali dashboard
+  rendered English chrome under Bengali headings and Bengali descriptions.
+  Nothing could see it: `messages.test.ts` compares the two message files, and a
+  string that was never in either has nothing to be compared against. Pass the
+  copy in from the call site, which already knows the locale.
 
 - **A `flex` section makes its container a flex item, and a flex item with no
   width shrinks to its contents.** The hero was

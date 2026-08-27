@@ -58,6 +58,29 @@ const nextConfig = {
     ],
   },
 
+  experimental: {
+    serverActions: {
+      // Next caps a Server Action request body at **1 MB** by default, and that
+      // is the limit every brand image on Content & Media was hitting.
+      //
+      // The uploader validated up to 5 MB and sent the file uncompressed, so a
+      // logo exported from a design tool or picked out of a phone's gallery was
+      // rejected by the framework before `uploadSettingsImageAction` was ever
+      // entered. Nothing in the action ran, so nothing logged, and the admin got
+      // a Server Action failure that named no size and no field — an uploader
+      // that simply did not work, with no way to find out why. The gallery and
+      // avatar actions had the same ceiling and the same silence.
+      //
+      // Raised to 4 MB rather than to the 5 MB the validator allows, because the
+      // serverless platform in front of this app rejects request bodies over
+      // 4.5 MB itself and that failure is even quieter. The real fix is on the
+      // other side: every uploader now runs `compressImageFile` first, so a
+      // photograph arrives here at a few hundred KB and this number is a
+      // backstop rather than the thing being relied on.
+      bodySizeLimit: '4mb',
+    },
+  },
+
   // Image optimization configuration
   images: {
     remotePatterns: [

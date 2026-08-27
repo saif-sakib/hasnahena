@@ -50,8 +50,22 @@ One deliberate session, not spread over a week.
 ### 1.1 Freeze and clear
 
 ```bash
-pnpm db:clear     # keeps admin + gallery + system_config + the donation pool
+cd apps/web
+node scripts/go-live-purge.mjs            # dry run: prints what it would delete
+node scripts/go-live-purge.mjs --confirm  # does it
 ```
+
+**Not `pnpm db:clear`.** That script resets a *development* environment and keeps
+whichever admin it happens to find. This one runs once, against the database
+that is about to hold real savings, and **names** the accounts that survive —
+so a test admin nobody remembers creating cannot be the account it preserves.
+It keeps `system_config`, `gallery_items` and the donation pool (at zero),
+deletes everything else, **resets `document_sequences`**, sets a generated
+password on each named admin and plants a first-login marker so the application
+forces a change before either can do anything. The passwords are printed once
+and are not recoverable.
+
+Take a backup first — `scripts/backup.sh` — because none of this is reversible.
 
 Then confirm what survived is what you expect — members, accounts, transactions,
 loans and audit rows should all be zero:
@@ -64,10 +78,10 @@ UNION ALL SELECT 'loans', count(*) FROM loans
 UNION ALL SELECT 'audit', count(*) FROM audit_logs;
 ```
 
-**Reset `document_sequences` too.** Reference numbers are sequential and visible
-to members (`DEP-2026-000123`). Starting real operations at 000247 because of
-testing is harmless but looks like something is missing, and it generates a
-question you cannot answer later.
+`document_sequences` is reset by the script. Reference numbers are sequential
+and visible to members (`DEP-2026-000123`); starting real operations at 000247
+because of testing is harmless but looks like something is missing, and it
+generates a question you cannot answer later.
 
 ### 1.2 Rotate every secret
 
@@ -86,6 +100,8 @@ After rotating, log in as the seeded admin before announcing anything. A
 mismatched `JWT_SECRET` presents exactly as "the password is wrong".
 
 ### 1.3 Create the real first admin
+
+Done by 1.1 for an admin whose row already exists. For a database with none:
 
 ```bash
 SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… pnpm db:seed
