@@ -170,6 +170,41 @@ The rule that follows: **before adding a column, ask what recomputes it.** If th
 answer is "nothing, it is set once", it is only safe when the thing it describes
 also never changes. A balance changes. A multiplier in `system_config` changes.
 
+## SQL that no compiler reads
+
+A dropped column referenced from a Go string is invisible to `go build`,
+`go vet`, `gofmt`, `pnpm typecheck`, `pnpm db:migrate:check` and every test in
+both suites — because none of them reads a string. ADR-044 dropped
+`accounts.id`, `documents.id`, `nominees.id` and `addresses.id`; three
+statements went on naming them, through a green pipeline of 1,332 tests:
+
+- `worker_repository.go` selected `d.id` — **every member detail screen**, for
+  workers and admins, answered `Failed to load member details`
+- `admin_repository.go` did the same inside the approvals queue's `jsonb_agg`
+- `transaction_repository.go` wrote `UPDATE accounts … WHERE id = $2` in the leg
+  that confirms a **loan instalment**, which is money
+
+and `scripts/restore-check.sh` joined on `t."accountId"`, so the nightly
+backup's own integrity check had been failing since the migration — the check
+that exists to notice exactly this kind of damage.
+
+`TestEverySQLLiteralMatchesTheSchema` closes the class. It parses every Go
+source with `go/ast`, takes each raw-string literal that begins a statement, and
+asks Postgres to `PREPARE` it: parsing and planning validate every table and
+column reference without executing anything. 344 statements, named by file and
+line on a miss.
+
+Two things it deliberately skips, both of which produced false failures in the
+first version: a literal that is an operand of `+` is a **fragment** of
+something assembled at runtime, and a literal inside a composite literal is a
+**table of examples** feeding some other test's parser (`selectsEveryColumn` is
+checked against `SELECT id FROM t`, and `t` is fictional on purpose). It parses
+rather than greps because a backtick inside a doc comment is not code — the
+grep version reported this test's own comment as a defect.
+
+Skipping by *message* rather than by shape is the version that hides a real
+error, which is why neither is filtered out of the results afterwards.
+
 ## Reading a schema built for machines
 
 Every table here is keyed on a `cuid()` and every join is between two of them, so
@@ -271,6 +306,54 @@ was not.
   already existed behind `activeLoan > 0 &&`, false in the common case. The test
   that eventually exposed it had been green the whole time, over code one boolean
   away from hanging.
+
+## A script that runs because it was imported
+
+**Importing a module executes it, and `main()` at the bottom of a file is a
+module that works.** On 2026-09-01, checking that four database scripts still
+imported cleanly after a refactor of their env loader:
+
+```
+for f in migrate.mjs seed.mjs go-live-purge.mjs db-clear-preserve-core.mjs; do
+  node --input-type=module -e "await import('./scripts/$f')" >/dev/null 2>&1 \
+    && echo "$f ok" || echo "$f ok (guarded exit)"
+done
+```
+
+`db-clear-preserve-core.mjs` ended in `main().catch(...)`. The import resolved
+`DATABASE_URL` from `apps/web/.env` — the **production** database — and deleted
+every member, every posting, every loan, every document and the whole audit log.
+The loop printed `ok` four times, because `>/dev/null 2>&1` swallowed the
+script's own "Database cleanup completed" banner and its before→after counts,
+and a successful wipe exits 0.
+
+Three independent things had to be true, and one guard each would have stopped
+it:
+
+1. **the module ran on import** — every script now ends in
+   `runAsScript(import.meta.url, main)` from `scripts/lib/guard.mjs`, so an
+   import yields the exports and does nothing. `script-safety.test.ts`
+   enumerates the directory and fails on the next bare `main()`.
+2. **it destroyed data with no confirmation** — `db:clear` is a dry run that
+   prints what it would remove; `--confirm` applies it, matching
+   `go-live-purge.mjs`, which had that from the start and was therefore harmless
+   in the very same loop.
+3. **it did so against a managed host** — `refuseRemoteTarget` refuses anything
+   that is not localhost without `ALLOW_REMOTE_DATABASE=yes`. The normal target
+   of a development reset is Docker; the one time it was not, it cost the
+   foundation's data.
+
+The wider lesson is about the redirect, not the script. **Output sent to
+`/dev/null` is evidence destroyed before it is read.** The command was written to
+answer "does this still parse", and the answer it printed was true; what it did
+not print was the only thing that mattered. Send output somewhere you will look
+at it, and treat an exit code as an answer to the question the program was
+asked, not to yours.
+
+Recovery was a Neon point-in-time restore to a timestamp five minutes before the
+wipe. The nightly backup artifact taken later that hour contained the *wiped*
+state — a backup is a copy of whatever was true when it ran, and running one
+after an incident captures the incident.
 
 ## Prisma and migrations
 
@@ -925,6 +1008,39 @@ answered 500.
   in a way a production build never is.
 
 ## Interface
+
+**`position: fixed` escapes the page only while no ancestor opens a stacking
+context.** The gallery lightbox is `fixed inset-0 z-50`. On `/gallery` it
+covered the viewport correctly. On the home page the same component sits inside
+
+```html
+<section class="relative overflow-hidden">
+  <div class="container-wide relative z-10">
+```
+
+and that `relative z-10` is a stacking context, so the overlay's `z-50` was
+50-*within*-10: the page's `fixed z-50` header painted straight over the top of
+it, and the section's `overflow-hidden` clipped the rest. Nothing was wrong with
+the component, and no test of the component could have found it — what changed
+was the page that wrapped it.
+
+Render an overlay through `createPortal(…, document.body)`. It is then a child
+of `<body>`, out of reach of whatever any page wraps the grid in, and it is the
+only version that stays correct when someone adds a `relative z-10` above it
+later. No mounted flag is needed for the server: the overlay's open state starts
+`null`, so it renders as nothing on the server and through hydration, and only a
+click can reach `createPortal`.
+
+Assert the symptom rather than the styles. `gallery-lightbox.spec.ts` hit-tests
+`document.elementFromPoint` at the top of the screen and requires the result to
+be inside the dialog — which reported `NAV` on the home page before the fix and
+passed on `/gallery` in the same run, reproducing the report exactly. A test of
+one page would have been green.
+
+Use `dvh`, not `vh`, for anything that must stay on screen on a phone: on
+Android the address bar makes `vh` taller than the visible area, which pushes
+the last element of a full-height panel off the bottom.
+
 
 - **A barrel import charges you for everything the barrel touches.** Moving a
   fifteen-line `saveBlob` helper into `lib/documents/export.ts` and importing it

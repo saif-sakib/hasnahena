@@ -27,6 +27,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { runAsScript } from './lib/guard.mjs';
 
 const MANIFEST = fileURLToPath(new URL('../.next/prerender-manifest.json', import.meta.url));
 
@@ -145,4 +146,4 @@ function main() {
   process.exit(1);
 }
 
-main();
+runAsScript(import.meta.url, async () => main(), { label: 'assert-static-routes' });

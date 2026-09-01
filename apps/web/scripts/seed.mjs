@@ -27,6 +27,7 @@
 import bcrypt from 'bcryptjs';
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv } from './lib/env.mjs';
+import { runAsScript } from './lib/guard.mjs';
 import { allocateStaffNo } from './lib/account-no.mjs';
 
 // Only keys the application actually reads. Defaults match the fallbacks
@@ -536,7 +537,4 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`seed failed: ${error.message}`);
-  process.exit(1);
-});
+runAsScript(import.meta.url, main, { label: 'seed' });

@@ -132,6 +132,7 @@ import bcrypt from 'bcryptjs';
 import { v2 as cloudinary } from 'cloudinary';
 import { PrismaClient, MaritalStatus, UserRole, UserStatus } from '@prisma/client';
 import { loadDatabaseEnv, redactUrl } from './lib/env.mjs';
+import { runAsScript } from './lib/guard.mjs';
 import { allocateStaffNo, parseStaffSequence } from './lib/account-no.mjs';
 
 /**
@@ -696,7 +697,4 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('\ngo-live purge failed:', error.message);
-  process.exit(1);
-});
+runAsScript(import.meta.url, main, { label: 'go-live purge' });

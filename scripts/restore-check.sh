@@ -136,11 +136,21 @@ BEGIN
     RAISE EXCEPTION '% account(s) have a negative loan balance', bad;
   END IF;
 
+  -- A posting belongs to a person, and the account is keyed on that person
+  -- (ADR-044). There is no accountId column any more: it was NOT NULL, always
+  -- equal to the userId beside it, and this check outlived it by one migration.
   SELECT count(*) INTO bad FROM transactions t
-  LEFT JOIN accounts a ON a.id = t."accountId"
-  WHERE a.id IS NULL;
+  LEFT JOIN accounts a ON a."userId" = t."userId"
+  WHERE a."userId" IS NULL;
   IF bad > 0 THEN
-    RAISE EXCEPTION '% transaction(s) reference a missing account', bad;
+    RAISE EXCEPTION '% posting(s) whose owner has no account', bad;
+  END IF;
+
+  SELECT count(*) INTO bad FROM documents d
+  LEFT JOIN users u ON u.id = d."userId"
+  WHERE u.id IS NULL;
+  IF bad > 0 THEN
+    RAISE EXCEPTION '% document(s) reference a missing person', bad;
   END IF;
 
   SELECT count(*) INTO bad FROM loans l

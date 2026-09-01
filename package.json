@@ -14,6 +14,7 @@
     "lint": "pnpm --filter @hasnahena/web lint",
     "db:reset": "pnpm db:clear",
     "db:clear": "cd apps/web && node scripts/db-clear-preserve-core.mjs",
+    "db:clear:confirm": "cd apps/web && node scripts/db-clear-preserve-core.mjs --confirm",
     "db:purge": "cd apps/web && node scripts/go-live-purge.mjs",
     "db:purge:confirm": "cd apps/web && node scripts/go-live-purge.mjs --confirm",
     "db:push": "pnpm --filter @hasnahena/web exec prisma db push",

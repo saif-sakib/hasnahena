@@ -21,6 +21,14 @@ import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveDirectDatabaseUrl, redactUrl } from './lib/env.mjs';
+import { isEntrypoint } from './lib/guard.mjs';
+
+// This file is a script, not a module: everything below runs on load and ends
+// in process.exit. Importing it applied migrations to whatever DATABASE_URL
+// happened to point at, so importing it is now an error rather than an action.
+if (!isEntrypoint(import.meta.url)) {
+  throw new Error('migrate.mjs is a script — run it with node, do not import it');
+}
 
 const MODES = {
   deploy: ['migrate', 'deploy'],

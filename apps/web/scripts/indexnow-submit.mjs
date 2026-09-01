@@ -44,6 +44,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { loadEnv } from './lib/env.mjs';
+import { runAsScript } from './lib/guard.mjs';
 
 // Plain `node`, so nothing has loaded .env — the same reason the four database
 // scripts in this directory call this. Without it, this refused to run for want
@@ -155,7 +156,4 @@ async function main() {
   console.log(`\nIndexNow accepted ${urlList.length} URLs (${response.status}).`);
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+runAsScript(import.meta.url, main, { label: 'indexnow' });

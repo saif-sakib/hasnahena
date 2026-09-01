@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "db:clear": "node scripts/db-clear-preserve-core.mjs",
+    "db:clear:confirm": "node scripts/db-clear-preserve-core.mjs --confirm",
     "postinstall": "prisma generate",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",

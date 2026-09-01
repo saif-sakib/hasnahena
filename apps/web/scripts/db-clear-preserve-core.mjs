@@ -2,6 +2,11 @@
 
 import { PrismaClient, UserRole } from '@prisma/client';
 import { loadDatabaseEnv } from './lib/env.mjs';
+import {
+  refuseRemoteTarget,
+  requireConfirmation,
+  runAsScript,
+} from './lib/guard.mjs';
 
 async function getCounts(prisma) {
   const [
@@ -111,6 +116,11 @@ async function main() {
     throw new Error('DATABASE_URL is not set. Set it in the shell or in .env/.env.local.');
   }
 
+  // This script deletes every member. Three separate things must now be true
+  // before it does: it must be the file node was asked to run (see
+  // lib/guard.mjs), the database must be local, and --confirm must be present.
+  refuseRemoteTarget(process.env.DATABASE_URL);
+
   const prisma = new PrismaClient();
 
   try {
@@ -122,6 +132,21 @@ async function main() {
     }
 
     const before = await getCounts(prisma);
+
+    const confirmed = requireConfirmation({
+      url: process.env.DATABASE_URL,
+      action: `delete every user except ${admin.email || admin.id}, and all of their money`,
+    });
+
+    console.log('Counts that would change:');
+    for (const [key, value] of Object.entries(before)) {
+      console.log(`  ${key}: ${value}`);
+    }
+
+    if (!confirmed) {
+      console.log('\nNothing was changed. Re-run with --confirm to apply.');
+      return;
+    }
 
     await prisma.$transaction(async (tx) => {
       // DATA-08: audit_logs carries a trigger that rejects UPDATE always and
@@ -199,7 +224,4 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('Cleanup failed:', error.message);
-  process.exit(1);
-});
+runAsScript(import.meta.url, main, { label: 'db:clear' });
