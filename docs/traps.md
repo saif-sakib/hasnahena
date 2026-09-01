@@ -1009,6 +1009,19 @@ answered 500.
 
 ## Interface
 
+**A badge inside a link changes that link's accessible name.** The Approvals
+nav item gained a red dot carrying `role="status"` and an `aria-label` of
+"3 pending approvals", which is right for a screen reader — a colour is not
+information — and it means `getByRole('link', { name: 'Approvals', exact: true })`
+stops matching the moment the badge works. The spec written alongside the badge
+failed on its own feature. Locate a nav item by `href`, which is what actually
+identifies it, and keep the name assertions for the badge itself.
+
+The same applies to a tab button that renders its own count: `{ name: 'Deposit',
+exact: true }` matches until the queue is non-empty, which is precisely the state
+every test about the queue sets up.
+
+
 **`position: fixed` escapes the page only while no ancestor opens a stacking
 context.** The gallery lightbox is `fixed inset-0 z-50`. On `/gallery` it
 covered the viewport correctly. On the home page the same component sits inside

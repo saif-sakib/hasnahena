@@ -290,8 +290,12 @@ apps/web/components/layout/       header.tsx  the menu — PAGES, not home-page 
 apps/web/components/dashboard/    screens/  the worker and admin dashboards, ONE component each. Both
                                   role folders re-export the same file; the screen asks
                                   useDashboardRole() and hides what that role may not do
-                                  nav.ts    the single description of what each dashboard contains —
-                                  the sidebar and the overview's action cards both render from it
+                                  nav.ts    the single description of what each dashboard contains.
+                                  The sidebar renders it; the overview used to render it a second time
+                                  as "Action Center" cards and no longer does, so `blurb*` is gone too.
+                                  The Approvals item carries a red dot while the queue is not empty —
+                                  the shell subscribes to the SAME SWR key the approvals screen uses,
+                                  which is what puts it out live rather than on the next poll
                                   role.tsx  which dashboard a screen is in. Presentation only:
                                   the API decides, and proxy.ts pins the URL segment to the role
                                   money-actions.tsx  the ONE deposit / withdrawal / instalment /

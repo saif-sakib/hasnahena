@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useLocale, useTranslations } from 'next-intl';
-import useSWR from 'swr';
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import useSWR from "swr";
 import {
   User,
   Menu,
@@ -18,22 +18,38 @@ import {
   MessageCircle,
   Send,
   ArrowLeft,
-} from 'lucide-react';
-import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
-import { Button } from '@/components/ui/button';
-import { Logo } from '@/components/ui/logo';
-import { toast } from '@/hooks/use-toast';
-import { apiGet, apiPatch, apiPost } from '@/lib/api';
-import { usePageVisible } from '@/hooks/use-page-visible';
-import { useServerEvents } from '@/hooks/use-server-events';
-import { getInitials, getAvatarColor } from '@/lib/image-utils';
-import { clearClientAuthState, getValidatedClientToken } from '@/lib/client-auth';
-import Image from 'next/image';
-import { Input } from '@/components/ui/input';
-import { navFor, type DashboardNavItem } from '@/components/dashboard/nav';
-import { DashboardRoleProvider } from '@/components/dashboard/role';
-import { useDashboardBranding } from '@/components/dashboard/branding';
-import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
+} from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
+import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
+import { toast } from "@/hooks/use-toast";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { usePageVisible } from "@/hooks/use-page-visible";
+import { useServerEvents } from "@/hooks/use-server-events";
+import { getInitials, getAvatarColor } from "@/lib/image-utils";
+import {
+  clearClientAuthState,
+  getValidatedClientToken,
+} from "@/lib/client-auth";
+import Image from "next/image";
+import { Input } from "@/components/ui/input";
+import { useApi } from "@/lib/use-api";
+import { navFor, type DashboardNavItem } from "@/components/dashboard/nav";
+import { DashboardRoleProvider } from "@/components/dashboard/role";
+import { useDashboardBranding } from "@/components/dashboard/branding";
+import { localePath, otherLocale, switchLocalePath } from "@/lib/locale-path";
+
+/** Only the lengths are read — the dot is a yes/no. */
+interface ApprovalsBadgeSummary {
+  registrationRequests?: unknown[];
+  transactionRequests?: unknown[];
+}
 
 interface NotificationItem {
   id: string;
@@ -81,17 +97,17 @@ interface SupportMessageItem {
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  role: 'member' | 'worker' | 'admin';
+  role: "member" | "worker" | "admin";
 }
 
 // Cache keys for sessionStorage
-const USER_INFO_CACHE_KEY = 'hn_user_info_cache';
-const USER_INFO_CACHE_TIMESTAMP_KEY = 'hn_user_info_timestamp';
+const USER_INFO_CACHE_KEY = "hn_user_info_cache";
+const USER_INFO_CACHE_TIMESTAMP_KEY = "hn_user_info_timestamp";
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes cache
 
 // Helper functions for caching
 function getCachedUserInfo(): UserInfo | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   try {
     const cached = sessionStorage.getItem(USER_INFO_CACHE_KEY);
     const timestamp = sessionStorage.getItem(USER_INFO_CACHE_TIMESTAMP_KEY);
@@ -108,17 +124,20 @@ function getCachedUserInfo(): UserInfo | null {
 }
 
 function setCachedUserInfo(userInfo: UserInfo) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   try {
     sessionStorage.setItem(USER_INFO_CACHE_KEY, JSON.stringify(userInfo));
-    sessionStorage.setItem(USER_INFO_CACHE_TIMESTAMP_KEY, Date.now().toString());
+    sessionStorage.setItem(
+      USER_INFO_CACHE_TIMESTAMP_KEY,
+      Date.now().toString(),
+    );
   } catch {
     // Ignore errors
   }
 }
 
 function clearCachedUserInfo() {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(USER_INFO_CACHE_KEY);
     sessionStorage.removeItem(USER_INFO_CACHE_TIMESTAMP_KEY);
@@ -128,10 +147,10 @@ function clearCachedUserInfo() {
 }
 
 function clearAuthState() {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   clearClientAuthState({ dispatchEvent: false });
   clearCachedUserInfo();
-  window.dispatchEvent(new Event('auth-change'));
+  window.dispatchEvent(new Event("auth-change"));
 }
 
 // A store that never emits. `isHydrated` is not really external state — the
@@ -172,12 +191,32 @@ const SUPPORT_SIGNAL_POLL_MS = 180_000;
  */
 const SUPPORT_THREAD_POLL_MS = 180_000;
 
+/**
+ * How often the sidebar re-checks whether the approvals queue is empty.
+ *
+ * A fourth endpoint on the same three-minute cadence as the others, and
+ * deliberately the *same* number rather than a faster one of its own. A poll is
+ * a database wake and a wake holds the compute up for its whole idle timer
+ * whatever the query cost (ADR-035) — so a fourth request landing inside a wake
+ * three others already caused costs very close to nothing, while a fourth
+ * cadence would open wake windows of its own.
+ *
+ * Staff only: the key is null in a member's dashboard, which has no approvals
+ * screen to link to.
+ *
+ * This is the *backstop*, not the mechanism. The dot going out when the last
+ * item is cleared does not wait for it: the approvals screen fetches this same
+ * path through the same SWR key, so its refresh after an approval updates this
+ * subscription in the same tick.
+ */
+const APPROVALS_BADGE_POLL_MS = 180_000;
+
 export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const { dashboardLogo } = useDashboardBranding();
   const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
-  const t = useTranslations('dashboard');
+  const t = useTranslations("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -185,26 +224,38 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const [memberHasSupportReply, setMemberHasSupportReply] = useState(false);
   const [showSupportPopup, setShowSupportPopup] = useState(false);
   const [supportThreads, setSupportThreads] = useState<SupportThreadItem[]>([]);
-  const [activeSupportThreadId, setActiveSupportThreadId] = useState<string | null>(null);
-  const [supportMessages, setSupportMessages] = useState<SupportMessageItem[]>([]);
-  const [supportInput, setSupportInput] = useState('');
+  const [activeSupportThreadId, setActiveSupportThreadId] = useState<
+    string | null
+  >(null);
+  const [supportMessages, setSupportMessages] = useState<SupportMessageItem[]>(
+    [],
+  );
+  const [supportInput, setSupportInput] = useState("");
   // Derived: the popup is loading from the moment it opens until the first
   // thread fetch settles. Setting a flag at the top of the polling effect was
   // the WO-27 finding, and moving it inside the async loader would not have
   // helped — the compiler follows the call graph into the callee.
   const [supportThreadsSettled, setSupportThreadsSettled] = useState(false);
   const [isSupportSending, setIsSupportSending] = useState(false);
-  const [seenSupportThreadIds, setSeenSupportThreadIds] = useState<Record<string, string>>({});
+  const [seenSupportThreadIds, setSeenSupportThreadIds] = useState<
+    Record<string, string>
+  >({});
   // false during SSR and the hydration render, true afterwards — without an
   // effect writing state, which is what this used to be.
-  const isHydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false);
+  const isHydrated = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
   const notificationRef = useRef<HTMLDivElement | null>(null);
   const supportRef = useRef<HTMLDivElement | null>(null);
   const supportMessagesRef = useRef<HTMLDivElement | null>(null);
   const supportListInitializedRef = useRef(false);
   // Set below, once `loadSupportMessages` exists. The SSE subscription is
   // declared before it and must not depend on its identity.
-  const loadSupportMessagesRef = useRef<((threadId: string) => Promise<void>) | null>(null);
+  const loadSupportMessagesRef = useRef<
+    ((threadId: string) => Promise<void>) | null
+  >(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
   // WO-74. This shell wraps every dashboard page, and it used to run three
@@ -247,9 +298,31 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     },
   );
 
+  /**
+   * How many items are waiting in the approvals queue, for the sidebar dot.
+   *
+   * The path is exactly the one `approvals-screen.tsx` and `overview-screen.tsx`
+   * use, so all three share one SWR cache entry: the shell adds no second
+   * request while a staff member is on either of those screens, and a mutation
+   * from one updates the other two without any of them knowing about each other.
+   *
+   * The key is held (null) while the tab is hidden, matching the guard-before-
+   * the-load rule the polls below follow: becoming hidden must not itself fire a
+   * request, and coming back to the front should load once immediately rather
+   * than wait out an interval.
+   */
+  const { data: approvalsSummary } = useApi<ApprovalsBadgeSummary>(
+    role !== "member" && isPageVisible ? "/v1/dashboard/admin/approvals" : null,
+    { refreshInterval: APPROVALS_BADGE_POLL_MS },
+  );
+  const pendingApprovals =
+    (approvalsSummary?.registrationRequests?.length ?? 0) +
+    (approvalsSummary?.transactionRequests?.length ?? 0);
+
   const renderNavLink = (item: DashboardNavItem) => {
     const href = `${basePath}${item.href}`;
-    const isActive = pathname === href || (item.href === '' && pathname === basePath);
+    const isActive =
+      pathname === href || (item.href === "" && pathname === basePath);
 
     return (
       <Link
@@ -258,8 +331,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         prefetch={true}
         className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
           isActive
-            ? 'bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]'
-            : 'text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950'
+            ? "bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]"
+            : "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950"
         }`}
         onClick={() => {
           if (pathname !== href) {
@@ -269,10 +342,34 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         }}
       >
         <item.icon
-          className={`h-[18px] w-[18px] ${isActive ? 'text-white' : 'text-zinc-400'}`}
+          className={`h-[18px] w-[18px] ${isActive ? "text-white" : "text-zinc-400"}`}
           strokeWidth={isActive ? 2.5 : 2}
         />
-        {locale === 'bn' ? item.bn : item.en}
+        {locale === "bn" ? item.bn : item.en}
+        {/*
+          The queue light. A dot rather than a number: what a member of staff
+          needs from the sidebar is "is there anything", and a count that is one
+          poll out of date is worse than no count, because it invites acting on
+          it. The number is on the screen it links to.
+
+          `aria-label` rather than a bare dot — a colour is not information to a
+          screen reader, and this is the only thing on the sidebar that changes
+          on its own.
+        */}
+        {item.name === "approvals" && pendingApprovals > 0 ? (
+          <span
+            className="relative ml-auto flex h-2 w-2 shrink-0"
+            role="status"
+            aria-label={
+              locale === "bn"
+                ? `${pendingApprovals} টি অপেক্ষমাণ অনুমোদন`
+                : `${pendingApprovals} pending approvals`
+            }
+          >
+            <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+          </span>
+        ) : null}
         {pendingHref === href && pathname !== href ? (
           <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
         ) : null}
@@ -280,28 +377,30 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     );
   };
 
-  const primaryNav = navFor(role, 'primary');
-  const managementNav = navFor(role, 'management');
+  const primaryNav = navFor(role, "primary");
+  const managementNav = navFor(role, "management");
   const basePath = localePath(locale, `/dashboard/${role}`);
 
   const roleLabels = {
-    member: locale === 'bn' ? 'সদস্য' : 'Member',
-    worker: locale === 'bn' ? 'কর্মী' : 'Worker',
-    admin: locale === 'bn' ? 'অ্যাডমিন' : 'Admin',
+    member: locale === "bn" ? "সদস্য" : "Member",
+    worker: locale === "bn" ? "কর্মী" : "Worker",
+    admin: locale === "bn" ? "অ্যাডমিন" : "Admin",
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-  const showSupportBadge = role === 'member' ? memberHasSupportReply : supportAlertCount > 0;
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const showSupportBadge =
+    role === "member" ? memberHasSupportReply : supportAlertCount > 0;
   const activeSupportThread =
-    supportThreads.find((thread) => thread.id === activeSupportThreadId) ?? null;
+    supportThreads.find((thread) => thread.id === activeSupportThreadId) ??
+    null;
   const supportPopupHeader =
-    role === 'member'
-      ? locale === 'bn'
-        ? 'সাপোর্ট'
-        : 'Support'
-      : locale === 'bn'
-        ? 'সাপোর্ট ইনবক্স'
-        : 'Support Inbox';
+    role === "member"
+      ? locale === "bn"
+        ? "সাপোর্ট"
+        : "Support"
+      : locale === "bn"
+        ? "সাপোর্ট ইনবক্স"
+        : "Support Inbox";
 
   const scrollSupportToBottom = useCallback(() => {
     const el = supportMessagesRef.current;
@@ -330,16 +429,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   // renders `userInfo` ungated, so reading sessionStorage during render would
   // make the server HTML and the first client render disagree. A fetcher runs
   // after mount, so it cannot.
-  const {
-    data: userInfo,
-    mutate: reloadUserInfo,
-  } = useSWR<UserInfo | null>(
-    ['dashboard-user', role],
+  const { data: userInfo, mutate: reloadUserInfo } = useSWR<UserInfo | null>(
+    ["dashboard-user", role],
     async () => {
       const token = getValidatedClientToken();
       if (!token) {
         clearCachedUserInfo();
-        router.replace(localePath(locale, '/login'));
+        router.replace(localePath(locale, "/login"));
         return null;
       }
 
@@ -347,39 +443,42 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       if (cached) return cached;
 
       try {
-        const profile = await apiGet<UserInfo>('/v1/dashboard/user');
+        const profile = await apiGet<UserInfo>("/v1/dashboard/user");
         const newUserInfo: UserInfo = {
-          id: profile.id || '',
-          nameEn: profile.nameEn || '',
-          nameBn: profile.nameBn || '',
-          email: profile.email || '',
-          phone: profile.phone || '',
+          id: profile.id || "",
+          nameEn: profile.nameEn || "",
+          nameBn: profile.nameBn || "",
+          email: profile.email || "",
+          phone: profile.phone || "",
           role: profile.role || role,
-          status: profile.status || '',
-          avatarUrl: profile.avatarUrl || '',
-          accountNo: profile.accountNo || '',
+          status: profile.status || "",
+          avatarUrl: profile.avatarUrl || "",
+          accountNo: profile.accountNo || "",
         };
         setCachedUserInfo(newUserInfo);
         return newUserInfo;
       } catch (error) {
-        console.error('Failed to load user info:', error);
+        console.error("Failed to load user info:", error);
         clearAuthState();
-        router.replace(localePath(locale, '/login'));
+        router.replace(localePath(locale, "/login"));
         return null;
       }
     },
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  const handleUnauthorizedError = useCallback((error: unknown) => {
-    const message = error instanceof Error ? error.message : '';
-    if (message.toLowerCase().includes('unauthorized')) {
-      clearAuthState();
-      router.replace(localePath(locale, '/login'));
-      return true;
-    }
-    return false;
-  }, [locale, router]);
+  const handleUnauthorizedError = useCallback(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : "";
+      if (message.toLowerCase().includes("unauthorized")) {
+        clearAuthState();
+        router.replace(localePath(locale, "/login"));
+        return true;
+      }
+      return false;
+    },
+    [locale, router],
+  );
 
   // Registers a listener and writes no state of its own, so this is not the
   // shape WO-27 removes. Signing in or out drops the cache and re-reads.
@@ -388,22 +487,28 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       clearCachedUserInfo();
       void reloadUserInfo();
     };
-    window.addEventListener('auth-change', onAuthChange);
-    return () => window.removeEventListener('auth-change', onAuthChange);
+    window.addEventListener("auth-change", onAuthChange);
+    return () => window.removeEventListener("auth-change", onAuthChange);
   }, [reloadUserInfo]);
 
   useEffect(() => {
     const loadNotifications = async () => {
       try {
-        const data = await apiGet<NotificationItem[]>('/v1/dashboard/notifications');
+        const data = await apiGet<NotificationItem[]>(
+          "/v1/dashboard/notifications",
+        );
         // Exclude any notifications that mention support or messages (both EN and BN)
-        setNotifications(data.filter((item) => {
-          const ltitle = item.title.toLowerCase();
-          return !ltitle.includes('support') && 
-                 !ltitle.includes('সাপোর্ট') && 
-                 !ltitle.includes('message') && 
-                 !ltitle.includes('বার্তা');
-        }));
+        setNotifications(
+          data.filter((item) => {
+            const ltitle = item.title.toLowerCase();
+            return (
+              !ltitle.includes("support") &&
+              !ltitle.includes("সাপোর্ট") &&
+              !ltitle.includes("message") &&
+              !ltitle.includes("বার্তা")
+            );
+          }),
+        );
       } catch (error) {
         if (handleUnauthorizedError(error)) return;
         setNotifications([]);
@@ -430,24 +535,34 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     const loadSupportSignals = async () => {
       if (showSupportPopup) return;
       try {
-        const threads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        const threads = await apiGet<SupportThreadItem[]>(
+          "/v1/dashboard/support/threads",
+        );
         setSupportThreads(threads);
-        if (role === 'member') {
+        if (role === "member") {
           const hasReply = threads.some((thread) => {
             const seenAt = seenSupportThreadIds[thread.id];
-            if (!thread.latestMessage || !thread.latestSenderRole || thread.latestSenderRole === 'MEMBER') {
+            if (
+              !thread.latestMessage ||
+              !thread.latestSenderRole ||
+              thread.latestSenderRole === "MEMBER"
+            ) {
               return false;
             }
             if (!seenAt) {
               return true;
             }
-            return new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
+            return (
+              new Date(thread.latestAt).getTime() > new Date(seenAt).getTime()
+            );
           });
           setMemberHasSupportReply(hasReply);
           return;
         }
 
-        const unprocessed = threads.filter((thread) => thread.status !== 'PROCESSED').length;
+        const unprocessed = threads.filter(
+          (thread) => thread.status !== "PROCESSED",
+        ).length;
         setSupportAlertCount(unprocessed);
       } catch (error) {
         if (handleUnauthorizedError(error)) return;
@@ -463,23 +578,37 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       void loadSupportSignals();
     }, SUPPORT_SIGNAL_POLL_MS);
     return () => clearInterval(timer);
-  }, [role, handleUnauthorizedError, seenSupportThreadIds, showSupportPopup, isPageVisible]);
+  }, [
+    role,
+    handleUnauthorizedError,
+    seenSupportThreadIds,
+    showSupportPopup,
+    isPageVisible,
+  ]);
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      if (showNotifications && notificationRef.current && !notificationRef.current.contains(target)) {
+      if (
+        showNotifications &&
+        notificationRef.current &&
+        !notificationRef.current.contains(target)
+      ) {
         setShowNotifications(false);
       }
-      if (showSupportPopup && supportRef.current && !supportRef.current.contains(target)) {
+      if (
+        showSupportPopup &&
+        supportRef.current &&
+        !supportRef.current.contains(target)
+      ) {
         setShowSupportPopup(false);
         setActiveSupportThreadId(null);
         setSupportMessages([]);
       }
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
   }, [showNotifications, showSupportPopup]);
 
   // No effect clearing pendingHref on arrival: every render site already asks
@@ -499,14 +628,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const markNotificationAsRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((notification) =>
-        notification.id === id ? { ...notification, read: true } : notification
-      )
+        notification.id === id ? { ...notification, read: true } : notification,
+      ),
     );
 
     // Persist to backend
     try {
       if (getValidatedClientToken()) {
-        await apiPatch('/v1/dashboard/notifications', { notificationId: id });
+        await apiPatch("/v1/dashboard/notifications", { notificationId: id });
       }
     } catch (error) {
       handleUnauthorizedError(error);
@@ -515,16 +644,21 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   };
 
   const markAllNotificationsAsRead = async () => {
-    setNotifications((prev) => prev.map((notification) => ({ ...notification, read: true })));
+    setNotifications((prev) =>
+      prev.map((notification) => ({ ...notification, read: true })),
+    );
     toast({
-      title: locale === 'bn' ? 'সব বিজ্ঞপ্তি পঠিত হিসেবে চিহ্নিত হয়েছে' : 'All notifications marked as read',
-      variant: 'success',
+      title:
+        locale === "bn"
+          ? "সব বিজ্ঞপ্তি পঠিত হিসেবে চিহ্নিত হয়েছে"
+          : "All notifications marked as read",
+      variant: "success",
     });
 
     // Persist to backend
     try {
       if (getValidatedClientToken()) {
-        await apiPatch('/v1/dashboard/notifications', { markAll: true });
+        await apiPatch("/v1/dashboard/notifications", { markAll: true });
       }
     } catch (error) {
       handleUnauthorizedError(error);
@@ -537,20 +671,23 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     router.push(basePath);
   };
 
-  const loadSupportMessages = useCallback(async (threadId: string) => {
-    try {
-      const messages = await apiGet<SupportMessageItem[]>(
-        `/v1/dashboard/support/messages?threadId=${encodeURIComponent(threadId)}`
-      );
-      setSupportMessages(messages);
-      // Delay scroll to ensure DOM is updated
-      setTimeout(scrollSupportToBottom, 50);
-    } catch (error) {
-      if (!handleUnauthorizedError(error)) {
-        setSupportMessages([]);
+  const loadSupportMessages = useCallback(
+    async (threadId: string) => {
+      try {
+        const messages = await apiGet<SupportMessageItem[]>(
+          `/v1/dashboard/support/messages?threadId=${encodeURIComponent(threadId)}`,
+        );
+        setSupportMessages(messages);
+        // Delay scroll to ensure DOM is updated
+        setTimeout(scrollSupportToBottom, 50);
+      } catch (error) {
+        if (!handleUnauthorizedError(error)) {
+          setSupportMessages([]);
+        }
       }
-    }
-  }, [handleUnauthorizedError, scrollSupportToBottom]);
+    },
+    [handleUnauthorizedError, scrollSupportToBottom],
+  );
 
   // The SSE subscription is declared above this and calls through the ref, so
   // that a change in this callback's identity does not reopen the stream. The
@@ -564,12 +701,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     if (!showSupportPopup) return;
     const refreshThreads = async () => {
       try {
-        const threads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        const threads = await apiGet<SupportThreadItem[]>(
+          "/v1/dashboard/support/threads",
+        );
         setSupportThreads(threads);
-        if (role === 'member' && !activeSupportThreadId && threads.length > 0) {
+        if (role === "member" && !activeSupportThreadId && threads.length > 0) {
           const first = threads[0];
           setActiveSupportThreadId(first.id);
-          setSeenSupportThreadIds((prev) => ({ ...prev, [first.id]: first.latestAt }));
+          setSeenSupportThreadIds((prev) => ({
+            ...prev,
+            [first.id]: first.latestAt,
+          }));
           await loadSupportMessages(first.id);
         }
       } catch (error) {
@@ -615,14 +757,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const openSupportPopup = () => {
     setShowSupportPopup(true);
-    const seenNow = supportThreads.reduce<Record<string, string>>((acc, thread) => {
-      acc[thread.id] = thread.latestAt;
-      return acc;
-    }, {});
+    const seenNow = supportThreads.reduce<Record<string, string>>(
+      (acc, thread) => {
+        acc[thread.id] = thread.latestAt;
+        return acc;
+      },
+      {},
+    );
     setSeenSupportThreadIds((prev) => ({ ...prev, ...seenNow }));
     setMemberHasSupportReply(false);
     if (
-      role === 'member' &&
+      role === "member" &&
       supportThreads.length > 0 &&
       (!supportListInitializedRef.current || !activeSupportThreadId)
     ) {
@@ -639,18 +784,23 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     setSupportThreadsSettled(false);
     setActiveSupportThreadId(null);
     setSupportMessages([]);
-    setSupportInput('');
+    setSupportInput("");
   };
 
   useEffect(() => {
     if (!showSupportPopup || !activeSupportThreadId) return;
     scrollSupportToBottom();
-  }, [showSupportPopup, activeSupportThreadId, supportMessages, scrollSupportToBottom]);
+  }, [
+    showSupportPopup,
+    activeSupportThreadId,
+    supportMessages,
+    scrollSupportToBottom,
+  ]);
 
   // Handle iOS visual viewport changes (keyboard open/close)
   useEffect(() => {
     if (!showSupportPopup) return;
-    
+
     const handleViewportResize = () => {
       // On iOS, when keyboard opens, visualViewport height decreases
       // Scroll to bottom to keep messages visible
@@ -659,10 +809,13 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       }
     };
 
-    if (typeof window !== 'undefined' && window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportResize);
+    if (typeof window !== "undefined" && window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleViewportResize);
       return () => {
-        window.visualViewport?.removeEventListener('resize', handleViewportResize);
+        window.visualViewport?.removeEventListener(
+          "resize",
+          handleViewportResize,
+        );
       };
     }
   }, [showSupportPopup, activeSupportThreadId, scrollSupportToBottom]);
@@ -683,12 +836,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       if (activeSupportThreadId) {
         body.threadId = activeSupportThreadId;
       }
-      const payload = await apiPost<{ threadId?: string }>('/v1/dashboard/support/messages', body);
-      setSupportInput('');
+      const payload = await apiPost<{ threadId?: string }>(
+        "/v1/dashboard/support/messages",
+        body,
+      );
+      setSupportInput("");
       const threadId = payload?.threadId || activeSupportThreadId;
       if (threadId) {
         await loadSupportMessages(threadId);
-        const latestThreads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+        const latestThreads = await apiGet<SupportThreadItem[]>(
+          "/v1/dashboard/support/threads",
+        );
         setSupportThreads(latestThreads);
         const active = latestThreads.find((thread) => thread.id === threadId);
         if (active) {
@@ -706,8 +864,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   const markSupportThreadProcessed = async () => {
     if (!activeSupportThreadId) return;
     try {
-      await apiPost('/v1/dashboard/support/threads/processed', { threadId: activeSupportThreadId });
-      const latestThreads = await apiGet<SupportThreadItem[]>('/v1/dashboard/support/threads');
+      await apiPost("/v1/dashboard/support/threads/processed", {
+        threadId: activeSupportThreadId,
+      });
+      const latestThreads = await apiGet<SupportThreadItem[]>(
+        "/v1/dashboard/support/threads",
+      );
       setSupportThreads(latestThreads);
     } catch (error) {
       handleUnauthorizedError(error);
@@ -716,10 +878,10 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
   const formatSupportTime = (value: string) => {
     const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return '';
-    return parsed.toLocaleTimeString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      hour: '2-digit',
-      minute: '2-digit',
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toLocaleTimeString(locale === "bn" ? "bn-BD" : "en-BD", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -728,21 +890,22 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     if (Number.isNaN(parsed.getTime())) {
       return value;
     }
-    return parsed.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-BD', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return parsed.toLocaleString(locale === "bn" ? "bn-BD" : "en-BD", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
   const handleLogout = () => {
     clearClientAuthState({ dispatchEvent: false });
     clearCachedUserInfo(); // Clear user cache on logout
-    window.dispatchEvent(new Event('auth-change'));
+    window.dispatchEvent(new Event("auth-change"));
     toast({
-      title: locale === 'bn' ? 'সফলভাবে লগআউট হয়েছে' : 'Logged out successfully',
-      variant: 'success',
+      title:
+        locale === "bn" ? "সফলভাবে লগআউট হয়েছে" : "Logged out successfully",
+      variant: "success",
     });
     // Use replace for faster navigation and prevent going back to dashboard
     router.replace(localePath(locale));
@@ -761,7 +924,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       {/* Sidebar - Clean simple design */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#F8F9FA] border-r border-[#E5E7EB] transform lg:transform-none lg:transition-none transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex flex-col h-full">
@@ -783,7 +946,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               size="icon"
               className="lg:hidden h-8 w-8"
               onClick={() => setSidebarOpen(false)}
-              aria-label={t('a11y.closeMenu')}
+              aria-label={t("a11y.closeMenu")}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -793,15 +956,17 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           <div className="px-5 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 px-2 py-1 bg-white border border-[#E5E7EB] rounded-md shadow-xs">
-                <div className={`w-1.5 h-1.5 rounded-full ${role === 'admin' ? 'bg-indigo-500' : role === 'worker' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                <div
+                  className={`w-1.5 h-1.5 rounded-full ${role === "admin" ? "bg-indigo-500" : role === "worker" ? "bg-amber-500" : "bg-emerald-500"}`}
+                ></div>
                 <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">
                   {roleLabels[role]}
                 </span>
               </div>
-              <Link 
+              <Link
                 href={localePath(locale)}
                 className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center p-1.5 rounded-md hover:bg-zinc-200/50 tooltip-trigger"
-                title={locale === 'bn' ? 'হোম' : 'Home'}
+                title={locale === "bn" ? "হোম" : "Home"}
               >
                 <Home className="h-3.5 w-3.5" />
               </Link>
@@ -809,11 +974,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           </div>
 
           {/* Navigation - one grouped list, built from components/dashboard/nav.ts */}
-          <nav className="flex-1 py-1 overflow-y-auto px-3" style={{ scrollbarWidth: 'thin' }}>
+          <nav
+            className="flex-1 py-1 overflow-y-auto px-3"
+            style={{ scrollbarWidth: "thin" }}
+          >
             <div className="space-y-4">
               {managementNav.length > 0 ? (
                 <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
-                  {locale === 'bn' ? 'প্রতিদিনের কাজ' : 'Daily Operations'}
+                  {locale === "bn" ? "প্রতিদিনের কাজ" : "Daily Operations"}
                 </p>
               ) : null}
               <div className="space-y-1">{primaryNav.map(renderNavLink)}</div>
@@ -821,9 +989,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               {managementNav.length > 0 ? (
                 <div>
                   <p className="px-3 pb-1 text-[10px] font-bold tracking-widest uppercase text-zinc-400">
-                    {locale === 'bn' ? 'ম্যানেজমেন্ট টুলস' : 'Management Tools'}
+                    {locale === "bn" ? "ম্যানেজমেন্ট টুলস" : "Management Tools"}
                   </p>
-                  <div className="space-y-1">{managementNav.map(renderNavLink)}</div>
+                  <div className="space-y-1">
+                    {managementNav.map(renderNavLink)}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -831,14 +1001,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
           {/* Logout - Compact */}
           <div className="p-4 mt-auto">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               className="w-full justify-start gap-2.5 text-zinc-600 border-[#E5E7EB] hover:text-zinc-900 bg-white hover:bg-zinc-50 shadow-xs"
               onClick={handleLogout}
             >
               <LogOut className="h-[18px] w-[18px]" strokeWidth={2} />
-              <span className="font-medium">{locale === 'bn' ? 'লগআউট' : 'Logout'}</span>
+              <span className="font-medium">
+                {locale === "bn" ? "লগআউট" : "Logout"}
+              </span>
             </Button>
           </div>
         </div>
@@ -847,24 +1019,51 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       {/* Main Content */}
       <div className="lg:pl-64 flex flex-col min-h-screen">
         {/* Top Header - Compact */}
-        <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-6 md:px-8 bg-white/70 backdrop-blur-xl border-b border-black/5" style={{ WebkitBackdropFilter: 'blur(20px)' }}>
+        <header
+          className="sticky top-0 z-30 flex items-center justify-between h-14 px-6 md:px-8 bg-white/70 backdrop-blur-xl border-b border-black/5"
+          style={{ WebkitBackdropFilter: "blur(20px)" }}
+        >
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden h-8 w-8 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-md"
+              className="relative lg:hidden h-8 w-8 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 rounded-md"
               onClick={() => setSidebarOpen(true)}
-              aria-label={t('a11y.openMenu')}
+              aria-label={
+                pendingApprovals > 0
+                  ? `${t("a11y.openMenu")} — ${
+                      locale === "bn"
+                        ? `${pendingApprovals} টি অপেক্ষমাণ অনুমোদন`
+                        : `${pendingApprovals} pending approvals`
+                    }`
+                  : t("a11y.openMenu")
+              }
             >
               <Menu className="h-[18px] w-[18px]" strokeWidth={2} />
+              {/*
+                The same light on the hamburger. Below `lg` the sidebar is a
+                drawer, so a dot that lives only inside it is a dot a member of
+                staff sees after they have already gone looking — and this is an
+                Android-first platform, so that is the common case rather than
+                the edge one.
+              */}
+              {pendingApprovals > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"
+                />
+              ) : null}
             </Button>
             <span className="hidden md:inline-block text-[13px] font-medium text-zinc-500 tracking-wide uppercase">
-              {new Date().toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
-                weekday: 'long',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
+              {new Date().toLocaleDateString(
+                locale === "bn" ? "bn-BD" : "en-US",
+                {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                },
+              )}
             </span>
           </div>
 
@@ -880,9 +1079,16 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               only the function that owns the rule can.
             */}
             <Link href={switchLocalePath(pathname, otherLocale(locale))}>
-              <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900 rounded-md">
-                <Globe className="h-[14px] w-[14px] mr-1.5 opacity-70" strokeWidth={2} />
-                {locale === 'en' ? 'BN' : 'EN'}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900 rounded-md"
+              >
+                <Globe
+                  className="h-[14px] w-[14px] mr-1.5 opacity-70"
+                  strokeWidth={2}
+                />
+                {locale === "en" ? "BN" : "EN"}
               </Button>
             </Link>
 
@@ -895,8 +1101,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 onClick={() => setShowNotifications(!showNotifications)}
                 aria-label={
                   unreadCount > 0
-                    ? `${t('a11y.notifications')} (${unreadCount})`
-                    : t('a11y.notifications')
+                    ? `${t("a11y.notifications")} (${unreadCount})`
+                    : t("a11y.notifications")
                 }
                 aria-expanded={showNotifications}
               >
@@ -910,44 +1116,50 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
               {/* Notifications Dropdown */}
               {showNotifications && (
-                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-zinc-200 shadow-lg z-50">
-                    <div className="px-3 py-2 border-b border-zinc-100 flex items-center justify-between">
-                      <span className="text-sm font-medium text-zinc-900">
-                        {locale === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'}
-                      </span>
-                      {unreadCount > 0 && (
-                        <button
-                          className="text-xs text-zinc-800 hover:text-blue-800"
-                          onClick={markAllNotificationsAsRead}
-                        >
-                          {locale === 'bn' ? 'সব পঠিত' : 'Mark all read'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                      {notifications.length > 0 ? (
-                        notifications.map((notification) => (
-                          <div 
-                            key={notification.id}
-                            className={`px-3 py-2 border-b border-zinc-50 hover:bg-[#FAFAFA] cursor-pointer ${
-                              !notification.read ? 'bg-zinc-100/50' : ''
-                            }`}
-                            onClick={() => {
-                              markNotificationAsRead(notification.id);
-                              setShowNotifications(false);
-                            }}
-                          >
-                            <p className="text-sm text-zinc-900 truncate">{notification.title}</p>
-                            <p className="text-xs text-zinc-500 mt-0.5">{formatNotificationTime(notification.time)}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="px-3 py-6 text-center text-sm text-zinc-500">
-                          {locale === 'bn' ? 'কোন বিজ্ঞপ্তি নেই' : 'No notifications'}
-                        </div>
-                      )}
-                    </div>
+                <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-zinc-200 shadow-lg z-50">
+                  <div className="px-3 py-2 border-b border-zinc-100 flex items-center justify-between">
+                    <span className="text-sm font-medium text-zinc-900">
+                      {locale === "bn" ? "বিজ্ঞপ্তি" : "Notifications"}
+                    </span>
+                    {unreadCount > 0 && (
+                      <button
+                        className="text-xs text-zinc-800 hover:text-blue-800"
+                        onClick={markAllNotificationsAsRead}
+                      >
+                        {locale === "bn" ? "সব পঠিত" : "Mark all read"}
+                      </button>
+                    )}
                   </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {notifications.length > 0 ? (
+                      notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`px-3 py-2 border-b border-zinc-50 hover:bg-[#FAFAFA] cursor-pointer ${
+                            !notification.read ? "bg-zinc-100/50" : ""
+                          }`}
+                          onClick={() => {
+                            markNotificationAsRead(notification.id);
+                            setShowNotifications(false);
+                          }}
+                        >
+                          <p className="text-sm text-zinc-900 truncate">
+                            {notification.title}
+                          </p>
+                          <p className="text-xs text-zinc-500 mt-0.5">
+                            {formatNotificationTime(notification.time)}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-6 text-center text-sm text-zinc-500">
+                        {locale === "bn"
+                          ? "কোন বিজ্ঞপ্তি নেই"
+                          : "No notifications"}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -956,7 +1168,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 variant="ghost"
                 size="icon"
                 className="relative h-8 w-8"
-                aria-label={t('a11y.supportInbox')}
+                aria-label={t("a11y.supportInbox")}
                 onClick={() => {
                   if (showSupportPopup) {
                     closeSupportPopup();
@@ -966,15 +1178,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 }}
               >
                 <MessageCircle className="h-4 w-4 text-zinc-600" />
-                {showSupportBadge && (
-                  role === 'member' ? (
+                {showSupportBadge &&
+                  (role === "member" ? (
                     <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
                   ) : (
                     <span className="absolute -right-0.5 -top-0.5 h-4 min-w-4 px-1 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
                       {supportAlertCount}
                     </span>
-                  )
-                )}
+                  ))}
               </Button>
               {showSupportPopup && (
                 <>
@@ -987,12 +1198,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                   {/* Support Popup */}
                   <div
                     className="fixed inset-0 z-70 flex flex-col bg-white sm:absolute sm:inset-auto sm:top-full sm:right-0 sm:mt-2 sm:w-80 sm:h-auto sm:max-h-112 sm:border sm:border-neutral-200/60 sm:shadow-xl sm:shadow-black/5 sm:rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200"
-                    style={{ height: '100dvh' }}
+                    style={{ height: "100dvh" }}
                   >
                     {/* Header */}
                     <div className="flex items-center justify-between h-14 px-4 border-b border-neutral-100 bg-white/80 backdrop-blur-xl shrink-0 z-10">
                       {/* Back button / Title */}
-                      {(activeSupportThreadId && role !== 'member') ? (
+                      {activeSupportThreadId && role !== "member" ? (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1010,14 +1221,18 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                             <MessageCircle className="w-4 h-4 text-white" />
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-sm font-semibold tracking-tight text-neutral-900">{supportPopupHeader}</span>
-                            <span className="text-[10px] font-medium text-emerald-600">Online</span>
+                            <span className="text-sm font-semibold tracking-tight text-neutral-900">
+                              {supportPopupHeader}
+                            </span>
+                            <span className="text-[10px] font-medium text-emerald-600">
+                              Online
+                            </span>
                           </div>
                         </div>
                       )}
-                      {(activeSupportThreadId && role !== 'member') && (
+                      {activeSupportThreadId && role !== "member" && (
                         <span className="text-xs font-medium text-neutral-500 truncate max-w-[120px] flex-1 text-center">
-                          {activeSupportThread?.memberName || ''}
+                          {activeSupportThread?.memberName || ""}
                         </span>
                       )}
                       {/* Both branches of the ternary that used to be here were
@@ -1028,7 +1243,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         size="icon"
                         className="h-8 w-8 text-neutral-400 hover:text-neutral-900 rounded-full hover:bg-neutral-100"
                         onClick={closeSupportPopup}
-                        aria-label={t('a11y.closeSupport')}
+                        aria-label={t("a11y.closeSupport")}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -1039,11 +1254,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         <div className="flex flex-col items-center gap-3">
                           <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                           <span className="text-xs font-medium text-neutral-400">
-                            {locale === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}
+                            {locale === "bn" ? "লোড হচ্ছে..." : "Loading..."}
                           </span>
                         </div>
                       </div>
-                    ) : (activeSupportThreadId || role === 'member') ? (
+                    ) : activeSupportThreadId || role === "member" ? (
                       <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-neutral-50/30">
                         {/* Messages Container */}
                         <div
@@ -1056,10 +1271,14 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                 <MessageCircle className="w-6 h-6" />
                               </div>
                               <h4 className="text-sm font-semibold text-neutral-900 mb-1">
-                                {locale === 'bn' ? 'আমরা সাহায্য করতে প্রস্তুত!' : 'We\'re here to help!'}
+                                {locale === "bn"
+                                  ? "আমরা সাহায্য করতে প্রস্তুত!"
+                                  : "We're here to help!"}
                               </h4>
                               <p className="text-xs text-neutral-500 leading-relaxed">
-                                {locale === 'bn' ? 'আপনার প্রশ্ন বা সমস্যা নিচে লিখে পাঠান।' : 'Send us your question or concern below.'}
+                                {locale === "bn"
+                                  ? "আপনার প্রশ্ন বা সমস্যা নিচে লিখে পাঠান।"
+                                  : "Send us your question or concern below."}
                               </p>
                             </div>
                           ) : (
@@ -1067,22 +1286,27 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               {supportMessages.map((msg, idx) => {
                                 const isMe = userInfo?.id === msg.senderId;
                                 const prevMsg = supportMessages[idx - 1];
-                                const isFirstInGroup = !prevMsg || prevMsg.senderId !== msg.senderId;
+                                const isFirstInGroup =
+                                  !prevMsg || prevMsg.senderId !== msg.senderId;
 
                                 return (
                                   <div
                                     key={msg.id}
-                                    className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isFirstInGroup ? 'mt-4' : 'mt-1'}`}
+                                    className={`flex ${isMe ? "justify-end" : "justify-start"} ${isFirstInGroup ? "mt-4" : "mt-1"}`}
                                   >
                                     <div
                                       className={`relative max-w-[85%] px-3.5 py-2 text-[13px] leading-relaxed shadow-xs ${
                                         isMe
-                                          ? 'bg-emerald-500 text-white rounded-2xl rounded-tr-sm'
-                                          : 'bg-white border border-neutral-200/60 text-neutral-800 rounded-2xl rounded-tl-sm'
+                                          ? "bg-emerald-500 text-white rounded-2xl rounded-tr-sm"
+                                          : "bg-white border border-neutral-200/60 text-neutral-800 rounded-2xl rounded-tl-sm"
                                       }`}
                                     >
-                                      <p className="whitespace-pre-wrap wrap-break-word">{msg.message}</p>
-                                      <p className={`mt-1 text-[9px] font-medium text-right ${isMe ? 'text-emerald-100' : 'text-neutral-400'}`}>
+                                      <p className="whitespace-pre-wrap wrap-break-word">
+                                        {msg.message}
+                                      </p>
+                                      <p
+                                        className={`mt-1 text-[9px] font-medium text-right ${isMe ? "text-emerald-100" : "text-neutral-400"}`}
+                                      >
                                         {formatSupportTime(msg.createdAt)}
                                       </p>
                                     </div>
@@ -1094,19 +1318,20 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                         </div>
 
                         {/* Mark Processed Button (for workers/admins) */}
-                        {role !== 'member' && activeSupportThread?.status !== 'PROCESSED' && (
-                          <div className="px-4 py-2 border-t border-neutral-100 bg-white shrink-0 z-10">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={markSupportThreadProcessed}
-                              className="w-full h-8 text-xs font-semibold gap-1.5 shadow-xs rounded-full text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              {locale === 'bn' ? 'সমাধান' : 'Mark Resolved'}
-                            </Button>
-                          </div>
-                        )}
+                        {role !== "member" &&
+                          activeSupportThread?.status !== "PROCESSED" && (
+                            <div className="px-4 py-2 border-t border-neutral-100 bg-white shrink-0 z-10">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={markSupportThreadProcessed}
+                                className="w-full h-8 text-xs font-semibold gap-1.5 shadow-xs rounded-full text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {locale === "bn" ? "সমাধান" : "Mark Resolved"}
+                              </Button>
+                            </div>
+                          )}
 
                         {/* Input Area */}
                         <div className="p-3 border-t border-neutral-100 bg-white shrink-0 z-10">
@@ -1116,11 +1341,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               value={supportInput}
                               onChange={(e) => {
                                 setSupportInput(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+                                e.target.style.height = "auto";
+                                e.target.style.height =
+                                  Math.min(e.target.scrollHeight, 100) + "px";
                               }}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
+                                if (e.key === "Enter" && !e.shiftKey) {
                                   e.preventDefault();
                                   void sendSupportMessage();
                                 }
@@ -1128,17 +1354,29 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               onFocus={() => {
                                 setTimeout(() => scrollSupportToBottom(), 300);
                               }}
-                              placeholder={locale === 'bn' ? 'আপনার বার্তা লিখুন...' : 'Type a message...'}
-                              disabled={!activeSupportThreadId && role !== 'member'}
+                              placeholder={
+                                locale === "bn"
+                                  ? "আপনার বার্তা লিখুন..."
+                                  : "Type a message..."
+                              }
+                              disabled={
+                                !activeSupportThreadId && role !== "member"
+                              }
                               className="flex-1 resize-none overflow-y-auto max-h-[100px] min-h-[38px] text-sm px-4 py-2.5 bg-neutral-100/70 border-transparent rounded-2xl focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 text-neutral-900 placeholder:text-neutral-400 transition-all"
                             />
                             <Button
                               onClick={sendSupportMessage}
-                              disabled={isSupportSending || !supportInput.trim() || (!activeSupportThreadId && role !== 'member')}
+                              disabled={
+                                isSupportSending ||
+                                !supportInput.trim() ||
+                                (!activeSupportThreadId && role !== "member")
+                              }
                               size="icon"
                               className="shrink-0 h-[38px] w-[38px] rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-xs transition-colors text-white disabled:opacity-50"
                             >
-                              <Send className={`h-4 w-4 ${isSupportSending ? '-translate-y-0.5 translate-x-[0.5px] opacity-70' : 'translate-x-px'} transition-transform`} />
+                              <Send
+                                className={`h-4 w-4 ${isSupportSending ? "-translate-y-0.5 translate-x-[0.5px] opacity-70" : "translate-x-px"} transition-transform`}
+                              />
                             </Button>
                           </div>
                         </div>
@@ -1152,15 +1390,20 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                               <MessageCircle className="w-5 h-5 text-neutral-300" />
                             </div>
                             <p className="text-sm font-medium text-neutral-600 mb-1">
-                              {locale === 'bn' ? 'কোনো কথোপকথন নেই' : 'No Conversations'}
+                              {locale === "bn"
+                                ? "কোনো কথোপকথন নেই"
+                                : "No Conversations"}
                             </p>
                           </div>
                         ) : (
                           <div className="divide-y divide-neutral-100/80">
                             {supportThreads.map((thread) => {
                               const seenAt = seenSupportThreadIds[thread.id];
-                              const isUnread = !seenAt || new Date(thread.latestAt).getTime() > new Date(seenAt).getTime();
-                              const showBadge = thread.status !== 'PROCESSED';
+                              const isUnread =
+                                !seenAt ||
+                                new Date(thread.latestAt).getTime() >
+                                  new Date(seenAt).getTime();
+                              const showBadge = thread.status !== "PROCESSED";
 
                               return (
                                 <button
@@ -1172,7 +1415,11 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                   <div className="flex gap-3">
                                     <div className="relative shrink-0 mt-0.5">
                                       <div className="w-10 h-10 rounded-full bg-linear-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-semibold text-sm shadow-xs group-hover:shadow-md transition-shadow">
-                                        {thread.memberName ? thread.memberName.charAt(0).toUpperCase() : '?'}
+                                        {thread.memberName
+                                          ? thread.memberName
+                                              .charAt(0)
+                                              .toUpperCase()
+                                          : "?"}
                                       </div>
                                       {showBadge && (
                                         <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full shadow-xs" />
@@ -1181,13 +1428,18 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                                     <div className="flex-1 min-w-0 flex flex-col justify-center">
                                       <div className="flex items-center justify-between gap-2 mb-1">
                                         <span className="text-sm font-semibold text-neutral-900 truncate">
-                                          {thread.memberName || (locale === 'bn' ? 'সদস্য' : 'Member')}
+                                          {thread.memberName ||
+                                            (locale === "bn"
+                                              ? "সদস্য"
+                                              : "Member")}
                                         </span>
                                         <span className="text-[10px] font-medium text-neutral-400 shrink-0">
                                           {formatSupportTime(thread.latestAt)}
                                         </span>
                                       </div>
-                                      <p className={`text-[12px] truncate ${isUnread ? 'text-neutral-900 font-medium' : 'text-neutral-500'}`}>
+                                      <p
+                                        className={`text-[12px] truncate ${isUnread ? "text-neutral-900 font-medium" : "text-neutral-500"}`}
+                                      >
                                         {thread.latestMessage}
                                       </p>
                                     </div>
@@ -1214,19 +1466,29 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                 {userInfo?.avatarUrl ? (
                   <Image
                     src={userInfo.avatarUrl}
-                    alt={userInfo.nameEn || 'User'}
+                    alt={userInfo.nameEn || "User"}
                     fill
                     sizes="32px"
                     className="object-cover"
                   />
                 ) : (
-                  <div className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || 'User') : 'bg-zinc-300'} flex items-center justify-center font-bold text-xs text-white`}>
-                    {isHydrated && userInfo ? getInitials(locale === 'bn' ? (userInfo.nameBn || userInfo.nameEn) : (userInfo.nameEn || userInfo.nameBn) || 'U') : ''}
+                  <div
+                    className={`h-full w-full ${isHydrated && userInfo ? getAvatarColor(userInfo.nameEn || "User") : "bg-zinc-300"} flex items-center justify-center font-bold text-xs text-white`}
+                  >
+                    {isHydrated && userInfo
+                      ? getInitials(
+                          locale === "bn"
+                            ? userInfo.nameBn || userInfo.nameEn
+                            : userInfo.nameEn || userInfo.nameBn || "U",
+                        )
+                      : ""}
                   </div>
                 )}
               </div>
               <span className="hidden sm:inline text-[13px] font-semibold text-zinc-800 max-w-[100px] truncate">
-                {locale === 'bn' ? (userInfo?.nameBn || userInfo?.nameEn) : (userInfo?.nameEn || userInfo?.nameBn) || 'User'}
+                {locale === "bn"
+                  ? userInfo?.nameBn || userInfo?.nameEn
+                  : userInfo?.nameEn || userInfo?.nameBn || "User"}
               </span>
             </Link>
           </div>
