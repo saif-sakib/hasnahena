@@ -1,4 +1,7 @@
-import { saveBlob } from '@/lib/documents';
+// From its own module, NOT from `@/lib/documents`: that barrel re-exports
+// `renderPDF`, and importing through it pulled jsPDF into every screen that
+// only wanted to save a photograph.
+import { saveBlob } from '@/lib/save-blob';
 
 const IMAGE_FILE_PATTERN = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:$|\?)/i;
 

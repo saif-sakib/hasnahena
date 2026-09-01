@@ -926,6 +926,16 @@ answered 500.
 
 ## Interface
 
+- **A barrel import charges you for everything the barrel touches.** Moving a
+  fifteen-line `saveBlob` helper into `lib/documents/export.ts` and importing it
+  from `@/lib/documents` put **jsPDF** — 400 kB — into the approvals screen,
+  whose job is to show a photograph. First-load JavaScript went up 44.3% on a
+  screen that gained no feature, and nothing else noticed: it typechecks, it
+  runs, every test passes, and the only symptom is a slower page on the phones
+  this platform is actually used on. `scripts/assert-bundle-budget.mjs` after
+  `pnpm build` is the *only* check that sees it, which is why a build is not
+  optional before calling a UI change done. A helper with no dependencies
+  belongs in a module with no dependencies.
 - **`img-src` and `connect-src` are the same asset and not the same permission,
   and a screen that has one of them looks completely correct.** The approvals and
   member-detail screens showed a member's NID scan and had a Download button
