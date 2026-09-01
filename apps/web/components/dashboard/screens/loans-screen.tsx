@@ -57,9 +57,19 @@ type LoanStatus =
 
 interface Loan {
   id: string;
-  loanNumber: string;
   memberUserId: string;
   memberName: string;
+  /**
+   * The **English** name, for the document.
+   *
+   * `memberName` above is what the screen shows, and both payloads prefer the
+   * Bengali one where it exists. Generated documents are English only
+   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
+   * glyph the standard fonts cannot encode — so feeding a Bengali name to
+   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
+   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
+   */
+  memberNameEn: string;
   accountNo: string;
   memberPhone: string;
   amount: number;
@@ -126,10 +136,12 @@ function normalise(raw: any): Loan {
   const nextDueDate = raw?.nextDueDate ? String(raw.nextDueDate) : undefined;
 
   return {
+    // `id` IS the loan number (ADR-044). The payload used to carry both, and
+    // this read the one that no longer exists.
     id: String(raw?.id ?? ''),
-    loanNumber: String(raw?.loanNumber ?? ''),
     memberUserId: String(member.id ?? raw?.memberUserId ?? ''),
     memberName: String(member.name ?? raw?.memberName ?? ''),
+    memberNameEn: String(raw?.memberName ?? member.name ?? ''),
     accountNo: String(member.accountNo ?? raw?.accountNo ?? ''),
     memberPhone: String(raw?.memberPhone ?? ''),
     amount,
@@ -181,7 +193,7 @@ export default function LoansScreen() {
         const matchesSearch =
           l.memberName.toLowerCase().includes(q) ||
           l.accountNo.toLowerCase().includes(q) ||
-          l.loanNumber.toLowerCase().includes(q) ||
+          l.id.toLowerCase().includes(q) ||
           l.guarantorName.toLowerCase().includes(q);
         const matchesStatus =
           statusFilter === 'all' ||
@@ -219,8 +231,8 @@ export default function LoansScreen() {
       await downloadDocumentPDF(
         buildLoanAgreement(
           {
-            loanNumber: l.loanNumber,
-            memberName: l.memberName,
+            loanNumber: l.id,
+            memberName: l.memberNameEn,
             accountNo: l.accountNo,
             memberPhone: l.memberPhone,
             memberAddress: '',
@@ -486,7 +498,7 @@ export default function LoansScreen() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">{locale === 'bn' ? 'নম্বর' : 'Number'}</span>
-                <span>{selectedLoan.loanNumber || '-'}</span>
+                <span>{selectedLoan.id || '-'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">{locale === 'bn' ? 'পরিমাণ' : 'Amount'}</span>

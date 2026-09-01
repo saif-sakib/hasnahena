@@ -152,7 +152,6 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 	const query = `
 		SELECT
 			l.id::text,
-			COALESCE(l."loanNumber", ''),
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
 			l."paidInstallments"::int,
@@ -187,7 +186,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 
 	loans := []map[string]interface{}{}
 	for rows.Next() {
-		var id, loanNumber, status, memberUserID, memberName, memberNameBn, memberID, memberPhone, guarantorName string
+		var id, status, memberUserID, memberName, memberNameBn, memberID, memberPhone, guarantorName string
 		var principalAmount, remainingAmount, installmentAmount int64
 		var paidInstallments, totalInstallments int
 		var installmentStart *time.Time
@@ -195,7 +194,6 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 
 		if err := rows.Scan(
 			&id,
-			&loanNumber,
 			&principalAmount,
 			&remainingAmount,
 			&paidInstallments,
@@ -216,7 +214,6 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 
 		loan := map[string]interface{}{
 			"id":                id,
-			"loanNumber":        loanNumber,
 			"principalAmount":   principalAmount,
 			"remainingAmount":   remainingAmount,
 			"paidInstallments":  paidInstallments,
@@ -255,7 +252,6 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			t.id::text,
 			t.type::text,
 			t.amount::bigint,
-			COALESCE(t."receiptNumber", ''),
 			COALESCE(t.description, ''),
 			t.status::text,
 			COALESCE(t."savingsAfter", 0)::bigint,
@@ -264,9 +260,16 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."accountNo", ''),
-			COALESCE(u.phone, '')
+			COALESCE(u.phone, ''),
+			-- Every row here was processed by the worker asking, so this is
+			-- always their own name. It is selected anyway rather than filled in
+			-- by the caller, because the receipt this feeds names the person who
+			-- took the money and that must come from the posting, not from
+			-- whoever happens to be looking at the list.
+			COALESCE(processor."nameEn", '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
+		LEFT JOIN users processor ON processor.id = t."processedBy"
 		WHERE t."processedBy" = $1
 		ORDER BY t."createdAt" DESC
 		LIMIT 100
@@ -280,7 +283,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 
 	transactions := []map[string]interface{}{}
 	for rows.Next() {
-		var id, txType, receipt, description, status, memberUserID, memberName, memberNameBn, memberID, memberPhone string
+		var id, txType, description, status, memberUserID, memberName, memberNameBn, memberID, memberPhone, processorName string
 		var amount, balanceAfter int64
 		var createdAt time.Time
 
@@ -288,7 +291,6 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			&id,
 			&txType,
 			&amount,
-			&receipt,
 			&description,
 			&status,
 			&balanceAfter,
@@ -298,25 +300,25 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			&memberNameBn,
 			&memberID,
 			&memberPhone,
+			&processorName,
 		); err != nil {
 			continue
 		}
 
 		transactions = append(transactions, map[string]interface{}{
-			"id":            id,
-			"type":          strings.ToUpper(txType),
-			"amount":        amount,
-			"receipt":       receipt,
-			"receiptNumber": receipt,
-			"description":   description,
-			"status":        strings.ToUpper(status),
-			"balanceAfter":  balanceAfter,
-			"date":          createdAt.Format(time.RFC3339),
-			"memberName":    memberName,
-			"memberNameBn":  memberNameBn,
-			"memberUserId":  memberUserID,
-			"accountNo":     memberID,
-			"memberPhone":   memberPhone,
+			"id":           id,
+			"type":         strings.ToUpper(txType),
+			"amount":       amount,
+			"description":  description,
+			"status":       strings.ToUpper(status),
+			"balanceAfter": balanceAfter,
+			"date":         createdAt.Format(time.RFC3339),
+			"memberName":   memberName,
+			"memberNameBn": memberNameBn,
+			"memberUserId": memberUserID,
+			"accountNo":    memberID,
+			"memberPhone":  memberPhone,
+			"processedBy":  processorName,
 		})
 	}
 
@@ -344,7 +346,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND l.status = 'ACTIVE')
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
+		LEFT JOIN addresses addr ON addr."userId" = u.id AND addr.type = 'PERMANENT' 
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 	`
 	var id, accountNo, name, email, phone, nid, status, address string
@@ -448,7 +450,6 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 			t.type::text,
 			t.amount::bigint,
 			COALESCE(t."savingsAfter", 0)::bigint,
-			COALESCE(t."receiptNumber", ''),
 			t.status::text,
 			t."createdAt",
 			COALESCE(t.description, '')
@@ -465,21 +466,20 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	transactions := make([]map[string]interface{}, 0)
 	for txnRows.Next() {
-		var txnID, txnType, receipt, txnStatus, notes string
+		var txnID, txnType, txnStatus, notes string
 		var amount, balanceAfter int64
 		var txnCreatedAt time.Time
-		if err := txnRows.Scan(&txnID, &txnType, &amount, &balanceAfter, &receipt, &txnStatus, &txnCreatedAt, &notes); err != nil {
+		if err := txnRows.Scan(&txnID, &txnType, &amount, &balanceAfter, &txnStatus, &txnCreatedAt, &notes); err != nil {
 			continue
 		}
 		transactions = append(transactions, map[string]interface{}{
-			"id":            txnID,
-			"type":          strings.ToUpper(txnType),
-			"amount":        amount,
-			"balanceAfter":  balanceAfter,
-			"receiptNumber": receipt,
-			"status":        strings.ToUpper(txnStatus),
-			"createdAt":     txnCreatedAt.Format(time.RFC3339),
-			"notes":         notes,
+			"id":           txnID,
+			"type":         strings.ToUpper(txnType),
+			"amount":       amount,
+			"balanceAfter": balanceAfter,
+			"status":       strings.ToUpper(txnStatus),
+			"createdAt":    txnCreatedAt.Format(time.RFC3339),
+			"notes":        notes,
 		})
 	}
 
@@ -487,7 +487,6 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 	const loanQuery = `
 		SELECT
 			l.id::text,
-			COALESCE(l."loanNumber", ''),
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
 			l."totalInstallments"::int,
@@ -509,16 +508,15 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	loans := make([]map[string]interface{}, 0)
 	for loanRows.Next() {
-		var loanID, loanNumber, loanStatus string
+		var loanID, loanStatus string
 		var principal, remaining, installmentAmt int64
 		var totalInst, paidInst int
 		var disbursementDate, installmentStart *time.Time
-		if err := loanRows.Scan(&loanID, &loanNumber, &principal, &remaining, &totalInst, &paidInst, &installmentAmt, &loanStatus, &disbursementDate, &installmentStart); err != nil {
+		if err := loanRows.Scan(&loanID, &principal, &remaining, &totalInst, &paidInst, &installmentAmt, &loanStatus, &disbursementDate, &installmentStart); err != nil {
 			continue
 		}
 		loan := map[string]interface{}{
 			"id":                loanID,
-			"loanNumber":        loanNumber,
 			"principalAmount":   principal,
 			"remainingAmount":   remaining,
 			"totalInstallments": totalInst,

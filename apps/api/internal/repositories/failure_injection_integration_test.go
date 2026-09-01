@@ -42,7 +42,7 @@ func readLedgerState(t *testing.T, member string) ledgerState {
 		t.Fatalf("count transactions: %v", err)
 	}
 	if err := testPool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_logs WHERE "entityId" = $1`, "acct_"+member).Scan(&s.auditRows); err != nil {
+		`SELECT COUNT(*) FROM audit_logs WHERE "entityId" = $1`, member).Scan(&s.auditRows); err != nil {
 		t.Fatalf("count audit rows: %v", err)
 	}
 	if err := testPool.QueryRow(ctx,

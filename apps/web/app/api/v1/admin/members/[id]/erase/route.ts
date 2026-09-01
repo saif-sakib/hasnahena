@@ -183,9 +183,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
       await tx.document.deleteMany({ where: { userId: id } });
       await tx.notification.deleteMany({ where: { targetUserId: id } });
-      await tx.address.deleteMany({
-        where: { OR: [{ userPermanentId: id }, { userPresentId: id }] },
-      });
+      // One predicate, not two. Both addresses are rows of one table keyed on
+      // the person and the kind (ADR-044), so an erasure cannot now clear one
+      // and miss the other.
+      await tx.address.deleteMany({ where: { userId: id } });
       await tx.nominee.deleteMany({ where: { userId: id } });
 
       // The support conversation, which is free text the member typed: their

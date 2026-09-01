@@ -132,9 +132,9 @@ func seedAuthUser(t *testing.T, id, email, phone, password, status string) strin
 		t.Fatalf("seed %s: %v", id, err)
 	}
 	_, err = testPool.Exec(context.Background(), `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 		                      "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 0, 0, NOW(), NOW(), $1)
+		VALUES (0, 0, NOW(), NOW(), $1)
 		ON CONFLICT ("userId") DO NOTHING
 	`, id)
 	if err != nil {

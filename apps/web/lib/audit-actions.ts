@@ -251,6 +251,16 @@ export const AUDIT_ACTIONS = {
     category: 'system', severity: 'critical', retention: 'permanent',
     en: 'Ledger drift detected', bn: 'হিসাবের গরমিল শনাক্ত',
   },
+  SCHEMA_IDS_MIGRATED: {
+    // Written by a **migration**, not by either backend — the only action that
+    // is. `20260901120000_ids_are_the_numbers` suspended the append-only trigger
+    // for one statement block to make `entityId` readable (ADR-044), and this
+    // row is the trail's own record that it happened. Permanent, and critical
+    // for the same reason: it is the evidence for the one exception ever made to
+    // the guarantee this table exists to give.
+    category: 'system', severity: 'critical', retention: 'permanent',
+    en: 'Database identifiers migrated', bn: 'ডাটাবেস আইডি রূপান্তরিত',
+  },
 } as const satisfies Record<string, AuditActionSpec>;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

@@ -67,6 +67,56 @@ export const siteBaseUrl = new URL(siteOrigin);
 export const SITE_NAME = 'Hasnahena Foundation';
 
 /**
+ * Search-engine ownership tokens, from the environment.
+ *
+ * Google finds this site on its own — the property is verified in Search
+ * Console and `docs/go-live.md` has the sitemap step. **Bing does not.** It has
+ * never been told the site exists: there is no Webmaster Tools property, so
+ * nothing has submitted the sitemap, nothing can see the crawl, and a domain
+ * with no inbound links waits months rather than weeks. "It does not rank on
+ * Bing" and "Bing has not indexed it" look the same from a search box, and the
+ * favicon follows the index — Bing shows the globe for a result it has not
+ * fetched the icon for, however correct the `<link rel="icon">` is.
+ *
+ * Read from the environment rather than written here because the value is
+ * issued by the tool to whoever proves they own the domain: it cannot be
+ * guessed, and a wrong one is worse than none. Unset, the tag is simply absent,
+ * which is exactly what shipped before this existed.
+ *
+ *   BING_SITE_VERIFICATION    Webmaster Tools → Add site → HTML meta tag,
+ *                             the `content` of `msvalidate.01`. Not needed at
+ *                             all if the property is imported from Search
+ *                             Console, which verifies without a tag.
+ *   GOOGLE_SITE_VERIFICATION  The equivalent, for a re-verification that cannot
+ *                             use the existing DNS or file method.
+ *
+ * Both are server-side: they are printed into the HTML either way, but there is
+ * no reason to inline them into the client bundle as well.
+ */
+export type SiteVerificationEnv = {
+  BING_SITE_VERIFICATION?: string;
+  GOOGLE_SITE_VERIFICATION?: string;
+  // The index signature is what lets `process.env` be passed directly. Without
+  // it TypeScript's weak-type check rejects the call: every named property here
+  // is optional, `ProcessEnv` declares none of them, and a type with no overlap
+  // is assumed to be a mistake rather than a subset. `SiteOriginEnv` above gets
+  // away without one only because it happens to name `NODE_ENV`.
+  [key: string]: string | undefined;
+};
+
+export function siteVerification(
+  env: SiteVerificationEnv = process.env,
+): Metadata['verification'] | undefined {
+  const bing = env.BING_SITE_VERIFICATION?.trim();
+  const google = env.GOOGLE_SITE_VERIFICATION?.trim();
+  if (!bing && !google) return undefined;
+  return {
+    ...(google ? { google } : {}),
+    ...(bing ? { other: { 'msvalidate.01': bing } } : {}),
+  };
+}
+
+/**
  * The other names people search for.
  *
  * The owner reports that "hasnahena foundation" ranks first, and that the

@@ -27,10 +27,11 @@
    `transactions.userId` and `loans.borrowerId` declare no cascade, so they are
    `ON DELETE RESTRICT`: the database refuses to delete a member with history
    whatever the application thinks.
-4. IDs are `cuid()`, not UUID. Do not validate them with a UUID regex.
+4. **A row is keyed by what it is already called** ([ADR-044](decisions.md)). `users.id` is `ACC-KH-33001`; `transactions.id` is the receipt number; `loans.id` is the loan number; `accounts` and `nominees` are keyed on `userId`, `addresses` and `documents` on `(userId, type)`; `audit_logs`, `notifications` and `gallery_items` carry a sequence. A `cuid()` survives only where nobody reads one — `password_reset_tokens`, `token_blacklist`. Do not validate any id with a UUID regex.
 5. Table names are snake_case via `@@map`; column names stay camelCase and **must be quoted in raw SQL** (`a."savingsBalance"`).
 5a. **Every foreign key is indexed, with its column leading** (WO-68), and `test/unit/foreign-key-indexes.test.ts` fails the build when a new one is not. Unindexed foreign keys cost twice: reads through them are sequential scans, and so is the foreign-key check Postgres runs when the *parent* row is written, while holding a lock.
-6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction** — `DEP-2026-000123`, `WDR-…`, `LOAN-…`, `REP-…`, `DON-…`. Never generate one randomly; `loans.loanNumber` is `@unique` ([ADR-013](decisions.md)). `RecordDonation` was the last exception and was fixed by LEDGER-04.
+6. **Reference numbers are allocated from `document_sequences` inside the posting's transaction, and they ARE the row's key** — `DEP-2026-000123` a deposit, `WDR-` a withdrawal, `DSB-` a disbursement or top-up, `REP-` an instalment, `DON-` a donation, `ADJ-` a draw on the donation pool, `LOAN-` the loan itself ([ADR-013](decisions.md), [ADR-044](decisions.md)). Never generate one randomly: `TestPostingsAndLoansAreNumbered` reads the repository SQL and fails on a `gen_random_uuid()`. The series for a disbursement is `DSB` and not `LOAN`, because a posting and a loan are two documents and used to share one string; the series for a pool recovery is `ADJ` and not `FEE`, whatever the enum label says, because this foundation charges none (rule 3).
+6a. **A member's own payment reference is `transactions."externalReference"`.** The bKash TrxID typed into a deposit or instalment request used to be written into `receiptNumber` — one column holding a number the foundation issues and a number somebody else issued, told apart by the row's status. A ledger search by receipt matched member references, and confirming a request overwrote the reference with the receipt.
 7. **The donation pool is a row, not a computed total.** `RecordDonation` locks the `accounts` row whose `userId` is `system_donation_fund` and credits it, so that row must exist or every donation fails. It used to be found by `accountNumber = 'HN-ACC-DONATION'`; that column is gone ([ADR-023](decisions.md)), and `accounts.userId` is unique, so the lookup still names exactly one row under `FOR UPDATE`. Nothing created it until 2026-08-17 — `pnpm db:seed` does now, `pnpm db:clear` preserves it at a zero balance, and a missing row answers 503 naming the fix. The default *waterfall* is different: it sums `transactions` (donated minus already drawn) rather than reading this balance, which is why loan recovery kept working while recording a donation could not.
 8. **`transactions."processedBy"` is a foreign key to `users.id`, not a name.** It looks like a display field and is not; writing a person's name into it raises `transactions_processedBy_fkey`. A deleted Next handler did exactly that and 500'd on every call. Render the name by joining `users`, the way `member_repository.go` does.
 
@@ -39,18 +40,18 @@
 | Model → table | Holds | Key relations |
 |---|---|---|
 | `User` → `users` | identity, bilingual name, NID, role, status, `accountNo` (`ACC-KH-33001`…), avatar, approval trail | self-relation `approvedBy`; 1-1 nominee, permanent/present address |
-| `Address` → `addresses` | house/road/village/union/police station/district | permanent (1-1) and present (1-1) sides of `User`. **Both foreign keys live here**, on `userPermanentId` and `userPresentId`, and both cascade — the present one used to point the other way, from `users`, which meant deleting a user orphaned it ([WO-72](changelog.md)) |
-| `Nominee` → `nominees` | name, relationship, NID, phone | 1-1 `User`, cascade delete. **No photo** — registration has never collected one |
-| `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | many-1 `User`, cascade |
+| `Address` → `addresses` | `type` (`PERMANENT`/`PRESENT`), house/road/village/union/police station/district | **Keyed on `(userId, type)`** since 2026-09-01 ([ADR-044](decisions.md)). One relation, not two: it used to be a pair of optional one-to-ones with a nullable unique key each, so exactly one of two columns was ever set, a row could belong to neither, and "this person's addresses" was two join paths. Cascades |
+| `Nominee` → `nominees` | name, relationship, NID, phone | **Keyed on `userId`** — the member's own number names their nominee row as well as any invented id could. Cascade delete. **No photo** — registration has never collected one |
+| `Document` → `documents` | Cloudinary URL + mime/size, typed `passport_photo` / `nid_front` / `nid_back` / `nominee_photo` | **Keyed on `(userId, type)`**: a registration submits exactly one of each, and the uploader already wrote each to a fixed public id, so the pair was unique by construction before it was declared. Cascades |
 | `Account` → `accounts` | `savingsBalance`, `loanBalance` | 1 per `User`, enforced — `userId` is unique. **No account number**, and **no stored loan eligibility**: all three were copies of a fact that lives elsewhere ([ADR-023](decisions.md), [ADR-037](decisions.md)). `maxLoanAmount` was written 0 at creation and never updated, so the member dashboard's own "Loan Eligibility" tile read ৳0 for every member while the loans page computed the real figure. It is `money.MaxLoanAmount(savings, loan.maxLoanMultiplier)` now, at every reader |
-| `Transaction` → `transactions` | type, amount, receipt no., status, dispute fields, balance snapshots, `processedBy` | `Account`, `User`, optional `Loan` |
-| `Loan` → `loans` | `loanNumber`, principal/remaining, installment plan, dates, purpose, status | borrower, optional guarantor, approver, `Account` |
+| `Transaction` → `transactions` | type, amount, status, `externalReference`, dispute fields, balance snapshots, `processedBy`. **The `id` is the receipt number** | `User`, optional `Loan`. **No `accountId`** — it was NOT NULL, always the account of the `userId` beside it, and the column one insert in `loan_repository.go` forgot, writing a recovery that failed silently while the debt was written down anyway |
+| `Loan` → `loans` | principal/remaining, installment plan, dates, purpose, status. **The `id` is the loan number** (`LOAN-2026-000012`) | borrower, optional guarantor, approver. **No `accountId`** — always the borrower's |
 | `SupportThread` / `SupportMessage` | member↔staff chat, `deleteAt` TTL | member, processing staff |
-| `Notification` → `notifications` | typed alert targeted at a role or a user | — |
-| `AuditLog` → `audit_logs` | action, entityType/Id, old/new JSON, actor (`performedBy`), IP, UA | — |
+| `Notification` → `notifications` | typed alert targeted at a role or a user. Numbered by a sequence | — |
+| `AuditLog` → `audit_logs` | action, entityType/Id, old/new JSON, actor (`performedBy`), IP, UA. **Numbered by a sequence**: a log is read in order, and the key now says what the order is | — . `entityId` holds a readable identifier — `ACC-KH-33001`, `LOAN-2026-000012`, `DEP-2026-000045`. Rows written before somebody was admitted hold their `APP-` form number; the reader resolves those through `users.formNumber` rather than a mapping table ([ADR-044](decisions.md)) |
 | `SystemConfig` → `system_config` | key/value policy store | — . **Keyed on `key`**, like `document_sequences` is keyed on `(series, year)`: the surrogate `id` was never selected, joined or referenced, and filled the leftmost column of the most hand-read table in the schema with cuids |
-| `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `LOAN`, `REP`) | — |
-| `GalleryItem` | public content | — |
+| `DocumentSequence` → `document_sequences` | running counter per reference series per year (`DEP`, `WDR`, `DSB`, `REP`, `DON`, `ADJ`, `LOAN`, `APP`) | — |
+| `GalleryItem` → `gallery_items` | public content. Numbered by a sequence | — |
 | `User` → `users` | **`id` is the number the person is known by** since 2026-08-27 — `STF-0001`, `APP-2026-000001` while applying, `ACC-KH-33001` once admitted ([ADR-043](decisions.md)). No `@default`: every writer names it. It changes once, at approval, when nothing outside the database holds it | every foreign key in the schema |
 | `Branch` → `branches` | an office: name, address, phone, `isActive`. **The code IS the `id`** (`KH`) since 2026-08-27 — it carried a `cuid()` as well, one fact in two required unique columns ([ADR-041](decisions.md)) | `users User[]` — **members as well as staff** since 2026-08-27, assigned by the admin at approval. Was a dead table beside a free-text `users.assignedBranch` until [WO-72](changelog.md) |
 | `PasswordResetToken`, `TokenBlacklist`, `RateLimit` | reset links, revoked JWT hashes, lockout counters | — |
@@ -204,7 +205,7 @@ nothing reads is a note, not a setting.
 
 ## Indexes
 
-Hot paths are already indexed: `transactions` by `(type,status,createdAt)`, `(userId,createdAt)`, `(accountId,createdAt desc)`, `receiptNumber`; `loans` by `(status,createdAt)` and `(borrowerId,status)`; `users` by `(status,createdAt)` and `(role,status)`; `audit_logs` by actor, action and time. Match this pattern for any new foreign key.
+Hot paths are already indexed: `transactions` by `(type,status,createdAt)`, `(status,createdAt)` and `(userId,createdAt desc)` — the last replaced both `(accountId,createdAt desc)` and `receiptNumber`, since the account is the member and the receipt number is the primary key; `loans` by `(status,createdAt)` and `(borrowerId,status)`; `users` by `(status,createdAt)` and `(role,status)`; `audit_logs` by actor, action and time. Match this pattern for any new foreign key.
 
 `support_messages` briefly had two indexes on `(threadId, createdAt)`, identical
 but for `DESC` on the trailing column. A btree is scannable in both directions,
@@ -218,7 +219,10 @@ Five read-only views exist for a human with a SQL console — `v_people`,
 `v_transactions`, `v_loans`, `v_audit`, `v_pending_applications`. Each leads with
 the identifier a person actually has (account number, receipt number, loan
 number) and joins the names in, so a question can be answered in one query
-instead of three passes copying cuids between them.
+instead of three passes copying cuids between them. Since [ADR-044](decisions.md)
+the tables lead with those identifiers too — the views survive because they still
+save the joins, and `v_transactions`/`v_loans` no longer carry a trailing raw id
+column at all, there being no raw id left to carry.
 
 **Nothing in `apps/api` or `apps/web` may select from one.** They are free to be
 denormalised precisely because they store nothing and no code depends on them;

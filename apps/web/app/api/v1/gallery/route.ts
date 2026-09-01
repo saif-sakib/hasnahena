@@ -143,7 +143,15 @@ export async function DELETE(request: NextRequest) {
       return errorResponse(request, 'ID required', 'Missing id parameter', 400);
     }
 
-    await prisma.galleryItem.delete({ where: { id } });
+    // The key is a sequence now (ADR-044), so a query string that is not a
+    // number names nothing. Rejected here rather than handed to Prisma, which
+    // would report a caller's typo as a 500.
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId)) {
+      return errorResponse(request, 'ID invalid', 'id must be a whole number', 400);
+    }
+
+    await prisma.galleryItem.delete({ where: { id: numericId } });
     revalidateTag(GALLERY_TAG, { expire: 0 });
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {

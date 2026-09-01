@@ -11,7 +11,8 @@ import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image
 interface UploadGalleryResult {
   success: boolean;
   galleryItem?: {
-    id: string;
+    /** A sequence, not a cuid — gallery items are read newest-first (ADR-044). */
+    id: number;
     imageUrl: string;
     captionEn: string | null;
     captionBn: string | null;
@@ -136,7 +137,7 @@ export async function uploadGalleryAction(
  * Deletes from database and Cloudinary
  */
 export async function deleteGalleryAction(
-  id: string,
+  id: number,
   authTokenFromClient?: string
 ): Promise<DeleteGalleryResult> {
   try {
@@ -197,7 +198,7 @@ export async function deleteGalleryAction(
  * Update gallery item with new image
  */
 export async function updateGalleryImageAction(
-  id: string,
+  id: number,
   formData: FormData
 ): Promise<UploadGalleryResult> {
   try {

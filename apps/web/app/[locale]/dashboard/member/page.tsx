@@ -24,7 +24,7 @@ interface DashboardStats {
 }
 
 interface ActiveLoanData {
-  loanNumber: string;
+  id: string;
   remainingAmount: number;
   nextInstallment: number;
   nextDueDate: string;
@@ -233,7 +233,7 @@ export default function MemberDashboard() {
               </div>
               <div className="flex flex-col">
                 <span className="font-semibold text-emerald-900 text-sm">{locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}</span>
-                <span className="text-xs text-emerald-600/80 font-medium">#{data.activeLoan.loanNumber}</span>
+                <span className="text-xs text-emerald-600/80 font-medium">#{data.activeLoan.id}</span>
               </div>
             </div>
             <Link href={localePath(locale, '/dashboard/member/loans')}>

@@ -39,11 +39,11 @@ func seedLoanInStatus(t *testing.T, borrower, guarantor, status string, remainin
 		guarantorArg = guarantor
 	}
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "disbursementDate", "installmentStartDate",
 			"createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-LC-' || gen_random_uuid()::text, 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-LC-' || gen_random_uuid()::text, $1, $2,
 			$3, $3, 12, 0, GREATEST(($3/12)::bigint, 1), 'lifecycle', $4::"LoanStatus", NOW(),
 			NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
@@ -411,7 +411,7 @@ func TestASecondDepositCannotOverflowTheBalance(t *testing.T) {
 	if got := savingsOf(t, member); got != math.MaxInt64-10 {
 		t.Fatalf("balance moved to %d after a failed deposit", got)
 	}
-	if n := countAuditLogs(t, "acct_"+member, ""); n != 0 {
+	if n := countAuditLogs(t, member, ""); n != 0 {
 		t.Fatalf("a failed deposit wrote %d audit rows", n)
 	}
 }

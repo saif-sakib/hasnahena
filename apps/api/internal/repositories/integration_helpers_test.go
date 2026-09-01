@@ -109,9 +109,9 @@ func seedMember(t *testing.T, id, memberID string, savings int64) string {
 	}
 
 	_, err = testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 			"createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, $2, 0, NOW(), NOW(), $1)
+		VALUES ($2, 0, NOW(), NOW(), $1)
 	`, id, savings)
 	if err != nil {
 		t.Fatalf("seed account %s: %v", id, err)
@@ -191,9 +191,21 @@ func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAg
 	t.Helper()
 	var id string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "accountId", "userId")
-		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $2, 'test request', 'PENDING',
-			NOW() - ($3 || ' months')::interval, 'acct_' || $1, $1)
+		WITH allocated AS (
+			-- A request is a document from the moment it is filed, and its
+			-- number is the row (ADR-044). Allocated from document_sequences
+			-- exactly as the application does, so a fixture can never hand out a
+			-- number the allocator will later issue to a real withdrawal.
+			INSERT INTO document_sequences (series, year, counter, "createdAt", "updatedAt")
+			VALUES ('WDR', EXTRACT(YEAR FROM NOW())::int, 1, NOW(), NOW())
+			ON CONFLICT (series, year)
+			DO UPDATE SET counter = document_sequences.counter + 1, "updatedAt" = NOW()
+			RETURNING 'WDR-' || year::text || '-' || lpad(counter::text, 6, '0') AS number
+		)
+		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "userId")
+		SELECT a.number, 'WITHDRAWAL', $2, 'test request', 'PENDING',
+			NOW() - ($3 || ' months')::interval, $1
+		FROM allocated a
 		RETURNING id::text
 	`, memberID, amount, monthsAgo).Scan(&id)
 	if err != nil {

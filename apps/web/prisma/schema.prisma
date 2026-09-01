@@ -87,44 +87,6 @@ enum LoanStatus {
 // USER & AUTHENTICATION
 // ============================================================
 
-/// One user id that became another.
-///
-/// `users.id` is the number a person is known by ([ADR-043](../../../docs/decisions.md)),
-/// so it moves once — from `APP-2026-000001` to `ACC-KH-33001` — when somebody
-/// is admitted. Every foreign key cascades, but `audit_logs` holds user ids in
-/// `entityId` and `performedBy` and is **append-only at the database level**
-/// (DATA-08): UPDATE is refused unconditionally, and the escape hatch covers
-/// DELETE only.
-///
-/// Rewriting history to follow a rename is exactly what that trigger exists to
-/// prevent, and the trigger is right — an audit row saying who the subject was
-/// *called at the time* is the more truthful record. This table is how a reader
-/// gets from that name to the person.
-///
-/// Each row is one hop, never a chain: renaming re-points any mapping that
-/// already pointed at the old id, so a resolver never has to walk.
-model UserIdHistory {
-  oldId     String   @id
-  newId     String
-  changedAt DateTime @default(now())
-
-  @@index([newId])
-  @@map("user_id_history")
-}
-
-/// The row's id is the number this person is known by.
-///
-/// `STF-0001` for staff, `APP-2026-000001` while an application is pending, and
-/// `ACC-KH-33001` once they are admitted — so `users.id = users.accountNo` for
-/// every member, and `transactions.userId` reads the number printed on the
-/// passbook instead of a cuid ([ADR-043](../../../docs/decisions.md)).
-///
-/// **There is no default, deliberately.** Every writer names the id; one that
-/// forgets fails on a NOT NULL primary key rather than quietly inventing an
-/// opaque one. The id changes exactly once in a member's life, at approval, at
-/// the one moment when nothing outside the database holds it — an applicant's
-/// password hash is a sentinel bcrypt can never match, so they have never signed
-/// in and no token carries the old value.
 model User {
   id           String     @id
   /// **`email`, `phone` and `nidNumber` are unique, and this file cannot say
@@ -228,14 +190,19 @@ model User {
   approvedUsers  User[]    @relation("UserApprovals")
 
   // Relations
-  /// Both address relations put the foreign key on `Address`, and that symmetry
-  /// is deliberate (WO-72). `presentAddress` used to hold its key here instead —
-  /// same cardinality, same lifecycle, opposite shape — so every query and every
-  /// cascade rule had to be written twice and one of the two was always the
-  /// surprising one. Owning both from `Address` also means deleting a user
-  /// cascades to both rows; the old shape orphaned the present address.
-  permanentAddress Address? @relation("PermanentAddress")
-  presentAddress   Address? @relation("PresentAddress")
+  /// **One relation, not two.** There used to be a `permanentAddress` and a
+  /// `presentAddress`, each a separate optional one-to-one carrying its own
+  /// nullable unique foreign key back here — two columns on `addresses` of
+  /// which exactly one was ever set, and a `cuid()` primary key on top of them
+  /// identifying a row that is already identified by whose address it is and
+  /// which of the two it is.
+  ///
+  /// `addresses` is now keyed on `(userId, type)`. Which kind of address a row
+  /// is became a value in a column instead of a choice between two columns, so
+  /// "this person's permanent address" is one predicate rather than one of two
+  /// join paths, and the pair cannot get into the state the old shape allowed:
+  /// a row with both keys set, or with neither.
+  addresses Address[]
 
   nominee                 Nominee?
   account                 Account?
@@ -292,42 +259,68 @@ model User {
   @@map("users")
 }
 
+/// Which of a person's two addresses this row is.
+///
+/// A value in a column, replacing a choice between two nullable foreign keys.
+enum AddressType {
+  PERMANENT
+  PRESENT
+}
+
+/// A person has at most one of each kind, so that pair **is** the key.
+///
+/// This carried a `cuid()`, plus `userPermanentId` and `userPresentId` — three
+/// columns to identify a row that "the permanent address of ACC-KH-33001"
+/// already identifies completely, and two of the three were always null. The
+/// surrogate key named nothing a human could look up and nothing else ever
+/// referenced it: no foreign key pointed at `addresses.id`, and no screen, no
+/// document and no audit row ever printed one.
 model Address {
-  id            String  @id @default(cuid())
+  type          AddressType
   houseNo       String // বাড়ী নং
   roadNo        String? // রোড নং
   village       String // গ্রাম
   union         String // ইউনিয়ন
   policeStation String // থানা
   district      String // জেলা
-  country       String  @default("বাংলাদেশ")
+  country       String      @default("বাংলাদেশ")
 
-  // Relations
-  userPermanent   User?   @relation("PermanentAddress", fields: [userPermanentId], references: [id], onDelete: Cascade)
-  userPermanentId String? @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
 
-  userPresent   User?   @relation("PresentAddress", fields: [userPresentId], references: [id], onDelete: Cascade)
-  userPresentId String? @unique
-
+  @@id([userId, type])
   @@map("addresses")
 }
 
+/// The person who receives the account if the member dies — one per member.
+///
+/// Keyed on the member, because that is the only thing that identifies it. The
+/// `cuid()` this used to carry sat beside a `userId` that was already `@unique`:
+/// two columns, one of them unreadable, guaranteeing the same single row.
 model Nominee {
-  id           String  @id @default(cuid())
   name         String // নমিনীর নাম
   relationship String // সম্পর্ক
   nidNumber    String // নমিনীর NID
   phone        String?
 
-  // Relation
+  // Relation. The member's own number is the key — `ACC-KH-33001` names its
+  // nominee row exactly as well as any invented id could, and can be typed into
+  // a console by somebody holding a passbook.
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String @unique
+  userId String @id
 
   @@map("nominees")
 }
 
+/// One uploaded file, identified by whose it is and what it is.
+///
+/// A registration submits exactly one of each of the four types in
+/// `lib/application-documents.ts`, and the uploader writes each to a fixed
+/// public id under the owner's folder — so `(userId, type)` was already unique
+/// by construction on the image host before it was declared here. Saying so in
+/// the schema means a second `nid_front` for one person is refused by the
+/// database rather than by a convention.
 model Document {
-  id       String @id @default(cuid())
   type     String // passport_photo, nid_front, nid_back, nominee_photo
   url      String
   fileName String
@@ -339,9 +332,11 @@ model Document {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
 
-  // Read on every approval screen: worker_repository and admin_repository both
-  // fetch a member's documents by owner (WO-68).
-  @@index([userId])
+  // The composite key leads with `userId`, which is how both approval screens
+  // read this table (`WHERE "userId" = $1`), so it answers that on its own —
+  // the separate index this model used to carry would now be a duplicate of the
+  // primary key's own btree.
+  @@id([userId, type])
   @@map("documents")
 }
 
@@ -364,8 +359,6 @@ model Document {
 /// same allocator — the name now matches the `ACC-` the values have always
 /// started with, and matches what a member is told to quote.
 model Account {
-  id String @id @default(cuid())
-
   // Balances (stored in Taka for precision)
   savingsBalance BigInt @default(0) // সঞ্চয় স্থিতি
   loanBalance    BigInt @default(0) // ঋণ স্থিতি
@@ -390,22 +383,60 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
+  /// **The owner's number is the key.** There is no separate `id`, for the same
+  /// reason there is no `accountNumber`: `userId` was already `@unique`, so the
+  /// `cuid()` beside it identified nothing the account holder's own number did
+  /// not identify better. It leaked, too — `WITHDRAWAL_POSTED` and the other
+  /// balance-change audit rows record `entityType: 'ACCOUNT'` with this value
+  /// as `entityId`, so the audit screen printed `cmob97efh00003zynz0as5knq`
+  /// where it now prints `ACC-KH-33001`.
+  ///
+  /// Nothing points here any more either: `transactions` and `loans` used to
+  /// carry an `accountId` **and** the member's own id, always equal, and the
+  /// second was the one every query actually filtered on.
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String @unique
-
-  transactions Transaction[]
-  loans        Loan[]
+  userId String @id
 
   @@map("accounts")
 }
 
+/// One posting. **The id is the receipt number.**
+///
+/// `DEP-2026-000001` for a deposit, `WDR-` for a withdrawal, `DSB-` for a
+/// disbursement, `REP-` for an instalment, `DON-` for a donation, `ADJ-` for a
+/// recovery against the donation pool — allocated from `document_sequences` in
+/// the same database transaction that writes the row, so a rolled-back posting
+/// releases its number and the series stays gapless.
+///
+/// There used to be a `cuid()` primary key and a **nullable** `receiptNumber`
+/// beside it. Two identifiers for one posting, of which the one printed on the
+/// member's copy was the one the database did not require: four inserts in
+/// `loan_repository.go` wrote no receipt at all, so a disbursement, a default
+/// recovery from either party's savings, and a draw on the donation pool were
+/// each a line in the ledger that nothing on paper could be matched against.
+/// Every posting now carries a number a member can read aloud, and it is the
+/// key, so a second row can never claim it.
+///
+/// There is no `accountId` either. It was NOT NULL, it always held the account
+/// of the `userId` in the next column, and it is the column an insert forgot
+/// (loan_repository.go:971 records the row that reached production without
+/// one). One posting names one person.
 model Transaction {
-  id            String          @id @default(cuid())
-  type          TransactionType
-  amount        BigInt // Amount in Taka
-  receiptNumber String? // রশিদ নম্বর
-  description   String?
+  id          String          @id
+  type        TransactionType
+  amount      BigInt // Amount in Taka
+  description String?
+
+  /// The **member's** reference, not the foundation's: the bKash TrxID typed
+  /// into a deposit or instalment request so staff can find the payment.
+  ///
+  /// It used to be written into `receiptNumber`, which is how one column came
+  /// to hold two unrelated facts — a number the foundation issues and a number
+  /// somebody else issued — told apart only by the row's status. Searching the
+  /// ledger by receipt therefore matched bKash references too, and a request
+  /// that was later confirmed had its member reference overwritten by the
+  /// receipt, losing the only link back to the payment.
+  externalReference String?
 
   status      TransactionStatus @default(PENDING)
   processedAt DateTime?
@@ -422,9 +453,6 @@ model Transaction {
   createdAt DateTime @default(now())
 
   // Relations
-  account   Account @relation(fields: [accountId], references: [id])
-  accountId String
-
   user   User   @relation("UserTransactions", fields: [userId], references: [id])
   userId String
 
@@ -436,9 +464,11 @@ model Transaction {
 
   @@index([type, status, createdAt])
   @@index([status, createdAt])
-  @@index([userId, createdAt])
-  @@index([accountId, createdAt(sort: Desc)])
-  @@index([receiptNumber])
+  // This answers what `([accountId, createdAt DESC])` used to, and what the
+  // dropped `([receiptNumber])` used to: a member's postings newest first, and
+  // a lookup by the number on the receipt — which is now the primary key, so it
+  // has an index by definition.
+  @@index([userId, createdAt(sort: Desc)])
   @@index([processedBy, processedAt])
   // A loan's repayment history — loan_repository.GetLoanRepayments (WO-68).
   @@index([loanId])
@@ -449,9 +479,21 @@ model Transaction {
 // LOANS
 // ============================================================
 
+/// One loan. **The id is the loan number** — `LOAN-2026-000012`, the number
+/// printed on the agreement the member signs.
+///
+/// `id` and `loanNumber` were two required, uniquely-identifying columns for
+/// one loan: the same redundancy `branches` and `system_config` each had, and
+/// the `cuid()` was the half that reached the audit trail. `LOAN_DISBURSED`,
+/// `LOAN_TOPPED_UP` and `LOAN_REPAYMENT_POSTED` all record `entityType: 'LOAN'`
+/// with the key as `entityId`, so an admin reading the audit screen saw an
+/// opaque string for a loan whose agreement, notification and repayment receipt
+/// all named it `LOAN-2026-000012`.
+///
+/// `accountId` is gone for the reason it is gone from `transactions`: it was
+/// always the account of `borrowerId`, which is in the next column.
 model Loan {
-  id         String @id @default(cuid())
-  loanNumber String @unique // ঋণ নম্বর
+  id String @id
 
   // Loan Details
   principalAmount BigInt // ঋণের পরিমাণ (Taka)
@@ -478,9 +520,6 @@ model Loan {
   completedAt DateTime?
 
   // Relations
-  account   Account @relation(fields: [accountId], references: [id])
-  accountId String
-
   borrower   User   @relation("Borrower", fields: [borrowerId], references: [id])
   borrowerId String
 
@@ -500,7 +539,6 @@ model Loan {
   // list. Composite, so that predicate is answered from the index rather than
   // by reading each candidate row to check its status.
   @@index([guarantorId, status])
-  @@index([accountId])
   @@map("loans")
 }
 
@@ -596,8 +634,23 @@ model DocumentSequence {
 // invisible to `migrate diff`. Regenerating a baseline with --from-empty WILL
 // drop it. UPDATE is never permitted; DELETE only inside a transaction that has
 // set hasnahena.allow_audit_purge (scripts/db-clear-preserve-core.mjs).
+/// The trail. **Numbered, not hashed** — `#1042`, in the order it happened.
+///
+/// A `cuid()` on an append-only log is the one place a random key buys nothing
+/// at all: rows are only ever inserted, never merged from another source, and
+/// the question asked of this table is always "what happened, in order". A
+/// sequence answers that in the key itself, sorts identically to `createdAt`
+/// without depending on a clock, and gives an admin a number they can quote
+/// when they report a row.
+///
+/// `entityId` holds the id of whatever the row is about, and since ADR-043 that
+/// is a number a person can read: `ACC-KH-33001`, `LOAN-2026-000012`,
+/// `DEP-2026-000045`. The 2026-09-01 migration rewrote the rows written before
+/// then — see the migration's own header for why the append-only trigger was
+/// suspended for exactly the length of that statement, and for the audit row
+/// the migration wrote about itself.
 model AuditLog {
-  id         String  @id @default(cuid())
+  id         Int     @id @default(autoincrement())
   action     String
   entityType String
   entityId   String
@@ -676,7 +729,9 @@ enum NotificationType {
 }
 
 model Notification {
-  id      String           @id @default(cuid())
+  /// Numbered. Nobody reads a notification's key, but the bell icon reads them
+  /// newest-first and a sequence says so without a second column.
+  id      Int              @id @default(autoincrement())
   type    NotificationType
   title   String
   message String
@@ -714,7 +769,7 @@ model Notification {
 // ============================================================
 
 model GalleryItem {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement())
   imageUrl  String
   captionEn String?
   captionBn String?

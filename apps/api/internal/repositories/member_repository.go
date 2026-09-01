@@ -23,12 +23,14 @@ type DashboardStats struct {
 	LoanEligibility int64 `json:"loanEligibility"`
 }
 
+// PendingConfirmation is a posting staff have made that the member has not yet
+// agreed with. `ID` is the receipt number (ADR-044); there is no second field
+// holding the same string under another name.
 type PendingConfirmation struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Amount  int64  `json:"amount"`
-	Date    string `json:"date"`
-	Receipt string `json:"receipt"`
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Amount int64  `json:"amount"`
+	Date   string `json:"date"`
 }
 
 type GuarantorRequest struct {
@@ -39,7 +41,8 @@ type GuarantorRequest struct {
 }
 
 type ActiveLoan struct {
-	LoanNumber        string `json:"loanNumber"`
+	// The loan number, which is the loan's id.
+	ID                string `json:"id"`
 	RemainingAmount   int64  `json:"remainingAmount"`
 	NextInstallment   int64  `json:"nextInstallment"`
 	NextDueDate       string `json:"nextDueDate"`
@@ -54,11 +57,10 @@ type ActiveLoan struct {
 }
 
 type RecentTransaction struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Amount  int64  `json:"amount"`
-	Date    string `json:"date"`
-	Receipt string `json:"receipt"`
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Amount int64  `json:"amount"`
+	Date   string `json:"date"`
 }
 
 type MemberDashboardData struct {
@@ -134,17 +136,22 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	stats.LoanEligibility = money.MaxLoanAmount(stats.CurrentBalance, maxLoanMultiplier)
 	data.Stats = stats
 
+	// A deposit waiting on the member's confirmation is `PROCESSED` — staff have
+	// posted it and the member has not yet agreed it is right (rule 4). This
+	// used to say `"receiptNumber" <> ''`, which stood in for "staff have
+	// touched it" and was never quite that: a member's own PENDING request
+	// carried a bKash reference in the same column, so a request the member had
+	// just made appeared on their home screen as something to confirm.
 	const pendingQuery = `
 		SELECT
 			t.id::text,
 			t.type::text,
 			t.amount::bigint,
-			t."createdAt",
-			COALESCE(t."receiptNumber", '')
+			t."createdAt"
 		FROM transactions t
 		WHERE t."userId" = $1
 		  AND t.type = 'DEPOSIT'
-		  AND t."receiptNumber" <> ''
+		  AND t.status = 'PROCESSED'
 		ORDER BY t."createdAt" DESC
 		LIMIT 5
 	`
@@ -154,7 +161,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		for pendingRows.Next() {
 			var item PendingConfirmation
 			var createdAt time.Time
-			if scanErr := pendingRows.Scan(&item.ID, &item.Type, &item.Amount, &createdAt, &item.Receipt); scanErr != nil {
+			if scanErr := pendingRows.Scan(&item.ID, &item.Type, &item.Amount, &createdAt); scanErr != nil {
 				continue
 			}
 			item.Date = createdAt.Format(time.RFC3339)
@@ -201,7 +208,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 
 	const activeLoanQuery = `
 		SELECT
-			l."loanNumber",
+			l.id,
 			l."remainingAmount"::bigint,
 			l."installmentAmount"::bigint,
 			COALESCE(l."installmentStartDate", l."disbursementDate"),
@@ -216,7 +223,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 	var activeLoan ActiveLoan
 	var installmentStart *time.Time
 	if err := r.db.QueryRow(ctx, activeLoanQuery, userID).Scan(
-		&activeLoan.LoanNumber,
+		&activeLoan.ID,
 		&activeLoan.RemainingAmount,
 		&activeLoan.NextInstallment,
 		&installmentStart,
@@ -240,8 +247,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 			t.id::text,
 			t.type::text,
 			t.amount::bigint,
-			t."createdAt",
-			COALESCE(t."receiptNumber", '')
+			t."createdAt"
 		FROM transactions t
 		WHERE t."userId" = $1
 		ORDER BY t."createdAt" DESC
@@ -253,7 +259,7 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		for recentRows.Next() {
 			var tx RecentTransaction
 			var createdAt time.Time
-			if scanErr := recentRows.Scan(&tx.ID, &tx.Type, &tx.Amount, &createdAt, &tx.Receipt); scanErr != nil {
+			if scanErr := recentRows.Scan(&tx.ID, &tx.Type, &tx.Amount, &createdAt); scanErr != nil {
 				continue
 			}
 			tx.Date = createdAt.Format(time.RFC3339)
@@ -339,7 +345,6 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 			t.id::text,
 			t.amount::bigint,
 			t."createdAt",
-			COALESCE(t."receiptNumber", ''),
 			t.status::text,
 			COALESCE(processor."nameEn", processor."nameBn", ''),
 			COALESCE(t."savingsAfter", 0)::bigint
@@ -361,10 +366,10 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 	var pendingAmount int64
 
 	for rows.Next() {
-		var id, receiptNumber, status, processedBy string
+		var id, status, processedBy string
 		var amount, balanceAfter int64
 		var createdAt time.Time
-		if scanErr := rows.Scan(&id, &amount, &createdAt, &receiptNumber, &status, &processedBy, &balanceAfter); scanErr != nil {
+		if scanErr := rows.Scan(&id, &amount, &createdAt, &status, &processedBy, &balanceAfter); scanErr != nil {
 			continue
 		}
 
@@ -377,12 +382,11 @@ func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (
 		}
 
 		deposit := map[string]interface{}{
-			"id":            id,
-			"amount":        amount,
-			"date":          createdAt.Format(time.RFC3339),
-			"receiptNumber": receiptNumber,
-			"status":        upperStatus,
-			"processedBy":   processedBy,
+			"id":          id,
+			"amount":      amount,
+			"date":        createdAt.Format(time.RFC3339),
+			"status":      upperStatus,
+			"processedBy": processedBy,
 		}
 		if upperStatus == "CONFIRMED" || upperStatus == "PROCESSED" {
 			deposit["balanceAfter"] = balanceAfter
@@ -414,7 +418,6 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 			t.type::text,
 			t.amount::bigint,
 			t."createdAt",
-			COALESCE(t."receiptNumber", ''),
 			COALESCE(t.description, ''),
 			COALESCE(t."savingsAfter", t."loanAfter", 0)::bigint,
 			COALESCE(processor."nameEn", processor."nameBn", ''),
@@ -432,23 +435,22 @@ func (r *UserRepository) GetMemberTransactions(ctx context.Context, userID strin
 
 	transactions := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, txType, receipt, description, processedBy, status string
+		var id, txType, description, processedBy, status string
 		var amount, balanceAfter int64
 		var createdAt time.Time
-		if scanErr := rows.Scan(&id, &txType, &amount, &createdAt, &receipt, &description, &balanceAfter, &processedBy, &status); scanErr != nil {
+		if scanErr := rows.Scan(&id, &txType, &amount, &createdAt, &description, &balanceAfter, &processedBy, &status); scanErr != nil {
 			continue
 		}
 
 		transactions = append(transactions, map[string]interface{}{
-			"id":            id,
-			"type":          strings.ToUpper(strings.TrimSpace(txType)),
-			"amount":        amount,
-			"date":          createdAt.Format(time.RFC3339),
-			"receiptNumber": receipt,
-			"description":   description,
-			"status":        strings.ToUpper(strings.TrimSpace(status)),
-			"balanceAfter":  balanceAfter,
-			"processedBy":   processedBy,
+			"id":           id,
+			"type":         strings.ToUpper(strings.TrimSpace(txType)),
+			"amount":       amount,
+			"date":         createdAt.Format(time.RFC3339),
+			"description":  description,
+			"status":       strings.ToUpper(strings.TrimSpace(status)),
+			"balanceAfter": balanceAfter,
+			"processedBy":  processedBy,
 		})
 	}
 	return transactions, nil
@@ -472,7 +474,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	const loanQuery = `
 		SELECT
 			l.id::text,
-			l."loanNumber",
+			l.id,
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
 			l."totalInstallments",
@@ -498,12 +500,12 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	var activeLoan map[string]interface{}
 	loanHistory := make([]map[string]interface{}, 0)
 	for rows.Next() {
-		var id, loanNumber, purpose, status, guarantor string
+		var id, purpose, status, guarantor string
 		var principalAmount, remainingAmount, installmentAmount int64
 		var totalInstallments, paidInstallments int
 		var disbursementDate, expectedEndDate, installmentStart *time.Time
 		if scanErr := rows.Scan(
-			&id, &loanNumber, &principalAmount, &remainingAmount,
+			&id, &principalAmount, &remainingAmount,
 			&totalInstallments, &paidInstallments, &installmentAmount,
 			&disbursementDate, &expectedEndDate, &installmentStart, &purpose, &status, &guarantor,
 		); scanErr != nil {
@@ -512,7 +514,6 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 
 		item := map[string]interface{}{
 			"id":                id,
-			"loanNumber":        loanNumber,
 			"principalAmount":   principalAmount,
 			"remainingAmount":   remainingAmount,
 			"totalInstallments": totalInstallments,
@@ -650,8 +651,8 @@ func (r *UserRepository) GetMemberProfile(ctx context.Context, userID string) (m
 			COALESCE(pa."houseNo", ''), COALESCE(pa.village, ''), COALESCE(pa."union", ''), COALESCE(pa."policeStation", ''), COALESCE(pa.district, ''),
 			COALESCE(pra."houseNo", ''), COALESCE(pra.village, ''), COALESCE(pra."union", ''), COALESCE(pra."policeStation", ''), COALESCE(pra.district, '')
 		FROM users u
-		LEFT JOIN addresses pa ON pa."userPermanentId" = u.id
-		LEFT JOIN addresses pra ON pra."userPresentId" = u.id
+		LEFT JOIN addresses pa ON pa."userId" = u.id AND pa.type = 'PERMANENT'
+		LEFT JOIN addresses pra ON pra."userId" = u.id AND pra.type = 'PRESENT' 
 		WHERE u.id = $1
 	`
 	var pHouse, pVillage, pUnion, pPs, pDistrict, prHouse, prVillage, prUnion, prPs, prDistrict string

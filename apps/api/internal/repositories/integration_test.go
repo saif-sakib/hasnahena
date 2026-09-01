@@ -58,7 +58,7 @@ func TestMoneyLifecycleEndToEnd(t *testing.T) {
 	var loanID string
 	var perInstallment int64
 	if err := testPool.QueryRow(ctx,
-		`SELECT id, "installmentAmount"::bigint FROM loans WHERE "loanNumber" = $1`, loanNumber,
+		`SELECT id, "installmentAmount"::bigint FROM loans WHERE id = $1`, loanNumber,
 	).Scan(&loanID, &perInstallment); err != nil {
 		t.Fatalf("read loan: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestEveryBalanceChangeWritesAnAuditRow(t *testing.T) {
 		t.Fatalf("loan: %v", err)
 	}
 	var loanID string
-	if err := testPool.QueryRow(ctx, `SELECT id FROM loans WHERE "loanNumber" = $1`, loanNumber).Scan(&loanID); err != nil {
+	if err := testPool.QueryRow(ctx, `SELECT id FROM loans WHERE id = $1`, loanNumber).Scan(&loanID); err != nil {
 		t.Fatalf("read loan: %v", err)
 	}
 	if _, err := repo.AddMemberLoanPayment(ctx, member, worker, loanID, 3000, ""); err != nil {
@@ -260,11 +260,11 @@ func seedLoanWithGuarantor(t *testing.T, borrower, guarantor string, remaining i
 	t.Helper()
 	var loanID string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "disbursementDate", "installmentStartDate",
 			"createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-TEST-' || $1, 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-TEST-' || $1, $1, $2,
 			$3, $3, 12, 0, ($3/12)::bigint, 'test', 'ACTIVE', NOW(),
 			NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
@@ -278,8 +278,8 @@ func seedLoanWithGuarantor(t *testing.T, borrower, guarantor string, remaining i
 func seedDonationPool(t *testing.T, accountOwner string, amount int64) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
-		INSERT INTO transactions (id, type, amount, description, "createdAt", "accountId", "userId")
-		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'test donation pool', NOW(), 'acct_' || $2, $2)
+		INSERT INTO transactions (id, type, amount, description, "createdAt", "userId")
+		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'test donation pool', NOW(), $2)
 	`, amount, accountOwner)
 	if err != nil {
 		t.Fatalf("seed donation: %v", err)

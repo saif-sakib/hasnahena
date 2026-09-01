@@ -135,16 +135,24 @@ func TestSustainedPostingsKeepTheLedgerBalanced(t *testing.T) {
 	}
 
 	// Receipt numbers are handed to members on paper; two postings sharing one
-	// is a reconciliation nobody can finish.
-	var distinct, total int
+	// is a reconciliation nobody can finish. Since ADR-044 the receipt number IS
+	// the primary key, so a collision under load is a *failed insert* rather
+	// than two rows agreeing — which is why this now checks that every posting
+	// got one and that they are all well formed, rather than counting duplicates
+	// the database can no longer store.
+	var numbered, malformed int
 	if err := testPool.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT "receiptNumber"), COUNT("receiptNumber") FROM transactions
-		WHERE "receiptNumber" IS NOT NULL
-	`).Scan(&distinct, &total); err != nil {
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE id !~ '^[A-Z]+-[0-9]{4}-[0-9]{6}$')
+		FROM transactions
+	`).Scan(&numbered, &malformed); err != nil {
 		t.Fatalf("count receipts: %v", err)
 	}
-	if distinct != total {
-		t.Fatalf("%d receipt numbers across %d postings — %d collided", distinct, total, total-distinct)
+	if numbered != confirmed {
+		t.Fatalf("%d postings but %d rows — a posting was written without a receipt", confirmed, numbered)
+	}
+	if malformed != 0 {
+		t.Fatalf("%d posting(s) carry an id that is not a document number", malformed)
 	}
 }
 

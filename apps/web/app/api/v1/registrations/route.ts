@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { UserRole, UserStatus } from '@prisma/client';
+import { AddressType, UserRole, UserStatus } from '@prisma/client';
 import {
   bdPhoneRegex,
   registerApiSchema,
@@ -440,26 +440,31 @@ export async function POST(req: Request) {
 
           nidNumber: normalizeOptionalString(payload.nidNumber) ?? payload.nidNumber,
 
-          permanentAddress: {
-            create: {
-              houseNo: permanentAddress.houseNo,
-              roadNo: permanentAddress.roadNo,
-              village: permanentAddress.village,
-              union: permanentAddress.union,
-              policeStation: permanentAddress.policeStation,
-              district: permanentAddress.district,
-            },
-          },
-
-          presentAddress: {
-            create: {
-              houseNo: presentAddress.houseNo,
-              roadNo: presentAddress.roadNo,
-              village: presentAddress.village,
-              union: presentAddress.union,
-              policeStation: presentAddress.policeStation,
-              district: presentAddress.district,
-            },
+          // One relation carrying both, distinguished by `type` (ADR-044).
+          // They used to be two separate one-to-ones with a nullable key each,
+          // so "this person's addresses" was two queries and a row could be
+          // written belonging to neither.
+          addresses: {
+            create: [
+              {
+                type: AddressType.PERMANENT,
+                houseNo: permanentAddress.houseNo,
+                roadNo: permanentAddress.roadNo,
+                village: permanentAddress.village,
+                union: permanentAddress.union,
+                policeStation: permanentAddress.policeStation,
+                district: permanentAddress.district,
+              },
+              {
+                type: AddressType.PRESENT,
+                houseNo: presentAddress.houseNo,
+                roadNo: presentAddress.roadNo,
+                village: presentAddress.village,
+                union: presentAddress.union,
+                policeStation: presentAddress.policeStation,
+                district: presentAddress.district,
+              },
+            ],
           },
 
           nominee: {

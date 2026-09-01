@@ -47,17 +47,28 @@ type PostingStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJEC
 type PostingType = 'DEPOSIT' | 'WITHDRAWAL';
 
 interface Posting {
+  /** The receipt number — `DEP-2026-000001`. The id IS it (ADR-044). */
   id: string;
   type: PostingType;
   amount: number;
   status: PostingStatus;
-  receiptNumber: string;
   notes?: string;
   processedBy?: string;
   date: string;
   balanceAfter: number;
   memberId: string;
   memberName: string;
+  /**
+   * The **English** name, for the document.
+   *
+   * `memberName` above is what the screen shows, and both payloads prefer the
+   * Bengali one where it exists. Generated documents are English only
+   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
+   * glyph the standard fonts cannot encode — so feeding a Bengali name to
+   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
+   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
+   */
+  memberNameEn: string;
   memberPhone: string;
   accountNo: string;
 }
@@ -88,14 +99,14 @@ function normalise(raw: any): Posting | null {
     type,
     amount: Number(raw?.amount ?? 0),
     status: String(raw?.status ?? 'CONFIRMED').toUpperCase(),
-    receiptNumber: String(raw?.receiptNumber ?? raw?.receipt ?? ''),
     notes: raw?.notes ? String(raw.notes) : raw?.description ? String(raw.description) : undefined,
     processedBy: raw?.processedBy ? String(raw.processedBy) : undefined,
     date: String(raw?.processedDate ?? raw?.date ?? new Date().toISOString()),
     balanceAfter: Number(raw?.balanceAfter ?? 0),
     memberId: String(member.id ?? raw?.memberUserId ?? ''),
     memberName: String(member.name ?? raw?.memberName ?? ''),
-    memberPhone: String(raw?.memberPhone ?? ''),
+    memberNameEn: String(raw?.memberName ?? member.name ?? ''),
+    memberPhone: String(member.phone ?? raw?.memberPhone ?? ''),
     accountNo: String(member.accountNo ?? raw?.accountNo ?? ''),
   };
 }
@@ -143,7 +154,7 @@ export default function DepositsScreen() {
           p.accountNo.toLowerCase().includes(q) ||
           p.memberPhone.includes(searchQuery) ||
           (p.processedBy ?? '').toLowerCase().includes(q) ||
-          p.receiptNumber.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q) ||
           p.id.toLowerCase().includes(q);
         const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
         const matchesType = typeFilter === 'all' || p.type === typeFilter;
@@ -169,11 +180,11 @@ export default function DepositsScreen() {
       await downloadDocumentPDF(
         buildReceipt(
           {
-            receiptNumber: p.receiptNumber || p.id,
+            receiptNumber: p.id,
             type: p.type,
             amount: p.amount,
             date: p.date,
-            memberName: p.memberName,
+            memberName: p.memberNameEn,
             accountNo: p.accountNo,
             memberPhone: p.memberPhone,
             balanceAfter: p.balanceAfter,
@@ -407,7 +418,7 @@ export default function DepositsScreen() {
                     </span>
                   </td>
                   <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-600">
-                    {p.receiptNumber || p.id}
+                    {p.id}
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">
                     {new Date(p.date).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-GB')}
@@ -487,7 +498,7 @@ export default function DepositsScreen() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">{locale === 'bn' ? 'রসিদ' : 'Receipt'}</span>
-                <span>{selected.receiptNumber || '-'}</span>
+                <span>{selected.id || '-'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">{locale === 'bn' ? 'প্রসেসকারী' : 'Processor'}</span>

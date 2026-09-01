@@ -29,9 +29,9 @@ func seedBackedDeposit(t *testing.T, userID string, amount int64, minutesAgo int
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
 		INSERT INTO transactions (id, type, amount, description, status, "createdAt",
-			"processedAt", "confirmedAt", "accountId", "userId", "savingsAfter")
+			"processedAt", "confirmedAt", "userId", "savingsAfter")
 		VALUES (gen_random_uuid()::text, 'DEPOSIT', $2, 'seed', 'CONFIRMED',
-			NOW() - ($3 || ' minutes')::interval, NOW(), NOW(), 'acct_' || $1, $1, $4)
+			NOW() - ($3 || ' minutes')::interval, NOW(), NOW(), $1, $4)
 	`, userID, amount, minutesAgo, amount)
 	if err != nil {
 		t.Fatalf("seed backed deposit for %s: %v", userID, err)
@@ -107,7 +107,7 @@ func driftCases() []driftCase {
 				member := seedMember(t, "rc1", "ACC-KH-82001", 5000)
 				seedBackedDeposit(t, member, 5000, 60)
 				mustExec(t, `UPDATE accounts SET "savingsBalance" = 9000 WHERE "userId" = $1`, member)
-				return "acct_" + member, 5000, 9000
+				return member, 5000, 9000
 			},
 		},
 		{
@@ -120,7 +120,7 @@ func driftCases() []driftCase {
 				member := seedMember(t, "rc1", "ACC-KH-82001", 0)
 				seedActiveLoan(t, member, 12000, 12000)
 				mustExec(t, `UPDATE accounts SET "loanBalance" = 20000 WHERE "userId" = $1`, member)
-				return "acct_" + member, 12000, 20000
+				return member, 12000, 20000
 			},
 		},
 		{
@@ -154,25 +154,6 @@ func driftCases() []driftCase {
 					WHERE "userId" = $1 RETURNING id
 				`, []any{member}, &id)
 				return id, 5000, 7777
-			},
-		},
-		{
-			name:   "a posting attributed to someone who does not own the account",
-			check:  CheckTransactionOwner,
-			entity: "TRANSACTION",
-			whyItMatters: "either the posting is on the wrong member or the balance moved on " +
-				"the wrong account, and the row alone cannot say which (WO-72)",
-			plant: func(t *testing.T, repo *UserRepository) (string, int64, int64) {
-				owner := seedMember(t, "rc1", "ACC-KH-82001", 5000)
-				other := seedMember(t, "rc2", "ACC-KH-82002", 0)
-				seedBackedDeposit(t, owner, 5000, 60)
-				var id string
-				mustQuery(t, `
-					UPDATE transactions SET "userId" = $2 WHERE "userId" = $1 RETURNING id
-				`, []any{owner, other}, &id)
-				// Both zero: this check has no amount. The sum on the row is not
-				// wrong; the member it names is. See CheckHasAmount.
-				return id, 0, 0
 			},
 		},
 	}
@@ -438,10 +419,10 @@ func seedActiveLoan(t *testing.T, borrower string, principal, remaining int64) s
 	t.Helper()
 	var loanID string
 	mustQuery(t, `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId",
+		INSERT INTO loans (id, "borrowerId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "disbursementDate", "createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-RC-' || $1, 'acct_' || $1, $1,
+		VALUES ('LOAN-RC-' || $1, $1,
 			$2, $3, 12, 0, ($2/12)::bigint, 'reconcile fixture', 'ACTIVE', NOW(), NOW(), NOW())
 		RETURNING id
 	`, []any{borrower, principal, remaining}, &loanID)
@@ -453,45 +434,22 @@ func seedRepayment(t *testing.T, borrower, loanID string, amount int64) {
 	t.Helper()
 	mustExec(t, `
 		INSERT INTO transactions (id, type, amount, description, status, "createdAt",
-			"processedAt", "confirmedAt", "accountId", "userId", "loanId")
+			"processedAt", "confirmedAt", "userId", "loanId")
 		VALUES (gen_random_uuid()::text, 'LOAN_REPAYMENT', $3, 'seed repayment', 'CONFIRMED',
-			NOW(), NOW(), NOW(), 'acct_' || $1, $1, $2)
+			NOW(), NOW(), NOW(), $1, $2)
 	`, borrower, loanID, amount)
 }
 
-// The audit row for the ownership check must not invent a taka figure. A
-// mis-attributed posting names the wrong member; it does not misstate a sum, and
-// "net +1 BDT" on a gauge is a number an operator would go looking for.
-func TestTheOwnershipCheckReportsNoAmount(t *testing.T) {
-	repo := newTestRepo(t)
-	ctx := context.Background()
-
-	owner := seedMember(t, "rc1", "ACC-KH-82001", 5000)
-	other := seedMember(t, "rc2", "ACC-KH-82002", 0)
-	seedBackedDeposit(t, owner, 5000, 60)
-	mustExec(t, `UPDATE transactions SET "userId" = $2 WHERE "userId" = $1`, owner, other)
-
-	report := reconcileOrFail(t, repo)
-	if err := repo.RecordDrift(ctx, report); err != nil {
-		t.Fatalf("record drift: %v", err)
-	}
-
-	var details string
-	if err := testPool.QueryRow(ctx, `
-		SELECT details FROM audit_logs
-		WHERE action = 'LEDGER_DRIFT_DETECTED' AND "entityId" = $1
-	`, CheckTransactionOwner).Scan(&details); err != nil {
-		t.Fatalf("read audit row: %v", err)
-	}
-	if strings.Contains(details, "BDT") {
-		t.Errorf("the ownership check reported an amount: %q", details)
-	}
-
-	if CheckHasAmount(CheckTransactionOwner) {
-		t.Error("CheckHasAmount says the ownership check has an amount; it does not")
-	}
+// Every check reports a taka figure now.
+//
+// `transaction_owner` did not: it compared a posting's `userId` against the
+// owner of the `accountId` in the next column, and the answer was a member's
+// name rather than a sum. ADR-044 removed that column — a posting names one
+// person — so the drift it looked for cannot be represented, and the check went
+// with it. What is left is the assertion that nothing else is in that position.
+func TestEveryCheckReportsAnAmount(t *testing.T) {
 	for _, check := range AllChecks {
-		if check != CheckTransactionOwner && !CheckHasAmount(check) {
+		if !CheckHasAmount(check) {
 			t.Errorf("%s is not reported in taka, but its drift is a difference between two sums", check)
 		}
 	}

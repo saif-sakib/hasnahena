@@ -12,6 +12,7 @@ import {
   normalizeLocale,
   siteBaseUrl,
   siteTitle,
+  siteVerification,
 } from '@/lib/seo';
 import { getPublicSettings } from '@/lib/system-config';
 import '../globals.css';
@@ -138,10 +139,11 @@ export async function generateMetadata({ params }: RootLayoutProps): Promise<Met
     // The manifest carries the icons a phone uses for a home-screen shortcut,
     // and one more crawlable statement of the site's name. See app/manifest.ts.
     manifest: '/manifest.webmanifest',
-    // A verification token from Search Console goes here. It is NOT set: adding
-    // one requires the owner to claim the property, so it is listed as an action
-    // rather than guessed at. Without it the site is still indexed — verifying
-    // is what lets the owner see and fix how.
+    // Ownership tokens for Search Console and, the one that was missing
+    // entirely, Bing Webmaster Tools. Read from the environment: the value is
+    // issued to whoever proves they own the domain, so it cannot live in the
+    // repository, and unset it emits nothing — see siteVerification in lib/seo.
+    verification: siteVerification(),
   };
 }
 

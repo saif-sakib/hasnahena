@@ -76,46 +76,20 @@ async function resolveSubjects(
 
   const userIds = [...(byType.get('USER') ?? [])];
   if (userIds.length) {
+    // **`id` OR `formNumber`, in one query.**
+    //
+    // A person's id moves once, at admission, from `APP-2026-000001` to
+    // `ACC-KH-33001` (ADR-043), and rows written before that keep the id they
+    // were written with — `audit_logs` is append-only at the database level and
+    // its trigger refuses UPDATE. That refusal is right, and since ADR-043 it
+    // costs nothing: the value those rows hold is the applicant's own form
+    // number, which is readable, and which `users.formNumber` still holds for
+    // its own reasons. There is no mapping table to consult (ADR-044 removed
+    // `user_id_history`); the column that already records the fact answers it.
     const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
+      where: { OR: [{ id: { in: userIds } }, { formNumber: { in: userIds } }] },
       select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
     });
-
-    // **Ids that resolve to nobody, resolved through the rename history.**
-    //
-    // `users.id` is the number a person is known by (ADR-043), so it moves once
-    // — from `APP-2026-000001` to `ACC-KH-33001` — when they are admitted. Rows
-    // written before that keep the id they were written with, because
-    // `audit_logs` is append-only at the database level and its trigger refuses
-    // UPDATE unconditionally. Rewriting the trail so it agreed with the present
-    // is the exact thing that trigger exists to stop, and it is right: a record
-    // of who somebody was called at the time is worth more than one that has
-    // been tidied.
-    //
-    // So the *reader* does the work. `user_id_history` is one hop by
-    // construction, so this is a second query and never a walk.
-    const unresolved = userIds.filter((id) => !users.some((u) => u.id === id));
-    if (unresolved.length) {
-      const renames = await prisma.userIdHistory.findMany({
-        where: { oldId: { in: unresolved } },
-        select: { oldId: true, newId: true },
-      });
-      if (renames.length) {
-        const renamed = await prisma.user.findMany({
-          where: { id: { in: renames.map((r) => r.newId) } },
-          select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
-        });
-        for (const rename of renames) {
-          const person = renamed.find((u) => u.id === rename.newId);
-          if (!person) continue;
-          const identifier = person.accountNo || person.formNumber || '';
-          out.set(key('USER', rename.oldId), {
-            label: identifier ? `${person.nameEn} (${identifier})` : person.nameEn,
-            kind: person.role,
-          });
-        }
-      }
-    }
 
     for (const u of users) {
       // The account number first, because that is what the office says out loud.
@@ -123,22 +97,27 @@ async function resolveSubjects(
       // somebody erased has neither name nor number worth printing beyond what
       // the erasure left, which is deliberately just the account number.
       const identifier = u.accountNo || u.formNumber || '';
-      out.set(key('USER', u.id), {
+      const subject: Subject = {
         label: identifier ? `${u.nameEn} (${identifier})` : u.nameEn,
         kind: u.role,
-      });
+      };
+      out.set(key('USER', u.id), subject);
+      // The same person, under the name the older rows call them by.
+      if (u.formNumber) out.set(key('USER', u.formNumber), subject);
     }
   }
 
-  // An account row is one member's, so it reads better as the member.
+  // An account row is one member's, so it reads better as the member — and
+  // since ADR-044 the account's key *is* the member's, so this is a lookup by
+  // the number that was already printed on the row.
   const accountIds = [...(byType.get('ACCOUNT') ?? [])];
   if (accountIds.length) {
     const accounts = await prisma.account.findMany({
-      where: { id: { in: accountIds } },
-      select: { id: true, user: { select: { nameEn: true, accountNo: true } } },
+      where: { userId: { in: accountIds } },
+      select: { userId: true, user: { select: { nameEn: true, accountNo: true } } },
     });
     for (const a of accounts) {
-      out.set(key('ACCOUNT', a.id), {
+      out.set(key('ACCOUNT', a.userId), {
         label: `${a.user.nameEn} (${a.user.accountNo ?? '—'})`,
         kind: 'MEMBER',
       });
@@ -149,11 +128,11 @@ async function resolveSubjects(
   if (loanIds.length) {
     const loans = await prisma.loan.findMany({
       where: { id: { in: loanIds } },
-      select: { id: true, loanNumber: true, borrower: { select: { nameEn: true } } },
+      select: { id: true, borrower: { select: { nameEn: true } } },
     });
     for (const l of loans) {
       out.set(key('LOAN', l.id), {
-        label: `${l.loanNumber} — ${l.borrower.nameEn}`,
+        label: `${l.id} — ${l.borrower.nameEn}`,
         kind: 'LOAN',
       });
     }
@@ -165,7 +144,6 @@ async function resolveSubjects(
       where: { id: { in: txIds } },
       select: {
         id: true,
-        receiptNumber: true,
         type: true,
         amount: true,
         user: { select: { nameEn: true } },
@@ -175,7 +153,7 @@ async function resolveSubjects(
       out.set(key('TRANSACTION', t.id), {
         // Whole taka, formatted by the reader — this is a label, not money the
         // screen does arithmetic on, so it is a string by the time it leaves here.
-        label: `${t.receiptNumber ?? t.type} — ${t.user.nameEn} — ৳${t.amount.toString()}`,
+        label: `${t.id} — ${t.user.nameEn} — ৳${t.amount.toString()}`,
         kind: t.type,
       });
     }
@@ -213,34 +191,26 @@ async function idsMatchingQuery(q: string): Promise<{ userIds: string[]; entityI
           { nameBn: { contains: q } },
         ],
       },
-      select: { id: true },
+      select: { id: true, formNumber: true },
       take: 50,
     }),
     prisma.loan.findMany({
-      where: { loanNumber: { contains: q, mode: 'insensitive' } },
+      where: { id: { contains: q, mode: 'insensitive' } },
       select: { id: true },
       take: 50,
     }),
     prisma.transaction.findMany({
-      where: { receiptNumber: { contains: q, mode: 'insensitive' } },
+      where: { id: { contains: q, mode: 'insensitive' } },
       select: { id: true },
       take: 50,
     }),
   ]);
-  const userIds = users.map((u) => u.id);
   // Searching `ACC-KH-33001` must also find what that person did while they were
   // `APP-2026-000001`. Without this, admission is a hole in their own history —
   // and the application period is exactly the part somebody investigating a
-  // registration wants to read.
-  const priorIds = userIds.length
-    ? (
-        await prisma.userIdHistory.findMany({
-          where: { newId: { in: userIds } },
-          select: { oldId: true },
-        })
-      ).map((r) => r.oldId)
-    : [];
-  const allUserIds = [...userIds, ...priorIds];
+  // registration wants to read. The form number is on the row itself, so this
+  // needs no second query and no history table.
+  const allUserIds = users.flatMap((u) => (u.formNumber ? [u.id, u.formNumber] : [u.id]));
   return {
     userIds: allUserIds,
     entityIds: [...allUserIds, ...loans.map((l) => l.id), ...transactions.map((t) => t.id)],

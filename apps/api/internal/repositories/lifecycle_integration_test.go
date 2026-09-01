@@ -32,9 +32,9 @@ func seedTransactionInStatus(t *testing.T, memberID, txType, status string, amou
 	var id string
 	err := testPool.QueryRow(context.Background(), `
 		INSERT INTO transactions (id, type, amount, description, status,
-			"accountId", "userId", "createdAt")
+			"userId", "createdAt")
 		VALUES (gen_random_uuid()::text, $2::"TransactionType", $3, 'lifecycle',
-			$4::"TransactionStatus", 'acct_' || $1, $1, NOW())
+			$4::"TransactionStatus", $1, NOW())
 		RETURNING id
 	`, memberID, txType, amount, status).Scan(&id)
 	if err != nil {

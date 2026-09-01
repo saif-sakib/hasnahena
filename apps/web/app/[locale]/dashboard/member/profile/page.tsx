@@ -74,12 +74,13 @@ interface Nominee {
 }
 
 interface MemberTransaction {
+  /** The receipt number — the id IS it (ADR-044). */
+  id: string;
   type: string;
   amount: number;
   date: string;
   balanceAfter: number;
   description?: string;
-  receiptNumber?: string;
 }
 
 // Hoisted to module scope so they are stable identities. Declared inside the
@@ -252,7 +253,7 @@ export default function ProfilePage() {
             amount: Math.round(tx.amount ),
             balance: Math.round(tx.balanceAfter ),
             description: tx.description,
-            receiptNumber: tx.receiptNumber,
+            receiptNumber: tx.id,
           })),
         },
         orgSettings

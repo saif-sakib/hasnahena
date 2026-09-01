@@ -102,6 +102,16 @@ export type CspOptions = {
 };
 
 /**
+ * The image host, named once.
+ *
+ * It appears in two directives that mean different things about the same asset:
+ * `img-src` is permission to *render* a member's NID scan, `connect-src` is
+ * permission to *read* it into a Blob so it can be saved to the phone. Two
+ * spellings of one origin is how those two came to disagree.
+ */
+const CLOUDINARY_ORIGIN = 'https://res.cloudinary.com';
+
+/**
  * Build the policy for one request.
  *
  * Directives are listed in the order a reviewer reads them: what may execute,
@@ -135,7 +145,7 @@ export function buildCsp({
     // FileReader before anything is sent. res.cloudinary.com is where they end
     // up; most are served back through /_next/image on this origin, but the raw
     // URL is used in a few places.
-    ['img-src', `'self' data: blob: https://res.cloudinary.com`],
+    ['img-src', `'self' data: blob: ${CLOUDINARY_ORIGIN}`],
     ['connect-src', connectSrc(apiOrigin, isDev)],
     // Nothing embeds anything, and nothing may embed this. `frame-ancestors`
     // is the modern half of the `X-Frame-Options: DENY` already being sent.
@@ -166,9 +176,18 @@ export function buildCsp({
  * browser error reports through this app's own domain so an ad blocker cannot
  * drop them — and that makes them same-origin, covered by `'self'`. Adding an
  * ingest host here would be dead configuration that looks load-bearing.
+ *
+ * `res.cloudinary.com` is here for one reason: **saving** a member's NID scan or
+ * photograph. `img-src` already allows it, so the approvals and member-detail
+ * screens could always *show* the document — and the Download button beside the
+ * preview could never work, because `downloadDocumentFile` has to `fetch` the
+ * asset to get a Blob before it can name the saved file. The two are separate
+ * directives, so the screen looked completely correct while half of it was
+ * blocked; the only symptom was a button that did nothing, since the fetch
+ * rejects and the caller logs to a console nobody has open on a phone.
  */
 function connectSrc(apiOrigin: string | undefined, isDev: boolean): string {
-  const sources = [`'self'`];
+  const sources = [`'self'`, CLOUDINARY_ORIGIN];
 
   const origin = normalizeOrigin(apiOrigin);
   if (origin) sources.push(origin);

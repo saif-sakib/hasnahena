@@ -291,9 +291,9 @@ func ensureDonationPool(ctx context.Context) {
 		panic("seed donation fund user: " + err.Error())
 	}
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 			"createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 0, 0, NOW(), NOW(), $1)
+		VALUES (0, 0, NOW(), NOW(), $1)
 		ON CONFLICT ("userId") DO NOTHING
 	`, owner); err != nil {
 		panic("seed donation account: " + err.Error())
@@ -334,10 +334,10 @@ func seedRoleUser(t *testing.T, role string) string {
 	// have nothing to do with authorization.
 	if role == "MEMBER" {
 		_, err = testPool.Exec(context.Background(), `
-			INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+			INSERT INTO accounts ("savingsBalance", "loanBalance",
 			                      "createdAt", "updatedAt", "userId")
-			VALUES ('acct_' || $1, 0, 0, NOW(), NOW(), $1)
-			ON CONFLICT (id) DO NOTHING
+			VALUES (0, 0, NOW(), NOW(), $1)
+			ON CONFLICT ("userId") DO NOTHING
 		`, id)
 		if err != nil {
 			t.Fatalf("seed account: %v", err)

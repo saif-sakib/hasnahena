@@ -86,7 +86,7 @@ type SettingImageType =
   | 'hero.partnerLogo3';
 
 interface GalleryItem {
-  id: string;
+  id: number;
   imageUrl: string;
   captionEn: string | null;
   captionBn: string | null;
@@ -311,7 +311,7 @@ export default function ContentScreen() {
     }
   };
 
-  const handleGalleryDelete = async (id: string) => {
+  const handleGalleryDelete = async (id: number) => {
     if (!confirm(locale === 'bn' ? 'মুছে ফেলতে চান?' : 'Delete this item?')) return;
     setGalleryMutationError(null);
     try {

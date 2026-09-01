@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { X, ChevronLeft, ChevronRight, ImageOff } from 'lucide-react';
 
 export interface GalleryItem {
-  id: string;
+  id: number;
   image: string;
   caption: string;
   date: string;
@@ -44,9 +44,9 @@ export function Gallery({ items, locale }: GalleryProps) {
   const t = useTranslations('gallery');
   const tA11y = useTranslations('dashboard.a11y');
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
 
-  const handleImageError = (id: string) => {
+  const handleImageError = (id: number) => {
     setFailedImages((prev) => new Set(prev).add(id));
   };
 

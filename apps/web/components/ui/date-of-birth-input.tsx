@@ -145,7 +145,11 @@ export function DateOfBirthInput({
   };
 
   const selectClass = [
-    'h-11 w-full rounded-sm border bg-white px-2 text-sm',
+    // `pr-1`, not `px-2`. A native select paints its arrow inside the padding
+    // box, so every pixel of right padding is taken from the text before the
+    // browser will clip it — and the month names are the only options on this
+    // control long enough to notice.
+    'h-11 w-full rounded-sm border bg-white pl-2 pr-1 text-sm',
     // 16px on the phone, because anything smaller makes iOS zoom the viewport on
     // focus and Android renders the option list at a size nobody can read.
     'sm:text-sm text-base',
@@ -153,7 +157,22 @@ export function DateOfBirthInput({
   ].join(' ');
 
   return (
-    <div className={`grid grid-cols-3 gap-2 ${className ?? ''}`}>
+    <div
+      /*
+       * Not `grid-cols-3`. Three equal thirds gives the month the same width as
+       * a two-digit day, and the month is the only one of the three whose text
+       * is a word: at the width this control gets inside the form's two-column
+       * row, "September" — and "সেপ্টেম্বর", which is longer still — lost its
+       * last character to the select's clip. Day needs two digits, year four,
+       * month a nine- or ten-glyph word, and the tracks now say so.
+       *
+       * `minmax(0, …)` on each rather than a bare `fr`, because a grid item's
+       * automatic minimum is its min-content width, and Chrome reports a
+       * select's min-content as its longest option — which would let the month
+       * push the row wider than its container instead of taking its share of it.
+       */
+      className={`grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)_minmax(0,1.1fr)] gap-2 ${className ?? ''}`}
+    >
       <select
         id={id}
         className={selectClass}

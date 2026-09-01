@@ -25,8 +25,8 @@ import { fetchSettings } from '@/lib/settings-client';
 type LoanStatus = 'PENDING_GUARANTOR' | 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'COMPLETED' | 'DEFAULTED' | 'REJECTED';
 
 interface Loan {
+  /** The loan number — `LOAN-2026-000012`. The id IS it (ADR-044). */
   id: string;
-  loanNumber: string;
   principalAmount: number;
   remainingAmount: number;
   totalInstallments: number;
@@ -326,7 +326,7 @@ export default function LoansPage() {
             <div className="flex items-center gap-2">
               <HandCoins className="h-4 w-4 text-emerald-600" />
               <span className="text-sm font-medium text-emerald-800">
-                {locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}: {activeLoan.loanNumber}
+                {locale === 'bn' ? 'সক্রিয় ঋণ' : 'Active Loan'}: {activeLoan.id}
               </span>
             </div>
             <span className={`text-xs px-2 py-0.5 ${getStatusLabel(activeLoan.status).color}`}>
@@ -450,7 +450,7 @@ export default function LoansPage() {
                       onClick={() => openLoanDetails(loan)}
                     >
                       <td className="px-4 py-3">
-                        <p className="font-medium">{loan.loanNumber}</p>
+                        <p className="font-medium">{loan.id}</p>
                         <p className="text-xs text-gray-500">
                           {loan.disbursementDate && formatDate(loan.disbursementDate)}
                         </p>
@@ -486,7 +486,7 @@ export default function LoansPage() {
                     {locale === 'bn' ? 'ঋণের বিস্তারিত' : 'Loan Details'}
                   </h3>
                   <p className="text-xs text-gray-500">
-                    {locale === 'bn' ? 'ঋণ নম্বর' : 'Loan Number'}: {selectedHistoryLoan.loanNumber}
+                    {locale === 'bn' ? 'ঋণ নম্বর' : 'Loan Number'}: {selectedHistoryLoan.id}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

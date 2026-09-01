@@ -15,7 +15,8 @@
     "test:unit:watch": "vitest",
     "test:routes": "vitest run --config vitest.routes.config.ts",
     "test:bundle": "node scripts/assert-bundle-budget.mjs",
-    "test:bundle:update": "node scripts/assert-bundle-budget.mjs --update"
+    "test:bundle:update": "node scripts/assert-bundle-budget.mjs --update",
+    "seo:indexnow": "node scripts/indexnow-submit.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

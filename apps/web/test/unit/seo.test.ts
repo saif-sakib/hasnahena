@@ -13,6 +13,7 @@ import {
   siteTitle,
   SITE_ICONS,
   SITE_NAME,
+  siteVerification,
 } from '@/lib/seo';
 
 /**
@@ -316,5 +317,57 @@ describe('the web app manifest', () => {
   it('ships a maskable icon, or Android draws its own white plate behind it', () => {
     const purposes = (m.icons ?? []).map((icon) => icon.purpose);
     expect(purposes).toContain('maskable');
+  });
+});
+
+describe('search-engine ownership tokens', () => {
+  /**
+   * Bing was never told this site exists — no Webmaster Tools property, so no
+   * submitted sitemap and no view of the crawl. The tag is how the property is
+   * claimed when the Search Console import is not used.
+   */
+  it('emits msvalidate.01 for Bing when the token is set', () => {
+    expect(siteVerification({ BING_SITE_VERIFICATION: 'ABC123' })).toEqual({
+      other: { 'msvalidate.01': 'ABC123' },
+    });
+  });
+
+  it('emits both when both are set', () => {
+    expect(
+      siteVerification({ BING_SITE_VERIFICATION: 'ABC123', GOOGLE_SITE_VERIFICATION: 'g-tok' }),
+    ).toEqual({ google: 'g-tok', other: { 'msvalidate.01': 'ABC123' } });
+  });
+
+  /**
+   * Undefined rather than an empty object, and it matters: `verification: {}`
+   * is what Next is handed, and an empty `other` is a shape it has no reason to
+   * keep behaving well on. Unset must produce exactly the HTML that shipped
+   * before the field existed.
+   */
+  it('is absent when neither is set, and when either is blank', () => {
+    expect(siteVerification({})).toBeUndefined();
+    expect(siteVerification({ BING_SITE_VERIFICATION: '   ' })).toBeUndefined();
+  });
+});
+
+describe('the IndexNow key', () => {
+  const publicDir = resolve(new URL('.', import.meta.url).pathname, '..', '..', 'public');
+  const keyFiles = readdirSync(publicDir).filter((name) => /^[0-9a-f]{8,128}\.txt$/.test(name));
+
+  /**
+   * IndexNow authenticates by asking the site to serve its own key: the file
+   * must be reachable at `/<key>.txt` and contain the key. A second key file
+   * means the submit script cannot tell which one the crawler was told about,
+   * and a mismatch between name and contents is a bare 403 that explains
+   * nothing. scripts/indexnow-submit.mjs reads the key from the filename, so
+   * these two facts are the whole protocol.
+   */
+  it('is exactly one file in public/', () => {
+    expect(keyFiles).toHaveLength(1);
+  });
+
+  it('contains the key that names it', () => {
+    const [file] = keyFiles;
+    expect(readFileSync(join(publicDir, file), 'utf8').trim()).toBe(file.replace(/\.txt$/, ''));
   });
 });

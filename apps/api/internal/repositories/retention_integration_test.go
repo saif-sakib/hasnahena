@@ -45,27 +45,28 @@ func seedRejectedApplicant(t *testing.T, id string, daysAgo int) string {
 		t.Fatalf("seed rejected applicant %s: %v", id, err)
 	}
 
-	for _, kind := range []string{"userPermanentId", "userPresentId"} {
+	// One table, keyed on the person and which of the two it is (ADR-044).
+	for _, kind := range []string{"PERMANENT", "PRESENT"} {
 		if _, err := testPool.Exec(ctx, `
-			INSERT INTO addresses (id, "houseNo", "roadNo", village, "union", "policeStation",
-				district, country, "`+kind+`")
-			VALUES (gen_random_uuid()::text, '12', '4', 'Bhekutia', 'Kotwali', 'Kotwali',
-				'Jessore', 'বাংলাদেশ', $1)
-		`, id); err != nil {
-			t.Fatalf("seed %s for %s: %v", kind, id, err)
+			INSERT INTO addresses ("userId", type, "houseNo", "roadNo", village, "union",
+				"policeStation", district, country)
+			VALUES ($1, $2::"AddressType", '12', '4', 'Bhekutia', 'Kotwali',
+				'Kotwali', 'Jessore', 'বাংলাদেশ')
+		`, id, kind); err != nil {
+			t.Fatalf("seed %s address for %s: %v", kind, id, err)
 		}
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO nominees (id, name, relationship, "nidNumber", phone, "userId")
-		VALUES (gen_random_uuid()::text, 'Nominee Name', 'Brother', $2, '01700000009', $1)
+		INSERT INTO nominees (name, relationship, "nidNumber", phone, "userId")
+		VALUES ('Nominee Name', 'Brother', $2, '01700000009', $1)
 	`, id, retentionNID); err != nil {
 		t.Fatalf("seed nominee for %s: %v", id, err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'REJECT_REGISTRATION', 'USER', $1, NULL,
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('REJECT_REGISTRATION', 'USER', $1, NULL,
 			NOW() - make_interval(days => $2::int), 'incomplete documents')
 	`, id, daysAgo); err != nil {
 		t.Fatalf("seed rejection audit row for %s: %v", id, err)
@@ -99,7 +100,7 @@ func identityOf(t *testing.T, userID string) identitySnapshot {
 		SELECT u."nidNumber", u."nameBn", u."dateOfBirth"::text, u."bloodGroup", u.profession,
 		       u."formNumber", u."avatarUrl", u.email, u."nameEn", u."fatherName", u."motherName",
 		       u.phone, u.status::text,
-		       (SELECT COUNT(*) FROM addresses a WHERE a."userPermanentId" = u.id OR a."userPresentId" = u.id),
+		       (SELECT COUNT(*) FROM addresses a WHERE a."userId" = u.id),
 		       (SELECT COUNT(*) FROM nominees n WHERE n."userId" = u.id)
 		FROM users u WHERE u.id = $1
 	`, userID).Scan(&s.nid, &s.nameBn, &s.dob, &s.bloodGroup, &s.profession, &s.formNumber,

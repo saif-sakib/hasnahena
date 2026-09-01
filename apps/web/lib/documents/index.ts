@@ -61,6 +61,7 @@ export {
   printDocument,
   renderHTML,
   renderPDF,
+  saveBlob,
 } from './export';
 
 export { fetchOrgSettings, clearOrgSettingsCache } from './org-settings';

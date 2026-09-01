@@ -446,7 +446,7 @@ const DONATION_OWNER_ID = 'system_donation_fund';
 async function seedDonationPool(prisma) {
   const existing = await prisma.account.findUnique({
     where: { userId: DONATION_OWNER_ID },
-    select: { id: true },
+    select: { userId: true },
   });
   if (existing) {
     console.log('donation pool: already present — left unchanged');

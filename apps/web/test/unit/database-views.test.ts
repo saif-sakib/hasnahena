@@ -114,17 +114,26 @@ describe('the readable views', () => {
     ).toEqual([]);
   });
 
-  it('lead with the identifier a human has, not with a row id', () => {
-    // The whole point. A view whose first column is a cuid is the table again.
+  it('lead with the identifier a human has, under a name that says what it is', () => {
+    // The whole point, restated for a schema where the keys ARE the identifiers.
+    //
+    // The rule used to be "the first column must not be `x.id`", because `x.id`
+    // was a cuid and a view opening with one is the table again. Since ADR-044
+    // it is `DEP-2026-000001` or `LOAN-2026-000012`, so the *column* is no
+    // longer what distinguishes a readable view from a raw one — the **alias**
+    // is. A first column of `t.id AS receipt` is exactly right; one of
+    // `t.id AS transaction_id` is the table again under a new name.
+    const READABLE_FIRST_ALIAS = /^(account_no|receipt|loan_no|key|at|name)$/;
     for (const [, name, body] of VIEWS_SQL.matchAll(
       /CREATE OR REPLACE VIEW (v_\w+) AS\s*SELECT\s*([\s\S]*?)\nFROM/g,
     )) {
       const firstColumn = body.trim().split('\n')[0];
+      const alias = firstColumn.match(/\bAS\s+(\w+)/i)?.[1] ?? firstColumn.trim().replace(/,$/, '');
       expect(
-        firstColumn,
-        `${name} opens with a raw id; open with the account number, receipt ` +
-          `number, loan number or name instead`,
-      ).not.toMatch(/^\s*\w+\.id\b/);
+        alias,
+        `${name} opens with "${firstColumn.trim()}" — open with the account ` +
+          `number, receipt number, loan number, config key, timestamp or name`,
+      ).toMatch(READABLE_FIRST_ALIAS);
     }
   });
 });

@@ -274,9 +274,22 @@ was not.
 
 ## Prisma and migrations
 
+- **The test stack cannot review a data migration, because it has no data.**
+  `scripts/test-stack.sh` builds from zero, so every migration runs before a
+  single row exists: one that rewrites *shape* is exercised, and one that rewrites
+  *data* passes for free. Both id migrations proved it — the first was refused by
+  the owner's database and by nothing here. Rehearse on rows instead, which takes
+  ten minutes: apply every migration **except** the new one to a scratch
+  database, insert one row of each shape it has to survive (a printed receipt, a
+  member's own reference in the same column, a row with the value missing, a row
+  pointing at a key that is about to move, one audit row per `entityType`), then
+  run it and read the tables back. That rehearsal is what showed a disbursement
+  carrying its loan's number, and it is the only place the assertions in the
+  migration's own `DO $$ … $$` blocks were ever executed against something that
+  could trip them.
 - **A migration that fails leaves Prisma's advisory lock on an idle pooled
   backend, and every later `migrate` blames the server.** After the
-  `user_id_history` migration was rejected by the append-only trigger, the next
+  first `user_id_history` migration was rejected by the append-only trigger, the next
   `pnpm db:migrate` said *"Please make sure your database server is running"* and
   *"Timed out trying to acquire a postgres advisory lock"* — against a database
   that answered `SELECT 1` immediately. The holder was a session whose
@@ -710,6 +723,34 @@ database** — [ADR-028](decisions.md).
 
 ## Tests and evidence
 
+- **A helper that throws fails the tests rather than the code, and the failure
+  looks like the suite's fault.** `registration.spec.ts` filled the date of birth
+  with `page.fill('#dateOfBirth', '1990-04-12')`. When that control became three
+  selects — a calendar is the wrong widget for a birthday — the id resolved to
+  the **day** select and Playwright answered *"Element is not an `<input>`"*.
+  Eight assertions went red at once: every phone-registration guarantee that has
+  to reach the documents step first. All eight stayed red, because the form was
+  demonstrably fine and a red suite over working code gets read as "the suite is
+  broken" exactly once before it stops being read at all. When a cluster of tests
+  in one file fails on the same line of one helper, the helper is the suspect,
+  and the guarantees it gates have been unenforced since the day it broke.
+- **A source-reading census anchored on an incidental detail goes blind the day
+  that detail is removed, and passes.** The audit-action census found every
+  action by matching `VALUES (gen_random_uuid()::text, 'ACTION'` — anchoring on
+  the id every writer supplied. ADR-044 made those ids a sequence, so no writer
+  passes one any more, so the census matched nothing and reported ten catalogued
+  actions as *written by nothing* — the opposite of the truth, in a test whose
+  whole job is to tell those two apart. It cannot distinguish "nothing writes
+  this" from "I can no longer see the writes", so it needs a `WRITTEN.size` floor
+  and an anchor on something the writers still have.
+- **Red-check a new census by planting the defect, not by reading the regex.**
+  `TestPostingsAndLoansAreNumbered` was written to fail on a `gen_random_uuid()`
+  in a posting insert. It passed against one, because
+  `INSERT INTO transactions .*?\)\s*VALUES` stops at the `)` that closes the
+  **column list** — so the values, which is where the id actually comes from,
+  were never in the matched text. Reading to the end of the enclosing backtick
+  literal fixed it. A census that scans the right files and matches nothing looks
+  exactly like a codebase with no defects.
 - **A regression test can be green before the fix because the defect was already
   fixed by somebody else.** WO-90 said the workers route answered 500 on a
   concurrent duplicate. The concurrency test written to see that 500 passed
@@ -885,6 +926,26 @@ answered 500.
 
 ## Interface
 
+- **`img-src` and `connect-src` are the same asset and not the same permission,
+  and a screen that has one of them looks completely correct.** The approvals and
+  member-detail screens showed a member's NID scan and had a Download button
+  beside it that did nothing at all. `img-src` named `res.cloudinary.com`;
+  `connect-src` did not — and saving a file means `fetch`ing it into a Blob first,
+  to name it something better than the URL's last segment. The fetch rejects, the
+  handler logs to a console nobody has open on a phone, and the button is
+  indistinguishable from a broken click handler. When a page can *display*
+  something from a third-party host but not *save* it, check the second
+  directive before reading any JavaScript.
+- **A download after `await` works exactly once per page load, then silently
+  stops.** Chrome permits one download without user activation and then requires
+  the site's "Automatic downloads" permission — refused on Android with no prompt
+  and no message. jsPDF's `save()` defers its anchor click by a
+  `setTimeout(…, 0)`, which puts every download in a fresh task with no
+  activation attached, so the first receipt saved and the second button did
+  nothing until the page was reloaded. `pdf.output('blob')` plus a click in the
+  same task fixes it; the gesture survives `await` on a resolved promise, so the
+  rule is *don't defer*, not *don't await*. Reloading resetting the symptom is
+  the tell: that is the per-page-load counter, not stale state.
 - **A calendar widget is the wrong control for a birthday, and the platform gives
   you one by default.** `<input type="date">` is what every form reaches for and
   it opens on *this month*. A member born in 1985 is then asked to travel there;

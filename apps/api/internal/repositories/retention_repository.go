@@ -148,7 +148,7 @@ var rejectedApplicantsSQL = `
 	     OR u."rejectionReasonNote" IS NOT NULL
 	     OR u.email IS NOT NULL
 	     OR u.phone NOT LIKE 'expired-%'
-	     OR EXISTS (SELECT 1 FROM addresses ad WHERE ad."userPermanentId" = u.id OR ad."userPresentId" = u.id)
+	     OR EXISTS (SELECT 1 FROM addresses ad WHERE ad."userId" = u.id)
 	     OR EXISTS (SELECT 1 FROM nominees n WHERE n."userId" = u.id)
 	  )
 	ORDER BY u.id
@@ -269,7 +269,7 @@ func (r *UserRepository) clearRejectedApplicant(
 	defer tx.Rollback(ctx)
 
 	addressResult, err := tx.Exec(ctx,
-		`DELETE FROM addresses WHERE "userPermanentId" = $1 OR "userPresentId" = $1`, userID)
+		`DELETE FROM addresses WHERE "userId" = $1`, userID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("delete addresses: %w", err)
 	}
@@ -295,8 +295,8 @@ func (r *UserRepository) clearRejectedApplicant(
 		identifier, days,
 	)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'RETENTION_SWEEP', 'USER', $1, NULL, NOW(), $2)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('RETENTION_SWEEP', 'USER', $1, NULL, NOW(), $2)
 	`, userID, details); err != nil {
 		return 0, 0, fmt.Errorf("write audit row: %w", err)
 	}

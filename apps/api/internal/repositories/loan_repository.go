@@ -44,20 +44,21 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 	}
 	defer tx.Rollback(ctx)
 
+	// `loanID` **is** the loan number (ADR-044), so there is nothing to read
+	// back: the value the caller passed in is what goes on the notification.
+	loanNumber := loanID
 	var principalAmount int64
-	var borrowerID, accountID, loanStatus, loanNumber string
+	var borrowerID, loanStatus string
 	const loanQuery = `
 		SELECT
 			"principalAmount"::bigint,
 			"borrowerId",
-			"accountId",
-			status::text,
-			COALESCE("loanNumber", '')
+			status::text
 		FROM loans
 		WHERE id = $1
 		FOR UPDATE
 	`
-	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &accountID, &loanStatus, &loanNumber); err != nil {
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &loanStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errors.New("loan request not found")
 		}
@@ -86,13 +87,20 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 		UPDATE accounts
 		SET "loanBalance" = "loanBalance" + $2,
 			"updatedAt" = NOW()
-		WHERE id = $1
+		WHERE "userId" = $1
 		RETURNING "loanBalance"::bigint, "savingsBalance"::bigint
 	`
-	if err := tx.QueryRow(ctx, updateAccountQuery, accountID, principalAmount).Scan(&updatedLoanBalance, &savingsBalance); err != nil {
+	if err := tx.QueryRow(ctx, updateAccountQuery, borrowerID, principalAmount).Scan(&updatedLoanBalance, &savingsBalance); err != nil {
 		return err
 	}
 
+	// The posting that pays the loan out gets its own number. It used to have
+	// none at all — a line in the ledger for the largest single movement of
+	// money the foundation makes, with nothing on paper to match it against.
+	disbursementNo, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
+	if err != nil {
+		return err
+	}
 	const txnQuery = `
 		INSERT INTO transactions (
 			id,
@@ -103,7 +111,6 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 			"createdAt",
 			"processedAt",
 			"confirmedAt",
-			"accountId",
 			"userId",
 			"loanId",
 			"processedBy",
@@ -111,15 +118,14 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 			"loanAfter"
 		)
 		VALUES (
-			gen_random_uuid()::text,
-			'LOAN_DISBURSEMENT',
 			$1,
+			'LOAN_DISBURSEMENT',
+			$2,
 			'Loan approved and disbursed',
 			'CONFIRMED',
 			NOW(),
 			NOW(),
 			NOW(),
-			$2,
 			$3,
 			$4,
 			$5,
@@ -127,7 +133,7 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 			$7
 		)
 	`
-	if _, err := tx.Exec(ctx, txnQuery, principalAmount, accountID, borrowerID, loanID, approverID, savingsBalance, updatedLoanBalance); err != nil {
+	if _, err := tx.Exec(ctx, txnQuery, disbursementNo, principalAmount, borrowerID, loanID, approverID, savingsBalance, updatedLoanBalance); err != nil {
 		return err
 	}
 
@@ -149,8 +155,8 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 	}
 
 	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt")
-		VALUES (gen_random_uuid()::text, 'APPROVE_LOAN', 'LOAN', $1, $2, NOW())
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt")
+		VALUES ('APPROVE_LOAN', 'LOAN', $1, $2, NOW())
 	`
 	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID)
 
@@ -164,13 +170,14 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 	}
 	defer tx.Rollback(ctx)
 
-	var borrowerID, loanStatus, loanNumber string
+	loanNumber := loanID
+	var borrowerID, loanStatus string
 	if err := tx.QueryRow(ctx, `
-		SELECT "borrowerId", status::text, COALESCE("loanNumber", '')
+		SELECT "borrowerId", status::text
 		FROM loans
 		WHERE id = $1
 		FOR UPDATE
-	`, loanID).Scan(&borrowerID, &loanStatus, &loanNumber); err != nil {
+	`, loanID).Scan(&borrowerID, &loanStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errors.New("loan request not found")
 		}
@@ -203,8 +210,8 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 	}
 
 	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'REJECT_LOAN', 'LOAN', $1, $2, NOW(), $3)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('REJECT_LOAN', 'LOAN', $1, $2, NOW(), $3)
 	`
 	_, _ = tx.Exec(ctx, auditQuery, loanID, approverID, reason)
 
@@ -223,18 +230,17 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 	}
 	defer tx.Rollback(ctx)
 
-	var memberStatus, accountID, memberName string
+	var memberStatus, memberName string
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			u.status::text,
-			a.id::text,
 			COALESCE(u."nameEn", '')
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1
 		  AND u.role = 'MEMBER'
 		FOR UPDATE OF a
-	`, memberID).Scan(&memberStatus, &accountID, &memberName); err != nil {
+	`, memberID).Scan(&memberStatus, &memberName); err != nil {
 		return "", errors.New("member not found")
 	}
 	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
@@ -242,17 +248,17 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 	}
 
 	var remainingAmount int64
-	var loanStatus, loanNumber string
+	loanNumber := loanID
+	var loanStatus string
 	if err := tx.QueryRow(ctx, `
 		SELECT
 			"remainingAmount"::bigint,
-			status::text,
-			COALESCE("loanNumber", '')
+			status::text
 		FROM loans
 		WHERE id = $1
 		  AND "borrowerId" = $2
 		FOR UPDATE
-	`, loanID, memberID).Scan(&remainingAmount, &loanStatus, &loanNumber); err != nil {
+	`, loanID, memberID).Scan(&remainingAmount, &loanStatus); err != nil {
 		return "", errors.New("loan not found")
 	}
 	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "ACTIVE" {
@@ -271,7 +277,7 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		  AND t.status = 'PENDING'
 		  AND t."loanId" = $2
 		  AND t.amount = $3
-		  AND COALESCE(t."receiptNumber", '') = $4
+		  AND COALESCE(t."externalReference", '') = $4
 		ORDER BY t."createdAt" DESC
 		LIMIT 1
 	`, memberID, loanID, amount, reference).Scan(&existingRequestID)
@@ -287,33 +293,35 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		description = "Member-submitted bKash loan repayment request"
 	}
 
-	var requestID string
-	if err := tx.QueryRow(ctx, `
+	// The instalment receipt number is issued when the request is made, so the
+	// member has a reference for it from the start, and it is the row.
+	requestID, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO transactions (
 			id,
 			type,
 			amount,
-			"receiptNumber",
+			"externalReference",
 			description,
 			status,
 			"createdAt",
-			"accountId",
 			"userId",
 			"loanId"
 		) VALUES (
-			gen_random_uuid()::text,
-			'LOAN_REPAYMENT',
 			$1,
+			'LOAN_REPAYMENT',
 			$2,
 			$3,
+			$4,
 			'PENDING',
 			NOW(),
-			$4,
 			$5,
 			$6
 		)
-		RETURNING id::text
-	`, amount, reference, description, accountID, memberID, loanID).Scan(&requestID); err != nil {
+	`, requestID, amount, reference, description, memberID, loanID); err != nil {
 		return "", err
 	}
 
@@ -366,7 +374,6 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 	query := `
 		SELECT
 			l.id,
-			l."loanNumber",
 			COALESCE(l."approvedAt", '0001-01-01'::timestamp),
 			COALESCE(l."disbursementDate", '0001-01-01'::timestamp),
 			l."principalAmount"::bigint,
@@ -394,7 +401,7 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 			COALESCE(g."nameEn", ''),
 			COALESCE(g."accountNo", '')
 		FROM loans l
-		JOIN accounts ac ON ac.id = l."accountId"
+		JOIN accounts ac ON ac."userId" = l."borrowerId"
 		JOIN users b ON b.id = l."borrowerId"
 		LEFT JOIN users g ON g.id = l."guarantorId"
 		LEFT JOIN users approver ON approver.id = l."approvedBy"
@@ -412,7 +419,7 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 
 	if search, ok := filters["search"].(string); ok && search != "" {
 		argCount++
-		query += fmt.Sprintf(` AND (b."nameEn" ILIKE $%d OR b."accountNo" ILIKE $%d OR l."loanNumber" ILIKE $%d)`, argCount, argCount, argCount)
+		query += fmt.Sprintf(` AND (b."nameEn" ILIKE $%d OR b."accountNo" ILIKE $%d OR l.id ILIKE $%d)`, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 	}
 
@@ -444,21 +451,23 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 
 	loans := []map[string]interface{}{}
 	for rows.Next() {
-		var id, loanNumber, purpose, status, approvedBy, borrowerID, borrowerName, borrowerNameBn, borrowerAccountNo, guarantorID, guarantorName, guarantorAccountNo string
+		var id, purpose, status, approvedBy, borrowerID, borrowerName, borrowerNameBn, borrowerAccountNo, guarantorID, guarantorName, guarantorAccountNo string
 		var principalAmount, remainingAmount, installmentAmount, memberDeposit int64
 		var totalInstallments, paidInstallments int
 		var approvedAt, disbursementDate, expectedEndDate, completedAt, createdAt time.Time
 		var installmentStart *time.Time
 
-		if err := rows.Scan(&id, &loanNumber, &approvedAt, &disbursementDate, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
+		if err := rows.Scan(&id, &approvedAt, &disbursementDate, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
 			&installmentStart, &expectedEndDate, &completedAt, &purpose, &status, &createdAt, &approvedBy, &memberDeposit,
 			&borrowerID, &borrowerName, &borrowerNameBn, &borrowerAccountNo, &guarantorID, &guarantorName, &guarantorAccountNo); err != nil {
 			continue
 		}
 
 		loan := map[string]interface{}{
+			// `id` is the loan number (ADR-044). There is no second field for it:
+			// two names for one string is what this replaced, and a client
+			// reading the wrong one of the two is how they drift.
 			"id":                 id,
-			"loanNumber":         loanNumber,
 			"status":             status,
 			"amount":             principalAmount,
 			"paidAmount":         (principalAmount - remainingAmount),
@@ -567,7 +576,6 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 	const loanQuery = `
 		SELECT
 			l.id,
-			l."loanNumber",
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
 			l."totalInstallments",
@@ -594,14 +602,14 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 		WHERE l.id = $1
 	`
 
-	var id, loanNumber, purpose, status, borrowerName, borrowerNameBn, borrowerAccountNo, borrowerPhone string
+	var id, purpose, status, borrowerName, borrowerNameBn, borrowerAccountNo, borrowerPhone string
 	var guarantorName, guarantorNameBn, guarantorAccountNo, guarantorPhone string
 	var principalAmount, remainingAmount, installmentAmount int64
 	var totalInstallments, paidInstallments int
 	var disbursementDate, installmentStartDate, expectedEndDate, completedAt, createdAt time.Time
 
 	if err := r.db.QueryRow(ctx, loanQuery, loanID).Scan(
-		&id, &loanNumber, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
+		&id, &principalAmount, &remainingAmount, &totalInstallments, &installmentAmount, &paidInstallments,
 		&disbursementDate, &installmentStartDate, &expectedEndDate, &completedAt, &purpose, &status, &createdAt,
 		&borrowerName, &borrowerNameBn, &borrowerAccountNo, &borrowerPhone,
 		&guarantorName, &guarantorNameBn, &guarantorAccountNo, &guarantorPhone); err != nil {
@@ -610,7 +618,6 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 
 	result := map[string]interface{}{
 		"id":                id,
-		"loanNumber":        loanNumber,
 		"principalAmount":   principalAmount,
 		"remainingAmount":   remainingAmount,
 		"totalInstallments": totalInstallments,
@@ -654,7 +661,6 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 		SELECT
 			t.id,
 			t.amount::bigint,
-			t."receiptNumber",
 			t.description,
 			t."createdAt",
 			COALESCE(u."nameEn", '') as processed_by
@@ -669,16 +675,15 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 		defer rows.Close()
 		repayments := []map[string]interface{}{}
 		for rows.Next() {
-			var txId, receipt, description, processedBy string
+			var txId, description, processedBy string
 			var amount int64
 			var createdAt time.Time
-			if err := rows.Scan(&txId, &amount, &receipt, &description, &createdAt, &processedBy); err != nil {
+			if err := rows.Scan(&txId, &amount, &description, &createdAt, &processedBy); err != nil {
 				continue
 			}
 			repayments = append(repayments, map[string]interface{}{
 				"id":          txId,
 				"amount":      amount,
-				"receipt":     receipt,
 				"description": description,
 				"date":        createdAt.Format(time.RFC3339),
 				"processedBy": processedBy,
@@ -727,14 +732,14 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	// waterfall: any savings the borrower or guarantor had deposited since the
 	// first default were taken again, for a debt that had already been settled
 	// against them. Two clicks on one button, and money left an account twice.
-	var currentStatus, loanNumber, borrowerID string
+	loanNumber := loanID
+	var currentStatus, borrowerID string
 	var totalInstallments, paidInstallments int
 	var remainingAmount int64
 	var installmentStart *time.Time
 	err = tx.QueryRow(ctx, `
 		SELECT
 			status::text,
-			"loanNumber",
 			"borrowerId",
 			"totalInstallments",
 			"paidInstallments",
@@ -743,7 +748,7 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 		FROM loans
 		WHERE id = $1
 		FOR UPDATE
-	`, loanID).Scan(&currentStatus, &loanNumber, &borrowerID, &totalInstallments, &paidInstallments, &remainingAmount, &installmentStart)
+	`, loanID).Scan(&currentStatus, &borrowerID, &totalInstallments, &paidInstallments, &remainingAmount, &installmentStart)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrLoanNotFound
 	}
@@ -790,8 +795,8 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	// Create audit log. Checked: an unwritten audit row for a default is a
 	// rule-6 problem, and this Exec used to discard its error entirely.
 	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
 	`
 	if _, err := tx.Exec(ctx, auditQuery, loanID, adminID, notes); err != nil {
 		return fmt.Errorf("failed to write audit log: %w", err)
@@ -848,14 +853,14 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	// back. Without the lock two concurrent defaults against one guarantor can
 	// both draw the same savings.
 	var remainingAmount int64
-	var borrowerID, guarantorID, accountID string
+	var borrowerID, guarantorID string
 	const loanQuery = `
-		SELECT "remainingAmount", "borrowerId", COALESCE("guarantorId", ''), "accountId"
+		SELECT "remainingAmount", "borrowerId", COALESCE("guarantorId", '')
 		FROM loans
 		WHERE id = $1
 		FOR UPDATE
 	`
-	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&remainingAmount, &borrowerID, &guarantorID, &accountID); err != nil {
+	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&remainingAmount, &borrowerID, &guarantorID); err != nil {
 		return err
 	}
 
@@ -865,8 +870,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	// Step 1: Try to recover from borrower's savings
 	if amountToRecover > 0 {
 		var borrowerSavings int64
-		var borrowerAccountID string
-		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1 FOR UPDATE`, borrowerID).Scan(&borrowerSavings, &borrowerAccountID)
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance" FROM accounts WHERE "userId" = $1 FOR UPDATE`, borrowerID).Scan(&borrowerSavings)
 		if err == nil && borrowerSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, borrowerSavings)
 
@@ -877,9 +881,9 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 			if err := tx.QueryRow(ctx, `
 				UPDATE accounts
 				SET "savingsBalance" = "savingsBalance" - $1, "updatedAt" = NOW()
-				WHERE id = $2
+				WHERE "userId" = $2
 				RETURNING "savingsBalance"::bigint
-			`, deduction, borrowerAccountID).Scan(&newSavings); err != nil {
+			`, deduction, borrowerID).Scan(&newSavings); err != nil {
 				// Not skipped silently. This UPDATE failing used to leave the
 				// step un-taken while the loan was still written down below,
 				// so the debt vanished with nothing drawn against it.
@@ -892,16 +896,24 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 			// here made every status-filtered aggregate under-count a recovery
 			// that had already happened — including the reconciliation in
 			// reconcile_repository.go, which is what found it.
+			// A recovery is a withdrawal from the member's savings, so it gets a
+			// withdrawal receipt like any other. It used to get none: the one
+			// posting a member is most likely to query was the one with no
+			// number to quote.
+			borrowerReceipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO transactions (
 					id, type, amount, description, status, "createdAt",
-					"processedAt", "confirmedAt", "accountId", "userId", "loanId", "savingsAfter"
+					"processedAt", "confirmedAt", "userId", "loanId", "savingsAfter"
 				)
 				VALUES (
-					gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - ঋণগ্রহীতা', 'CONFIRMED', NOW(),
-					NOW(), NOW(), $2, $3, $4, $5
+					$1, 'WITHDRAWAL', $2, 'ডিফল্ট ঋণ পুনরুদ্ধার - ঋণগ্রহীতা', 'CONFIRMED', NOW(),
+					NOW(), NOW(), $3, $4, $5
 				)
-			`, deduction, borrowerAccountID, borrowerID, loanID, newSavings); err != nil {
+			`, borrowerReceipt, deduction, borrowerID, loanID, newSavings); err != nil {
 				return err
 			}
 
@@ -913,8 +925,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	// Step 2: Try to recover from guarantor's savings
 	if amountToRecover > 0 && guarantorID != "" {
 		var guarantorSavings int64
-		var guarantorAccountID string
-		err := tx.QueryRow(ctx, `SELECT "savingsBalance", id FROM accounts WHERE "userId" = $1 FOR UPDATE`, guarantorID).Scan(&guarantorSavings, &guarantorAccountID)
+		err := tx.QueryRow(ctx, `SELECT "savingsBalance" FROM accounts WHERE "userId" = $1 FOR UPDATE`, guarantorID).Scan(&guarantorSavings)
 		if err == nil && guarantorSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, guarantorSavings)
 
@@ -924,22 +935,26 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 			if err := tx.QueryRow(ctx, `
 				UPDATE accounts
 				SET "savingsBalance" = "savingsBalance" - $1, "updatedAt" = NOW()
-				WHERE id = $2
+				WHERE "userId" = $2
 				RETURNING "savingsBalance"::bigint
-			`, deduction, guarantorAccountID).Scan(&newSavings); err != nil {
+			`, deduction, guarantorID).Scan(&newSavings); err != nil {
 				return fmt.Errorf("recover from guarantor savings: %w", err)
 			}
 
+			guarantorReceipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO transactions (
 					id, type, amount, description, status, "createdAt",
-					"processedAt", "confirmedAt", "accountId", "userId", "loanId", "savingsAfter"
+					"processedAt", "confirmedAt", "userId", "loanId", "savingsAfter"
 				)
 				VALUES (
-					gen_random_uuid()::text, 'WITHDRAWAL', $1, 'ডিফল্ট ঋণ পুনরুদ্ধার - জামিনদাতা', 'CONFIRMED', NOW(),
-					NOW(), NOW(), $2, $3, $4, $5
+					$1, 'WITHDRAWAL', $2, 'ডিফল্ট ঋণ পুনরুদ্ধার - জামিনদাতা', 'CONFIRMED', NOW(),
+					NOW(), NOW(), $3, $4, $5
 				)
-			`, deduction, guarantorAccountID, guarantorID, loanID, newSavings); err != nil {
+			`, guarantorReceipt, deduction, guarantorID, loanID, newSavings); err != nil {
 				return err
 			}
 
@@ -968,26 +983,34 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		if donationBalance > 0 {
 			deduction := money.RecoverFrom(amountToRecover, donationBalance)
 
-			// "accountId" is NOT NULL, and this insert used to omit it — the row
-			// silently failed while the loan was still written down, so the debt
-			// vanished with no ledger entry behind it. The loan's own account
-			// carries the entry, which keeps the draw traceable from the loan it
-			// settled. The error is checked for the same reason.
+			// The row carries the borrower, which is what it always meant: the
+			// column that used to sit beside them here was `accountId`, it was
+			// NOT NULL, and this insert once omitted it — the row silently
+			// failed while the loan was still written down, so the debt vanished
+			// with no ledger entry behind it. There is one column now.
+			//
+			// The number comes from the ADJ series rather than FEE: the enum
+			// label says FEE and this platform charges none (rule 3), so the
+			// document a person could be handed must not say so either.
 			// CONFIRMED for the same reason as the two steps above: this row is
 			// what depletes the pool, and the depletion query below sums it
 			// without knowing that a status column exists. It moves no
 			// `savingsBalance` — the pool is a balance of donations minus draws
 			// — so it carries no `savingsAfter`.
+			poolReceipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesAdjustment)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO transactions (
 					id, type, amount, description, status, "createdAt",
-					"processedAt", "confirmedAt", "accountId", "userId", "loanId"
+					"processedAt", "confirmedAt", "userId", "loanId"
 				)
 				VALUES (
-					gen_random_uuid()::text, 'FEE', $1, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', 'CONFIRMED', NOW(),
-					NOW(), NOW(), $2, $3, $4
+					$1, 'FEE', $2, 'দাতব্য তহবিল থেকে ডিফল্ট ঋণ পুনরুদ্ধার', 'CONFIRMED', NOW(),
+					NOW(), NOW(), $3, $4
 				)
-			`, deduction, accountID, borrowerID, loanID); err != nil {
+			`, poolReceipt, deduction, borrowerID, loanID); err != nil {
 				return err
 			}
 
@@ -1015,8 +1038,8 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		if _, err := tx.Exec(ctx, `
 			UPDATE accounts
 			SET "loanBalance" = GREATEST("loanBalance" - $1, 0), "updatedAt" = NOW()
-			WHERE id = $2
-		`, recovered, accountID); err != nil {
+			WHERE "userId" = $2
+		`, recovered, borrowerID); err != nil {
 			return fmt.Errorf("reduce loan balance after recovery: %w", err)
 		}
 	}
@@ -1026,8 +1049,8 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	// to settle the debt, and it used to discard its error.
 	recoveryDetails := fmt.Sprintf("Waterfall recovery completed. Steps: %v. Remaining: %d", recoverySteps, newRemaining)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'WATERFALL_RECOVERY', 'LOAN', $1, NOW(), $2)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "createdAt", details)
+		VALUES ('WATERFALL_RECOVERY', 'LOAN', $1, NOW(), $2)
 	`, loanID, recoveryDetails); err != nil {
 		return fmt.Errorf("failed to write recovery audit log: %w", err)
 	}
@@ -1051,19 +1074,18 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	defer tx.Rollback(ctx)
 
 	// Verify member exists, lock account row for consistent balance/eligibility checks.
-	var status, accountID string
+	var status string
 	var currentBalance, activeLoan int64
 	err = tx.QueryRow(ctx, `
 		SELECT
 			u.status::text,
-			a.id::text,
 			COALESCE(a."savingsBalance", 0)::bigint,
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status IN ('ACTIVE','PENDING_APPROVAL','PENDING_GUARANTOR')), 0)::bigint
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 		FOR UPDATE OF a
-	`, memberID).Scan(&status, &accountID, &currentBalance, &activeLoan)
+	`, memberID).Scan(&status, &currentBalance, &activeLoan)
 	if err != nil {
 		return "", fmt.Errorf("member not found: %w", err)
 	}
@@ -1092,20 +1114,19 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	// into the final one, which the loan agreement PDF prints. See money.InstallmentPlan.
 	installmentAmount, _ := money.InstallmentPlan(amount, installments)
 
-	var loanID string
-	err = tx.QueryRow(ctx, `
+	// The loan number IS the row (ADR-044), so there is nothing to read back.
+	loanID := loanNumber
+	if _, err = tx.Exec(ctx, `
 		INSERT INTO loans (
-			id, "loanNumber", "accountId", "borrowerId", "principalAmount", "remainingAmount",
+			id, "borrowerId", "principalAmount", "remainingAmount",
 			"totalInstallments", "paidInstallments", "installmentAmount",
 			purpose, status, "disbursementDate", "approvedAt", "approvedBy", "createdAt", "updatedAt"
 		) VALUES (
-			gen_random_uuid()::text, $1, $2, $3, $4, $5,
-			$6, 0, $7,
-			$8, 'ACTIVE', NOW(), NOW(), $9, NOW(), NOW()
+			$1, $2, $3, $4,
+			$5, 0, $6,
+			$7, 'ACTIVE', NOW(), NOW(), $8, NOW(), NOW()
 		)
-		RETURNING id
-	`, loanNumber, accountID, memberID, amount, amount, installments, installmentAmount, purpose, workerID).Scan(&loanID)
-	if err != nil {
+	`, loanNumber, memberID, amount, amount, installments, installmentAmount, purpose, workerID); err != nil {
 		return "", fmt.Errorf("failed to create loan: %w", err)
 	}
 
@@ -1113,9 +1134,9 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	err = tx.QueryRow(ctx, `
 		UPDATE accounts
 		SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW()
-		WHERE id = $2
+		WHERE "userId" = $2
 		RETURNING "loanBalance"::bigint
-	`, amount, accountID).Scan(&updatedLoanBalance)
+	`, amount, memberID).Scan(&updatedLoanBalance)
 	if err != nil {
 		return "", fmt.Errorf("failed to update account loan balance: %w", err)
 	}
@@ -1124,17 +1145,23 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	if strings.TrimSpace(description) == "" {
 		description = "ঋণ বিতরণ"
 	}
+	// `DSB-`, not the loan's own number. The posting and the loan are two
+	// documents and used to share one string.
+	disbursementNo, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
+	if err != nil {
+		return "", err
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO transactions (
-			id, type, amount, "receiptNumber", description, status,
-			"accountId", "userId", "loanId", "processedBy",
+			id, type, amount, description, status,
+			"userId", "loanId", "processedBy",
 			"loanAfter", "processedAt", "confirmedAt", "createdAt"
 		) VALUES (
-			gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, $2, $3, 'CONFIRMED',
-			$4, $5, $6, $7,
-			$8, NOW(), NOW(), NOW()
+			$1, 'LOAN_DISBURSEMENT', $2, $3, 'CONFIRMED',
+			$4, $5, $6,
+			$7, NOW(), NOW(), NOW()
 		)
-	`, amount, loanNumber, description, accountID, memberID, loanID, workerID, updatedLoanBalance)
+	`, disbursementNo, amount, description, memberID, loanID, workerID, updatedLoanBalance)
 	if err != nil {
 		return "", fmt.Errorf("failed to create loan disbursement transaction: %w", err)
 	}
@@ -1244,33 +1271,34 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 	// The account is locked first and the loan second, in the same order every
 	// other money path takes them, so two concurrent top-ups queue instead of
 	// deadlocking against each other.
-	var memberStatus, accountID string
+	var memberStatus string
 	var savingsBalance int64
 	if err := tx.QueryRow(ctx, `
-		SELECT u.status::text, a.id::text, COALESCE(a."savingsBalance", 0)::bigint
+		SELECT u.status::text, COALESCE(a."savingsBalance", 0)::bigint
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 		FOR UPDATE OF a
-	`, memberID).Scan(&memberStatus, &accountID, &savingsBalance); err != nil {
+	`, memberID).Scan(&memberStatus, &savingsBalance); err != nil {
 		return "", ErrMemberNotFound
 	}
 	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
 		return "", ErrMemberNotActive
 	}
 
-	var loanNumber, loanStatus string
+	loanNumber := loanID
+	var loanStatus string
 	var principal, remaining int64
 	var totalInstallments, paidInstallments int
 	if err := tx.QueryRow(ctx, `
-		SELECT "loanNumber", status::text,
+		SELECT status::text,
 			"principalAmount"::bigint, "remainingAmount"::bigint,
 			"totalInstallments", "paidInstallments"
 		FROM loans
 		WHERE id = $1 AND "borrowerId" = $2
 		FOR UPDATE
 	`, loanID, memberID).Scan(
-		&loanNumber, &loanStatus, &principal, &remaining, &totalInstallments, &paidInstallments,
+		&loanStatus, &principal, &remaining, &totalInstallments, &paidInstallments,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrLoanNotFound
@@ -1317,13 +1345,17 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 	if err := tx.QueryRow(ctx, `
 		UPDATE accounts
 		SET "loanBalance" = "loanBalance" + $1, "updatedAt" = NOW()
-		WHERE id = $2
+		WHERE "userId" = $2
 		RETURNING "loanBalance"::bigint
-	`, amount, accountID).Scan(&updatedLoanBalance); err != nil {
+	`, amount, memberID).Scan(&updatedLoanBalance); err != nil {
 		return "", fmt.Errorf("failed to update account loan balance: %w", err)
 	}
 
-	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoan)
+	// `DSB-`, not `LOAN-`. A top-up is a posting against an existing loan; it
+	// used to take a **loan number**, so the register of loans acquired a gap
+	// for every top-up ever made, and the number printed on the member's copy
+	// named a loan that does not exist.
+	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
 	if err != nil {
 		return "", err
 	}
@@ -1334,15 +1366,15 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO transactions (
-			id, type, amount, "receiptNumber", description, status,
-			"accountId", "userId", "loanId", "processedBy",
+			id, type, amount, description, status,
+			"userId", "loanId", "processedBy",
 			"loanAfter", "processedAt", "confirmedAt", "createdAt"
 		) VALUES (
-			gen_random_uuid()::text, 'LOAN_DISBURSEMENT', $1, $2, $3, 'CONFIRMED',
-			$4, $5, $6, $7,
-			$8, NOW(), NOW(), NOW()
+			$1, 'LOAN_DISBURSEMENT', $2, $3, 'CONFIRMED',
+			$4, $5, $6,
+			$7, NOW(), NOW(), NOW()
 		)
-	`, amount, receipt, description, accountID, memberID, loanID, staffID, updatedLoanBalance); err != nil {
+	`, receipt, amount, description, memberID, loanID, staffID, updatedLoanBalance); err != nil {
 		return "", fmt.Errorf("failed to record the top-up: %w", err)
 	}
 
@@ -1405,14 +1437,14 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	// passed the check, all committed, and left `accounts."loanBalance"` at
 	// -5000 with the loan's own remaining amount disagreeing with it. A member
 	// double-tapping a button on a bad connection paid twice for one debt.
-	var userId, accountId, status string
+	var userId, status string
 	if err := tx.QueryRow(ctx, `
-		SELECT u.id, u.status::text, a.id
+		SELECT u.id, u.status::text
 		FROM users u
 		JOIN accounts a ON a."userId" = u.id
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 		FOR UPDATE OF a
-	`, memberID).Scan(&userId, &status, &accountId); err != nil {
+	`, memberID).Scan(&userId, &status); err != nil {
 		return "", fmt.Errorf("member not found")
 	}
 	if status != "ACTIVE" {
@@ -1472,9 +1504,9 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		UPDATE accounts
 		SET "loanBalance" = "loanBalance" - $1,
 			"updatedAt" = NOW()
-		WHERE id = $2
+		WHERE "userId" = $2
 		RETURNING "loanBalance"::bigint
-	`, amount, accountId).Scan(&newLoanBalance); err != nil {
+	`, amount, memberID).Scan(&newLoanBalance); err != nil {
 		return "", fmt.Errorf("failed to update account balance: %w", err)
 	}
 
@@ -1485,15 +1517,15 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO transactions (
-			id, type, amount, "receiptNumber", description, status,
-			"accountId", "userId", "loanId", "processedBy",
+			id, type, amount, description, status,
+			"userId", "loanId", "processedBy",
 			"loanAfter", "processedAt", "confirmedAt", "createdAt"
 		) VALUES (
-			gen_random_uuid()::text, 'LOAN_REPAYMENT', $1, $2, $3, 'CONFIRMED',
-			$4, $5, $6, $7,
-			$8, NOW(), NOW(), NOW()
+			$1, 'LOAN_REPAYMENT', $2, $3, 'CONFIRMED',
+			$4, $5, $6,
+			$7, NOW(), NOW(), NOW()
 		)
-	`, amount, receiptNumber, description, accountId, memberID, loanID, processedByID, newLoanBalance)
+	`, receiptNumber, amount, description, memberID, loanID, processedByID, newLoanBalance)
 	if err != nil {
 		return "", fmt.Errorf("failed to create transaction: %w", err)
 	}

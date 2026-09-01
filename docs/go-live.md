@@ -218,6 +218,66 @@ for the *"Duplicate, Google chose different canonical than user"* report on
 
 ---
 
+## Bing — the half that was never set up
+
+Search Console covers Google. **Bing has never been told this site exists**, and
+that is the whole of "we do not appear on Bing": no Webmaster Tools property, so
+nothing has submitted the sitemap, nothing can see the crawl, and a domain with
+no inbound links waits months rather than weeks to be found on its own. The
+missing favicon in a Bing result is the same fact wearing a different hat — Bing
+draws the generic globe for a result whose icon it has not fetched, and it does
+not fetch icons for pages it has barely indexed.
+
+The technical side is already correct and was verified over HTTP on 2026-09-01:
+
+```bash
+curl -sI https://www.hasnahenafoundation.com/favicon.ico | head -1   # 200, image/vnd.microsoft.icon
+curl -s  https://www.hasnahenafoundation.com/ | grep -o 'rel="icon"[^>]*'
+curl -s  https://www.hasnahenafoundation.com/sitemap.xml | grep -c '<url>'   # 20, all www
+curl -sI -A 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)' \
+     https://www.hasnahenafoundation.com/ | head -1                  # 200 — Cloudflare is not blocking bingbot
+```
+
+So there is nothing left to fix in the markup. What is left is an account:
+
+1. **Claim the property** at [bing.com/webmasters](https://www.bing.com/webmasters).
+   Use **Import from Google Search Console** — it verifies and carries the
+   sitemap across in one step, with no tag to deploy. If the import is refused,
+   set `BING_SITE_VERIFICATION` in the Vercel project to the `msvalidate.01`
+   content value and redeploy; `siteVerification()` in `apps/web/lib/seo.ts`
+   emits the tag, and nothing at all when the variable is unset.
+2. **Use `https://www.hasnahenafoundation.com`**, with the `www`. The apex 308s
+   to it and Bing treats the two as different sites.
+3. **Submit the sitemap** if the import did not: `/sitemap.xml`.
+4. **Announce changes with IndexNow** rather than waiting to be crawled:
+
+   ```bash
+   cd apps/web && NEXT_PUBLIC_SITE_URL=https://www.hasnahenafoundation.com \
+     pnpm seo:indexnow            # every URL in the live sitemap
+   pnpm seo:indexnow /faq /bn/faq # or just the pages that changed
+   ```
+
+   The key is `public/<key>.txt`, served at the root, and it is **not a secret** —
+   that file being publicly readable is the entire authentication scheme. Run it
+   *after* the deploy: the script refuses if the live key file does not answer
+   with the key, because submitting URLs that 404 teaches a crawler to ignore the
+   hints. Yandex and Cloudflare's crawler hints read the same submission.
+5. **Then wait, and stop searching for it.** Bing's index for a new small site
+   moves on the order of weeks. Webmaster Tools' *URL Inspection* and *Site
+   Explorer* are the honest answer to "is it in yet" — a search box is not, and
+   a logged-out Bing query from a fresh IP is answered by a bot-detection page
+   whose results are not real.
+
+**What ranking will still need.** Being indexed is not being first. Bing leans on
+brand signals this site does not yet have: inbound links from pages Bing already
+knows, and the exact phrase on the page. The home `<h1>` is *"Interest-Free
+Finance"* — the foundation's name is in the `<title>`, the JSON-LD and the
+`alternateName` list, but not in the largest heading a crawler reads. That is a
+content decision for the owner, not a bug, and it is the first thing to revisit
+if the site is indexed and still not ranking for its own name.
+
+---
+
 
 ---
 

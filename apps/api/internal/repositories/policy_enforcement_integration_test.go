@@ -123,7 +123,9 @@ func TestASettledRequestBecomesThePostingRatherThanASecondRow(t *testing.T) {
 
 	var status, storedReceipt string
 	if err := testPool.QueryRow(ctx,
-		`SELECT status::text, COALESCE("receiptNumber", '') FROM transactions WHERE id = $1`,
+		// The request already carried its number and keeps it: settling one
+		// must not stamp a second onto the same posting (ADR-044).
+		`SELECT status::text, id FROM transactions WHERE id = $1`,
 		requestID).Scan(&status, &storedReceipt); err != nil {
 		t.Fatalf("read settled request: %v", err)
 	}
@@ -292,11 +294,11 @@ func seedLoanBehindBy(t *testing.T, borrower, guarantor string, remaining int64,
 	t.Helper()
 	var loanID string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "disbursementDate", "installmentStartDate",
 			"createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-ARREARS-' || $1, 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-ARREARS-' || $1, $1, $2,
 			$3, $3, 12, 0, ($3/12)::bigint, 'arrears', 'ACTIVE',
 			NOW() - ($4 || ' months')::interval,
 			NOW() - ($4 || ' months')::interval,
@@ -409,10 +411,10 @@ func TestALoanWithNoScheduleCannotBeDefaulted(t *testing.T) {
 
 	var loanID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-NOSCHED', 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-NOSCHED', $1, $2,
 			12000, 12000, 12, 0, 1000, 'no schedule', 'ACTIVE', NOW(), NOW())
 		RETURNING id
 	`, borrower, guarantor).Scan(&loanID); err != nil {

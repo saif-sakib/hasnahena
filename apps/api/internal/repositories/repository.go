@@ -65,9 +65,11 @@ func (r *UserRepository) insertAuditLogTx(
 	performedBy string,
 	details string,
 ) error {
+	// No `id`. The key is a sequence the database owns (ADR-044) — a log is read
+	// in the order it happened, and the key is what says what that order is.
 	_, err := tx.Exec(ctx, `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", details, "createdAt")
-		VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, NOW())
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", details, "createdAt")
+		VALUES ($1, $2, $3, $4, $5, NOW())
 	`, action, entityType, entityID, performedBy, details)
 	return err
 }
@@ -82,8 +84,8 @@ func (r *UserRepository) insertNotificationTx(
 	targetRole *string,
 ) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO notifications (id, type, title, message, "targetUserId", "targetRole", "createdAt")
-		VALUES (gen_random_uuid()::text, $1::"NotificationType", $2, $3, $4, $5::"UserRole", NOW())
+		INSERT INTO notifications (type, title, message, "targetUserId", "targetRole", "createdAt")
+		VALUES ($1::"NotificationType", $2, $3, $4, $5::"UserRole", NOW())
 	`, notificationType, title, message, targetUserID, targetRole)
 	return err
 }

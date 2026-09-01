@@ -33,11 +33,11 @@ type TransactionType = KnownTransactionType | string;
 type TransactionStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED';
 
 interface Transaction {
+  /** The receipt number — `DEP-2026-000001`. The id IS it (ADR-044). */
   id: string;
   type: TransactionType;
   amount: number;
   date: string;
-  receiptNumber: string;
   description?: string;
   status: TransactionStatus;
   balanceAfter?: number;
@@ -131,7 +131,7 @@ export default function TransactionsPage() {
         amount: tx.amount,
         balance: (tx.balanceAfter || 0),
         description: tx.description,
-        receiptNumber: tx.receiptNumber,
+        receiptNumber: tx.id,
       })),
     }, orgSettings);
     
@@ -144,7 +144,7 @@ export default function TransactionsPage() {
     const orgSettings = await fetchOrgSettings();
     
     const receiptDoc = buildReceipt({
-      receiptNumber: tx.receiptNumber,
+      receiptNumber: tx.id,
       type: tx.type,
       amount: tx.amount,
       date: tx.date,
@@ -243,7 +243,7 @@ export default function TransactionsPage() {
 
   // Filter transactions
   const filteredTransactions = transactions.filter((tx) => {
-    const receipt = tx.receiptNumber ?? '';
+    const receipt = tx.id;
     const description = tx.description ?? '';
     const matchesSearch =
       receipt.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -430,7 +430,7 @@ export default function TransactionsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{locale === 'bn' ? typeInfo.bn : typeInfo.en}</p>
-                      <p className="text-xs text-gray-400">{tx.receiptNumber}</p>
+                      <p className="text-xs text-gray-400">{tx.id}</p>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className={`font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
@@ -504,7 +504,7 @@ export default function TransactionsPage() {
             </div>
             <div className="p-4">
               <div className="mb-4 p-3 bg-gray-50 text-sm">
-                <p className="text-gray-500">{t('receiptNumber')}: <span className="font-medium text-gray-900">{selectedTransaction.receiptNumber}</span></p>
+                <p className="text-gray-500">{t('receiptNumber')}: <span className="font-medium text-gray-900">{selectedTransaction.id}</span></p>
                 <p className="text-gray-500">{t('amount')}: <span className="font-medium text-gray-900">{formatCurrency(selectedTransaction.amount, locale)}</span></p>
               </div>
               {actionError && (

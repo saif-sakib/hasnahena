@@ -34,10 +34,10 @@ func seedLoanNoGuarantor(t *testing.T, borrower string, remaining int64) string 
 	t.Helper()
 	var loanID string
 	err := testPool.QueryRow(context.Background(), `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId",
+		INSERT INTO loans (id, "borrowerId",
 			"principalAmount", "remainingAmount", "totalInstallments",
 			"installmentAmount", status, "installmentStartDate", "createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-TEST-NOGUAR', 'acct_' || $1, $1,
+		VALUES ('LOAN-TEST-NOGUAR', $1,
 			$2, $2, 10, 100, 'ACTIVE', NOW() - INTERVAL '6 months', NOW(), NOW())
 		RETURNING id
 	`, borrower, remaining).Scan(&loanID)
@@ -338,10 +338,10 @@ func TestGuarantorSeesPendingRequest(t *testing.T) {
 
 	var loanID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments",
 			"installmentAmount", status, "createdAt", "updatedAt")
-		VALUES (gen_random_uuid()::text, 'LOAN-TEST-PENDGUAR', 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-TEST-PENDGUAR', $1, $2,
 			50000, 50000, 10, 5000, 'PENDING_GUARANTOR', NOW(), NOW())
 		RETURNING id
 	`, borrower, guarantor).Scan(&loanID); err != nil {
@@ -427,9 +427,9 @@ func seedDonationAccount(t *testing.T) string {
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 			"createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, 0, 0, NOW(), NOW(), $1)
+		VALUES (0, 0, NOW(), NOW(), $1)
 	`, owner); err != nil {
 		t.Fatalf("seed donation account: %v", err)
 	}

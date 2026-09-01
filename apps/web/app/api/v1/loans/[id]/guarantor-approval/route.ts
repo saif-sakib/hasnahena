@@ -73,7 +73,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         targetUserId: loan.borrowerId,
         data: {
           loanId: loan.id,
-          loanNumber: loan.loanNumber,
           guarantorId: auth.id,
           guarantorName: member.nameEn,
           accepted: payload.accepted,
@@ -87,12 +86,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         data: {
           type: 'LOAN_REQUEST',
           title: 'Loan Ready for Approval',
-          message: `Loan ${loan.loanNumber} for ${loan.borrower.nameEn} (${formatMoney(loan.principalAmount)}) is ready for admin approval.`,
+          message: `Loan ${loan.id} for ${loan.borrower.nameEn} (${formatMoney(loan.principalAmount)}) is ready for admin approval.`,
           targetRole: UserRole.ADMIN,
           data: {
             loanId: loan.id,
-            loanNumber: loan.loanNumber,
-            borrowerId: loan.borrowerId,
+              borrowerId: loan.borrowerId,
             borrowerName: loan.borrower.nameEn,
             amount: Number(loan.principalAmount),
           },

@@ -60,9 +60,17 @@ function actionsWrittenInSource(): Set<string> {
   );
   for (const file of goFiles) {
     const source = readFileSync(file, 'utf8');
-    // INSERT INTO audit_logs (...) VALUES (gen_random_uuid()::text, 'ACTION', ...
+    // INSERT INTO audit_logs (action, ...) VALUES ('ACTION', ...
+    //
+    // The literal is the first value now: the key is a sequence the database
+    // owns (ADR-044), so no writer names an id, and this used to anchor on the
+    // `gen_random_uuid()::text` that every one of them passed. That anchor
+    // vanishing found ten catalogued-but-apparently-unwritten actions in one
+    // run, which is the census working — it cannot tell "nothing writes this"
+    // from "I can no longer see the writes", so it must be anchored on
+    // something the writers still have.
     for (const [, action] of source.matchAll(
-      /INSERT INTO audit_logs[\s\S]{0,400}?VALUES \(gen_random_uuid\(\)::text, '([A-Z_]+)'/g,
+      /INSERT INTO audit_logs[\s\S]{0,400}?VALUES \(\s*'([A-Z_]+)'/g,
     )) {
       found.add(action);
     }
@@ -72,6 +80,22 @@ function actionsWrittenInSource(): Set<string> {
     // AuditLogEntry{ Action: "X" — only the security service builds one.
     if (source.includes('AuditLogEntry{')) {
       for (const [, action] of source.matchAll(/Action:\s*"([A-Z_]+)"/g)) found.add(action);
+    }
+  }
+
+  // **The migrations are a third writer.** Exactly one action is written by
+  // neither backend: `20260901120000_ids_are_the_numbers` appends a row saying
+  // it suspended the append-only trigger (ADR-044). Without this the census
+  // reports that action as catalogued-but-unwritten, which is the one thing it
+  // must not get wrong — a real dead chip and a real migration row look
+  // identical to a scan that only reads application source.
+  const migrationsDir = join(WEB_ROOT, 'prisma', 'migrations');
+  for (const file of walk(migrationsDir, ['.sql'])) {
+    const source = readFileSync(file, 'utf8');
+    for (const [, action] of source.matchAll(
+      /INSERT INTO audit_logs[\s\S]{0,400}?(?:VALUES|SELECT)\s*\(?\s*'([A-Z_]+)'/g,
+    )) {
+      found.add(action);
     }
   }
 

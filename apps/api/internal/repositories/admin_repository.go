@@ -77,7 +77,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]
 			COALESCE(b.id::text, '')
 		FROM users u
 		LEFT JOIN accounts a ON a."userId" = u.id
-		LEFT JOIN addresses addr ON addr."userPermanentId" = u.id
+		LEFT JOIN addresses addr ON addr."userId" = u.id AND addr.type = 'PERMANENT' 
 		LEFT JOIN branches b ON b.id = u."assignedBranchId"
 		WHERE ` + roleFilter + `
 		ORDER BY u."createdAt" DESC
@@ -340,8 +340,8 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				WHERE d."userId" = u.id
 			), '[]'::jsonb) as documents
 		FROM users u
-		LEFT JOIN addresses a ON a."userPermanentId" = u.id
-		LEFT JOIN addresses pa ON pa."userPresentId" = u.id
+		LEFT JOIN addresses a ON a."userId" = u.id AND a.type = 'PERMANENT'
+		LEFT JOIN addresses pa ON pa."userId" = u.id AND pa.type = 'PRESENT' 
 		LEFT JOIN nominees n ON n."userId" = u.id
 		WHERE u.status = 'PENDING' AND u.role = 'MEMBER'
 		ORDER BY u."createdAt" DESC
@@ -506,9 +506,9 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			t."createdAt",
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."accountNo", ''),
-			COALESCE(t."receiptNumber", ''),
+			COALESCE(t."externalReference", ''),
 			COALESCE(t.description, ''),
-			COALESCE(l."loanNumber", '')
+			COALESCE(l.id, '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
 		LEFT JOIN loans l ON l.id = t."loanId"
@@ -521,10 +521,10 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 		defer requestRows.Close()
 		requests := []map[string]interface{}{}
 		for requestRows.Next() {
-			var id, txType, status, memberName, memberID, reference, notes, loanNumber string
+			var id, txType, status, memberName, memberID, reference, notes, loanID string
 			var amount int64
 			var createdAt time.Time
-			if err := requestRows.Scan(&id, &txType, &amount, &status, &createdAt, &memberName, &memberID, &reference, &notes, &loanNumber); err != nil {
+			if err := requestRows.Scan(&id, &txType, &amount, &status, &createdAt, &memberName, &memberID, &reference, &notes, &loanID); err != nil {
 				continue
 			}
 			requests = append(requests, map[string]interface{}{
@@ -537,7 +537,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 				"processedDate": createdAt.Format(time.RFC3339),
 				"reference":     reference,
 				"notes":         notes,
-				"loanNumber":    loanNumber,
+				"loanId":        loanID,
 			})
 		}
 		result["transactionRequests"] = requests
@@ -598,31 +598,22 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 // unconditionally, with an escape hatch that covers DELETE only.
 //
 // That refusal is correct and is not worked around. An audit row saying who the
-// subject was called at the time is the more truthful record, and rewriting
-// history so it agrees with the present is the exact thing the trigger exists to
-// stop. `user_id_history` is how the audit reader gets from the old name to the
-// person instead.
+// subject was called at the time is the more truthful record — and since
+// ADR-043 the name it holds is `APP-2026-000001`, the applicant's own form
+// number, which is a thing a person can read rather than a cuid. There is
+// nothing left to translate: the events recorded against it happened *before*
+// the account existed, so stamping the account number onto them would be less
+// true and no clearer.
+//
+// The admin's audit screen resolves those rows through `users.formNumber`,
+// which still holds exactly that string for exactly that reason. There is no
+// mapping table any more; `user_id_history` was one (see ADR-044).
 //
 // The self-referential `users.approvedBy` needs no special handling, because its
 // own FK cascades and this renames one row rather than the table.
 func renameUser(ctx context.Context, tx pgx.Tx, oldID, newID string) error {
 	if oldID == newID {
 		return nil
-	}
-
-	// One hop, never a chain. If something already maps to the id being
-	// retired, it is re-pointed at the new one in the same breath, so a reader
-	// never has to walk a sequence of renames.
-	if _, err := tx.Exec(ctx,
-		`UPDATE user_id_history SET "newId" = $2, "changedAt" = NOW() WHERE "newId" = $1`,
-		oldID, newID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO user_id_history ("oldId", "newId", "changedAt") VALUES ($1, $2, NOW())
-		 ON CONFLICT ("oldId") DO UPDATE SET "newId" = EXCLUDED."newId", "changedAt" = NOW()`,
-		oldID, newID); err != nil {
-		return err
 	}
 
 	if _, err := tx.Exec(ctx,
@@ -816,9 +807,10 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	}
 
 	if !accountExists {
+		// No `id`: the account's key IS its owner's number (ADR-044).
 		const createAccountQuery = `
-			INSERT INTO accounts (id, "savingsBalance", "loanBalance", "createdAt", "updatedAt", "userId")
-			VALUES (gen_random_uuid()::text, 0, 0, NOW(), NOW(), $1)
+			INSERT INTO accounts ("savingsBalance", "loanBalance", "createdAt", "updatedAt", "userId")
+			VALUES (0, 0, NOW(), NOW(), $1)
 		`
 		if _, err := tx.Exec(ctx, createAccountQuery, userID); err != nil {
 			return "", err
@@ -833,15 +825,15 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	// (WO-52). A string only the database sees is a string nothing tests.
 	memberTitle, memberMessage := notify.RegistrationApproved()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO notifications (id, type, title, message, "targetUserId", "createdAt")
-		VALUES (gen_random_uuid()::text, 'ACCOUNT_ACTIVATED', $2, $3, $1, NOW())
+		INSERT INTO notifications (type, title, message, "targetUserId", "createdAt")
+		VALUES ('ACCOUNT_ACTIVATED', $2, $3, $1, NOW())
 	`, userID, memberTitle, memberMessage); err != nil {
 		return "", err
 	}
 	staffTitle, staffMessage := notify.RegistrationApprovedForStaff()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO notifications (id, type, title, message, "targetRole", "createdAt")
-		VALUES (gen_random_uuid()::text, 'NEW_REGISTRATION', $1, $2, 'WORKER', NOW())
+		INSERT INTO notifications (type, title, message, "targetRole", "createdAt")
+		VALUES ('NEW_REGISTRATION', $1, $2, 'WORKER', NOW())
 	`, staffTitle, staffMessage); err != nil {
 		return "", err
 	}
@@ -854,8 +846,8 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	// audit row is what an investigation starts from. Written here, the
 	// approval and its record commit together or neither does.
 	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
 	if _, err := tx.Exec(ctx, auditQuery, userID, approverID, notes); err != nil {
 		return "", err
@@ -937,8 +929,8 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 	// every material action, and refusing somebody membership is material.
 	// Written here, the decision and its record commit together or neither does.
 	const auditQuery = `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "createdAt", details)
-		VALUES (gen_random_uuid()::text, 'REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
+		VALUES ('REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)
 	`
 	auditDetails := strings.TrimSpace(reasonCode)
 	if note := strings.TrimSpace(reasonNote); note != "" {

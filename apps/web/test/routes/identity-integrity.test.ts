@@ -565,23 +565,29 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
   // WO-93 — a member can be erased
   // -------------------------------------------------------------------------
 
-  describe('ADR-043 — a rename does not rewrite the trail', () => {
+  describe('ADR-043/044 — a rename does not rewrite the trail', () => {
     /**
      * Admission moves a person's id from `APP-2026-000001` to `ACC-KH-33001`.
      * Audit rows written before that keep the id they were written with, because
      * `audit_logs` is append-only at the database level and its trigger refuses
      * UPDATE unconditionally — the escape hatch covers DELETE only.
      *
-     * That refusal is right, and the first version of this migration tried to
-     * work around it and was rejected by the database on live data. So the
-     * *reader* resolves instead, through `user_id_history`.
+     * That refusal is right, and a migration that tried to work around it was
+     * rejected by the database on live data. So the *reader* resolves instead —
+     * and since ADR-044 it does so with no mapping table at all: the value those
+     * rows hold is the applicant's own form number, and `users.formNumber` still
+     * holds exactly that string. `user_id_history` was a third copy of a fact
+     * two columns already recorded.
+     *
+     * The old id here is therefore a **real** application number, not an opaque
+     * string, which is the other half of what changed: there is nothing left in
+     * this table that a person cannot read.
      */
-    const OLD_ID = `${NS}rename-old`;
+    const OLD_ID = 'APP-2026-096001';
     const NEW_ID = `${NS}rename-new`;
 
     beforeEach(async () => {
       await db().auditLog.deleteMany({ where: { entityId: { in: [OLD_ID, NEW_ID] } } }).catch(() => {});
-      await db().userIdHistory.deleteMany({ where: { oldId: OLD_ID } });
       await db().user.deleteMany({ where: { id: NEW_ID } });
     });
 
@@ -595,13 +601,12 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           role: 'MEMBER',
           status: 'ACTIVE',
           accountNo: 'ACC-KH-96001',
-          formNumber: 'APP-2026-096001',
+          formNumber: OLD_ID,
           nameEn: 'Renamed Member',
           fatherName: 'F',
           motherName: 'M',
         },
       });
-      await db().userIdHistory.create({ data: { oldId: OLD_ID, newId: NEW_ID } });
       await db().auditLog.create({
         data: {
           action: 'APPROVE_REGISTRATION',
@@ -673,20 +678,16 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           preferredLocale: 'bn',
           approvedAt: new Date(),
           account: { create: { savingsBalance: BigInt(50000), loanBalance: BigInt(0) } },
-          permanentAddress: {
-            create: {
+          addresses: {
+            create: [{
+              type: 'PERMANENT',
               houseNo: '12', village: 'Bhekutia', union: 'Kotwali',
               policeStation: 'Kotwali', district: 'Jessore',
-            },
+            }],
           },
           nominee: { create: { name: 'Nominee', relationship: 'Brother', nidNumber: '1990987654321', phone: phone(n + 40) } },
         },
       });
-      const account = await db().account.findUniqueOrThrow({
-        where: { userId: id },
-        select: { id: true },
-      });
-
       // The support conversation. This is the most narrative thing the platform
       // holds about a member — free text they typed about their circumstances —
       // and it used to survive an erasure that cleared their name.
@@ -711,18 +712,22 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       if (opts.posting) {
         await db().transaction.create({
           data: {
+            // The id IS the receipt number (ADR-044). There is no default, so
+            // every writer names one — including this fixture.
+            id: `DEP-2026-9${String(n).padStart(5, '0')}`,
             type: 'DEPOSIT',
             amount: BigInt(50000),
             status: 'CONFIRMED',
-            accountId: account.id,
             userId: id,
           },
         });
       }
+      // At most one of each type: `(userId, type)` is the key (ADR-044).
+      const DOC_TYPES = ['nid_front', 'nid_back', 'passport_photo', 'nominee_photo'];
       for (let i = 0; i < (opts.documents ?? 0); i += 1) {
         await db().document.create({
           data: {
-            type: 'nid_front',
+            type: DOC_TYPES[i % DOC_TYPES.length],
             // Not a Cloudinary host on purpose: the route's asset loop then has
             // nothing of ours to delete and reports it as such, so the test
             // exercises the loop without needing Cloudinary credentials.
@@ -739,7 +744,6 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       return {
         id,
         accountNo,
-        accountId: account.id,
         token: mintToken({ sub: id, role: 'MEMBER', issuedAtSeconds }),
       };
     }
@@ -800,9 +804,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       expect(await db().document.count({ where: { userId: m.id } })).toBe(0);
       expect(await db().nominee.count({ where: { userId: m.id } })).toBe(0);
       expect(
-        await db().address.count({
-          where: { OR: [{ userPermanentId: m.id }, { userPresentId: m.id }] },
-        }),
+        await db().address.count({ where: { userId: m.id } }),
       ).toBe(0);
       expect(await db().supportThread.count({ where: { memberUserId: m.id } })).toBe(0);
       expect(await db().supportMessage.count({ where: { senderUserId: m.id } })).toBe(0);
@@ -853,7 +855,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const columns = [...model.matchAll(/^\s{2}([a-zA-Z][A-Za-z0-9]*)\s+\S/gm)]
         .map((m) => m[1])
         // Relation fields and back-references are not columns.
-        .filter((name) => !/^(permanentAddress|presentAddress|nominee|account|transactions|processedTransactions|loans|guaranteedLoans|approvedLoans|documents|supportThreads|processedSupportThreads|supportMessages|sseTickets|notifications|assignedBranch|approvedByUser|approvedUsers)$/.test(name));
+        .filter((name) => !/^(addresses|nominee|account|transactions|processedTransactions|loans|guaranteedLoans|approvedLoans|documents|supportThreads|processedSupportThreads|supportMessages|sseTickets|notifications|assignedBranch|approvedByUser|approvedUsers)$/.test(name));
 
       /** Columns that survive an erasure on purpose, each for a stated reason. */
       const KEPT: Record<string, string> = {
@@ -947,13 +949,12 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const m = await seedMember('erase-borrower', 45, { posting: true });
       await db().loan.create({
         data: {
-          loanNumber: `BY-LOAN-${45}`,
+          id: `LOAN-2026-09${45}`,
           principalAmount: BigInt(20000),
           remainingAmount: BigInt(20000),
           totalInstallments: 10,
           installmentAmount: BigInt(2000),
           status: 'ACTIVE',
-          accountId: m.accountId,
           borrowerId: m.id,
         },
       });
@@ -977,13 +978,12 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const guarantor = await seedMember('erase-guarantor', 47, { posting: true });
       await db().loan.create({
         data: {
-          loanNumber: `BY-LOAN-${47}`,
+          id: `LOAN-2026-09${47}`,
           principalAmount: BigInt(20000),
           remainingAmount: BigInt(20000),
           totalInstallments: 10,
           installmentAmount: BigInt(2000),
           status: 'ACTIVE',
-          accountId: borrower.accountId,
           borrowerId: borrower.id,
           guarantorId: guarantor.id,
         },

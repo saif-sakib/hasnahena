@@ -408,8 +408,8 @@ type AuditLogEntry struct {
 // CreateAuditLog creates an audit log entry
 func (s *SecurityService) CreateAuditLog(ctx context.Context, entry AuditLogEntry) error {
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO audit_logs (id, action, "entityType", "entityId", "performedBy", "userIp", "userAgent", details, "createdAt")
-		VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "userIp", "userAgent", details, "createdAt")
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 	`, entry.Action, entry.EntityType, entry.EntityID, entry.UserID, entry.UserIP, entry.UserAgent, entry.Details)
 	return err
 }

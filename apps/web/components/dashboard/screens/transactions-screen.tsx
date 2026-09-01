@@ -51,6 +51,17 @@ interface Transaction {
   id: string;
   accountNo: string;
   memberName: string;
+  /**
+   * The **English** name, for the document.
+   *
+   * `memberName` above is what the screen shows, and both payloads prefer the
+   * Bengali one where it exists. Generated documents are English only
+   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
+   * glyph the standard fonts cannot encode — so feeding a Bengali name to
+   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
+   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
+   */
+  memberNameEn: string;
   memberPhone: string;
   type: TransactionType;
   amount: number;
@@ -59,6 +70,7 @@ interface Transaction {
   balanceAfter: number;
   reference?: string;
   notes?: string;
+  processedBy?: string;
 }
 
 /**
@@ -95,17 +107,23 @@ export default function TransactionsScreen() {
         id: String(item.id ?? ''),
         accountNo: String(member.accountNo ?? item.accountNo ?? ''),
         memberName: String(member.name ?? item.memberName ?? ''),
-        memberPhone: String(item.memberPhone ?? ''),
+        memberNameEn: String(item?.memberName ?? member.name ?? ''),
+        // Nested first, flat second — the same two payload shapes the rest of
+        // this mapper reconciles. The admin ledger sends the member as an
+        // object and the worker's own postings send the fields flat, and only
+        // the flat one was read: every receipt printed from the ADMIN
+        // transactions screen had a blank Mobile line.
+        memberPhone: String(member.phone ?? item.memberPhone ?? ''),
+        processedBy: item.processedBy ? String(item.processedBy) : undefined,
         type: String(item.type ?? '').toUpperCase() as TransactionType,
         amount: Number(item.amount ?? 0),
         status: String(item.status ?? 'CONFIRMED').toUpperCase() as TransactionStatus,
         date: String(item.processedDate ?? item.date ?? new Date().toISOString()),
         balanceAfter: Number(item.balanceAfter ?? 0),
-        reference: item.receiptNumber
-          ? String(item.receiptNumber)
-          : item.receipt
-            ? String(item.receipt)
-            : undefined,
+        // The member's OWN reference — a bKash TrxID — not the receipt number,
+        // which is `id`. The two lived in one column until ADR-044 and this read
+        // whichever of the pair the payload happened to carry.
+        reference: item.externalReference ? String(item.externalReference) : undefined,
         notes: item.notes
           ? String(item.notes)
           : item.description
@@ -119,14 +137,15 @@ export default function TransactionsScreen() {
     try {
       const orgSettings = await fetchOrgSettings();
       const receiptDoc = buildReceipt({
-        receiptNumber: tx.reference || tx.id,
+        receiptNumber: tx.id,
         type: tx.type,
         amount: tx.amount,
         date: tx.date,
-        memberName: tx.memberName,
+        memberName: tx.memberNameEn,
         accountNo: tx.accountNo,
         memberPhone: tx.memberPhone,
         balanceAfter: tx.balanceAfter,
+        processedBy: tx.processedBy,
         notes: tx.notes,
       }, orgSettings);
       await downloadDocumentPDF(receiptDoc);

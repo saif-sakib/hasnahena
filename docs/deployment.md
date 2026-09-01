@@ -229,6 +229,35 @@ pnpm db:migrate:status     # expect: "Database schema is up to date!"
 
 Do it on a Neon branch first if the database holds real member data.
 
+### A migration that drops a column has no overlap window
+
+Most migrations are additive, so the order of "migrate" and "deploy" does not
+matter: old code ignores a new column and new code tolerates its absence for the
+minute before the migration lands. **A migration that drops one is different.**
+Old code selects a column that is gone; new code omits a column that is still
+`NOT NULL`. There is no ordering in which both versions work, so there is a
+window, and the only choice is which failure happens during it.
+
+`20260901120000_ids_are_the_numbers` is the first of these
+([ADR-044](decisions.md)). The order to take, in one sitting and outside office
+hours:
+
+1. **Run the backup workflow by hand and wait for the artifact.** Not the
+   nightly one from last night — this migration drops columns and rewrites audit
+   rows, and neither is reversible by re-running anything.
+2. **Rehearse on a Neon branch.** Branch production, point `DATABASE_URL` at the
+   branch, `pnpm db:migrate`, then `pnpm db:migrate:check`. The migration raises
+   rather than guesses on data it cannot safely convert, so this is where a
+   surprise in the foundation's own rows shows up — cheaply, and on a copy.
+3. **Migrate production, then deploy both apps.** Migrating first means the
+   window is *reads* failing on staff ledger screens; deploying first means
+   *writes* failing on a NOT NULL column. Both are plain errors and neither
+   half-writes anything, because every posting is one transaction — but a member
+   being told a deposit failed is worse than an admin seeing a screen error, so
+   migrate first.
+4. **`pnpm db:migrate:check`** against production afterwards: it must say *No
+   difference detected*.
+
 ## Backups
 
 `.github/workflows/backup.yml` runs nightly at 19:00 UTC (01:00 Dhaka), plus monthly. Each run dumps the database with `pg_dump -Fc`, encrypts it with AES256, and keeps it as a GitHub artifact for 30 days (90 for the monthly). Set `BACKUP_S3_BUCKET` and AWS credentials to also copy it to S3/B2/R2.

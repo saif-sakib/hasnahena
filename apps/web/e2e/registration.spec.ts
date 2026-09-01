@@ -51,7 +51,29 @@ async function fillPersonal(page: Page) {
   await page.fill('#email', VALID.email);
   await page.fill('#nidNumber', VALID.nidNumber);
   await page.fill('#profession', VALID.profession);
-  await page.fill('#dateOfBirth', VALID.dateOfBirth);
+  await fillDateOfBirth(page);
+}
+
+/**
+ * Three selects, not a text input.
+ *
+ * The date of birth stopped being `<input type="date">` when it became
+ * `components/ui/date-of-birth-input.tsx` — a calendar opens on *this* month, and
+ * a member born in 1990 is then asked to travel there on a low-end Android. This
+ * helper kept calling `page.fill('#dateOfBirth', '1990-04-12')`, which resolves
+ * to the **day** select and fails with "Element is not an <input>".
+ *
+ * That took eight assertions in this file down with it — every phone-registration
+ * guarantee that has to reach the documents step first — and they stayed down,
+ * because a helper that throws fails the tests rather than the form, and the
+ * form was fine. A red suite over working code gets read as "the suite is
+ * broken" exactly once before it stops being read at all.
+ */
+async function fillDateOfBirth(page: Page) {
+  const [year, month, day] = VALID.dateOfBirth.split('-');
+  await page.selectOption('#dateOfBirth', String(Number(day)));
+  await page.selectOption('#dateOfBirthMonth', String(Number(month)));
+  await page.selectOption('#dateOfBirthYear', year);
 }
 
 async function fillAddress(page: Page) {

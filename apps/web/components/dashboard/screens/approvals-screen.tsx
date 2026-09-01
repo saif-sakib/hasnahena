@@ -105,7 +105,7 @@ interface TransactionRequest {
   requestDate: string;
   reference?: string;
   notes?: string;
-  loanNumber?: string;
+  loanId?: string;
 }
 
 interface ApprovalsResponse {
@@ -972,7 +972,7 @@ export default function ApprovalsScreen() {
                           <div className="font-medium text-gray-900">{item.member?.name || '-'}</div>
                           <div className="text-xs text-gray-500">{item.member?.accountNo || '-'}</div>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-600">{item.loanNumber || '-'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{item.loanId || '-'}</td>
                         <td className="px-4 py-3 text-right font-medium">{formatCurrency(item.amount, locale)}</td>
                         <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-600">{item.reference || '-'}</td>
                         <td className="px-4 py-3">

@@ -59,7 +59,7 @@ export interface PurgeResult {
 export async function purgeApplicationDocuments(userId: string): Promise<PurgeResult> {
   const applicant = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, formNumber: true, documents: { select: { id: true, url: true } } },
+    select: { id: true, formNumber: true, documents: { select: { type: true, url: true } } },
   });
   if (!applicant) return { rows: 0, assets: 0 };
 
@@ -179,7 +179,7 @@ export async function fileApplicationDocuments(userId: string): Promise<FileResu
       id: true,
       accountNo: true,
       formNumber: true,
-      documents: { select: { id: true, url: true, type: true } },
+      documents: { select: { url: true, type: true } },
     },
   });
 
@@ -207,7 +207,12 @@ export async function fileApplicationDocuments(userId: string): Promise<FileResu
       result.failed += 1;
       continue;
     }
-    await prisma.document.update({ where: { id: doc.id }, data: { url } });
+    // Keyed on whose it is and what it is (ADR-044) — a document has no id of
+    // its own, because those two facts already name exactly one row.
+    await prisma.document.update({
+      where: { userId_type: { userId: member.id, type: doc.type } },
+      data: { url },
+    });
     result.moved += 1;
   }
 

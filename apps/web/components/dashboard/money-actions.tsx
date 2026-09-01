@@ -92,7 +92,6 @@ interface MemberFacts {
 
 interface LoanFacts {
   id: string;
-  loanNumber: string;
   status: string;
   remainingAmount: number;
   installmentAmount: number;
@@ -545,7 +544,7 @@ export function MoneyActionDialog({
                 >
                   {payableLoans.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.loanNumber} — {formatCurrency(l.remainingAmount, locale)}
+                      {l.id} — {formatCurrency(l.remainingAmount, locale)}
                     </option>
                   ))}
                 </select>

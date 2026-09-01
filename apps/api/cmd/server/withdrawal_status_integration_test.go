@@ -69,10 +69,10 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 		t.Fatalf("seed member: %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 		                      "createdAt", "updatedAt", "userId")
-		VALUES ('acct_' || $1, $2, 0, NOW(), NOW(), $1)
-		ON CONFLICT (id) DO UPDATE SET "savingsBalance" = EXCLUDED."savingsBalance", "loanBalance" = 0
+		VALUES ($2, 0, NOW(), NOW(), $1)
+		ON CONFLICT ("userId") DO UPDATE SET "savingsBalance" = EXCLUDED."savingsBalance", "loanBalance" = 0
 	`, memberID, savings); err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -102,9 +102,9 @@ func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAg
 	t.Helper()
 	var id string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "accountId", "userId")
+		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "userId")
 		VALUES (gen_random_uuid()::text, 'WITHDRAWAL', $2, 'request', 'PENDING',
-		        NOW() - ($3 || ' months')::interval, 'acct_' || $1, $1)
+		        NOW() - ($3 || ' months')::interval, $1)
 		RETURNING id::text
 	`, memberID, amount, monthsAgo).Scan(&id); err != nil {
 		t.Fatalf("file withdrawal request: %v", err)
@@ -263,10 +263,10 @@ func TestAGuarantorIsToldTheyAreAGuarantor(t *testing.T) {
 	// loan of their own.
 	borrower := seedRoleUser(t, "MEMBER")
 	if _, err := testPool.Exec(context.Background(), `
-		INSERT INTO loans (id, "loanNumber", "accountId", "borrowerId", "guarantorId",
+		INSERT INTO loans (id, "borrowerId", "guarantorId",
 			"principalAmount", "remainingAmount", "totalInstallments", "paidInstallments",
 			"installmentAmount", purpose, status, "disbursementDate", "createdAt", "updatedAt")
-		VALUES ('wd-loan', 'LOAN-WD-1', 'acct_' || $1, $1, $2,
+		VALUES ('LOAN-WD-1', $1, $2,
 			12000, 12000, 12, 0, 1000, 'guarantee fixture', 'ACTIVE', NOW(), NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET status = 'ACTIVE', "guarantorId" = EXCLUDED."guarantorId"
 	`, borrower, fixture.memberID); err != nil {

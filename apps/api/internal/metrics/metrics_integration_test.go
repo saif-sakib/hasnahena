@@ -66,9 +66,9 @@ func TestBusinessSnapshotCountsWhatItClaims(t *testing.T) {
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO accounts (id, "savingsBalance", "loanBalance",
+		INSERT INTO accounts ("savingsBalance", "loanBalance",
 			"createdAt", "updatedAt", "userId")
-		VALUES ('ma1', 10000, 0, NOW(), NOW(), 'mu1')
+		VALUES (10000, 0, NOW(), NOW(), 'mu1')
 	`); err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
@@ -77,24 +77,24 @@ func TestBusinessSnapshotCountsWhatItClaims(t *testing.T) {
 	// hour ago is not a backlog, and counting it would make the alert cry wolf
 	// every single day.
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO transactions (id, type, amount, description, status, "processedAt", "createdAt", "accountId", "userId")
+		INSERT INTO transactions (id, type, amount, description, status, "processedAt", "createdAt", "userId")
 		VALUES
-			('mt1', 'DEPOSIT',    1000, 's', 'PROCESSED', NOW() - INTERVAL '3 days', NOW() - INTERVAL '3 days', 'ma1', 'mu1'),
-			('mt2', 'DEPOSIT',    1000, 's', 'PROCESSED', NOW() - INTERVAL '49 hours', NOW() - INTERVAL '49 hours', 'ma1', 'mu1'),
-			('mt3', 'DEPOSIT',    1000, 'f', 'PROCESSED', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour', 'ma1', 'mu1'),
-			('mt4', 'WITHDRAWAL',  500, 'd', 'DISPUTED',  NOW(), NOW(), 'ma1', 'mu1'),
-			('mt5', 'DEPOSIT',     700, 'p', 'PENDING',   NULL,  NOW(), 'ma1', 'mu1')
+			('mt1', 'DEPOSIT',    1000, 's', 'PROCESSED', NOW() - INTERVAL '3 days', NOW() - INTERVAL '3 days', 'mu1'),
+			('mt2', 'DEPOSIT',    1000, 's', 'PROCESSED', NOW() - INTERVAL '49 hours', NOW() - INTERVAL '49 hours', 'mu1'),
+			('mt3', 'DEPOSIT',    1000, 'f', 'PROCESSED', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour', 'mu1'),
+			('mt4', 'WITHDRAWAL',  500, 'd', 'DISPUTED',  NOW(), NOW(), 'mu1'),
+			('mt5', 'DEPOSIT',     700, 'p', 'PENDING',   NULL,  NOW(), 'mu1')
 	`); err != nil {
 		t.Fatalf("seed transactions: %v", err)
 	}
 
 	if _, err := testPool.Exec(ctx, `
-		INSERT INTO loans (id, "loanNumber", "principalAmount", "remainingAmount",
+		INSERT INTO loans (id, "principalAmount", "remainingAmount",
 			"totalInstallments", "installmentAmount", status, purpose,
-			"createdAt", "updatedAt", "accountId", "borrowerId")
+			"createdAt", "updatedAt", "borrowerId")
 		VALUES
-			('ml1', 'LOAN-M-1', 9000, 9000, 3, 3000, 'ACTIVE',    'p', NOW(), NOW(), 'ma1', 'mu1'),
-			('ml2', 'LOAN-M-2', 9000, 0,    3, 3000, 'COMPLETED', 'p', NOW(), NOW(), 'ma1', 'mu1')
+			('LOAN-M-1', 9000, 9000, 3, 3000, 'ACTIVE',    'p', NOW(), NOW(), 'mu1'),
+			('LOAN-M-2', 9000, 0,    3, 3000, 'COMPLETED', 'p', NOW(), NOW(), 'mu1')
 	`); err != nil {
 		t.Fatalf("seed loans: %v", err)
 	}

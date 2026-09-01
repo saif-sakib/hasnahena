@@ -126,15 +126,14 @@ interface Transaction {
   type: 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN_DISBURSEMENT' | 'LOAN_REPAYMENT' | string;
   amount: number;
   balanceAfter: number;
-  receiptNumber: string;
   status: 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'REJECTED';
   createdAt: string;
   notes?: string;
 }
 
 interface Loan {
+  /** The loan number — `LOAN-2026-000012`. The id IS it (ADR-044). */
   id: string;
-  loanNumber: string;
   principalAmount: number;
   remainingAmount: number;
   totalInstallments: number;
@@ -231,7 +230,7 @@ export default function MemberDetailScreen() {
     const orgSettings = await fetchOrgSettings();
     
     const receiptData: ReceiptData = {
-      receiptNumber: tx.receiptNumber,
+      receiptNumber: tx.id,
       type: tx.type,
       amount: tx.amount,
       date: tx.createdAt,
@@ -251,7 +250,7 @@ export default function MemberDetailScreen() {
     const orgSettings = await fetchOrgSettings();
     
     const loanData: LoanDocumentData = {
-      loanNumber: loan.loanNumber,
+      loanNumber: loan.id,
       memberName: member.name,
       accountNo: member.accountNo || member.uid || 'N/A',
       memberPhone: member.phone,
@@ -286,7 +285,7 @@ export default function MemberDetailScreen() {
         amount: Math.round(tx.amount),
         balance: Math.round(tx.balanceAfter),
         description: tx.notes,
-        receiptNumber: tx.receiptNumber,
+        receiptNumber: tx.id,
       })),
     };
     
@@ -931,7 +930,7 @@ export default function MemberDetailScreen() {
                                 </div>
                                 <div>
                                   <p className="font-medium">{meta.label}</p>
-                                  <p className="text-sm text-muted-foreground">{tx.receiptNumber} • {formatDate(tx.createdAt)}</p>
+                                  <p className="text-sm text-muted-foreground">{tx.id} • {formatDate(tx.createdAt)}</p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
@@ -976,7 +975,7 @@ export default function MemberDetailScreen() {
                   {loans.map((loan) => (
                     <div key={loan.id} className="p-4 rounded-sm bg-slate-50">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="font-semibold">{loan.loanNumber}</p>
+                        <p className="font-semibold">{loan.id}</p>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{loan.status}</Badge>
                           {loan.status === 'ACTIVE' && loan.remainingAmount > 0 && (

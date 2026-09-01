@@ -12,9 +12,21 @@ import (
 const (
 	SeriesDeposit       = "DEP"  // deposit receipt
 	SeriesWithdrawal    = "WDR"  // withdrawal receipt
-	SeriesLoan          = "LOAN" // loan agreement
+	SeriesLoan          = "LOAN" // loan agreement — the LOAN itself, never a posting
 	SeriesLoanRepayment = "REP"  // loan repayment receipt
 	SeriesDonation      = "DON"  // donation receipt
+	// SeriesDisbursement numbers the POSTING that pays a loan out, and the one
+	// that tops it up. Both used to allocate from SeriesLoan: the disbursement
+	// carried the loan's own number, so one string named two different
+	// documents, and a top-up consumed a fresh loan number for a transaction —
+	// a gap in the register of loans, punched by something that is not a loan.
+	SeriesDisbursement = "DSB"
+	// SeriesAdjustment numbers a posting the foundation makes against itself
+	// rather than for a member: today, the draw on the donation pool that
+	// settles a defaulted loan. Deliberately not "FEE", whatever the enum label
+	// says — this platform charges none (rule 3) and a document numbered
+	// FEE-2026-000001 would be the wrong thing to hand anybody.
+	SeriesAdjustment = "ADJ"
 )
 
 // NextDocumentNumberQuery allocates the next number in a series for the current

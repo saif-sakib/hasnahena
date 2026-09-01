@@ -36,16 +36,11 @@ const TXN_ID = 'success-path-txn';
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 
 describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success', () => {
-  let accountId = '';
-
   beforeAll(async () => {
     process.env.JWT_SECRET = TEST_JWT_SECRET;
-    const roleUserIds = await seedRoleUsers();
-    const account = await testPrisma().account.findUnique({
-      where: { userId: roleUserIds.MEMBER },
-      select: { id: true },
-    });
-    accountId = account!.id;
+    // The member's account exists and is keyed on the member (ADR-044), so
+    // there is no id to look up before a posting can be written against them.
+    await seedRoleUsers();
   });
 
   afterAll(async () => {
@@ -70,7 +65,6 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
         status: 'PROCESSED',
         savingsAfter: BigInt(0),
         loanAfter: BigInt(0),
-        accountId,
         userId: 'nextroute-member',
       },
     });

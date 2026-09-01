@@ -65,6 +65,23 @@ describe('the strict policy, for pages that carry a session', () => {
     expect(connect, 'dev-only websocket leaked into a production policy').not.toContain('ws:');
   });
 
+  it('lets the browser READ a Cloudinary asset, not just render one', () => {
+    // These two directives are about the same file and are not the same
+    // permission. `img-src` is what puts a member's NID scan on the approvals
+    // screen; `connect-src` is what lets the Download button beside it fetch
+    // the bytes into a Blob so they can be saved under a real filename.
+    //
+    // Only the first was granted, so the preview worked and the button did
+    // nothing at all — the fetch rejects, and the handler logs it to a console
+    // that nobody has open on a phone. A screen that is half-blocked looks
+    // exactly like a screen with a broken click handler.
+    expect(directive(policy, 'img-src')).toContain('https://res.cloudinary.com');
+    expect(
+      directive(policy, 'connect-src'),
+      'documents can be shown but not saved',
+    ).toContain('https://res.cloudinary.com');
+  });
+
   it('allows the upload previews and Cloudinary, and no other image host', () => {
     const img = directive(policy, 'img-src');
     expect(img).toContain('data:');
@@ -148,12 +165,12 @@ describe('the API origin', () => {
     // A browser discards the whole policy on a parse error, so one unset or
     // mistyped env var must not be able to disable every directive above.
     const policy = buildCsp({ apiOrigin: 'not a url' });
-    expect(directive(policy, 'connect-src')).toBe("'self'");
+    expect(directive(policy, 'connect-src')).toBe("'self' https://res.cloudinary.com");
     expect(has(policy, 'frame-ancestors')).toBe(true);
   });
 
   it('is dropped when unset', () => {
-    expect(directive(buildCsp({}), 'connect-src')).toBe("'self'");
+    expect(directive(buildCsp({}), 'connect-src')).toBe("'self' https://res.cloudinary.com");
   });
 });
 

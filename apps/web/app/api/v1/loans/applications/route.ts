@@ -101,7 +101,7 @@ export async function POST(req: Request) {
 
     const borrowerAccount = await prisma.account.findFirst({
       where: { userId: auth.id },
-      select: { id: true, savingsBalance: true },
+      select: { savingsBalance: true },
     });
     if (!borrowerAccount) return NextResponse.json({ ok: false, error: 'Account not found' }, { status: 404 });
 
@@ -205,7 +205,10 @@ export async function POST(req: Request) {
 
     const loan = await prisma.loan.create({
       data: {
-        loanNumber: await nextDocumentNumber(SERIES.loan),
+        // The loan number IS the row (ADR-044). There is no second column for
+        // it, so there is nothing that can drift out of step with the number
+        // printed on the agreement.
+        id: await nextDocumentNumber(SERIES.loan),
         principalAmount: amountBig,
         remainingAmount: amountBig,
         totalInstallments: installments,
@@ -217,7 +220,6 @@ export async function POST(req: Request) {
         // admin review rather than sitting in PENDING_GUARANTOR forever.
         status: guarantor ? LoanStatus.PENDING_GUARANTOR : LoanStatus.PENDING_APPROVAL,
         borrowerId: auth.id,
-        accountId: borrowerAccount.id,
         guarantorId: guarantor?.id ?? null,
       },
       include: {
@@ -241,8 +243,7 @@ export async function POST(req: Request) {
           targetUserId: guarantor.id,
           data: {
             loanId: loan.id,
-            loanNumber: loan.loanNumber,
-            borrowerId: auth.id,
+                        borrowerId: auth.id,
             borrowerName: loan.borrower.nameEn,
             amount: Number(amountBig),
             purpose: payload.purpose.trim(),
@@ -260,8 +261,7 @@ export async function POST(req: Request) {
         targetRole: UserRole.ADMIN,
         data: {
           loanId: loan.id,
-          loanNumber: loan.loanNumber,
-          borrowerId: auth.id,
+                    borrowerId: auth.id,
           borrowerName: loan.borrower.nameEn,
           guarantorId: guarantor?.id ?? null,
           guarantorName: loan.guarantor?.nameEn ?? null,

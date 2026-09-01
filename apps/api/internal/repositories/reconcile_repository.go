@@ -99,21 +99,22 @@ func (r ReconciliationReport) Balanced() bool { return len(r.Drifts) == 0 }
 // integration tests assert on them; a typo in one would silently create a second
 // time series that nobody alerts on.
 const (
-	CheckSavingsBalance   = "savings_balance"
-	CheckLoanBalance      = "loan_balance"
-	CheckLoanRemaining    = "loan_remaining"
-	CheckSavingsSnapshot  = "savings_snapshot"
-	CheckTransactionOwner = "transaction_owner"
+	CheckSavingsBalance  = "savings_balance"
+	CheckLoanBalance     = "loan_balance"
+	CheckLoanRemaining   = "loan_remaining"
+	CheckSavingsSnapshot = "savings_snapshot"
 )
 
 // CheckHasAmount says whether a check's drift is measurable in taka.
 //
-// Four of the five compare two numbers, and the difference between them is money
-// that exists in one place and not the other. `transaction_owner` does not: the
-// amount on the row is not wrong, the member it names is — so there is no delta,
-// and publishing one would put a meaningless figure on a gauge and in the audit
-// log.
-func CheckHasAmount(check string) bool { return check != CheckTransactionOwner }
+// All of them are, now. `transaction_owner` was the exception — it compared a
+// posting's `userId` against the owner of the `accountId` beside it, and the
+// answer was a member's name rather than a number of taka. That check is gone
+// with the column it read: ADR-044 made the account's key the member's own id,
+// so a posting names one person and there is no longer a second column for it to
+// disagree with. An invariant the schema now makes unrepresentable is better
+// than one a job re-checks every hour.
+func CheckHasAmount(string) bool { return true }
 
 // AllChecks is every invariant this reconciles, in report order.
 var AllChecks = []string{
@@ -121,7 +122,6 @@ var AllChecks = []string{
 	CheckLoanBalance,
 	CheckLoanRemaining,
 	CheckSavingsSnapshot,
-	CheckTransactionOwner,
 }
 
 // savingsMovement is the signed effect of one transaction row on the account's
@@ -162,11 +162,11 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 			entity:  "ACCOUNT",
 			scanned: `SELECT COUNT(*) FROM accounts`,
 			query: `
-				SELECT a.id, COALESCE(SUM(` + savingsMovement + `), 0)::bigint, a."savingsBalance"::bigint
+				SELECT a."userId", COALESCE(SUM(` + savingsMovement + `), 0)::bigint, a."savingsBalance"::bigint
 				FROM accounts a
 				LEFT JOIN transactions t
-				  ON t."accountId" = a.id AND t.status IN ` + settledStatuses + `
-				GROUP BY a.id, a."savingsBalance"
+				  ON t."userId" = a."userId" AND t.status IN ` + settledStatuses + `
+				GROUP BY a."userId", a."savingsBalance"
 				HAVING a."savingsBalance" <> COALESCE(SUM(` + savingsMovement + `), 0)::bigint
 			`,
 		},
@@ -179,11 +179,11 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 			entity:  "ACCOUNT",
 			scanned: `SELECT COUNT(*) FROM accounts`,
 			query: `
-				SELECT a.id, COALESCE(SUM(l."remainingAmount"), 0)::bigint, a."loanBalance"::bigint
+				SELECT a."userId", COALESCE(SUM(l."remainingAmount"), 0)::bigint, a."loanBalance"::bigint
 				FROM accounts a
 				LEFT JOIN loans l
-				  ON l."accountId" = a.id AND l.status IN ('ACTIVE','DEFAULTED')
-				GROUP BY a.id, a."loanBalance"
+				  ON l."borrowerId" = a."userId" AND l.status IN ('ACTIVE','DEFAULTED')
+				GROUP BY a."userId", a."loanBalance"
 				HAVING a."loanBalance" <> COALESCE(SUM(l."remainingAmount"), 0)::bigint
 			`,
 		},
@@ -232,7 +232,7 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 					SELECT t.id,
 					       t."savingsAfter"::bigint AS snapshot,
 					       SUM(` + savingsMovement + `) OVER (
-					           PARTITION BY t."accountId"
+					           PARTITION BY t."userId"
 					           ORDER BY t."createdAt", t.id
 					           ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
 					       )::bigint AS total
@@ -242,23 +242,6 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 				SELECT id, total, snapshot
 				FROM running
 				WHERE snapshot IS NOT NULL AND snapshot <> total
-			`,
-		},
-		{
-			// WO-72's pair. A transaction whose userId is not the owner of the
-			// account it moved is either a posting attributed to the wrong
-			// member or a balance changed on the wrong account, and there is no
-			// way to tell which from the row alone.
-			name:    CheckTransactionOwner,
-			entity:  "TRANSACTION",
-			scanned: `SELECT COUNT(*) FROM transactions`,
-			// Both figures are zero: see CheckHasAmount. What is wrong here is
-			// which member the row names, and that is not a quantity.
-			query: `
-				SELECT t.id, 0::bigint, 0::bigint
-				FROM transactions t
-				JOIN accounts a ON a.id = t."accountId"
-				WHERE t."userId" <> a."userId"
 			`,
 		},
 	} {
@@ -339,8 +322,8 @@ func (r *UserRepository) RecordDrift(ctx context.Context, report ReconciliationR
 		)
 
 		if _, err := r.db.Exec(ctx, `
-			INSERT INTO audit_logs (id, action, "entityType", "entityId", details, "createdAt")
-			VALUES (gen_random_uuid()::text, 'LEDGER_DRIFT_DETECTED', 'LEDGER', $1, $2, NOW())
+			INSERT INTO audit_logs (action, "entityType", "entityId", details, "createdAt")
+			VALUES ('LEDGER_DRIFT_DETECTED', 'LEDGER', $1, $2, NOW())
 		`, check, details); err != nil {
 			return fmt.Errorf("record drift for %s: %w", check, err)
 		}

@@ -27,7 +27,6 @@ interface Deposit {
   id: string;
   amount: number;
   date: string;
-  receiptNumber: string;
   status: DepositStatus;
   processedBy?: string;
   balanceAfter?: number;
@@ -177,7 +176,7 @@ export default function DepositsPage() {
         amount: d.amount,
         balance: (d.balanceAfter || 0),
         description: d.notes || 'Deposit',
-        receiptNumber: d.receiptNumber,
+        receiptNumber: d.id,
       })),
     }, orgSettings);
     await downloadDocumentPDF(statementDoc);
@@ -187,7 +186,7 @@ export default function DepositsPage() {
     if (!memberProfile) return;
     const orgSettings = await fetchOrgSettings();
     const receiptDoc = buildReceipt({
-      receiptNumber: deposit.receiptNumber,
+      receiptNumber: deposit.id,
       type: 'DEPOSIT',
       amount: deposit.amount,
       date: deposit.date,
@@ -448,7 +447,7 @@ export default function DepositsPage() {
                 return (
                   <tr key={deposit.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-600">{formatDate(deposit.date)}</td>
-                    <td className="py-3 px-4 text-gray-600">{deposit.receiptNumber || '-'}</td>
+                    <td className="py-3 px-4 text-gray-600">{deposit.id || '-'}</td>
                     <td className="py-3 px-4">{getStatusBadge(deposit.status)}</td>
                     <td className="py-3 px-4 text-right font-medium text-green-600">
                       +{formatCurrency(deposit.amount, locale)}

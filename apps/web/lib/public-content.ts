@@ -36,7 +36,7 @@ export const GALLERY_TAG = 'gallery';
  * local check. Normalise at the boundary so there is only one type.
  */
 export type PublicGalleryItem = {
-  id: string;
+  id: number;
   imageUrl: string;
   captionEn: string | null;
   captionBn: string | null;
