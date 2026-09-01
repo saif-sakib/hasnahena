@@ -43,6 +43,15 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { loadEnv } from './lib/env.mjs';
+
+// Plain `node`, so nothing has loaded .env — the same reason the four database
+// scripts in this directory call this. Without it, this refused to run for want
+// of a variable sitting in `apps/web/.env` beside the one `pnpm db:seed` reads.
+// A real environment variable still wins, so a one-off submission to a
+// different host stays `NEXT_PUBLIC_SITE_URL=... pnpm seo:indexnow`.
+loadEnv('NEXT_PUBLIC_SITE_URL');
+
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(here, '..', 'public');
 
@@ -52,7 +61,8 @@ function siteOrigin() {
   const raw = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim();
   if (!raw) {
     throw new Error(
-      'NEXT_PUBLIC_SITE_URL is not set. It decides which host these URLs claim to ' +
+      'NEXT_PUBLIC_SITE_URL is not set, in the shell or in apps/web/.env. It ' +
+      'decides which host these URLs claim to ' +
         'be, and IndexNow refuses a host that does not serve the key file — so ' +
         'guessing it would produce a silent 403 rather than a wrong submission.',
     );

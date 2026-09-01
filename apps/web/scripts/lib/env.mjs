@@ -60,10 +60,19 @@ function loadEnvFile(filePath) {
 
 /**
  * Populates process.env from the project's .env files, nearest first.
- * Returns once DATABASE_URL is known, or after exhausting the candidates.
+ *
+ * Stops as soon as every name in `required` is known, or after exhausting the
+ * candidates. Pass nothing to load them all.
+ *
+ * This used to be `loadDatabaseEnv` and hard-coded `DATABASE_URL`, which made it
+ * useless to any script needing something else: `seo:indexnow` refused to run
+ * for want of `NEXT_PUBLIC_SITE_URL` while that variable sat in the very
+ * `apps/web/.env` this function reads, three lines from `DATABASE_URL`. A loader
+ * that knows the name of one variable is a loader for one script.
  */
-export function loadDatabaseEnv() {
-  if (process.env.DATABASE_URL) {
+export function loadEnv(...required) {
+  const isSatisfied = () => required.length > 0 && required.every((name) => process.env[name]);
+  if (isSatisfied()) {
     return;
   }
 
@@ -77,10 +86,15 @@ export function loadDatabaseEnv() {
 
   for (const filePath of envPaths) {
     loadEnvFile(filePath);
-    if (process.env.DATABASE_URL) {
+    if (isSatisfied()) {
       return;
     }
   }
+}
+
+/** The four database scripts' entry point, unchanged in behaviour. */
+export function loadDatabaseEnv() {
+  loadEnv('DATABASE_URL');
 }
 
 /**

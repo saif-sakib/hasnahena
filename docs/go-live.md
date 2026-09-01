@@ -252,10 +252,13 @@ So there is nothing left to fix in the markup. What is left is an account:
 4. **Announce changes with IndexNow** rather than waiting to be crawled:
 
    ```bash
-   cd apps/web && NEXT_PUBLIC_SITE_URL=https://www.hasnahenafoundation.com \
-     pnpm seo:indexnow            # every URL in the live sitemap
-   pnpm seo:indexnow /faq /bn/faq # or just the pages that changed
+   cd apps/web && pnpm seo:indexnow   # every URL in the live sitemap
+   pnpm seo:indexnow /faq /bn/faq     # or just the pages that changed
    ```
+
+   The host comes from `NEXT_PUBLIC_SITE_URL`, which the script reads from
+   `apps/web/.env` like every other script in that directory. Set it in the
+   shell only to submit to a different host: a real environment variable wins.
 
    The key is `public/<key>.txt`, served at the root, and it is **not a secret** —
    that file being publicly readable is the entire authentication scheme. Run it
