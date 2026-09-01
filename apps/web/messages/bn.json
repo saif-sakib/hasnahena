@@ -468,9 +468,6 @@
       "loading": "লগ লোড হচ্ছে…",
       "loadFailed": "নিরীক্ষা লগ লোড করা যায়নি।",
       "shown": "{count} টি এন্ট্রি দেখানো হয়েছে",
-      "loadMore": "আরও দেখুন",
-      "loadingMore": "লোড হচ্ছে…",
-      "allLoaded": "এই ফিল্টারে আর কিছু নেই।",
       "details": "বিস্তারিত",
       "hideDetails": "বিস্তারিত লুকান",
       "ipAddress": "আই.পি ঠিকানা",
@@ -481,7 +478,10 @@
       "retention": "সংরক্ষণ",
       "retentionPermanent": "স্থায়ীভাবে সংরক্ষিত",
       "retentionLong": "{days} দিন সংরক্ষিত",
-      "retentionShort": "{days} দিন সংরক্ষিত"
+      "retentionShort": "{days} দিন সংরক্ষিত",
+      "pageNumber": "পৃষ্ঠা {page}",
+      "previousPage": "পূর্ববর্তী",
+      "nextPage": "পরবর্তী"
     }
   },
   "footer": {

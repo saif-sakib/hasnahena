@@ -468,9 +468,6 @@
       "loading": "Loading the trail…",
       "loadFailed": "The audit trail could not be loaded.",
       "shown": "{count} entries shown",
-      "loadMore": "Load more",
-      "loadingMore": "Loading…",
-      "allLoaded": "That is the whole trail for these filters.",
       "details": "Details",
       "hideDetails": "Hide details",
       "ipAddress": "IP address",
@@ -481,7 +478,10 @@
       "retention": "Retention",
       "retentionPermanent": "Kept permanently",
       "retentionLong": "Kept {days} days",
-      "retentionShort": "Kept {days} days"
+      "retentionShort": "Kept {days} days",
+      "pageNumber": "Page {page}",
+      "previousPage": "Previous",
+      "nextPage": "Next"
     }
   },
   "footer": {

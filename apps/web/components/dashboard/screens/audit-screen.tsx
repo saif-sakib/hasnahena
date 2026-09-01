@@ -1,11 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import useSWRInfinite from 'swr/infinite';
+import useSWR from 'swr';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Activity,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   HandCoins,
   Lock,
   RefreshCw,
@@ -190,45 +192,53 @@ export default function AuditScreen() {
   }, [query, category, severity, from, to, includeNoise]);
 
   /**
-   * Pages, appended — not replaced.
+   * One page at a time, replaced — the owner's decision, 2026-09-02.
    *
-   * Prev/Next was the first version and it is the wrong shape for a trail: an
-   * admin reading down a timeline and reaching the end of Tuesday does not want
-   * Tuesday to disappear, and each page cost a `COUNT(*)` over every matching
-   * row to render "of 4,182". `useSWRInfinite` keeps what has been read and asks
-   * for one more page when the button is pressed; the route returns `hasMore`
-   * from one extra row instead of counting.
+   * This was `useSWRInfinite`, appending each page to the ones already read, on
+   * the reasoning that an admin reading down a timeline does not want the part
+   * they have read to disappear. What that costs is that the screen only grows:
+   * by the fourth press it is holding eighty rows, re-grouping all of them by
+   * day on every keystroke in the search box, and a reader who wanted something
+   * from last week had to keep loading until it appeared.
+   *
+   * Numbered pages fetch exactly one page and drop the last, so the work is
+   * constant however deep somebody goes.
+   *
+   * There is still **no `COUNT(*)`**, so there is no "of 12" — that was a full
+   * scan of every matching row per keystroke, against a database that bills for
+   * being awake (ADR-035), to render two words. `hasMore` comes from asking for
+   * one row more than fits, which is what Next actually needs to know.
+   *
+   * `keepPreviousData` is what stops the list blanking to a spinner and back on
+   * every press; the page that is leaving stays on screen until its replacement
+   * has arrived.
    */
-  const { data, error, isLoading, isValidating, size, setSize, mutate } = useSWRInfinite<
-    AuditResponse,
-    Error
-  >(
-    (index, previous) => {
-      // `null` stops SWR asking for a page that cannot exist.
-      if (previous && !previous.pagination.hasMore) return null;
-      return urlForPage(index + 1);
-    },
+  const [page, setPage] = useState(1);
+
+  const { data, error, isLoading, isValidating, mutate } = useSWR<AuditResponse, Error>(
+    urlForPage(page),
     fetchAudit,
     {
       revalidateOnFocus: false,
-      revalidateFirstPage: false,
       shouldRetryOnError: false,
+      keepPreviousData: true,
     },
   );
 
   // Memoised, not a fresh literal every render: the grouping below would then
   // re-run on every keystroke in the search box.
-  const rows = useMemo(() => (data ?? []).flatMap((p) => p.data), [data]);
-  const hasMore = data ? (data[data.length - 1]?.pagination.hasMore ?? false) : false;
-  // Only the *extra* page is loading; the pages already on screen stay put.
-  const isLoadingMore = Boolean(data && size > data.length) || (isValidating && size > 1);
+  const rows = useMemo(() => data?.data ?? [], [data]);
+  const hasMore = data?.pagination.hasMore ?? false;
+  // True while a *different* page is in flight, so the buttons disable without
+  // the rows underneath them vanishing.
+  const isPaging = isValidating && !isLoading;
 
   /** Back to the first page whenever the filter set changes. Without this,
    *  changing a filter would keep however many pages were open and quietly ask
    *  for that many again. */
   const applyFilter = <T,>(setter: (value: T) => void) => (value: T) => {
     setter(value);
-    void setSize(1);
+    setPage(1);
     setExpanded(null);
   };
 
@@ -310,7 +320,7 @@ export default function AuditScreen() {
         onSubmit={(e) => {
           e.preventDefault();
           setQuery(searchInput.trim());
-          void setSize(1);
+          setPage(1);
         }}
         className="flex gap-2"
       >
@@ -438,7 +448,7 @@ export default function AuditScreen() {
                   setSeverity('all');
                   setFrom('');
                   setTo('');
-                  void setSize(1);
+                  setPage(1);
                 }}
                 className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
               >
@@ -600,22 +610,41 @@ export default function AuditScreen() {
         ))}
       </div>
 
-      {rows.length > 0 && (
-        <div className="flex flex-col items-center gap-2 border-t border-slate-200 pt-3">
-          <p className="text-xs text-slate-500">{t('shown', { count: rows.length })}</p>
-          {hasMore ? (
+      {(rows.length > 0 || page > 1) && (
+        <div className="flex flex-col items-center gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:justify-between">
+          <p className="text-xs text-slate-500">
+            {/* No total: counting every matching row to render "of 12" is a
+                full scan per keystroke against a database that bills for being
+                awake (ADR-035). The page number and whether there is another
+                are what the controls actually need. */}
+            {t('pageNumber', { page })} · {t('shown', { count: rows.length })}
+          </p>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={isLoadingMore}
-              onClick={() => void setSize((n) => n + 1)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-4 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+              disabled={page === 1 || isPaging}
+              onClick={() => {
+                setPage((n) => Math.max(1, n - 1));
+                setExpanded(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
             >
-              <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-              {isLoadingMore ? t('loadingMore') : t('loadMore')}
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              {t('previousPage')}
             </button>
-          ) : (
-            <p className="text-xs text-slate-400">{t('allLoaded')}</p>
-          )}
+            <button
+              type="button"
+              disabled={!hasMore || isPaging}
+              onClick={() => {
+                setPage((n) => n + 1);
+                setExpanded(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+            >
+              {t('nextPage')}
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
         </div>
       )}
 

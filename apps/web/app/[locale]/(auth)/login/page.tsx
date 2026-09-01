@@ -6,7 +6,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, ArrowRight, Home, Globe, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -89,7 +89,30 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
+  /**
+   * One login per press, enforced synchronously.
+   *
+   * `disabled={isSubmitting}` is not enough on its own and the browser suite
+   * caught it: two taps delivered inside one tick both pass, because
+   * `isSubmitting` is React state and the button is not actually disabled in
+   * the DOM until the next render. A frustrated thumb on a slow Android
+   * connection — which is most of this platform's traffic — is exactly how that
+   * gets delivered.
+   *
+   * Two logins is not a cosmetic problem. Each mints a session, and the two
+   * responses race to write the token: the loser's value can land second and
+   * leave the browser holding a token the server has already replaced, which
+   * presents as signing in successfully and going nowhere. That is the other
+   * shape this same test failed in.
+   *
+   * A ref is checked and set before the first `await`, so the second call
+   * returns having done nothing whatever the renderer is doing.
+   */
+  const loginInFlight = useRef(false);
+
   const onSubmit = async (data: LoginFormData) => {
+    if (loginInFlight.current) return;
+    loginInFlight.current = true;
     setSubmitError(null);
 
     try {
@@ -181,6 +204,11 @@ export default function LoginPage() {
       setSubmitError(
         tp('serverUnavailable')
       );
+    } finally {
+      // Reset even on the success path: `router.replace` does not unmount this
+      // synchronously, and a member sent back here by a failed navigation must
+      // be able to try again.
+      loginInFlight.current = false;
     }
   };
 
@@ -431,7 +459,16 @@ export default function LoginPage() {
                 </Button>
               </form>
             ) : (
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <form
+                // Built inside the event, not during render: called at render
+                // time this puts `onSubmit` — and the single-flight ref it
+                // reads — on the render path, which the React Compiler refuses
+                // with "Cannot access refs during render".
+                onSubmit={(event) => {
+                  void handleSubmit(onSubmit)(event);
+                }}
+                className="space-y-4"
+              >
               <div className="space-y-2">
                 <Label htmlFor="identifier" className="text-[13px] font-semibold text-slate-700 ml-1">
                   {t('email')}

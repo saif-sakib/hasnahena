@@ -47,6 +47,36 @@ CRON_SECRET=<a long random string, Vercel only>
 
 No Brevo keys here — email is backend-only. Cloudinary keys are Vercel-only too: the Go API contains no Cloudinary code.
 
+### The functions run in Singapore, beside the database
+
+`apps/web/vercel.json` pins `"regions": ["sin1"]`. This is not a preference —
+it is the single largest thing affecting how fast the signed-in half of this
+site feels.
+
+Neon is in `ap-southeast-1` (Singapore); the connection host says so. Vercel's
+default function region is `iad1`, Washington DC. With no `regions` set, every
+Prisma query in a Next route handler crossed the Pacific and back — on the order
+of **220 ms each**, against a query that takes well under a millisecond to run.
+A screen making four or five round trips spent a second doing nothing but
+waiting for light to travel, and no amount of indexing could have shown up in a
+profile as the cause.
+
+Co-located, the same round trip is a few milliseconds. It also happens to put
+the functions much closer to the members, who are in Jessore.
+
+This affects **dynamic routes only**. The twenty marketing pages are prerendered
+and served from the CDN edge worldwide (WO-73), so they were never paying it.
+
+Two things to know if this is ever changed:
+
+- **Change it with the database, not on its own.** The rule is that the
+  functions sit in the same region as Neon. Moving one without the other is
+  worse than either choice made consistently.
+- Region selection needs a paid plan on Vercel. If the deploy warns that the
+  region was ignored, the setting silently reverts to `iad1` and everything gets
+  a second slower with nothing in any log saying why — check the deployment's
+  Functions tab, which names the region it actually used.
+
 ### `CRON_SECRET` and the nightly retention sweep
 
 `apps/web/vercel.json` declares one cron job: a `GET` to

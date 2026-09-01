@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
+import { readableDetails } from '@/lib/audit-details';
 import {
   AUDIT_ACTIONS,
   AUDIT_ACTION_NAMES,
@@ -75,6 +76,47 @@ async function resolveSubjects(
   const key = (type: string, id: string) => `${type}:${id}`;
 
   const userIds = [...(byType.get('USER') ?? [])];
+  const accountIds = [...(byType.get('ACCOUNT') ?? [])];
+  const loanIds = [...(byType.get('LOAN') ?? [])];
+  const txIds = [...(byType.get('TRANSACTION') ?? [])];
+
+  /**
+   * All four lookups at once.
+   *
+   * They were awaited one after another, which is four sequential round trips
+   * to a database in another region — the functions are pinned to `sin1` beside
+   * Neon now (deployment.md), but "four in a row" is a cost that should not
+   * exist at any latency. Nothing here depends on anything else here; they were
+   * sequential only because they were written in the order the types occurred to
+   * somebody. An empty list resolves without a query at all.
+   */
+  const [userRows, accountRows, loanRows, txRows] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({
+          where: { OR: [{ id: { in: userIds } }, { formNumber: { in: userIds } }] },
+          select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
+        })
+      : Promise.resolve([]),
+    accountIds.length
+      ? prisma.account.findMany({
+          where: { userId: { in: accountIds } },
+          select: { userId: true, user: { select: { nameEn: true, accountNo: true } } },
+        })
+      : Promise.resolve([]),
+    loanIds.length
+      ? prisma.loan.findMany({
+          where: { id: { in: loanIds } },
+          select: { id: true, borrower: { select: { nameEn: true } } },
+        })
+      : Promise.resolve([]),
+    txIds.length
+      ? prisma.transaction.findMany({
+          where: { id: { in: txIds } },
+          select: { id: true, type: true, amount: true, user: { select: { nameEn: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
+
   if (userIds.length) {
     // **`id` OR `formNumber`, in one query.**
     //
@@ -86,12 +128,7 @@ async function resolveSubjects(
     // number, which is readable, and which `users.formNumber` still holds for
     // its own reasons. There is no mapping table to consult (ADR-044 removed
     // `user_id_history`); the column that already records the fact answers it.
-    const users = await prisma.user.findMany({
-      where: { OR: [{ id: { in: userIds } }, { formNumber: { in: userIds } }] },
-      select: { id: true, nameEn: true, accountNo: true, formNumber: true, role: true },
-    });
-
-    for (const u of users) {
+    for (const u of userRows) {
       // The account number first, because that is what the office says out loud.
       // An applicant has none, so their application number stands in — and
       // somebody erased has neither name nor number worth printing beyond what
@@ -110,13 +147,8 @@ async function resolveSubjects(
   // An account row is one member's, so it reads better as the member — and
   // since ADR-044 the account's key *is* the member's, so this is a lookup by
   // the number that was already printed on the row.
-  const accountIds = [...(byType.get('ACCOUNT') ?? [])];
   if (accountIds.length) {
-    const accounts = await prisma.account.findMany({
-      where: { userId: { in: accountIds } },
-      select: { userId: true, user: { select: { nameEn: true, accountNo: true } } },
-    });
-    for (const a of accounts) {
+    for (const a of accountRows) {
       out.set(key('ACCOUNT', a.userId), {
         label: `${a.user.nameEn} (${a.user.accountNo ?? '—'})`,
         kind: 'MEMBER',
@@ -124,13 +156,8 @@ async function resolveSubjects(
     }
   }
 
-  const loanIds = [...(byType.get('LOAN') ?? [])];
   if (loanIds.length) {
-    const loans = await prisma.loan.findMany({
-      where: { id: { in: loanIds } },
-      select: { id: true, borrower: { select: { nameEn: true } } },
-    });
-    for (const l of loans) {
+    for (const l of loanRows) {
       out.set(key('LOAN', l.id), {
         label: `${l.id} — ${l.borrower.nameEn}`,
         kind: 'LOAN',
@@ -138,18 +165,8 @@ async function resolveSubjects(
     }
   }
 
-  const txIds = [...(byType.get('TRANSACTION') ?? [])];
   if (txIds.length) {
-    const txs = await prisma.transaction.findMany({
-      where: { id: { in: txIds } },
-      select: {
-        id: true,
-        type: true,
-        amount: true,
-        user: { select: { nameEn: true } },
-      },
-    });
-    for (const t of txs) {
+    for (const t of txRows) {
       out.set(key('TRANSACTION', t.id), {
         // Whole taka, formatted by the reader — this is a label, not money the
         // screen does arithmetic on, so it is a string by the time it leaves here.
@@ -337,7 +354,10 @@ export async function GET(req: Request) {
         action: log.action,
         entityType: log.entityType,
         entityId: log.entityId,
-        details: log.details,
+        // The sentence as written, with a retired identifier resolved to the
+        // name the row itself already carries. The stored row is untouched —
+        // see lib/audit-details.ts.
+        details: readableDetails(log.details, log.entityId),
         oldValue: log.oldValue,
         newValue: log.newValue,
         userIp: log.userIp,
