@@ -533,7 +533,9 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	const documentQuery = `
 		SELECT
-			d.id::text,
+			-- A document is the (userId, type) pair; this list is one member's,
+			-- so the type IS the identifier (ADR-044). There is no d.id.
+			d.type::text,
 			COALESCE(d.type, ''),
 			COALESCE(d.url, ''),
 			COALESCE(d."fileName", ''),

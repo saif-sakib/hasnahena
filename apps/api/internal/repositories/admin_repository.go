@@ -326,7 +326,9 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 			COALESCE((
 				SELECT jsonb_agg(
 					jsonb_build_object(
-						'id', d.id,
+						-- No d.id: a document is (userId, type) (ADR-044), and this
+						-- aggregate is already scoped to one applicant.
+						'id', d.type::text,
 						'type', d.type::text,
 						'url', d.url,
 						'fileName', COALESCE(d."fileName", ''),

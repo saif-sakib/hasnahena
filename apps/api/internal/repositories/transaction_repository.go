@@ -221,7 +221,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			UPDATE accounts
 			SET "loanBalance" = GREATEST("loanBalance" - $1, 0),
 				"updatedAt" = NOW()
-			WHERE id = $2
+			WHERE "userId" = $2
 			RETURNING "loanBalance"::bigint, "savingsBalance"::bigint
 		`, amount, memberID).Scan(&newLoanBalance, &savingsBalance); err != nil {
 			return err
