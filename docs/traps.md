@@ -806,6 +806,30 @@ database** — [ADR-028](decisions.md).
 
 ## Tests and evidence
 
+**`next dev` can serve a stale route handler, and a browser test will believe
+it.** Adding `totalPages` to `/api/v1/admin/audit-logs` and re-running the spec,
+the pager kept rendering one page. The source was correct, `tsc` was clean, and
+the endpoint — queried directly with curl — still answered
+`{page, limit, hasMore}` with no sign of the new fields. Touching the file to
+force a recompile changed nothing; only killing the dev server and restarting it
+did.
+
+Two consequences worth separating:
+
+- A spec that fails against a stale server looks exactly like a spec that fails
+  against a bug, and the natural next move is to change the code that was
+  already right.
+- Worse, a suite **started before an edit keeps running through it**. The dev
+  server hot-reloads mid-run, so some specs execute the old code and some the
+  new, and the result is a green or red that describes no version of the tree.
+  If the working copy changed while a suite was in flight, that run proves
+  nothing — restart it.
+
+When an endpoint's response disagrees with its source, check the server before
+checking the code: `curl` it directly, and if the shape is stale, restart rather
+than debug.
+
+
 - **A helper that throws fails the tests rather than the code, and the failure
   looks like the suite's fault.** `registration.spec.ts` filled the date of birth
   with `page.fill('#dateOfBirth', '1990-04-12')`. When that control became three

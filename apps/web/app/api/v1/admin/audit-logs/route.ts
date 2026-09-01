@@ -50,6 +50,26 @@ import {
 
 const MAX_LIMIT = 100;
 
+/**
+ * How far ahead the pager is allowed to count.
+ *
+ * Numbered pages need a total, and a plain `COUNT(*)` is what this route was
+ * built without: it scans every matching row, on every keystroke of the search
+ * box, against a database that bills for being awake (ADR-035), to render the
+ * word "of". That reasoning has not changed.
+ *
+ * What changed is the requirement — an admin needs to jump to page 7, not press
+ * Next seven times. So the count is **bounded**: it asks for at most this many
+ * matching rows and reports "at least this many" when it hits the ceiling. The
+ * cost is O(cap), not O(table), so it cannot grow into the scan the original
+ * decision was avoiding however long the trail gets — and the trail only grows,
+ * because `audit_logs` is append-only and most of it is kept permanently.
+ *
+ * 2,000 rows is 100 pages at the default size, which is more jumping than the
+ * filters make useful; past that the pager shows `100+` and Next still works.
+ */
+const COUNT_CEILING = 2_000;
+
 interface Subject {
   label: string;
   kind: string;
@@ -311,7 +331,15 @@ export async function GET(req: Request) {
     // bills for being awake (ADR-035) — to produce a number whose only use is
     // the word "of". Asking for `limit + 1` rows answers the question the
     // button actually needs, which is whether there is anything after this.
-    const rows = await prisma.auditLog.findMany({
+    /**
+     * The page, and how many pages there are — in parallel.
+     *
+     * The count selects `id` only and stops at the ceiling, so what comes back
+     * is at most 2,000 integers off the same index the page query uses. It is
+     * not a `COUNT(*)`: it cannot read the whole table.
+     */
+    const [rows, countRows] = await Promise.all([
+      prisma.auditLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
@@ -330,9 +358,21 @@ export async function GET(req: Request) {
         createdAt: true,
         userId: true,
       },
-    });
+      }),
+      prisma.auditLog.findMany({
+        where,
+        select: { id: true },
+        take: COUNT_CEILING + 1,
+      }),
+    ]);
     const hasMore = rows.length > limit;
     const logs = hasMore ? rows.slice(0, limit) : rows;
+
+    // `countCapped` says the total is a floor rather than a fact, so the pager
+    // can render `100+` instead of claiming a number it did not finish counting.
+    const countCapped = countRows.length > COUNT_CEILING;
+    const matched = countCapped ? COUNT_CEILING : countRows.length;
+    const totalPages = Math.max(1, Math.ceil(matched / limit));
 
     const actorIds = [...new Set(logs.map((l) => l.userId).filter((id): id is string => !!id))];
     const [actors, subjects] = await Promise.all([
@@ -381,7 +421,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       data,
-      pagination: { page, limit, hasMore },
+      pagination: { page, limit, hasMore, totalPages, countCapped },
     });
   } catch (error) {
     const authStatus = authErrorStatus(error);

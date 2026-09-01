@@ -1,8 +1,9 @@
-'use client';
+"use client";
 
-import { useMemo, useState } from 'react';
-import useSWR from 'swr';
-import { useLocale, useTranslations } from 'next-intl';
+import { useMemo, useState } from "react";
+import useSWR from "swr";
+import { pageWindow } from "@/lib/pagination";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Activity,
   ChevronDown,
@@ -18,8 +19,8 @@ import {
   Users,
   Wallet,
   X,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import {
   AUDIT_CATEGORY_LABELS,
@@ -27,7 +28,7 @@ import {
   auditActionSpec,
   type AuditCategory,
   type AuditSeverity,
-} from '@/lib/audit-actions';
+} from "@/lib/audit-actions";
 
 /**
  * The audit trail as a screen.
@@ -73,33 +74,36 @@ const CATEGORY_ICONS: Record<AuditCategory, LucideIcon> = {
 };
 
 /** Severity is the loud channel: rail, dot and border. */
-const SEVERITY_STYLES: Record<AuditSeverity, { rail: string; dot: string; chip: string }> = {
+const SEVERITY_STYLES: Record<
+  AuditSeverity,
+  { rail: string; dot: string; chip: string }
+> = {
   critical: {
-    rail: 'bg-rose-500',
-    dot: 'bg-rose-500',
-    chip: 'bg-rose-50 text-rose-700 border-rose-200',
+    rail: "bg-rose-500",
+    dot: "bg-rose-500",
+    chip: "bg-rose-50 text-rose-700 border-rose-200",
   },
   notable: {
-    rail: 'bg-amber-400',
-    dot: 'bg-amber-400',
-    chip: 'bg-amber-50 text-amber-800 border-amber-200',
+    rail: "bg-amber-400",
+    dot: "bg-amber-400",
+    chip: "bg-amber-50 text-amber-800 border-amber-200",
   },
   routine: {
-    rail: 'bg-slate-300',
-    dot: 'bg-slate-300',
-    chip: 'bg-slate-50 text-slate-600 border-slate-200',
+    rail: "bg-slate-300",
+    dot: "bg-slate-300",
+    chip: "bg-slate-50 text-slate-600 border-slate-200",
   },
 };
 
 /** Category is the quiet channel: the icon chip only. */
 const CATEGORY_TINTS: Record<AuditCategory, string> = {
-  money: 'bg-emerald-50 text-emerald-700',
-  lending: 'bg-blue-50 text-blue-700',
-  membership: 'bg-violet-50 text-violet-700',
-  staff: 'bg-cyan-50 text-cyan-700',
-  security: 'bg-orange-50 text-orange-700',
-  data: 'bg-rose-50 text-rose-700',
-  system: 'bg-slate-100 text-slate-600',
+  money: "bg-emerald-50 text-emerald-700",
+  lending: "bg-blue-50 text-blue-700",
+  membership: "bg-violet-50 text-violet-700",
+  staff: "bg-cyan-50 text-cyan-700",
+  security: "bg-orange-50 text-orange-700",
+  data: "bg-rose-50 text-rose-700",
+  system: "bg-slate-100 text-slate-600",
 };
 
 interface AuditRow {
@@ -125,11 +129,19 @@ interface AuditRow {
 interface AuditResponse {
   ok: boolean;
   data: AuditRow[];
-  pagination: { page: number; limit: number; hasMore: boolean };
+  pagination: {
+    page: number;
+    limit: number;
+    hasMore: boolean;
+    /** Pages the route could see. A floor, not a fact, when `countCapped`. */
+    totalPages: number;
+    /** The count stopped at its ceiling, so `totalPages` is "at least". */
+    countCapped: boolean;
+  };
 }
 
 const CATEGORIES = Object.keys(AUDIT_CATEGORY_LABELS) as AuditCategory[];
-const SEVERITIES: AuditSeverity[] = ['critical', 'notable', 'routine'];
+const SEVERITIES: AuditSeverity[] = ["critical", "notable", "routine"];
 /**
  * How many entries the screen asks for at a time.
  *
@@ -146,47 +158,53 @@ async function fetchAudit(url: string): Promise<AuditResponse> {
   // Same-origin Next route, so a plain fetch rather than `useApi`, which
   // resolves against the Go API base. The token is attached the way every other
   // Next-route caller in the dashboard attaches it.
-  const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("hn_access_token")
+      : null;
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   const payload = (await res.json().catch(() => null)) as AuditResponse | null;
-  if (!res.ok || !payload?.ok) throw new Error('load-failed');
+  if (!res.ok || !payload?.ok) throw new Error("load-failed");
   return payload;
 }
 
 /** `2026-08-27` — the grouping key, in the reader's own timezone. */
 function dayKey(iso: string): string {
   const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function AuditScreen() {
   const locale = useLocale();
-  const t = useTranslations('dashboard.audit');
-  const isBn = locale === 'bn';
+  const t = useTranslations("dashboard.audit");
+  const isBn = locale === "bn";
 
-  const [searchInput, setSearchInput] = useState('');
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<AuditCategory | 'all'>('all');
-  const [severity, setSeverity] = useState<AuditSeverity | 'all'>('all');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [searchInput, setSearchInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<AuditCategory | "all">("all");
+  const [severity, setSeverity] = useState<AuditSeverity | "all">("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [includeNoise, setIncludeNoise] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const urlForPage = useMemo(() => {
     return (pageNumber: number) => {
-      const params = new URLSearchParams({ page: String(pageNumber), limit: String(PAGE_SIZE) });
-      if (query) params.set('q', query);
-      if (category !== 'all') params.set('category', category);
-      if (severity !== 'all') params.set('severity', severity);
-      if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString());
+      const params = new URLSearchParams({
+        page: String(pageNumber),
+        limit: String(PAGE_SIZE),
+      });
+      if (query) params.set("q", query);
+      if (category !== "all") params.set("category", category);
+      if (severity !== "all") params.set("severity", severity);
+      if (from) params.set("from", new Date(`${from}T00:00:00`).toISOString());
       // Inclusive of the whole end day. A reader picking the same date for both
       // means "that day", not "the first instant of it".
-      if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString());
-      if (includeNoise) params.set('includeNoise', 'true');
+      if (to) params.set("to", new Date(`${to}T23:59:59.999`).toISOString());
+      if (includeNoise) params.set("includeNoise", "true");
       return `/api/v1/admin/audit-logs?${params.toString()}`;
     };
   }, [query, category, severity, from, to, includeNoise]);
@@ -215,20 +233,27 @@ export default function AuditScreen() {
    */
   const [page, setPage] = useState(1);
 
-  const { data, error, isLoading, isValidating, mutate } = useSWR<AuditResponse, Error>(
-    urlForPage(page),
-    fetchAudit,
-    {
-      revalidateOnFocus: false,
-      shouldRetryOnError: false,
-      keepPreviousData: true,
-    },
-  );
+  /** Every page move goes through here, so an open row never survives one. */
+  const goToPage = (next: number) => {
+    setPage(Math.max(1, next));
+    setExpanded(null);
+  };
+
+  const { data, error, isLoading, isValidating, mutate } = useSWR<
+    AuditResponse,
+    Error
+  >(urlForPage(page), fetchAudit, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+    keepPreviousData: true,
+  });
 
   // Memoised, not a fresh literal every render: the grouping below would then
   // re-run on every keystroke in the search box.
   const rows = useMemo(() => data?.data ?? [], [data]);
   const hasMore = data?.pagination.hasMore ?? false;
+  const totalPages = data?.pagination.totalPages ?? 1;
+  const countCapped = data?.pagination.countCapped ?? false;
   // True while a *different* page is in flight, so the buttons disable without
   // the rows underneath them vanishing.
   const isPaging = isValidating && !isLoading;
@@ -236,11 +261,13 @@ export default function AuditScreen() {
   /** Back to the first page whenever the filter set changes. Without this,
    *  changing a filter would keep however many pages were open and quietly ask
    *  for that many again. */
-  const applyFilter = <T,>(setter: (value: T) => void) => (value: T) => {
-    setter(value);
-    setPage(1);
-    setExpanded(null);
-  };
+  const applyFilter =
+    <T,>(setter: (value: T) => void) =>
+    (value: T) => {
+      setter(value);
+      setPage(1);
+      setExpanded(null);
+    };
 
   const grouped = useMemo(() => {
     const map = new Map<string, AuditRow[]>();
@@ -264,39 +291,46 @@ export default function AuditScreen() {
   const dayLabel = (key: string) => {
     const today = todayKey;
     const yesterday = yesterdayKey;
-    if (key === today) return t('today');
-    if (key === yesterday) return t('yesterday');
-    return new Date(`${key}T00:00:00`).toLocaleDateString(isBn ? 'bn-BD' : 'en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
+    if (key === today) return t("today");
+    if (key === yesterday) return t("yesterday");
+    return new Date(`${key}T00:00:00`).toLocaleDateString(
+      isBn ? "bn-BD" : "en-GB",
+      {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      },
+    );
   };
 
   const timeLabel = (iso: string) =>
-    new Date(iso).toLocaleTimeString(isBn ? 'bn-BD' : 'en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
+    new Date(iso).toLocaleTimeString(isBn ? "bn-BD" : "en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
   const retentionLabel = (action: string) => {
     const spec = auditActionSpec(action);
-    if (spec.retention === 'permanent') return t('retentionPermanent');
-    return t(spec.retention === 'long' ? 'retentionLong' : 'retentionShort', {
+    if (spec.retention === "permanent") return t("retentionPermanent");
+    return t(spec.retention === "long" ? "retentionLong" : "retentionShort", {
       days: AUDIT_RETENTION_DAYS[spec.retention],
     });
   };
 
   const hasFilters =
-    Boolean(query) || category !== 'all' || severity !== 'all' || Boolean(from) || Boolean(to);
+    Boolean(query) ||
+    category !== "all" ||
+    severity !== "all" ||
+    Boolean(from) ||
+    Boolean(to);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t('title')}</h1>
-          <p className="mt-1 text-sm text-slate-500">{t('subtitle')}</p>
+          <h1 className="text-xl font-semibold tracking-tight">{t("title")}</h1>
+          <p className="mt-1 text-sm text-slate-500">{t("subtitle")}</p>
         </div>
         <button
           type="button"
@@ -304,7 +338,7 @@ export default function AuditScreen() {
           className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-50"
         >
           <RefreshCw className="h-4 w-4" aria-hidden />
-          {t('refresh')}
+          {t("refresh")}
         </button>
       </div>
 
@@ -313,7 +347,7 @@ export default function AuditScreen() {
           who does not know it has no reason to prefer it to their memory. */}
       <p className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
         <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-        {t('appendOnly')}
+        {t("appendOnly")}
       </p>
 
       <form
@@ -333,8 +367,8 @@ export default function AuditScreen() {
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder={t('searchPlaceholder')}
-            aria-label={t('search')}
+            placeholder={t("searchPlaceholder")}
+            aria-label={t("search")}
             className="w-full rounded-md border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-slate-400"
           />
         </div>
@@ -342,7 +376,7 @@ export default function AuditScreen() {
           type="submit"
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
         >
-          {t('search')}
+          {t("search")}
         </button>
         <button
           type="button"
@@ -350,11 +384,11 @@ export default function AuditScreen() {
           aria-expanded={filtersOpen}
           className={`rounded-md border px-3 py-2 text-sm font-medium ${
             hasFilters
-              ? 'border-slate-900 bg-slate-900 text-white'
-              : 'border-slate-200 hover:bg-slate-50'
+              ? "border-slate-900 bg-slate-900 text-white"
+              : "border-slate-200 hover:bg-slate-50"
           }`}
         >
-          {t('filters')}
+          {t("filters")}
         </button>
       </form>
 
@@ -363,14 +397,14 @@ export default function AuditScreen() {
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => applyFilter(setCategory)('all')}
+              onClick={() => applyFilter(setCategory)("all")}
               className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                category === 'all'
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-200 hover:bg-slate-50'
+                category === "all"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 hover:bg-slate-50"
               }`}
             >
-              {t('allCategories')}
+              {t("allCategories")}
             </button>
             {CATEGORIES.map((name) => {
               const Icon = CATEGORY_ICONS[name];
@@ -381,12 +415,14 @@ export default function AuditScreen() {
                   onClick={() => applyFilter(setCategory)(name)}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
                     category === name
-                      ? 'border-slate-900 bg-slate-900 text-white'
-                      : 'border-slate-200 hover:bg-slate-50'
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />
-                  {isBn ? AUDIT_CATEGORY_LABELS[name].bn : AUDIT_CATEGORY_LABELS[name].en}
+                  {isBn
+                    ? AUDIT_CATEGORY_LABELS[name].bn
+                    : AUDIT_CATEGORY_LABELS[name].en}
                 </button>
               );
             })}
@@ -394,13 +430,17 @@ export default function AuditScreen() {
 
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-xs font-medium text-slate-600">
-              {t('severity')}
+              {t("severity")}
               <select
                 value={severity}
-                onChange={(e) => applyFilter(setSeverity)(e.target.value as AuditSeverity | 'all')}
+                onChange={(e) =>
+                  applyFilter(setSeverity)(
+                    e.target.value as AuditSeverity | "all",
+                  )
+                }
                 className="mt-1 w-full rounded-md border border-slate-200 px-2 py-2 text-sm"
               >
-                <option value="all">{t('allSeverities')}</option>
+                <option value="all">{t("allSeverities")}</option>
                 {SEVERITIES.map((name) => (
                   <option key={name} value={name}>
                     {t(name)}
@@ -409,7 +449,7 @@ export default function AuditScreen() {
               </select>
             </label>
             <label className="text-xs font-medium text-slate-600">
-              {t('from')}
+              {t("from")}
               <input
                 type="date"
                 value={from}
@@ -418,7 +458,7 @@ export default function AuditScreen() {
               />
             </label>
             <label className="text-xs font-medium text-slate-600">
-              {t('to')}
+              {t("to")}
               <input
                 type="date"
                 value={to}
@@ -436,24 +476,24 @@ export default function AuditScreen() {
                 onChange={(e) => applyFilter(setIncludeNoise)(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300"
               />
-              {t('showRoutine')}
+              {t("showRoutine")}
             </label>
             {hasFilters && (
               <button
                 type="button"
                 onClick={() => {
-                  setSearchInput('');
-                  setQuery('');
-                  setCategory('all');
-                  setSeverity('all');
-                  setFrom('');
-                  setTo('');
+                  setSearchInput("");
+                  setQuery("");
+                  setCategory("all");
+                  setSeverity("all");
+                  setFrom("");
+                  setTo("");
                   setPage(1);
                 }}
                 className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
               >
                 <X className="h-3.5 w-3.5" aria-hidden />
-                {t('clear')}
+                {t("clear")}
               </button>
             )}
           </div>
@@ -462,16 +502,20 @@ export default function AuditScreen() {
 
       {error && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {t('loadFailed')}
+          {t("loadFailed")}
         </p>
       )}
 
-      {isLoading && !data && <p className="py-8 text-center text-sm text-slate-500">{t('loading')}</p>}
+      {isLoading && !data && (
+        <p className="py-8 text-center text-sm text-slate-500">
+          {t("loading")}
+        </p>
+      )}
 
       {!isLoading && rows.length === 0 && !error && (
         <div className="rounded-md border border-dashed border-slate-300 py-12 text-center">
-          <p className="text-sm font-medium text-slate-700">{t('noResults')}</p>
-          <p className="mt-1 text-xs text-slate-500">{t('noResultsHint')}</p>
+          <p className="text-sm font-medium text-slate-700">{t("noResults")}</p>
+          <p className="mt-1 text-xs text-slate-500">{t("noResultsHint")}</p>
         </div>
       )}
 
@@ -489,7 +533,7 @@ export default function AuditScreen() {
                 const isOpen = expanded === row.id;
                 const actorName = row.actor
                   ? (isBn && row.actor.nameBn) || row.actor.nameEn
-                  : t('system');
+                  : t("system");
 
                 return (
                   <li
@@ -539,11 +583,15 @@ export default function AuditScreen() {
                             </p>
                           )}
                           {row.details && (
-                            <p className="mt-0.5 text-xs text-slate-500">{row.details}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {row.details}
+                            </p>
                           )}
                           <p className="mt-1 text-xs text-slate-400">
-                            {t('by')} {actorName}
-                            {row.actor?.accountNo ? ` · ${row.actor.accountNo}` : ''}
+                            {t("by")} {actorName}
+                            {row.actor?.accountNo
+                              ? ` · ${row.actor.accountNo}`
+                              : ""}
                           </p>
 
                           <button
@@ -553,33 +601,43 @@ export default function AuditScreen() {
                             className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
                           >
                             <ChevronDown
-                              className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                              className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`}
                               aria-hidden
                             />
-                            {isOpen ? t('hideDetails') : t('details')}
+                            {isOpen ? t("hideDetails") : t("details")}
                           </button>
 
                           {isOpen && (
                             <dl className="mt-2 space-y-1.5 rounded-md bg-slate-50 p-2.5 text-xs">
                               <div className="flex gap-2">
-                                <dt className="shrink-0 text-slate-500">{t('record')}</dt>
+                                <dt className="shrink-0 text-slate-500">
+                                  {t("record")}
+                                </dt>
                                 <dd className="min-w-0 break-all font-mono text-slate-700">
                                   {row.entityType} · {row.entityId}
                                 </dd>
                               </div>
                               <div className="flex gap-2">
-                                <dt className="shrink-0 text-slate-500">{t('ipAddress')}</dt>
+                                <dt className="shrink-0 text-slate-500">
+                                  {t("ipAddress")}
+                                </dt>
                                 <dd className="font-mono text-slate-700">
-                                  {row.userIp || '—'}
+                                  {row.userIp || "—"}
                                 </dd>
                               </div>
                               <div className="flex gap-2">
-                                <dt className="shrink-0 text-slate-500">{t('retention')}</dt>
-                                <dd className="text-slate-700">{retentionLabel(row.action)}</dd>
+                                <dt className="shrink-0 text-slate-500">
+                                  {t("retention")}
+                                </dt>
+                                <dd className="text-slate-700">
+                                  {retentionLabel(row.action)}
+                                </dd>
                               </div>
                               {row.oldValue != null && (
                                 <div>
-                                  <dt className="text-slate-500">{t('before')}</dt>
+                                  <dt className="text-slate-500">
+                                    {t("before")}
+                                  </dt>
                                   <dd className="mt-0.5 overflow-x-auto">
                                     <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-slate-700">
                                       {JSON.stringify(row.oldValue, null, 2)}
@@ -589,7 +647,9 @@ export default function AuditScreen() {
                               )}
                               {row.newValue != null && (
                                 <div>
-                                  <dt className="text-slate-500">{t('after')}</dt>
+                                  <dt className="text-slate-500">
+                                    {t("after")}
+                                  </dt>
                                   <dd className="mt-0.5 overflow-x-auto">
                                     <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-slate-700">
                                       {JSON.stringify(row.newValue, null, 2)}
@@ -617,37 +677,75 @@ export default function AuditScreen() {
                 full scan per keystroke against a database that bills for being
                 awake (ADR-035). The page number and whether there is another
                 are what the controls actually need. */}
-            {t('pageNumber', { page })} · {t('shown', { count: rows.length })}
+            {t("pageNumber", { page })} · {t("shown", { count: rows.length })}
           </p>
-          <div className="flex items-center gap-2">
+          {/*
+            Numbered, so a jump to page 7 is one press rather than seven.
+            `pageWindow` keeps the control a constant width — see the note there
+            for why that matters more than it sounds like it does.
+          */}
+          <nav className="flex items-center gap-1" aria-label={t("pagination")}>
             <button
               type="button"
               disabled={page === 1 || isPaging}
-              onClick={() => {
-                setPage((n) => Math.max(1, n - 1));
-                setExpanded(null);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+              onClick={() => goToPage(page - 1)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+              aria-label={t("previousPage")}
             >
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-              {t('previousPage')}
             </button>
+
+            {pageWindow(page, totalPages).map((token, index) =>
+              token === "gap" ? (
+                <span
+                  key={`gap-${index}`}
+                  aria-hidden
+                  className="px-1 text-xs text-slate-400 select-none"
+                >
+                  …
+                </span>
+              ) : (
+                <button
+                  key={token}
+                  type="button"
+                  disabled={isPaging}
+                  onClick={() => goToPage(token)}
+                  aria-current={token === page ? "page" : undefined}
+                  aria-label={t("pageNumber", { page: token })}
+                  className={`min-w-8 rounded-md border px-2 py-2 text-xs font-medium tabular-nums disabled:opacity-40 ${
+                    token === page
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  {token}
+                </button>
+              ),
+            )}
+
+            {/* The count stopped at its ceiling, so there are more pages than
+                the numbers show and Next is still the way to reach them. */}
+            {countCapped ? (
+              <span
+                className="px-1 text-xs text-slate-400 select-none"
+                aria-hidden
+              >
+                +
+              </span>
+            ) : null}
+
             <button
               type="button"
               disabled={!hasMore || isPaging}
-              onClick={() => {
-                setPage((n) => n + 1);
-                setExpanded(null);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+              onClick={() => goToPage(page + 1)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
+              aria-label={t("nextPage")}
             >
-              {t('nextPage')}
               <ChevronRight className="h-3.5 w-3.5" aria-hidden />
             </button>
-          </div>
+          </nav>
         </div>
       )}
-
     </div>
   );
 }

@@ -481,7 +481,8 @@
       "retentionShort": "{days} দিন সংরক্ষিত",
       "pageNumber": "পৃষ্ঠা {page}",
       "previousPage": "পূর্ববর্তী",
-      "nextPage": "পরবর্তী"
+      "nextPage": "পরবর্তী",
+      "pagination": "পৃষ্ঠা তালিকা"
     }
   },
   "footer": {
