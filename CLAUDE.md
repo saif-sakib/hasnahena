@@ -164,6 +164,7 @@ count that used to open this sentence is gone too. See
 | an **upload, or a spec that causes one** | `apps/web/test/unit/script-safety.test.ts` and the guard in `uploadImage` — the test rig has a disposable **database** and no disposable **image host**. `e2e/entry-path.spec.ts` reads Cloudinary credentials out of `apps/web/.env` so it can run locally, and those name the foundation's own cloud: every local browser run left four 70-byte 1×1 pixels called `nid-front`, `nid-back`, `member-photo` and `signature` in it. `TEST_DATABASE_URL` set without `ALLOW_TEST_IMAGE_UPLOADS=yes` now refuses the upload outright |
 | a **move of a stored asset** | `moveAsset`, never `uploader.rename` on its own. This account is in **dynamic folder mode**: `public_id` is the URL and `asset_folder` is the folder a human opens, and a rename moves only the first — so every admitted member's documents were served from `people/ACC-KH-33001` and still filed under `applications/APP-2026-000001`, which also made `deleteEmptyFolder` a no-op for ever. `scripts/cloudinary-reconcile.mjs` finds the drift; `test/unit/cloudinary-reconcile.test.ts` pins what it will and will not delete |
 | a **streamed response** | `endStreamOnUpstreamFailure` from `lib/sse-stream.ts`. Next pipes the body *after* the handler returns, so nothing in the route can catch what it throws: an SSE connection ending for any ordinary reason became `failed to pipe response`, unhandled, in Sentry. And the producer needs a heartbeat — a stream that transmits nothing is closed by whatever is between it and the member |
+| a **third-party account holding member data** | `.github/workflows/backup.yml` — it needs a job, and that job must **fail** when its credentials are absent rather than skip. The database dump covers the database; every NID scan, photograph and signature is in Cloudinary, which has no export and cannot be reconstructed from the paper passbook. A backup that passes while producing nothing is the worst outcome available to a backup |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -403,6 +404,12 @@ apps/web/lib/sse-stream.ts         the one wrapper every streamed response goes 
                                   AFTER the handler returns, in code no route can put a try/catch around,
                                   so an upstream that dies mid-stream is reported as `failed to pipe
                                   response` rather than as the ordinary end of an event stream that it is
+apps/web/scripts/cloudinary-backup.mjs  the only copy of a member's NID scan that is not Cloudinary's.
+                                  Lists, downloads, verifies each file against the byte length the API reported,
+                                  and writes ONE encrypted archive beside the database dump. Read-only by
+                                  construction — repairing the tree is the reconcile script, and the tool you
+                                  reach for when something has gone wrong must not be able to make it worse.
+                                  No SDK and no node_modules: recovery needs node and this file
 apps/web/scripts/cloudinary-reconcile.mjs  the asset tree against the database. Dry run unless --confirm.
                                   Deletes only what NO stored URL mentions and only under applications/;
                                   reports anything unreferenced under people/, gallery/ or settings/ for a
@@ -434,6 +441,7 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 |---|---|
 | [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work |
 | [docs/traps.md](docs/traps.md) | **every failure that cost a session**, grouped by what you have to be touching to hit one. Read the matching heading before debugging |
+| [docs/workflow.md](docs/workflow.md) | **the development habits** — which database to develop against, branch → PR → merge, preview deploys, and the ordered list of what to fix first |
 | [docs/product.md](docs/product.md) | domain rules, roles, loan/withdrawal/default policy, FR-01…23 |
 | [docs/architecture.md](docs/architecture.md) | request flow, auth, which backend owns an endpoint, UI tokens |
 | [docs/data-model.md](docs/data-model.md) | schema, invariants, `system_config` keys |

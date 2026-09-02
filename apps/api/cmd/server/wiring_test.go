@@ -219,3 +219,56 @@ func TestRetentionSweepNeverTouchesMoney(t *testing.T) {
 		}
 	}
 }
+
+// A fatal error must reach Sentry before the process ends.
+//
+// os.Exit skips deferred functions, so `defer flushSentry()` in main covers an
+// orderly shutdown and nothing else — and the errors that end the process are
+// the ones most worth reporting: the database unreachable, the port taken.
+// Sentry's transport is asynchronous, so an unflushed event is simply lost.
+//
+// Source-level, like the loop checks above, because the failure guarded against
+// is a deleted call and that is a syntactic fact. Reading main.go as text
+// rather than as an AST is deliberate too: what matters is the *order* of three
+// statements, which is easier to see in the lines than in the tree.
+func TestFatalErrorsFlushSentryBeforeExiting(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+
+	lines := strings.Split(string(source), "\n")
+	checked := 0
+
+	for i, line := range lines {
+		if !strings.Contains(line, "os.Exit(1)") {
+			continue
+		}
+
+		// The three lines above an exit are the error that caused it. An exit
+		// with no error logged near it is a deliberate status code, not a
+		// fault, and has nothing to report.
+		start := i - 3
+		if start < 0 {
+			start = 0
+		}
+		preceding := strings.Join(lines[start:i], "\n")
+		if !strings.Contains(preceding, "slog.Error") {
+			continue
+		}
+
+		checked++
+		if !strings.Contains(preceding, "observability.Flush()") {
+			t.Errorf(
+				"main.go:%d exits after logging an error without calling observability.Flush() first;\n"+
+					"the event is buffered and os.Exit discards it:\n%s",
+				i+1, preceding,
+			)
+		}
+	}
+
+	// A census that silently matches nothing is the defect it exists to catch.
+	if checked == 0 {
+		t.Fatal("found no fatal exit to check — has main.go stopped exiting on error?")
+	}
+}

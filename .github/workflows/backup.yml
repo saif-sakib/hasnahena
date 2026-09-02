@@ -8,6 +8,10 @@ name: Backup
 #   BACKUP_DATABASE_URL  direct (NOT -pooler) Neon connection string
 #   BACKUP_PASSPHRASE    symmetric key for the dump — losing it loses the backup
 #
+# Required for the asset half (members' NID scans, photographs and signatures —
+# the database dump contains none of them):
+#   CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET
+#
 # Optional, to also copy off GitHub (recommended once there is real member data):
 #   BACKUP_S3_BUCKET     e.g. s3://hasnahena-backups
 #   BACKUP_S3_ENDPOINT   set for Backblaze B2 / Cloudflare R2; omit for AWS S3
@@ -114,4 +118,94 @@ jobs:
             ls -lh backups/*.dump.gpg | awk '{print "- `" $9 "` — " $5}'
             echo
             echo "Restore with \`scripts/restore-check.sh\` — see docs/deployment.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The database dump covers the database. Every member's identity document
+  # lives in Cloudinary, which has no export feature, and losing that account
+  # loses regulatory records that cannot be reconstructed from anything —
+  # not from the paper passbook, which records money and not photographs.
+  #
+  # A separate job rather than a step, so that a Cloudinary outage cannot cost
+  # us the database dump, and so the two show up independently: "the backup
+  # ran" should never mean "half the backup ran".
+  assets:
+    name: Copy the Cloudinary assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Fails rather than skips, deliberately, and for the same reason the
+      # dump job checks its own secrets: a backup job that passes while
+      # producing nothing is the worst outcome available to it. If this is red
+      # every night, the three secrets below are not set, and members' identity
+      # documents have no copy anywhere.
+      - name: Fail fast on missing secrets
+        env:
+          CLOUD: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          missing=''
+          [ -n "$CLOUD" ]  || missing="$missing CLOUDINARY_CLOUD_NAME"
+          [ -n "$KEY" ]    || missing="$missing CLOUDINARY_API_KEY"
+          [ -n "$SECRET" ] || missing="$missing CLOUDINARY_API_SECRET"
+          [ -n "$PASS" ]   || missing="$missing BACKUP_PASSPHRASE"
+          if [ -n "$missing" ]; then
+            echo "Set these repository secrets:$missing" >&2
+            echo "Until then, no copy of any member's NID scan exists outside Cloudinary." >&2
+            exit 1
+          fi
+
+      # No `pnpm install`: the script uses the Admin API over fetch and the
+      # node standard library, so it runs from a bare checkout.
+      - name: Download and encrypt
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: node apps/web/scripts/cloudinary-backup.mjs backups
+
+      - name: Name the artifact
+        id: meta
+        env:
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          echo "name=hasnahena-assets-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          # As in the dump job: the `secrets` context is not available in `if:`.
+          echo "s3=${BUCKET:+yes}" >> "$GITHUB_OUTPUT"
+
+      - name: Retain on GitHub
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: backups/*.tar.gz.gpg
+          if-no-files-found: error
+          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 30 }}
+
+      - name: Copy off GitHub
+        if: steps.meta.outputs.s3 == 'yes'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+        run: |
+          args=()
+          [ -n "$ENDPOINT" ] && args+=(--endpoint-url "$ENDPOINT")
+          aws "${args[@]}" s3 cp backups/ "$BUCKET/" --recursive --exclude '*' --include '*.tar.gz.gpg'
+
+      - name: Summary
+        run: |
+          {
+            echo "### Asset backup complete"
+            echo
+            ls -lh backups/*.tar.gz.gpg | awk '{print "- `" $9 "` — " $5}'
           } >> "$GITHUB_STEP_SUMMARY"

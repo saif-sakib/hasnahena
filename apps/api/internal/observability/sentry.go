@@ -6,6 +6,9 @@
 package observability
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -49,8 +52,16 @@ func Init(environment string) func() {
 		return func() {}
 	}
 
+	// Route every slog record at Error level to Sentry. Without this the only
+	// thing that can reach Sentry from this API is a panic — and this API does
+	// not panic, because every failure is an error value returned up to a
+	// handler that answers 4xx or 5xx (rule 2b). That is exactly the state it
+	// was in from the day the DSN was first set: correctly configured, and
+	// silent, because nothing ever called the reporter.
+	slog.SetDefault(slog.New(sentryHandler{inner: slog.Default().Handler()}))
+
 	slog.Info("error tracking enabled", "environment", environment)
-	return func() { sentry.Flush(3 * time.Second) }
+	return Flush
 }
 
 // scrub removes anything member-identifying before an event leaves the process.
@@ -89,17 +100,114 @@ func Recoverer(next http.Handler) http.Handler {
 	})
 }
 
-// CaptureError reports a handled error — one that did not panic but that
-// someone should look at, such as a money posting that failed to commit.
-func CaptureError(err error, tags map[string]string) {
-	if err == nil {
+// Flush drains buffered events, and must be called before any os.Exit.
+//
+// Sentry's transport is asynchronous and os.Exit skips deferred functions, so
+// without this the fatal errors — the database being unreachable, the port
+// being taken, the ones you would most want to see — are precisely the ones
+// that never arrive. A no-op when no client is configured.
+func Flush() { sentry.Flush(3 * time.Second) }
+
+// SkipKey marks a log record that must not become a Sentry event.
+//
+// One record needs it: the access log's 5xx line. That line is telemetry, not a
+// fault — the handler which produced the 500 has already logged the cause with
+// the error attached — so without this every server error would arrive twice,
+// once usefully and once inside a single enormous "http_request" issue.
+const SkipKey = "sentrySkip"
+
+// sentryHandler forwards Error-level slog records to Sentry and then passes
+// them to the real handler unchanged.
+//
+// A bridge rather than a call at each site, because there are fifty of those
+// and the fifty-first would be written by someone who did not know this file
+// exists. It also means the reporting rule is stated once: **if it was worth
+// logging at Error, it is worth an alert.**
+type sentryHandler struct {
+	inner slog.Handler
+	// Attributes fixed by With() before the record was made. Collected so a
+	// logger built with slog.Default().With("job", "reconcile") still tags its
+	// events with the job.
+	attrs []slog.Attr
+}
+
+func (h sentryHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.inner.Enabled(ctx, level)
+}
+
+func (h sentryHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return sentryHandler{
+		inner: h.inner.WithAttrs(attrs),
+		attrs: append(append([]slog.Attr{}, h.attrs...), attrs...),
+	}
+}
+
+func (h sentryHandler) WithGroup(name string) slog.Handler {
+	return sentryHandler{inner: h.inner.WithGroup(name), attrs: h.attrs}
+}
+
+func (h sentryHandler) Handle(ctx context.Context, record slog.Record) error {
+	if record.Level >= slog.LevelError {
+		capture(record, h.attrs)
+	}
+	// Reported or not, the line still goes to stdout. Sentry being down, over
+	// quota, or misconfigured must never cost us the log.
+	return h.inner.Handle(ctx, record)
+}
+
+// capture turns one log record into one Sentry event.
+func capture(record slog.Record, preset []slog.Attr) {
+	var cause error
+	extra := make(map[string]any)
+	skip := false
+
+	collect := func(attr slog.Attr) {
+		value := attr.Value.Resolve()
+		switch attr.Key {
+		case SkipKey:
+			skip = true
+		case "error":
+			// slog stores an error as its string once it has been through a
+			// JSON handler, so accept either shape.
+			if err, ok := value.Any().(error); ok {
+				cause = err
+			} else if text := value.String(); text != "" {
+				cause = errors.New(text)
+			}
+		default:
+			extra[attr.Key] = value.Any()
+		}
+	}
+
+	for _, attr := range preset {
+		collect(attr)
+	}
+	record.Attrs(func(attr slog.Attr) bool {
+		collect(attr)
+		return true
+	})
+
+	if skip {
 		return
 	}
+
 	sentry.WithScope(func(scope *sentry.Scope) {
-		for k, v := range tags {
-			scope.SetTag(k, v)
+		scope.SetLevel(sentry.LevelError)
+		// One context block rather than a tag each: tags are indexed and
+		// low-cardinality by design, and these carry request ids and amounts.
+		if len(extra) > 0 {
+			scope.SetContext("log", sentry.Context(extra))
 		}
-		sentry.CaptureException(err)
+		if cause == nil {
+			// "ledger drift" and the boot-time configuration failures carry no
+			// error value, and they are among the most important events here.
+			sentry.CaptureMessage(record.Message)
+			return
+		}
+		// Wrapped so the issue title is the sentence a human wrote rather than
+		// whatever pgx called the connection failure — grouping follows the
+		// title, and "failed to post deposit" is the useful grouping.
+		sentry.CaptureException(fmt.Errorf("%s: %w", record.Message, cause))
 	})
 }
 

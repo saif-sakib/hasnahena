@@ -301,6 +301,30 @@ Two things that make scheduled backups quietly stop:
 - GitHub disables scheduled workflows in a repository with **60 days of no commit activity**. It emails first. Re-enable it on the Actions tab.
 - Artifacts expire on the retention window above. That is the whole retention policy until the S3 copy is configured; 30 days is short if nobody looks.
 
+### The Cloudinary assets
+
+The dump above covers the database and **nothing else**. Every member's NID scan, photograph and signature lives in Cloudinary, which has no export feature, and none of it can be reconstructed from the paper passbook — the passbook records money, not photographs.
+
+The `assets` job in the same workflow runs `apps/web/scripts/cloudinary-backup.mjs`, which lists every asset under `hasnahena/`, downloads it, verifies each file against the byte length Cloudinary reported, and writes one encrypted archive beside the database dump:
+
+```
+backups/hasnahena-assets-<UTC stamp>.tar.gz.gpg
+    files/hasnahena/people/ACC-KH-33001/nid-front.jpg   … mirroring every public id
+    manifest.json                                       … folder, format, bytes, created date
+```
+
+Same passphrase, same retention, same optional S3 copy. It needs `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` as repository secrets and **fails nightly until they are set**, deliberately: an asset backup that skips quietly is indistinguishable from one that works.
+
+Two properties are worth keeping if this is ever rewritten. It never writes to Cloudinary — repairing the asset tree is `cloudinary-reconcile.mjs`, and the script you reach for when something has gone wrong should not be able to make it worse. And it uses the Admin API over `fetch` with no SDK and no `node_modules`, so recovery needs only node and a copy of the file.
+
+Restore by decrypting and unpacking; the public id names the person, so the tree is readable without the database:
+
+```bash
+gpg --decrypt hasnahena-assets-<stamp>.tar.gz.gpg > assets.tar.gz && tar -xzf assets.tar.gz
+```
+
+Re-uploading a member's documents afterwards is a manual `uploader.upload` per file with the `public_id` from the manifest — there is no bulk import, which is a reason to treat losing the account as serious rather than routine.
+
 ### The PostgreSQL client version
 
 `pg_dump` refuses to dump a server newer than itself, and Neon upgrades Postgres on its own schedule — so this **will** drift again. It already has once: the job failed with `server version: 17.11; pg_dump version: 16.14`.
@@ -316,7 +340,7 @@ Override with `PG_DUMP` / `PG_RESTORE` / `PSQL` if you are on an unusual layout.
 
 **When Neon moves to a major PGDG has not published yet**, the composite action fails with `resolved PostgreSQL client is N, need at least M`. Raise the loop in the action; there is nothing else to change.
 
-Run one by hand any time from **Actions → Backup → Run workflow**.
+Run either by hand at any time from **Actions → Backup → Run workflow**, or locally with `pnpm db:backup` (database) and `pnpm backup:assets` (Cloudinary). Both need `BACKUP_PASSPHRASE` in the environment; the database one also needs the direct connection string, under either `DIRECT_DATABASE_URL` or `BACKUP_DATABASE_URL` — **one value with two names**, because the script reads the first and the GitHub secret is called the second, and the workflow maps one onto the other.
 
 ### Restoring
 

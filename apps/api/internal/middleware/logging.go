@@ -8,6 +8,8 @@ import (
 	"time"
 
 	chimw "github.com/go-chi/chi/v5/middleware"
+
+	"hasnahena/apps/api/internal/observability"
 )
 
 // ctxKeyRequestState carries the per-request holder that lets a handler add
@@ -169,6 +171,13 @@ func loggingHandler(next http.Handler, trustedProxies int) http.Handler {
 			switch {
 			case status >= 500:
 				level = slog.LevelError
+				// Error level so a 5xx stands out in Render's log stream, but
+				// NOT an alert: the handler that produced it has already
+				// logged the cause, and reporting both would file every server
+				// error twice — once with its reason and once in a single
+				// "http_request" issue containing every 500 the API has ever
+				// served. See observability.SkipKey.
+				attrs = append(attrs, observability.SkipKey, true)
 			case status >= 400:
 				level = slog.LevelWarn
 			}

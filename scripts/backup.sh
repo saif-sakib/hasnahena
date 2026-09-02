@@ -4,6 +4,12 @@
 #
 #   DIRECT_DATABASE_URL=postgresql://... BACKUP_PASSPHRASE=... scripts/backup.sh [outdir]
 #
+# BACKUP_DATABASE_URL is accepted as the same thing, because that is the name
+# the GitHub secret has. One value, two names, and being handed the wrong one is
+# the expected mistake — the workflow maps `secrets.BACKUP_DATABASE_URL` onto
+# `DIRECT_DATABASE_URL`, so anyone copying the command out of the workflow and
+# running it locally has the other half of the pair in their hand.
+#
 # Two things about this script are deliberate and easy to get wrong:
 #
 #   1. It must use the DIRECT Neon endpoint, not the `-pooler` one. pg_dump
@@ -29,9 +35,11 @@ set -euo pipefail
 
 OUT_DIR="${1:-backups}"
 
-if [[ -z "${DIRECT_DATABASE_URL:-}" ]]; then
-  echo "backup: DIRECT_DATABASE_URL is not set" >&2
-  echo "backup: this must be the direct Neon endpoint (no '-pooler' in the host)" >&2
+DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-${BACKUP_DATABASE_URL:-}}"
+
+if [[ -z "$DIRECT_DATABASE_URL" ]]; then
+  echo "backup: set DIRECT_DATABASE_URL (or BACKUP_DATABASE_URL — same value, and the name of the GitHub secret)" >&2
+  echo "backup: it must be the direct Neon endpoint (no '-pooler' in the host); a pooled one is accepted and converted" >&2
   exit 1
 fi
 

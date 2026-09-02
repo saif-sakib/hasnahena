@@ -26,6 +26,7 @@
     "db:migrate:baseline": "cd apps/web && node scripts/migrate.mjs baseline",
     "db:seed": "cd apps/web && node scripts/seed.mjs",
     "db:backup": "scripts/backup.sh",
+    "backup:assets": "cd apps/web && node scripts/cloudinary-backup.mjs ../../backups",
     "db:restore-check": "scripts/restore-check.sh",
     "db:studio": "pnpm --filter @hasnahena/web prisma studio",
     "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",

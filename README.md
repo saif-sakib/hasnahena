@@ -12,7 +12,7 @@ Hasnahena Foundation is a community-run, interest-free (সুদমুক্ত
 
 **Members** register online with NID and nominee details, track deposits and withdrawals, request deposits and repayments, donate, and confirm or dispute every posting on their account. **Workers** process pending member requests and record disbursements and installments — they never move money on their own initiative. **Admins** approve registrations and loans, resolve disputes, configure policy, and run default settlement. Everything is bilingual English/Bengali.
 
-> **Status: pre-production.** Deployed and working, holding fake data. The order to do the remaining work in is [docs/go-live.md](docs/go-live.md); current status is [docs/tasks.md](docs/tasks.md).
+> **Status: live.** Serving real members since the cutover on 2026-08-27 — the database holds real people, real balances and real identity documents. Treat every environment accordingly: [docs/workflow.md](docs/workflow.md) is how a change reaches them safely, [docs/runbook.md](docs/runbook.md) is the night something breaks, and [docs/tasks.md](docs/tasks.md) is what is still outstanding.
 
 ## Stack
 

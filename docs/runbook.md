@@ -225,6 +225,13 @@ storage if `BACKUP_S3_BUCKET` is set.
 Neon's own point-in-time restore is **not** this. It is bounded by the plan's
 retention window and every branch dies with the account.
 
+The **assets** are a second archive from the same workflow —
+`hasnahena-assets-<stamp>.tar.gz.gpg`, holding every NID scan, photograph and
+signature. Restore it with `gpg --decrypt … | tar -xz`; the public ids name the
+people (`people/ACC-KH-33001/nid-front.jpg`), so it reads without the database.
+A restore of one without the other leaves members whose documents 404 or
+documents belonging to members who no longer exist — take and restore the pair.
+
 ### Verify a backup (do this on a schedule, not in an emergency)
 
 ```bash

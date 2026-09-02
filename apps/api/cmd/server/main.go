@@ -93,8 +93,17 @@ func main() {
 	config := cfg.Load()
 	applyLogLevel(config.LogLevel)
 
+	// As early as it can be: Init needs config.Environment and nothing else, and
+	// every line after this one can fail fatally. Started later — which it was —
+	// a missing DATABASE_URL or an unparseable connection string ended the
+	// process with a line in Render's log and no alert anywhere. What still
+	// cannot report is cfg.Load itself, which exits on a missing JWT_SECRET
+	// before there is an environment to tag the event with.
+	defer observability.Init(config.Environment)()
+
 	if config.DatabaseURL == "" {
 		slog.Error("DATABASE_URL is required")
+		observability.Flush()
 		os.Exit(1)
 	}
 
@@ -107,6 +116,7 @@ func main() {
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to parse database config", "error", err)
+		observability.Flush()
 		os.Exit(1)
 	}
 	poolConfig.MaxConns = config.DBMaxConns
@@ -129,12 +139,10 @@ func main() {
 	// the only reason production has not hit this; a VPS would not be so kind.
 	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
 
-	flushSentry := observability.Init(config.Environment)
-	defer flushSentry()
-
 	dbPool, err := pgxpool.NewWithConfig(startupCtx, poolConfig)
 	if err != nil {
 		slog.Error("failed to connect db", "error", err)
+		observability.Flush()
 		os.Exit(1)
 	}
 	defer dbPool.Close()
@@ -537,6 +545,7 @@ func waitForShutdown(
 		} else {
 			slog.Error("api server failed", "error", err)
 		}
+		observability.Flush()
 		os.Exit(1)
 	case <-runCtx.Done():
 		slog.Info("shutdown signal received, draining in-flight requests", "timeout", shutdownTimeout.String())

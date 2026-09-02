@@ -13,6 +13,7 @@ another's.
 | [data-model.md](data-model.md) | Prisma schema map, invariants, `system_config` keys, hand-written-SQL traps |
 | [api.md](api.md) | Every endpoint on both surfaces, response envelopes |
 | [setup.md](setup.md) | Run it locally, every environment variable, troubleshooting |
+| [workflow.md](workflow.md) | **How a change reaches production safely** — separating the development database from the live one, branch → pull request → merge, preview deploys, and the backup layers that do and do not exist |
 | [deployment.md](deployment.md) | Vercel + Render + Neon + Cloudinary + DNS, backups, **how to switch the monitoring on**, and the host-move plan |
 | [decisions.md](decisions.md) | **Why the code contradicts an older assumption.** Indexed — read the one row you need |
 | [testing.md](testing.md) | Where a new test goes, the fixture contract, how to run each suite, what is deliberately uncovered |
@@ -25,6 +26,7 @@ another's.
 - **New to the project:** [product.md](product.md) → [architecture.md](architecture.md) → [setup.md](setup.md).
 - **Picking up work:** [tasks.md](tasks.md). Every task is written so it can be executed without first re-reading the codebase to find out what was meant.
 - **Changing something:** [changing-things.md](changing-things.md) for the how, then [decisions.md](decisions.md) — which will tell you whether an idea was already tried and rejected.
+- **Working on it day to day:** [workflow.md](workflow.md) — it is the only file that says which database your laptop should be talking to, and the answer is not the one it is talking to now.
 - **Going to production:** [tasks.md](tasks.md) Phases 0–3 first, then [go-live.md](go-live.md) for the cutover. The monitoring is **half on** — `METRICS_TOKEN` and the web app's Sentry were confirmed live on 2026-08-25; the Go API's own Sentry DSN, the GitHub secret and the UptimeRobot monitors are not ([deployment.md](deployment.md#the-monitoring-and-how-to-tell-whether-it-is-actually-on)).
 - **Writing tests:** [testing.md](testing.md). The suites and CI checks that fail the build when the code grows something they do not know about are tabulated in [CLAUDE.md](../CLAUDE.md).
 - **Debugging something inexplicable:** [traps.md](traps.md) first. Most of what has gone wrong here has gone wrong before.
