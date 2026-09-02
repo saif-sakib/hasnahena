@@ -35,11 +35,17 @@
 export const PRIVACY_LAST_UPDATED = '2026-08-27';
 
 /**
- * 2026-08-26 (T-10). The loan clause itself last changed on 2026-08-25, when
- * the foundation ruled out a late fee; this revision restates the whole
- * document and moves it into the message files.
+ * 2026-09-02. `terms.sections.records` was added: the foundation's physical
+ * books are the authoritative record and prevail over anything this website
+ * shows. Members agree to it at registration, so it has to be readable on the
+ * page that agreement links to — and a clause a member is asked to accept
+ * appearing under an older revision date is a change nobody can tell happened.
+ *
+ * Before that, 2026-08-26 (T-10) restated the whole document and moved it into
+ * the message files; the loan clause last changed on 2026-08-25, when the
+ * foundation ruled out a late fee.
  */
-export const TERMS_LAST_UPDATED = '2026-08-26';
+export const TERMS_LAST_UPDATED = '2026-09-02';
 
 /**
  * A revision date in the reader's language.

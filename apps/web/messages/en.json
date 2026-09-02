@@ -230,6 +230,14 @@
       "allRightsReserved": "All rights reserved.",
       "pendingApplicationHint": "Applied recently? An application has to be approved before you can log in — you will be emailed either way."
     },
+    "register": {
+      "rulesPhysicalRecords": "4. The Foundation's official physical books and signed documents are the final record. This website may contain errors or delays, so if anything shown here conflicts with the physical books, the physical books prevail.",
+      "termsHeading": "Terms & Conditions",
+      "termsIntro": "The rules above are part of our full Terms & Conditions. Please read them before you complete your registration.",
+      "termsLink": "Read the Terms & Conditions",
+      "termsLinkAria": "Read the Terms & Conditions (opens in a new tab)",
+      "agreeToTerms": "I have read and agree to all the above rules and regulations and to the Terms & Conditions *"
+    },
     "forgot": {
       "errorTitle": "Error",
       "identifierRequired": "Please enter email or phone",
@@ -556,6 +564,10 @@
         "loans": {
           "title": "Loan Terms",
           "content": "Loans provided by Hasnahena Foundation are interest-free. There is no profit rate, no markup, no service charge and no administrative or processing fee — you repay exactly the amount you borrowed and not one taka more. A late or missed instalment carries no penalty and no additional charge of any kind. Specific repayment schedules and conditions are set out in your individual loan agreement."
+        },
+        "records": {
+          "title": "Official Records",
+          "content": "The Foundation's official physical books, registers and signed documents are the authoritative record of every membership, deposit, withdrawal and loan. This website is provided for convenience and may contain errors, omissions or delays. Where anything shown on this website conflicts with the Foundation's physical records, the physical records prevail."
         },
         "privacy": {
           "title": "Privacy",

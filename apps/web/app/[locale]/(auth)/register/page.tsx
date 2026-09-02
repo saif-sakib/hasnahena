@@ -10,7 +10,7 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useForm, type FieldErrors, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -28,6 +28,7 @@ import {
   AlertCircle,
   Camera,
   X,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -260,6 +261,10 @@ function FieldError({ message }: { message?: string }) {
 export default function RegisterPage() {
   const locale = useLocale();
   const isBn = locale === 'bn';
+  // Rule 5. The rest of this page still chooses its copy inline, which is the
+  // dashboard-sized cleanup in tasks.md; anything added here goes in the
+  // message files, where the parity census and the fee-promise search can read it.
+  const tReg = useTranslations('auth.register');
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -2155,6 +2160,7 @@ export default function RegisterPage() {
                           ? '৩. সদস্য জমাকৃত টাকার উপর কোন প্রকার লভ্যাংশ পাবে না।'
                           : '3. Members will not receive any interest or dividends on their deposited funds.'}
                       </p>
+                      <p>{tReg('rulesPhysicalRecords')}</p>
                     </div>
 
                     <h3 className="border-b pb-3 text-lg font-semibold">
@@ -2167,6 +2173,26 @@ export default function RegisterPage() {
                           ? 'আমি অঙ্গীকার করছি যে, অত্র ম্যানেজমেন্টের যাবতীয় নিয়ম কানুন নীতিমালা ও গৃহীত সকল সিদ্ধান্ত আন্তরিকভাবে মেনে চলব। অত্র ম্যানেজমেন্টের স্বার্থ ও মান ক্ষুন্ন ও নিয়ম পরিপন্থী কর্মকান্ডে লিপ্ত হব না।'
                           : 'I pledge that I will sincerely abide by all rules, regulations, policies, and decisions of this management. I will not engage in any activities that harm the interests or violate the rules of this management.'}
                       </p>
+                    </div>
+
+                    <h3 className="border-b pb-3 text-lg font-semibold">{tReg('termsHeading')}</h3>
+
+                    {/* The full document, not a summary of it. It opens in a new
+                        tab deliberately: this form holds four uploaded images and
+                        eleven answered fields in browser state, and navigating away
+                        from it loses all of them. */}
+                    <div className="space-y-3 rounded-lg border bg-muted/50 p-4 text-sm">
+                      <p>{tReg('termsIntro')}</p>
+                      <Link
+                        href={localePath(locale, '/terms')}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={tReg('termsLinkAria')}
+                        className="inline-flex items-center gap-1.5 font-medium text-primary underline underline-offset-4 hover:no-underline"
+                      >
+                        {tReg('termsLink')}
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                      </Link>
                     </div>
 
                     <div
@@ -2183,9 +2209,7 @@ export default function RegisterPage() {
                         {...register('agreeToTerms')}
                       />
                       <Label htmlFor="agreeToTerms" className="text-sm font-normal leading-snug">
-                        {isBn
-                          ? 'আমি উপরের সকল নিয়মাবলী পড়েছি এবং মেনে চলতে সম্মত আছি *'
-                          : 'I have read and agree to all the above rules and regulations *'}
+                        {tReg('agreeToTerms')}
                       </Label>
                     </div>
                     <FieldError message={errors.agreeToTerms?.message} />

@@ -163,11 +163,37 @@ test.describe('the pages point at their own URLs', () => {
     // The list used to be written out per locale, so English losing its prefix
     // would have left `/en/login` disallowed — a URL that 301s — and `/login`
     // itself unlisted.
-    for (const path of ['/dashboard/', '/login', '/register', '/forgot-password', '/reset-password']) {
+    for (const path of ['/dashboard/']) {
       expect(body, `robots.txt does not disallow ${path}`).toContain(`Disallow: ${path}`);
       expect(body, `robots.txt does not disallow /bn${path}`).toContain(`Disallow: /bn${path}`);
     }
+    expect(body, 'robots.txt does not disallow /api/').toContain('Disallow: /api/');
     expect(body, 'robots.txt still names URLs that redirect').not.toContain('Disallow: /en');
+  });
+
+  test('robots.txt does not disallow the auth pages, which carry noindex instead', async ({
+    request,
+  }) => {
+    // These were disallowed until 2026-09-02, together with the `noindex` they
+    // still carry — which is the combination that does not work. `Disallow`
+    // forbids *fetching*, so the crawler never reads the `noindex` it was sent
+    // to obey, and `/login` and `/register` are linked from the header of every
+    // public page: Bing followed them, was refused, and filed "Blocked by
+    // robots.txt" against a site trying to say the opposite.
+    const body = await (await request.get('/robots.txt')).text();
+    for (const path of ['/login', '/register', '/forgot-password', '/reset-password']) {
+      expect(body, `robots.txt disallows ${path}, so its noindex is unreadable`).not.toContain(
+        `Disallow: ${path}`,
+      );
+      expect(body, `robots.txt disallows /bn${path}`).not.toContain(`Disallow: /bn${path}`);
+    }
+
+    // The other half: refusing to disallow them is only correct while they say
+    // noindex themselves.
+    for (const path of ['/login', '/register']) {
+      const html = await (await request.get(path)).text();
+      expect(html, `${path} does not send noindex`).toMatch(/name="robots"[^>]*noindex/);
+    }
   });
 
   test('the sitemap lists no /en URL', async ({ request }) => {
