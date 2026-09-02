@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
+import { endStreamOnUpstreamFailure } from '@/lib/sse-stream';
 
 /**
  * The exact upstream surface this proxy is allowed to reach, path by path and
@@ -127,7 +128,12 @@ async function forward(req: NextRequest, path: string[] | undefined) {
   }
 
   if (isStream) {
-    return new NextResponse(response.body, {
+    // Wrapped, not passed straight through: a stream that dies upstream — a
+    // redeploy, a proxy's idle timeout, a phone losing signal — would otherwise
+    // reach Next's piping as an error it reports as `failed to pipe response`,
+    // unhandled, for a connection the client is already reconnecting. See
+    // lib/sse-stream.ts.
+    return new NextResponse(endStreamOnUpstreamFailure(response.body), {
       status: response.status,
       headers: {
         'Content-Type': response.headers.get('content-type') || 'text/event-stream',

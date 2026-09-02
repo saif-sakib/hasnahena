@@ -45,6 +45,53 @@ export class CloudinaryConfigurationError extends Error {
   }
 }
 
+/**
+ * A test run tried to write to the foundation's own image host.
+ *
+ * Separate from `CloudinaryConfigurationError` for the same reason that one is
+ * separate from an upload failure: it is a different problem, with a different
+ * person to tell and a different fix — nobody needs to look at Cloudinary, they
+ * need to stop pointing a test at it.
+ */
+export class CloudinaryTestTargetError extends Error {
+  constructor() {
+    super(
+      'Refusing to upload from a test run: TEST_DATABASE_URL is set, so this process is ' +
+        'serving a test stack, and this Cloudinary account holds real members\' NID scans. ' +
+        'Set ALLOW_TEST_IMAGE_UPLOADS=yes only with credentials for a disposable cloud.',
+    );
+    this.name = 'CloudinaryTestTargetError';
+  }
+}
+
+/**
+ * Refuse an upload from a process that is serving a test stack.
+ *
+ * **The database has a test double and the image host does not.** That asymmetry
+ * is not obvious from anywhere, and it cost the foundation's asset store 44
+ * files: `scripts/test-stack.sh` moves the whole rig onto a disposable Postgres,
+ * `entry-path.spec.ts` submits real registration forms through the real route —
+ * and the four images in each of those submissions went to the one Cloudinary
+ * account there is, because there is no `TEST_CLOUDINARY_URL` to redirect them
+ * to and nothing said so. Eleven application folders ended up holding a 1×1
+ * transparent pixel named `nid-front.png`.
+ *
+ * `TEST_DATABASE_URL` is this repository's own marker for "this process is the
+ * test rig" — `lib/prisma.ts` prefers it over `DATABASE_URL` precisely because
+ * Next overwrites the latter from `apps/web/.env`. If it is set, uploads are
+ * refused unless somebody has explicitly said the configured cloud is
+ * disposable.
+ *
+ * In production `TEST_DATABASE_URL` is never set, so this is not reachable
+ * there — it is a guard on the developer's machine, which is where the mistake
+ * is made.
+ */
+function ensureUploadTargetIsDisposable() {
+  if (!process.env.TEST_DATABASE_URL) return;
+  if (process.env.ALLOW_TEST_IMAGE_UPLOADS === 'yes') return;
+  throw new CloudinaryTestTargetError();
+}
+
 function ensureCloudinaryConfigured() {
   const missing = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'].filter(
     (key) => !process.env[key],
@@ -187,6 +234,7 @@ export async function uploadImage(
   options: UploadOptions = {}
 ): Promise<UploadResult> {
   try {
+    ensureUploadTargetIsDisposable();
     ensureCloudinaryConfigured();
     const result = await new Promise<any>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
@@ -212,6 +260,7 @@ export async function uploadImage(
     // operator the difference between reading one environment variable and
     // opening a support ticket with an image host (WO-63).
     if (error instanceof CloudinaryConfigurationError) throw error;
+    if (error instanceof CloudinaryTestTargetError) throw error;
     console.error('Cloudinary upload error:', error);
     // `cause` keeps the quota message, the rejected file type, the timeout —
     // whatever Cloudinary actually said — attached to the error the caller
@@ -498,10 +547,57 @@ export async function moveAsset(fromPublicId: string, toPublicId: string): Promi
       overwrite: true,
       invalidate: true,
     })) as { secure_url?: string };
+    await placeInAssetFolder(toPublicId);
     return result.secure_url ?? null;
   } catch (error) {
     console.error(`Cloudinary rename failed for ${fromPublicId} -> ${toPublicId}:`, error);
     return null;
+  }
+}
+
+/**
+ * Tell the Media Library where an asset now lives — the second half of a move.
+ *
+ * **This account is in dynamic folder mode**, where `public_id` (the URL) and
+ * `asset_folder` (the folder a human sees) are two independent properties.
+ * `uploader.rename` changes only the first. So for every member admitted before
+ * 2026-09-02, `moveAsset` produced an asset served from
+ * `people/ACC-KH-33001/nid-front` that the Media Library still filed under
+ * `applications/APP-2026-000001` — the move looked done from the database and
+ * had not happened at all in the only view anybody actually opens.
+ *
+ * It had two consequences, and the second is why this is not cosmetic:
+ *
+ *  - The application folder was **not empty**, so `deleteEmptyFolder` at the end
+ *    of `fileApplicationDocuments` silently did nothing, every time. That is why
+ *    an application folder existed for every member ever admitted.
+ *  - Those folders then took a second set of files under the *same* names when
+ *    the application numbers came round again, and a folder showing
+ *    `nid-front` twice — one real, one a 1×1 test pixel — is indistinguishable
+ *    from a folder holding two versions of somebody's identity card.
+ *
+ * A failure here is logged and not thrown: the bytes have already moved and the
+ * URL is already correct, so the asset is *served* from the right place either
+ * way. Only the librarian's view is wrong, and losing that is not worth failing
+ * an approval over. `scripts/cloudinary-reconcile.mjs` finds anything left
+ * behind.
+ */
+async function placeInAssetFolder(publicId: string): Promise<void> {
+  const cut = publicId.lastIndexOf('/');
+  if (cut <= 0) return;
+  const assetFolder = publicId.slice(0, cut);
+  const displayName = publicId.slice(cut + 1);
+  try {
+    await cloudinary.api.update(publicId, {
+      asset_folder: assetFolder,
+      display_name: displayName,
+    });
+  } catch (error) {
+    console.warn(
+      `Cloudinary asset_folder update failed for ${publicId}; it is served correctly but ` +
+        `still listed under its old folder. See scripts/cloudinary-reconcile.mjs.`,
+      error,
+    );
   }
 }
 

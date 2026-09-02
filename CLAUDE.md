@@ -161,6 +161,9 @@ count that used to open this sentence is gone too. See
 | **SQL inside a Go string** | `apps/api/internal/repositories/sql_schema_census_test.go` — `TestEverySQLLiteralMatchesTheSchema` parses every source, pulls each raw-string statement out and asks Postgres to `PREPARE` it. Nothing else can see it: a dropped column in a string passes `go build`, `go vet`, `pnpm typecheck`, `pnpm db:migrate:check` and every other test, and surfaces as a member reading "Failed to load member details". Three did, after ADR-044 dropped four `id` columns — one of them on the leg that confirms a loan instalment |
 | **a script under `apps/web/scripts/`** | `apps/web/test/unit/script-safety.test.ts` — end it with `runAsScript(import.meta.url, main)`, never a bare `main()`. A module that works on load cannot be safely imported, and importing is what tools, editors and checking loops do: a loop written to confirm four scripts still parsed executed `db-clear-preserve-core.mjs` and deleted every member from the production database. Destructive ones also need `requireConfirmation` and `refuseRemoteTarget` from `scripts/lib/guard.mjs` |
 | **an overlay, modal or lightbox** | `apps/web/e2e/gallery-lightbox.spec.ts` — render it through a portal into `document.body` and assert a hit test lands inside it. `fixed inset-0 z-50` spans the viewport only while no ancestor opens a stacking context: the gallery lightbox was correct on `/gallery` and clipped on the home page, where the grid sits in `relative z-10` and the `fixed z-50` header painted straight over it. Check the page that wraps it, not only the page that works |
+| an **upload, or a spec that causes one** | `apps/web/test/unit/script-safety.test.ts` and the guard in `uploadImage` — the test rig has a disposable **database** and no disposable **image host**. `e2e/entry-path.spec.ts` reads Cloudinary credentials out of `apps/web/.env` so it can run locally, and those name the foundation's own cloud: every local browser run left four 70-byte 1×1 pixels called `nid-front`, `nid-back`, `member-photo` and `signature` in it. `TEST_DATABASE_URL` set without `ALLOW_TEST_IMAGE_UPLOADS=yes` now refuses the upload outright |
+| a **move of a stored asset** | `moveAsset`, never `uploader.rename` on its own. This account is in **dynamic folder mode**: `public_id` is the URL and `asset_folder` is the folder a human opens, and a rename moves only the first — so every admitted member's documents were served from `people/ACC-KH-33001` and still filed under `applications/APP-2026-000001`, which also made `deleteEmptyFolder` a no-op for ever. `scripts/cloudinary-reconcile.mjs` finds the drift; `test/unit/cloudinary-reconcile.test.ts` pins what it will and will not delete |
+| a **streamed response** | `endStreamOnUpstreamFailure` from `lib/sse-stream.ts`. Next pipes the body *after* the handler returns, so nothing in the route can catch what it throws: an SSE connection ending for any ordinary reason became `failed to pipe response`, unhandled, in Sentry. And the producer needs a heartbeat — a stream that transmits nothing is closed by whatever is between it and the member |
 | a screen to one staff dashboard | there is no such thing — `components/dashboard/screens/` holds one component per screen and both `app/[locale]/dashboard/{worker,admin}/` re-export it. Add it to `components/dashboard/nav.ts` with the roles that may see it |
 
 ## Rules
@@ -396,6 +399,14 @@ apps/web/lib/document-numbers.ts  DEP/WDR/DSB/REP/DON/ADJ/LOAN and APP — the g
                                   is the APPLICANT's number, issued at submission; ACC-KH-33001 is the MEMBER's,
                                   issued at approval and nowhere else (ADR-039). Rejecting an application must
                                   not burn a membership number
+apps/web/lib/sse-stream.ts         the one wrapper every streamed response goes through. Next pipes a body
+                                  AFTER the handler returns, in code no route can put a try/catch around,
+                                  so an upstream that dies mid-stream is reported as `failed to pipe
+                                  response` rather than as the ordinary end of an event stream that it is
+apps/web/scripts/cloudinary-reconcile.mjs  the asset tree against the database. Dry run unless --confirm.
+                                  Deletes only what NO stored URL mentions and only under applications/;
+                                  reports anything unreferenced under people/, gallery/ or settings/ for a
+                                  human. Also repairs `asset_folder`, which a rename does not move
 apps/web/scripts/lib/guard.mjs  runAsScript / requireConfirmation / refuseRemoteTarget. Every script in
                                   that directory ends in runAsScript, so importing one runs NOTHING — a bare main()
                                   is why an import loop emptied the production database on 2026-09-01

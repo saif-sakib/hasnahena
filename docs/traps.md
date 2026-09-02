@@ -295,6 +295,43 @@ indistinguishable from a clean erasure, which is the difference between a
 member's NID scan being gone and it still being online after they were told it
 was not.
 
+- **A rename moves the URL. It does not move the folder anybody looks at.** This
+  Cloudinary account is in **dynamic folder mode**, where `public_id` — the path
+  in the URL — and `asset_folder` — the folder the Media Library draws — are two
+  independent properties, and `uploader.rename` changes only the first. So the
+  approval that files a member's documents into `people/ACC-KH-33001` produced,
+  for every member ever admitted, four assets *served* from the right place and
+  still *filed* under `applications/APP-2026-000001`. Nothing failed, and the
+  database was right the whole time. Two things followed. The
+  `deleteEmptyFolder` at the end of the move silently did nothing every single
+  time, because the folder it was asked to remove still contained the assets it
+  had just moved out of it — which is why an application folder existed for
+  every member the foundation has. And when the application numbers came round
+  again after a database restore, four of those folders took a *second* set of
+  files under the same four names. A folder showing `nid-front` twice is
+  indistinguishable, at a glance, from two versions of somebody's identity card.
+  `moveAsset` now sets `asset_folder` and `display_name` after the rename, and
+  `scripts/cloudinary-reconcile.mjs` reports and repairs any asset whose two
+  halves disagree.
+
+- **The test rig has a disposable database and no disposable image host, and
+  nothing said so.** `scripts/test-stack.sh` moves the whole stack onto a
+  throwaway Postgres, `assertDisposableDatabase` refuses to seed anything that
+  is not localhost, and `TEST_DATABASE_URL` exists precisely because Next
+  overwrites `DATABASE_URL` from `apps/web/.env`. All of that protects one of
+  the two stores this platform writes to. `e2e/entry-path.spec.ts` submits real
+  registration forms through the real route, reading Cloudinary credentials out
+  of `apps/web/.env` deliberately so the test can run on a developer's machine —
+  and those credentials name **the foundation's own cloud**, the one holding real
+  members' NID photographs. Every local run of the browser suite left four
+  70-byte 1×1 pixels called `nid-front`, `nid-back`, `member-photo` and
+  `signature` in it. Forty-four were still there on 2026-09-02, sixteen of them
+  in the folders of admitted members. The database half of a test is easy to
+  make disposable and the reflex is to assume the rest of the rig followed:
+  `uploadImage` now refuses outright when `TEST_DATABASE_URL` is set without
+  `ALLOW_TEST_IMAGE_UPLOADS=yes`, so the guard lives with the upload rather than
+  in the discipline of whoever writes the next spec.
+
 ## Connection pools and transactions
 
 - **Reading config from the pool inside a transaction deadlocks it.** With N
@@ -679,6 +716,26 @@ bug in the other six. **A page that can be prerendered must render without a
 database** — [ADR-028](decisions.md).
 
 ## Next, React and the build
+
+- **A streamed response's failure cannot be caught by the route that returned
+  it.** Next pipes the body to the client *after* the handler has finished, in
+  `pipeToNodeResponse`, and anything the body throws there that is not an
+  `AbortError` becomes `failed to pipe response` (`E180`) — unhandled, reported
+  by `onRequestError`, filed against the route. The support proxy hands the Go
+  API's SSE body straight to `NextResponse`, and an event stream ends for
+  ordinary reasons all day: the tab closes, a phone loses signal, a proxy times
+  the connection out, the API is redeployed. Every one of those arrived as
+  `TypeError: terminated` or `ECONNRESET` on the upstream body and was reported
+  as a fault, for a connection the browser was already reconnecting. The route's
+  own `try/catch` looks like it covers this and covers only the `fetch`. The fix
+  is in the stream: `lib/sse-stream.ts` reads the upstream itself and **closes**
+  on a read failure, which downstream is indistinguishable from an upstream that
+  finished — the one ending Next pipes without throwing. Two corollaries. A
+  stream that transmits nothing looks dead to every middlebox on the path, so
+  the Go handler now writes a `: ping` comment every 20 seconds, under the
+  shortest idle timeout it can be behind; and cancellation has to be *forwarded*
+  to the upstream reader, or wrapping the body reintroduces the leak that
+  `signal: req.signal` was added to close.
 
 - **A Server Action's request body is capped at 1 MB, and exceeding it is
   silent.** Next enforces `experimental.serverActions.bodySizeLimit` *before* the

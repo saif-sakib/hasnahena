@@ -1792,6 +1792,16 @@ func (h *DashboardHandler) SupportMarkProcessed(w http.ResponseWriter, r *http.R
 // enough for the browser to open the EventSource it was issued for.
 const sseTicketTTL = 60 * time.Second
 
+// supportStreamHeartbeat is how often an idle stream writes a comment line so
+// that everything between this process and the member can tell it is alive.
+//
+// Twenty seconds is chosen against the shortest idle timeout on the path rather
+// than against any preference of ours: Render's proxy and most middleboxes cut
+// an idle connection somewhere between 30 and 120 seconds, and a heartbeat is
+// only useful strictly under the smallest of them. It is not a poll — nothing
+// is read, nothing is queried, and EventSource discards the line.
+const supportStreamHeartbeat = 20 * time.Second
+
 // SupportStreamTicket issues a single-purpose credential for the SSE stream.
 //
 // EventSource cannot send an Authorization header, so the stream needs a
@@ -1895,6 +1905,21 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	// A stream that says nothing looks dead to everything between here and the
+	// member. This one only writes when the message count *changes*, so a quiet
+	// conversation transmits nothing at all after the first event — and an
+	// intermediary that has not seen a byte for its idle timeout closes the
+	// connection. Which is how a normal chat became `failed to pipe response` in
+	// the web app's error tracker, once per drop, for a connection the browser
+	// then reconnected.
+	//
+	// A comment line is the SSE-native way to say "still here": EventSource
+	// ignores it, so it costs the client nothing, and unlike the poll above it
+	// touches no database — the idle cost of this process is a line item
+	// ([ADR-035](../../../../docs/decisions.md)).
+	heartbeat := time.NewTicker(supportStreamHeartbeat)
+	defer heartbeat.Stop()
+
 	send := func() bool {
 		messages, err := h.userRepo.GetSupportMessages(r.Context(), auth.UserID, auth.Role, threadID)
 		if err != nil {
@@ -1919,6 +1944,14 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 			return
 		case <-h.shutdown:
 			return
+		case <-heartbeat.C:
+			// The write error is read here and nowhere else in this handler,
+			// deliberately: it is the cheapest notice that the far end is gone
+			// on a stream whose only other write is conditional.
+			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+				return
+			}
+			flusher.Flush()
 		case <-ticker.C:
 			if !send() {
 				return

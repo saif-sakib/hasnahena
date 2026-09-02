@@ -8,7 +8,12 @@ import {
   registerApiSchema,
   REGISTRATION_UPLOAD_LIMITS,
 } from '@/lib/validation/registration';
-import { uploadImage, deleteImage, applicationFolder } from '@/lib/cloudinary';
+import {
+  uploadImage,
+  deleteImage,
+  deleteEmptyFolder,
+  applicationFolder,
+} from '@/lib/cloudinary';
 import { APPLICATION_DOCUMENTS } from '@/lib/application-documents';
 import { validateImageFile, UPLOAD_TYPES } from '@/lib/image-utils';
 import { nextDocumentNumber, SERIES } from '@/lib/document-numbers';
@@ -158,6 +163,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const uploadedPublicIds: string[] = [];
+  // The folder those uploads went into, once there is one. Known separately
+  // because the assets are deleted by public id and a folder outlives its
+  // contents — see below.
+  let uploadFolder: string | null = null;
   const cleanupUploadedAssets = async () => {
     if (uploadedPublicIds.length === 0) return;
     await Promise.all(
@@ -167,6 +176,14 @@ export async function POST(req: Request) {
         })
       ),
     );
+    // And the directory entry they created. Deleting the four assets leaves
+    // `applications/APP-2026-000011` behind, empty, for ever: seven of those
+    // were sitting in the account on 2026-09-02, naming applications that had
+    // been rolled back and therefore never existed. An asset tree full of the
+    // numbers of submissions that failed is a record of nothing, and it is
+    // indistinguishable at a glance from an application whose documents have
+    // been wrongly deleted.
+    if (uploadFolder) await deleteEmptyFolder(uploadFolder);
   };
 
   try {
@@ -522,9 +539,10 @@ export async function POST(req: Request) {
           //
           // `preserveOriginal` stays: an NID scan must not be re-encoded, which
           // is the one rule in this file that cannot be undone after the fact.
+          uploadFolder = applicationFolder(created.formNumber, created.id);
           const uploadResult = await uploadImage(
             buffer,
-            applicationFolder(created.formNumber, created.id),
+            uploadFolder,
             {
               preserveOriginal: true,
               publicId: requirement.slug,

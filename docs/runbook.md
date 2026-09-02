@@ -302,6 +302,44 @@ well as in the console.
 
 ---
 
+## 5c. The asset tree does not match the database
+
+Symptoms, any of which means the same thing: an application folder for a member
+who was admitted months ago; a folder naming an application number that no row
+has; a folder showing `nid-front` **twice**; a member with documents whose
+folder does not appear in the Media Library at all.
+
+```bash
+cd apps/web
+node scripts/cloudinary-reconcile.mjs            # prints the plan, changes nothing
+node scripts/cloudinary-reconcile.mjs --confirm  # applies exactly that plan
+```
+
+It reads every asset under `hasnahena/` and every URL the database stores —
+`documents`, `users.avatarUrl`, `gallery_items`, and every `system_config` value
+— and then:
+
+- **re-homes** an asset whose `asset_folder` disagrees with its own public id.
+  `uploader.rename` moves the URL and not the folder anybody opens, so this is
+  the drift every approval used to leave behind;
+- **deletes** an asset under `applications/` that no stored URL mentions —
+  a rolled-back submission, or a test pixel;
+- **removes** an `applications/` folder that is left empty and does not belong to
+  an application still awaiting a decision;
+- **creates** the missing `people/` folder entry for a member who has documents
+  but has never uploaded an avatar.
+
+It will not delete anything under `people/`, `gallery/` or `settings/`, whatever
+the database says. Those are reported at the end under **NOT TOUCHED** and are a
+question for a person: an unreferenced file in a member's own folder usually
+means the *row* is what went missing.
+
+Read the plan before confirming. Every line names the size, the dimensions and
+the upload date, which is what tells a 70-byte 1×1 test pixel apart from a
+member's identity card at a glance.
+
+---
+
 ## 5b. `migrate deploy` says a table already exists
 
 The symptom is a deploy failing on `CREATE TABLE "users"` — or on any early

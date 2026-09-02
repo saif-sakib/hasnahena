@@ -123,7 +123,7 @@ test.describe('the entry path', () => {
     'CLOUDINARY_API_SECRET',
   ] as const;
 
-  const canSubmitForReal = (() => {
+  const hasCloudinaryCredentials = (() => {
     if (CLOUDINARY_KEYS.every((key) => process.env[key])) return true;
     // Playwright's own process does not load `apps/web/.env`; **Next does**, so
     // asking `process.env` alone would skip these two tests on every developer
@@ -135,6 +135,25 @@ test.describe('the entry path', () => {
       return false;
     }
   })();
+
+  /**
+   * Credentials are not permission.
+   *
+   * Reading them out of `apps/web/.env` is what makes these two tests runnable
+   * on a developer's machine — and `apps/web/.env` holds the **foundation's own
+   * cloud**, the one with real members' NID photographs in it. Every local run
+   * of this file uploaded four 1×1 pixels named `nid-front`, `nid-back`,
+   * `member-photo` and `signature` into it and left them there: the database
+   * half of the rig is disposable (`scripts/test-stack.sh`), the image host has
+   * no disposable half at all, and nothing anywhere said so. Eleven application
+   * folders were still holding those pixels on 2026-09-02, four of them beside
+   * the real documents of admitted members.
+   *
+   * So the switch is explicit, and it is the same one `lib/cloudinary.ts`
+   * refuses uploads without — one name to set, one place to understand.
+   */
+  const canSubmitForReal =
+    hasCloudinaryCredentials && process.env.ALLOW_TEST_IMAGE_UPLOADS === 'yes';
 
   /**
    * A PENDING application, written the way the route writes one.
@@ -292,9 +311,10 @@ test.describe('the entry path', () => {
     test(`${locale}: submitting leaves the applicant on a confirmation, not a login page`, async ({ page }) => {
       test.skip(
         !canSubmitForReal,
-        'Needs CLOUDINARY_* — POST /registrations uploads the four documents and rolls the ' +
-          'application back if it cannot. CI has no credentials on purpose: that account holds ' +
-          "real members' NID photographs.",
+        'Needs CLOUDINARY_* and ALLOW_TEST_IMAGE_UPLOADS=yes — POST /registrations uploads the ' +
+          'four documents and rolls the application back if it cannot. CI has no credentials on ' +
+          "purpose, and a developer's own credentials name the account holding real members' " +
+          'NID photographs: point them at a disposable cloud before opting in.',
       );
       const tag = `confirm-${locale}`;
       await reset(tag);
