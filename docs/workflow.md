@@ -211,10 +211,10 @@ Three things to do, in order:
 1. **Confirm the backup is actually running.** GitHub → Actions → Backup. Green
    runs, daily, with a `.dump.gpg` artifact attached to each. A backup pipeline
    that has silently stopped looks exactly like one that is working.
-2. **Rehearse a restore** ([T-25](tasks.md), [runbook.md §4](runbook.md)).
-   Download the newest artifact, restore it into a Neon *branch*, count the
-   members and the transactions. Then write the date into runbook.md § Last
-   rehearsed. A restore you have never performed is a rumour.
+2. **Keep rehearsing the restore** — done 2026-09-03, due again quarterly
+   ([runbook.md §4](runbook.md)). Both archives, and every time compare the
+   restored totals against the live dashboard: exiting 0 proves the file parses,
+   not that the rows are this foundation's.
 3. **Read the aggregate DMARC reports**, then move the policy from `p=none` to
    `p=quarantine`. Until then the record is telling you about spoofing rather
    than stopping it ([deployment.md](deployment.md#email-authentication-spf-does-not-cover-brevo)).

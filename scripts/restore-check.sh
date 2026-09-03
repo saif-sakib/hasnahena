@@ -91,11 +91,20 @@ ELAPSED=$(( $(date -u +%s) - START ))
 echo "restore: completed in ${ELAPSED}s"
 
 echo
+# Schema-qualified, because pg_stat_user_tables spans every non-system schema
+# and this script only resets `public`. Restoring into a Neon *branch* — which
+# is what the runbook tells you to do — inherits whatever else the parent had,
+# so the listing showed nine empty tables named `user`, `session`, `account`,
+# `organization`, `member`, `invitation`, `verification`, `jwks` and
+# `project_config` that are in no migration and came from no dump. They are
+# Neon's own auth scaffolding sitting in its own schema. Nothing was wrong, but
+# a drill that lists rows the archive does not contain is a drill you have to
+# think twice about, and thinking twice is what you cannot do at 2 a.m.
 echo "restore: row counts"
 "$PSQL" "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
-SELECT relname AS table, n_live_tup AS approx_rows
+SELECT schemaname AS schema, relname AS table, n_live_tup AS approx_rows
 FROM pg_stat_user_tables
-ORDER BY relname;
+ORDER BY schemaname, relname;
 SQL
 
 echo

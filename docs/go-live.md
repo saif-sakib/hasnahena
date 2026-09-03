@@ -317,7 +317,7 @@ Four things, and none of them is a feature:
 1. **A ledger that is arithmetically correct under concurrency.** Done — and the
    durable part is not the patches but the hourly reconciliation that would have
    turned LEDGER-01 into an alert instead of an audit finding ([ADR-027](decisions.md)).
-2. **A restore you have performed**, not one you have written down. T-25.
+2. **A restore you have performed**, not one you have written down. Done 2026-09-03 — both archives, into a Neon branch, with the restored totals checked against the live dashboard. Quarterly from here (OPS-04).
 3. **A data model you are not going to change.** The difference between a
    migration and a migration plus a backfill plus an apology.
 4. **Somebody other than you being able to run it.** [runbook.md](runbook.md) is

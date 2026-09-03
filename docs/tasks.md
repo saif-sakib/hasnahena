@@ -151,7 +151,6 @@ Ordered by what a member notices.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-25** | **Rehearse the restore** (OPS-04) | `owner` + 1 | The backups run and are copied to R2; nobody has restored one. **Both archives** now — the database into a Neon *branch* via `scripts/restore-check.sh`, and the asset `.tar.gz.gpg` unpacked and spot-opened, which has never been done at all ([runbook.md §4](runbook.md)). Needs a PostgreSQL client **at least as new as Neon's server** — `pg_restore` refuses an archive whose format version is newer than itself, before it reads a row — and this machine has none installed. The check that matters is not that the commands exit 0: it is comparing the restored total savings and total loan balance against what the live dashboard reports. Record the date in runbook.md § Last rehearsed |
 | `[ ]` **T-27** | **Log aggregation** (OBS-05) | 1 | Grafana Cloud or Better Stack free tier. Required once there is more than one process to correlate |
 | `[ ]` **T-28** | **One operations dashboard** (OBS-07) | 1 | Uptime, error rate, p95 latency, money posted today, queue depths |
 | `[ ]` **T-29** | **Branch protection on `main`** (CI-09) | `owner` | Needs a paid plan on a private repo. `.githooks/pre-push` is the free stand-in and is active (`core.hooksPath=.githooks`) |

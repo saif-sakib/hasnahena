@@ -286,7 +286,20 @@ rm -rf /tmp/assetcheck assets.tar.gz
 
 ### Last rehearsed
 
-**Never.** See [§Action still required](#action-still-required).
+**Database: 2026-09-03.** `database_hasnahena-20260903T104245Z.dump.gpg` restored
+into a Neon branch with a PostgreSQL 18.6 client. Restored and verified in 10 s;
+every invariant held; 11 users, 9 accounts, 9 transactions, 58 audit rows, and
+totals of ৳6,700 savings and ৳26,000 loan balance.
+
+**Assets: 2026-09-03.** The `.tar.gz.gpg` decrypted, unpacked and spot-checked
+against its own manifest, and the extraction deleted afterwards.
+
+**And the totals were compared against the live dashboard and matched**, which is
+the step that makes the rest evidence. A restore that exits 0 proves the archive
+parses and the constraints hold; only that comparison proves the rows are *this
+foundation's*. Do it every time — it is one minute and it is the whole point.
+
+Next drill due **2026-12-03** (OPS-04, quarterly).
 
 ### Restoring for real
 
@@ -426,13 +439,9 @@ outage when they disagree: `JWT_SECRET`, `DATABASE_URL`, `NEXT_PUBLIC_APP_URL`.
 
 ## Action still required
 
-Two things in this file are written and unproven, and both need an account only
-the owner has:
+One thing in this file is still written and unproven, and it needs no account —
+it needs a second person:
 
-- **The restore has never been rehearsed.** [§4](#4-restore-from-backup) is
-  correct as written and has been run against a local scratch database; it has
-  not been run against a Neon branch with a real archive. Do that once, and
-  record the date here. A restore you have not performed is a rumour.
 - **One person can still reach every credential.** [§6](#6-where-every-credential-lives)
   is a map of single points of failure, not a solution to them. OPS-01.
   Two-factor authentication was enabled on the Cloudflare account on 2026-09-03,
