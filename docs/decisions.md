@@ -30,7 +30,7 @@ still true.
 | [ADR-018](#adr-018--the-official-infos-history-is-not-purged) | The `Official Infos/` history is not purged | accepted |
 | [ADR-019](#adr-019--one-function-decides-where-a-request-came-from) | One function decides where a request came from | accepted |
 | [ADR-020](#adr-020--the-cloudinary-assets-have-no-backup-and-that-is-accepted-until-launch) | The Cloudinary assets have no backup, and that is accepted until launch | provisional |
-| [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-stays-at-one) | The support proxy limits per member; `TRUSTED_PROXIES` stays at one | accepted |
+| [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-follows-the-chain) | The support proxy limits per member; `TRUSTED_PROXIES` follows the chain | accepted, amended |
 | [ADR-022](#adr-022--member-approval-waits-for-the-email-inside-a-ten-second-budget) | Member approval waits for the email, inside a ten-second budget | accepted |
 | [ADR-023](#adr-023--one-member-identifier-usersaccountno) | One member identifier: `users.accountNo` | accepted |
 | [ADR-024](#adr-024--two-content-security-policies-chosen-per-route) | Two Content-Security-Policies, chosen per route | accepted |
@@ -535,9 +535,15 @@ blank image.
 
 ---
 
-### ADR-021 — The support proxy limits per member; `TRUSTED_PROXIES` stays at one
+### ADR-021 — The support proxy limits per member; `TRUSTED_PROXIES` follows the chain
 
-**Status:** accepted · 2026-08-18 · closes WO-64.
+**Status:** accepted · 2026-08-18 · closes WO-64. **Amended 2026-09-03:** the
+title said *stays at one*, and one was never the principle — it was the number
+of proxies in front of the API at the time. Putting `api.hasnahenafoundation.com`
+behind Cloudflare's proxy made the chain `client → Cloudflare → Render`, so the
+correct value became **2**. The reasoning below is unchanged and is what says
+so; only the count moved. A number written into a decision as though it were the
+decision is how a deployment change silently invalidates one.
 
 Everything the browser calls goes cross-origin to the Go API except
 `/v1/dashboard/support/*`, which `lib/api.ts` rewrites to a same-origin Next
@@ -762,7 +768,7 @@ a console-scraping test cannot distinguish from a violation.
 
 ### ADR-025 — The rate limiter keys on the verified member
 
-**Status:** accepted · 2026-08-19 · closes WO-78 (RUN-09) · completes what [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-stays-at-one) left open.
+**Status:** accepted · 2026-08-19 · closes WO-78 (RUN-09) · completes what [ADR-021](#adr-021--the-support-proxy-limits-per-member-trusted_proxies-follows-the-chain) left open.
 
 ADR-021 established that the Go limiter cannot see past the Next proxy: every
 support request arrives from Vercel's address, all of it in one bucket, and no

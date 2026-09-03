@@ -374,6 +374,10 @@ apps/web/lib/localized-settings.ts  EVERY system_config value that is prose, in 
 apps/web/lib/contact-details.ts   the address, phone and email the footer, the home page, /contact and
                                   /support all show — one reader, so they cannot disagree about a missing
                                   value again. They did: two showed a blank, two showed `+880 1XXX-XXXXXX`
+apps/web/app/.well-known/security.txt/  RFC 9116 disclosure contact. GENERATED, not a file in
+                                  public/ — `Expires` is mandatory and a lapsed file is invalid, so a date
+                                  somebody must remember to move is one that stops being true silently.
+                                  Contact is `org.email`, the same address every public page shows
 apps/web/lib/legal.ts             when /privacy and /terms were last revised. The WORDING is
                                   messages/{en,bn}.json under `legal.*` — that is what puts it inside the
                                   fee-promise census

@@ -103,6 +103,12 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+          # Cloudflare R2 and Backblaze B2 reject the trailing checksums the
+          # AWS CLI began sending by default in v2.23, with an error naming
+          # neither the checksum nor the CLI. Harmless against real S3, and it
+          # saves the hour that failure otherwise costs. R2 also needs
+          # AWS_DEFAULT_REGION to be `auto`, which is why that is a secret.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
         run: |
@@ -195,6 +201,12 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
+          # Cloudflare R2 and Backblaze B2 reject the trailing checksums the
+          # AWS CLI began sending by default in v2.23, with an error naming
+          # neither the checksum nor the CLI. Harmless against real S3, and it
+          # saves the hour that failure otherwise costs. R2 also needs
+          # AWS_DEFAULT_REGION to be `auto`, which is why that is a secret.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
         run: |

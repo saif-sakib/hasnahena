@@ -409,6 +409,10 @@ the owner has:
   record the date here. A restore you have not performed is a rumour.
 - **One person can still reach every credential.** [§6](#6-where-every-credential-lives)
   is a map of single points of failure, not a solution to them. OPS-01.
+  Two-factor authentication was enabled on the Cloudflare account on 2026-09-03,
+  which is the one that can repoint the DNS of a financial platform — it hardens
+  that door, it does not add a second person behind it. **Check the others have
+  it too**: GitHub, Vercel, Render, Neon, Brevo and Cloudinary.
 
 ---
 

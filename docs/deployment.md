@@ -132,15 +132,48 @@ Do not quote Render values — `KEY=value`, never `KEY="value"`. The `EMAIL_FROM
 
 Signed uploads through a `hasnahena-docs` preset: formats `jpg,jpeg,png,pdf`, max 5 MB, unique filenames, overwrite off. Enforce the same MIME and size limits server-side — the preset is not a security boundary. Folders: `hasnahena/{members,nid,nominee,misc}`. Store both `secure_url` and `public_id` so files can be replaced or deleted later.
 
-## DNS (Namecheap → Advanced DNS)
+## DNS (Cloudflare)
 
-| Type | Host | Value |
-|---|---|---|
-| A | `@` | current Vercel apex IP (`216.198.79.1`) |
-| CNAME | `www` | your Vercel DNS target |
-| CNAME | `api` | `hasnahena-api.onrender.com` |
+The domain was moved to Cloudflare's nameservers (`suzanne`/`venkat.ns.cloudflare.com`) and **all three hostnames are proxied** — apex, `www` and `api` all resolve to Cloudflare addresses and answer with `server: cloudflare` and a `cf-ray`. Verified 2026-09-03.
+
+| Type | Host | Points at | Proxied |
+|---|---|---|---|
+| A/CNAME | `@` | Vercel | ✅ orange |
+| CNAME | `www` | Vercel | ✅ orange |
+| CNAME | `api` | `hasnahena-api.onrender.com` | ✅ orange |
+| MX | `@` | `route1-3.mx.cloudflare.net` (Email Routing) | — |
+
+That is three consequences, not one:
+
+1. **Cloudflare's TLS, WAF and bot settings now apply to the API as well as the site.** Anything enabled account-wide reaches `api.` too — which is why Bot Fight Mode is not simply switched on: it would challenge the uptime monitor and the Vercel functions that call the API server-to-server.
+2. **There is now an extra proxy in front of the Go API** — see below.
+3. Cloudflare terminates TLS, so the minimum-TLS setting there is what browsers actually negotiate. It is set to 1.2; TLS 1.1 is refused and 1.2 answers 200.
+
+### The proxy count changed when the API went behind Cloudflare
+
+`TRUSTED_PROXIES` counts the reverse proxies in front of the Go API, and `ClientIP` reads `X-Forwarded-For` from the trusted end ([ADR-019](decisions.md), [ADR-021](decisions.md)). The chain used to be `client → Render`, so the answer was **1**. It is now `client → Cloudflare → Render`, so the answer is **2**.
+
+Both ways of getting this wrong are silent, and four things read it: the rate limiter, the login lockout, the access log and every audit row. Left at 1, `ClientIP` returns **Cloudflare's edge address** rather than the member's — so every member behind the same edge shares one rate-limit bucket and one lockout, and the audit log answers "who did this" with a Cloudflare IP.
+
+**Verify rather than assume the number.** Make one request, then read Render's log for that line: the `ip` field must be your own address, and `peer` — logged only when it differs — should be the edge. If `ip` is not yours, the count is wrong.
 
 Remove conflicting old records, add both apex and www in Vercel, add `api.hasnahenafoundation.com` in Render, wait for SSL, then confirm `NEXT_PUBLIC_API_URL` points at the custom API domain and redeploy.
+
+### Email authentication: SPF does not cover Brevo
+
+Checked over DNS on 2026-09-03. The domain is on Cloudflare (Email Routing holds the MX records), and the outbound side is **half configured**:
+
+| Record | State |
+|---|---|
+| DKIM (`brevo1`/`brevo2._domainkey`) | ✅ present and resolving to Brevo's keys |
+| DMARC (`_dmarc`) | ✅ present — `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` |
+| SPF (`@` TXT) | ✅ `v=spf1 include:spf.brevo.com include:_spf.mx.cloudflare.net ~all` — fixed 2026-09-03 |
+
+All three now align. The application sends every registration, approval and rejection email through Brevo as `info@hasnahenafoundation.com`, and SPF authorizes both Brevo and Cloudflare Email Routing from **one** record — never two TXT records beginning `v=spf1` on the same name, which is a permanent error rather than a merge.
+
+Before the fix, SPF named only Cloudflare Email Routing. Mail still delivered, because DMARC passes on *either* aligned SPF or aligned DKIM and the DKIM half was correct — so the gap was invisible in exactly the way that matters: one rotated key or dropped selector CNAME away from every message failing at once, with members not receiving approvals as the first symptom.
+
+**What is left is enforcement.** `p=none` means DMARC only *reports*, and aggregate reports now go to Cloudflare's DMARC management as well as Brevo's. Read a few weeks of them, confirm nothing legitimate is failing, then move to `p=quarantine`. Going to enforcement before reading the reports is how a foundation stops being able to email its own members.
 
 ### The API has two hostnames. Use the custom one.
 
@@ -313,7 +346,7 @@ backups/hasnahena-assets-<UTC stamp>.tar.gz.gpg
     manifest.json                                       … folder, format, bytes, created date
 ```
 
-Same passphrase, same retention, same optional S3 copy. It needs `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` as repository secrets and **fails nightly until they are set**, deliberately: an asset backup that skips quietly is indistinguishable from one that works.
+Same passphrase, same retention, same optional S3 copy. It needs `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` as repository secrets — set 2026-09-03 — and **fails rather than skips** without them, deliberately: an asset backup that skips quietly is indistinguishable from one that works.
 
 Two properties are worth keeping if this is ever rewritten. It never writes to Cloudinary — repairing the asset tree is `cloudinary-reconcile.mjs`, and the script you reach for when something has gone wrong should not be able to make it worse. And it uses the Admin API over `fetch` with no SDK and no `node_modules`, so recovery needs only node and a copy of the file.
 
@@ -324,6 +357,44 @@ gpg --decrypt hasnahena-assets-<stamp>.tar.gz.gpg > assets.tar.gz && tar -xzf as
 ```
 
 Re-uploading a member's documents afterwards is a manual `uploader.upload` per file with the `public_id` from the manifest — there is no bulk import, which is a reason to treat losing the account as serious rather than routine.
+
+### Keeping a copy off GitHub
+
+Everything is currently in one GitHub account: the code, both archives, and the secrets that decrypt them. That account being lost, suspended or compromised loses all of it at the same moment — which is the one scenario a backup exists for. Artifacts also expire on the retention window, so a problem noticed in month three has nothing to restore from.
+
+Both jobs already copy to any S3-compatible store when `BACKUP_S3_BUCKET` is set. **No code change is needed** — only secrets.
+
+| | Free tier | Notes |
+|---|---|---|
+| **Cloudflare R2** | 10 GB, zero egress fees | Recommended. Egress is what makes a restore expensive elsewhere, and a backup you hesitate to download is not a backup |
+| **Backblaze B2** | 10 GB, 1 GB/day free egress | Equivalent for this volume; the fallback if R2's signup asks for something you would rather not give |
+
+Whichever, the setup is the same:
+
+1. Create the bucket — one bucket, private, region nearest Dhaka.
+2. Create an API token scoped to **that bucket only**, with object read *and* write. Nothing here needs account-wide access, and a leaked token that can only touch one backup bucket is a much smaller problem.
+3. Add five repository secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `BACKUP_S3_BUCKET` | `s3://hasnahena-backups` |
+   | `BACKUP_S3_ENDPOINT` | R2: `https://<account-id>.r2.cloudflarestorage.com` · B2: `https://s3.<region>.backblazeb2.com` |
+   | `AWS_ACCESS_KEY_ID` | from the token |
+   | `AWS_SECRET_ACCESS_KEY` | from the token |
+   | `AWS_DEFAULT_REGION` | **`auto`** for R2; the bucket's region for B2 |
+
+   `AWS_DEFAULT_REGION` is not optional on R2 — the workflow's `us-east-1` default is rejected.
+
+4. **Actions → Backup → Run workflow**, then look in the bucket. Two objects: `hasnahena-<stamp>.dump.gpg` and `hasnahena-assets-<stamp>.tar.gz.gpg`.
+5. Set a lifecycle rule on the bucket — delete objects older than 180 days — so it cannot grow past the free tier unattended.
+
+The archives are already encrypted with `BACKUP_PASSPHRASE` before they leave the runner, so the storage provider holds ciphertext and never sees a member's NID. That is what makes a third-party bucket an acceptable place for this at all.
+
+### What the free GitHub plan actually covers
+
+A **private** repository on GitHub Free gets **2,000 Actions minutes** and **500 MB of storage** per month, and storage is shared between Actions artifacts and GHCR packages — so `images.yml` competes with the backups for it. The authoritative number for this account is **Settings → Billing and licensing → Usage**; check it rather than trusting an estimate here.
+
+Minutes are not the constraint at this size. **Storage is, and it scales with membership.** The asset archive is a full snapshot every night: 4.8 MB for six members, so roughly 145 MB against a 30-day retention. At a hundred members it is gigabytes, and the artifact upload starts failing. Once the off-GitHub copy above is running, the fix is to shorten the *GitHub* retention for the assets job and let the bucket hold the long tail — GitHub becomes the convenient copy and the bucket the durable one.
 
 ### The PostgreSQL client version
 

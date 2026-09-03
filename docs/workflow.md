@@ -194,8 +194,8 @@ Five layers, of which two do not exist yet.
 |---|---|---|
 | Neon point-in-time restore | anything, within the plan's history window | **on** — it is what recovered 2026-09-01. Check the retention window in the console; on the free plan it is short |
 | Nightly encrypted dump | the whole database, 24-hour RPO | **on** — [`backup.yml`](../.github/workflows/backup.yml), 01:00 Dhaka, kept 30 days (90 for the monthly) |
-| A copy outside GitHub | losing the GitHub account | **missing** — set `BACKUP_S3_BUCKET` and the AWS keys as repository secrets. Backblaze B2 and Cloudflare R2 both work and both cost pennies |
-| Cloudinary export | every NID scan, member photograph and signature | **built, not switched on** — the `assets` job in the same workflow. It fails nightly until the three `CLOUDINARY_*` repository secrets are set, which is how it tells you the documents still have no copy |
+| A copy outside GitHub | losing the GitHub account, and the 30-day artifact expiry | **missing** — five secrets, no code change: [deployment.md § Keeping a copy off GitHub](deployment.md#keeping-a-copy-off-github). Cloudflare R2's free tier holds 10 GB with no egress charge |
+| Cloudinary export | every NID scan, member photograph and signature | **on** since 2026-09-03 — the `assets` job in the same workflow. It fails rather than skips if its credentials go missing |
 | The paper passbook and the append-only `audit_logs` | reconstructing money after any of the above fails | **on**, and it is the reason a 24-hour RPO is tolerable at all |
 
 Three things to do, in order:
@@ -207,10 +207,9 @@ Three things to do, in order:
    Download the newest artifact, restore it into a Neon *branch*, count the
    members and the transactions. Then write the date into runbook.md § Last
    rehearsed. A restore you have never performed is a rumour.
-3. **Set the three `CLOUDINARY_*` repository secrets**, so the asset job can
-   run. [ADR-020](decisions.md) deferred asset backup until the first real
-   member document existed; six members now have four each, so it is written and
-   waiting on credentials only.
+3. **Read the aggregate DMARC reports**, then move the policy from `p=none` to
+   `p=quarantine`. Until then the record is telling you about spoofing rather
+   than stopping it ([deployment.md](deployment.md#email-authentication-spf-does-not-cover-brevo)).
 
 ### Taking a backup right now
 
@@ -267,7 +266,6 @@ is that at 2 a.m. you do not believe it.
 | 2 | Check `DATABASE_URL` is Production-scoped in Vercel (§3) | 5 min | Every preview deploy writes to the live ledger |
 | 3 | Confirm the nightly backup is green (§5) | 5 min | You discover the pipeline stopped on the day you need it |
 | 4 | Adopt branch → PR → merge (§2) | per change | A red build reaches members before you see it |
-| 5 | Set `BACKUP_S3_BUCKET` (§5) | 20 min | One account holds both the code and every backup of the data |
+| 5 | Copy the backups off GitHub (§5) | 20 min | One account holds the code, both archives and the key to them — and artifacts expire at 30 days |
 | 6 | Rehearse one restore (§5) | 1 hour | The recovery procedure is untested |
-| 7 | Back up Cloudinary ([T-26](tasks.md)) | 1–2 sessions | Members' identity documents have no copy anywhere |
-| 8 | GitHub Pro and branch protection (§2) | 10 min + \$4/mo | The workflow above stays a promise rather than a rule |
+| 7 | GitHub Pro and branch protection (§2) | 10 min + \$4/mo | The workflow above stays a promise rather than a rule |
