@@ -29,12 +29,17 @@ type Config struct {
 	// decides which X-Forwarded-For entry is trustworthy — set it wrong and the
 	// limiter keys on a value the caller controls.
 	TrustedProxies int
-	BrevoAPIKey    string
-	BrevoAPIURL    string
-	EmailFrom      string
-	EmailFromName  string
-	AppURL         string
-	LogLevel       string
+
+	// TrustCloudflareClientIP prefers `CF-Connecting-IP` over counting
+	// X-Forwarded-For entries. Only true when every route to this process goes
+	// through the foundation's own Cloudflare zone — see middleware.ClientIP.
+	TrustCloudflareClientIP bool
+	BrevoAPIKey             string
+	BrevoAPIURL             string
+	EmailFrom               string
+	EmailFromName           string
+	AppURL                  string
+	LogLevel                string
 	// MetricsToken gates /metrics. Empty disables the endpoint entirely —
 	// the exposition carries business figures, so it is not public.
 	MetricsToken string
@@ -135,23 +140,24 @@ func Load() Config {
 	}
 
 	return Config{
-		Port:              getEnv("API_PORT", getEnv("PORT", "8081")),
-		DatabaseURL:       getEnv("DATABASE_URL", ""),
-		JWTSecret:         jwtSecret,
-		JWTExpiry:         getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
-		CORSOrigins:       parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
-		EnableHSTS:        getEnvBool("ENABLE_HSTS", false),
-		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 60),
-		RateLimitWindow:   getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute),
-		TrustedProxies:    getEnvInt("TRUSTED_PROXIES", 0),
-		BrevoAPIKey:       getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
-		BrevoAPIURL:       getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
-		EmailFrom:         getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
-		EmailFromName:     getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
-		AppURL:            resolvePublicAppURL(),
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
-		MetricsToken:      getEnv("METRICS_TOKEN", ""),
-		Environment:       getFirstNonEmpty(getEnv("ENVIRONMENT", ""), getEnv("RENDER_SERVICE_NAME", ""), "development"),
+		Port:                    getEnv("API_PORT", getEnv("PORT", "8081")),
+		DatabaseURL:             getEnv("DATABASE_URL", ""),
+		JWTSecret:               jwtSecret,
+		JWTExpiry:               getEnvInt64("JWT_EXPIRY_SECONDS", 86400),
+		CORSOrigins:             parseCSV(getEnv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
+		EnableHSTS:              getEnvBool("ENABLE_HSTS", false),
+		RateLimitRequests:       getEnvInt("RATE_LIMIT_REQUESTS", 60),
+		RateLimitWindow:         getEnvDuration("RATE_LIMIT_WINDOW", 1*time.Minute),
+		TrustedProxies:          getEnvInt("TRUSTED_PROXIES", 0),
+		TrustCloudflareClientIP: getEnvBool("TRUST_CLOUDFLARE_CLIENT_IP", false),
+		BrevoAPIKey:             getFirstNonEmpty(getEnv("BREVO_API_KEY", ""), getEnv("SENDINBLUE_API_KEY", "")),
+		BrevoAPIURL:             getFirstNonEmpty(getEnv("BREVO_API_URL", ""), getEnv("BREVO_BASE_URL", ""), "https://api.brevo.com/v3"),
+		EmailFrom:               getFirstNonEmpty(getEnv("EMAIL_FROM", ""), getEnv("BREVO_SENDER_EMAIL", ""), getEnv("EMAIL_SENDER", ""), getEnv("FROM_EMAIL", ""), "info@hasnahenafoundation.com"),
+		EmailFromName:           getFirstNonEmpty(getEnv("EMAIL_FROM_NAME", ""), getEnv("BREVO_SENDER_NAME", ""), "Hasnahena Foundation"),
+		AppURL:                  resolvePublicAppURL(),
+		LogLevel:                getEnv("LOG_LEVEL", "info"),
+		MetricsToken:            getEnv("METRICS_TOKEN", ""),
+		Environment:             getFirstNonEmpty(getEnv("ENVIRONMENT", ""), getEnv("RENDER_SERVICE_NAME", ""), "development"),
 		// WO-75. 25 against Neon, and the question that order asked was whether
 		// those two numbers are compatible. They are, and the reason is stronger
 		// than the arithmetic:

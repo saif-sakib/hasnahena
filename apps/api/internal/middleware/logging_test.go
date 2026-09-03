@@ -19,7 +19,7 @@ func TestLoggingWrapperKeepsSSEContract(t *testing.T) {
 		gotStatus   int
 	)
 
-	h := Logging(0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Logging(ClientIPConfig{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, sawFlusher = w.(http.Flusher)
 		deadlineErr = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 		SetRequestUserID(r.Context(), "user-123")
@@ -119,7 +119,7 @@ func TestAccessLogRecordsTheAddressTheCallerCannotChoose(t *testing.T) {
 			defer slog.SetDefault(restore)
 
 			var seenByHandler string
-			h := Logging(tc.trustedProxies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := Logging(ClientIPConfig{TrustedProxies: tc.trustedProxies})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				seenByHandler = RequestClientIP(r)
 				w.WriteHeader(http.StatusOK)
 			}))

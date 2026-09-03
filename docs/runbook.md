@@ -258,6 +258,32 @@ ALLOW_NEON_TARGET=yes BACKUP_PASSPHRASE='...' \
 It refuses a `neon.tech` host without that variable because the scratch database
 is **truncated and rewritten**. Restore into a branch, never the primary.
 
+### Verify the asset archive too
+
+The database drill above says nothing about the other half. `restore-check.sh`
+reads a `.dump.gpg`; the assets are a `.tar.gz.gpg`, and the check is different
+in kind — there are no invariants to assert, only files that must be openable.
+
+```bash
+gpg --decrypt hasnahena-assets-<stamp>.tar.gz.gpg > assets.tar.gz
+tar -xzf assets.tar.gz -C /tmp/assetcheck
+
+# The manifest says what should be there; the tree says what is.
+python3 -c "import json;print(json.load(open('/tmp/assetcheck/manifest.json'))['count'])"
+find /tmp/assetcheck/files -type f | wc -l          # must match
+
+# Not just present — readable. A truncated JPEG is still a file.
+file /tmp/assetcheck/files/hasnahena/people/*/nid-front.jpg | head
+```
+
+**Then delete what you extracted.** It is every member's national identity
+document in plaintext on a laptop, which is the one place this project has spent
+considerable effort keeping them out of:
+
+```bash
+rm -rf /tmp/assetcheck assets.tar.gz
+```
+
 ### Last rehearsed
 
 **Never.** See [§Action still required](#action-still-required).

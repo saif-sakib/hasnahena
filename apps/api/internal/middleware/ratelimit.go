@@ -53,10 +53,28 @@ type RateLimitConfig struct {
 	Requests int
 	Window   time.Duration
 
+	// ClientIP describes how a caller's address is resolved. See ClientIP —
+	// this is the difference between a limiter that works and one an attacker
+	// steps around by setting a header.
+	ClientIP ClientIPConfig
+}
+
+// ClientIPConfig is how *this deployment* resolves a caller's address. A
+// deployment fact, not a request one (ADR-019), which is why it is configured
+// once at boot and never inferred per request.
+type ClientIPConfig struct {
 	// TrustedProxies is how many reverse proxies sit in front of this process.
-	// See clientIP — this is the difference between a limiter that works and one
-	// an attacker steps around by setting a header.
 	TrustedProxies int
+
+	// TrustCloudflare believes `CF-Connecting-IP`.
+	//
+	// Set it ONLY when every route to this process passes through the
+	// foundation's own Cloudflare zone. Cloudflare sets that header to the
+	// address it accepted the connection from and strips any copy the caller
+	// supplied, so within that path it is exact — but nothing about the header
+	// itself proves the request came through Cloudflare, and a process reachable
+	// another way would be believing a value anyone can type.
+	TrustCloudflare bool
 }
 
 type rateLimitBucket struct {
@@ -127,14 +145,37 @@ func (l *rateLimiter) sweep(now time.Time) {
 // RIGHT: with one proxy in front (Render), the last entry is the address Render
 // saw, and everything to its left is whatever the client chose to claim.
 //
-// TRUSTED_PROXIES is the single knob: set it to the number of proxies in front
-// of this process, and to 0 only when nothing is. Too low and real members
+// TRUSTED_PROXIES is the knob for that count: set it to the number of proxies in
+// front of this process, and to 0 only when nothing is. Too low and real members
 // share one bucket; too high and the header is believed.
-func ClientIP(r *http.Request, trustedProxies int) string {
-	if trustedProxies > 0 {
+//
+// It is a *deployment fact*, and it changed twice in one week when the DNS moved
+// to Cloudflare — 1, then 2, then 3 — each time silently, because a wrong count
+// yields a perfectly well-formed address belonging to the wrong party. So when
+// TRUST_CLOUDFLARE_CLIENT_IP is set, `CF-Connecting-IP` is preferred and the
+// arithmetic becomes the fallback: one value, no index, unmoved by adding a hop.
+func ClientIP(r *http.Request, cfg ClientIPConfig) string {
+	// Preferred, because it is not arithmetic. Counting hops was wrong twice in
+	// one week — once at 1 after DNS moved to Cloudflare, once at 2 — and both
+	// times silently, because the wrong answer is a well-formed address that
+	// simply belongs to the wrong party. `CF-Connecting-IP` carries one value
+	// and does not move when a proxy is added in front.
+	if cfg.TrustCloudflare {
+		if candidate := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); candidate != "" {
+			// Parsed, not merely non-empty: this value becomes a rate-limit key
+			// and an audit row, and neither should be able to hold arbitrary
+			// text. Anything unparseable falls through to the count below
+			// rather than being trusted for being present.
+			if net.ParseIP(candidate) != nil {
+				return candidate
+			}
+		}
+	}
+
+	if cfg.TrustedProxies > 0 {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
-			idx := len(parts) - trustedProxies
+			idx := len(parts) - cfg.TrustedProxies
 			if idx < 0 {
 				idx = 0
 			}
@@ -190,11 +231,11 @@ func rateLimitExempt(r *http.Request) bool {
 // fresh bucket per request by sending garbage, which is the WO-60 defect
 // wearing a different header, so the fallback to the address for a caller whose
 // token does not check out is the load-bearing half of this function.
-func limiterKey(r *http.Request, trustedProxies int) string {
+func limiterKey(r *http.Request, cfg ClientIPConfig) string {
 	if userID := RequestUserID(r); userID != "" {
 		return "user:" + userID
 	}
-	return "ip:" + ClientIP(r, trustedProxies)
+	return "ip:" + ClientIP(r, cfg)
 }
 
 // RateLimit throttles mutating requests per caller — the member when their
@@ -224,7 +265,7 @@ func RateLimit(cfg RateLimitConfig, stop <-chan struct{}) func(http.Handler) htt
 				return
 			}
 
-			ok, retryAfter := l.allow(limiterKey(r, cfg.TrustedProxies), time.Now())
+			ok, retryAfter := l.allow(limiterKey(r, cfg.ClientIP), time.Now())
 			if !ok {
 				secs := int(retryAfter.Seconds()) + 1
 				w.Header().Set("Retry-After", strconv.Itoa(secs))

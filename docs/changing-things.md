@@ -485,8 +485,8 @@ identical in both** or every login fails with a correct password.
    browsers remember it for the whole `max-age`.
 2. **`TRUSTED_PROXIES`** counts the reverse proxies in front of the API and
    decides which `X-Forwarded-For` entry is trusted. **Count the chain you
-   actually have**: Render alone was `1`; since `api.` was put behind
-   Cloudflare's proxy it is `2` (2026-09-03). Too low and the rate limiter, the
+   actually have, then measure it**: Render alone was `1`; behind Cloudflare it
+   is `3` — origin, Cloudflare, Render — which took two wrong guesses to find. Too low and the rate limiter, the
    access log, the login lockout and the audit rows all key on the *proxy's*
    address — one bucket and one lockout for everyone behind an edge; too high
    and a forged entry is treated as infrastructure's. One knob, four consumers,

@@ -155,7 +155,33 @@ That is three consequences, not one:
 
 Both ways of getting this wrong are silent, and four things read it: the rate limiter, the login lockout, the access log and every audit row. Left at 1, `ClientIP` returns **Cloudflare's edge address** rather than the member's — so every member behind the same edge shares one rate-limit bucket and one lockout, and the audit log answers "who did this" with a Cloudflare IP.
 
-**Verify rather than assume the number.** Make one request, then read Render's log for that line: the `ip` field must be your own address, and `peer` — logged only when it differs — should be the edge. If `ip` is not yours, the count is wrong.
+**Verify rather than assume the number.** It took two measurements on 2026-09-03 to land on **3**, and both are worth keeping because they are what the answer rests on.
+
+At `TRUSTED_PROXIES=2`, a *direct* request:
+
+```json
+{"path":"/v1/dashboard/notifications","ip":"104.23.175.71","peer":"::1"}
+```
+
+`104.23.175.71` is inside Cloudflare's published `104.16.0.0/13` — the **edge**, not the member. At `3`, a *support* request:
+
+```json
+{"path":"/v1/dashboard/support/threads","ip":"52.221.235.153","peer":"::1"}
+```
+
+`52.221.235.153` is AWS `ap-southeast-1` — **Vercel's `sin1`**, where this project's functions are pinned. That is not a fault: `/v1/dashboard/support/*` is the one path the browser reaches through a same-origin Next proxy, so the API's caller genuinely *is* Vercel, and [ADR-021](decisions.md) says so and puts the per-member limit on the Next side instead.
+
+And at `3`, a *direct* request — `/v1/dashboard/admin` — resolved to a **Bangladeshi ISP address** (APNIC, country `BD`), in neither Cloudflare's nor AWS's published ranges. That is the caller, and it is the reading that actually settles the question: every earlier measurement that came out right was on the support route, where Vercel is the expected answer and a wrong count can hide.
+
+*(The address itself is deliberately not written down here. Cloudflare's and Vercel's are infrastructure; a person's is not, and this project keeps addresses out of documents for the same reason the access log identifies people by `userId` rather than by email — RUN-05.)*
+
+Together the three readings say `X-Forwarded-For` arrives with **three entries** — the origin, Cloudflare, and Render's own hop — so `parts[len-3]` is the origin: the member on a direct call, Vercel on a support call. `peer` is `::1` on all of them because Render hands the request to the process over loopback, which is why the header is the only source of truth there is.
+
+**Counting from the right end is what makes this safe.** A caller who prepends entries of their own lengthens the list and shifts every index left, so the arithmetic still lands on the same trusted position — which is why `ClientIP` never reads from the left ([ADR-019](decisions.md)).
+
+**Since 2026-09-03 the count is the fallback, not the answer.** `TRUST_CLOUDFLARE_CLIENT_IP=true` makes `ClientIP` prefer **`CF-Connecting-IP`**, which Cloudflare sets to the address it accepted the connection from and strips from any caller-supplied header ([ADR-019](decisions.md)). One value, no index, unmoved when a hop is added in front — which matters because the count was wrong twice in one week and `hasnahena-api.onrender.com` is a second entry point, fronted by *Render's* Cloudflare rather than this zone's, whose depth is not guaranteed to match.
+
+The flag defaults to **off** and must stay off unless every route to the process passes through your own Cloudflare zone: nothing about the header proves a request came that way, so a process reachable another way would be believing a value anyone can type. The header is also *parsed* rather than merely checked for emptiness — it becomes a rate-limit key and an audit row, and neither should be able to hold arbitrary text. `TRUSTED_PROXIES` stays at `3` and answers whenever the header is absent.
 
 Remove conflicting old records, add both apex and www in Vercel, add `api.hasnahenafoundation.com` in Render, wait for SSL, then confirm `NEXT_PUBLIC_API_URL` points at the custom API domain and redeploy.
 
@@ -586,8 +612,7 @@ was on.
 | `/metrics` | `internal/metrics/handler.go` | logs `metrics endpoint disabled…` and 404s |
 | Business alerting | `.github/workflows/monitor.yml` | **exits 1** — fails twice a day rather than passing silently |
 
-**The code is done; the switch is half thrown** — it is T-01 in
-[tasks.md](tasks.md).
+**The code is done and the switch is now fully thrown**, as of 2026-09-03.
 
 Two of these were confirmed **on** by probing the live site on 2026-08-25, which
 is worth knowing how to repeat, because both can be checked without any
@@ -610,8 +635,8 @@ the project.
 | `[x]` | `SENTRY_DSN` | **Render** (Go API) — set by the owner. Note that a DSN alone reported nothing until 2026-09-03: `CaptureError` was dead code and the only path to Sentry was a panic, which this API does not do. `observability.Init` now installs a `slog` bridge, so every Error-level record is an event |
 | `[x]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — confirmed live 2026-08-25 (`sentry-environment=production`). `NEXT_PUBLIC_*` is baked at build time, so changing it needs a **redeploy**, not a restart |
 | `[ ]` | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | **Vercel** — optional; without them the build succeeds with minified stack traces |
-| `[~]` | `METRICS_TOKEN`, same value in both places | **Render** — confirmed live 2026-08-25 (`/metrics` answers 401). Still to do: the same value as a **GitHub secret**, which is what the Monitor workflow scrapes with |
-| `[ ]` | An UptimeRobot monitor on **`/v1/health`** | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`). **Not `/v1/ready`**, which this row named until 2026-09-03 while the section above explained at length why that is a 100% database duty cycle and 182 compute-hours against an allowance of 100. A checklist that contradicts its own rule is worse than one that omits it, because the checklist is what gets followed |
+| `[x]` | `METRICS_TOKEN`, same value in both places | **Render** (confirmed 2026-08-25, `/metrics` answers 401) **and** as a GitHub Actions secret, which is what `monitor.yml` scrapes with — set 2026-09-03 |
+| `[x]` | An UptimeRobot monitor on **`/v1/health`** | Set 2026-09-03, on the correct endpoint. UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`). **Not `/v1/ready`**, which this row named until 2026-09-03 while the section above explained at length why that is a 100% database duty cycle and 182 compute-hours against an allowance of 100. A checklist that contradicts its own rule is worse than one that omits it, because the checklist is what gets followed |
 
 **Deliberately staying off:** tracing (`tracesSampleRate: 0`) and session replay.
 Tracing burns the free-tier quota that should hold actual exceptions, and replay

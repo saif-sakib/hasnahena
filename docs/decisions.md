@@ -449,6 +449,31 @@ is in this file's history at the commit that removed WO-28 — `git log -- docs/
 ### ADR-019 — One function decides where a request came from
 
 **Status:** accepted · 2026-08-18 · closes WO-60 · removes chi's `middleware.RealIP`.
+**Amended 2026-09-03 (T-34):** the *one function* stands; what it counts no
+longer has to be a number of hops.
+
+`ClientIP` now takes a `ClientIPConfig` rather than a bare integer, and with
+`TRUST_CLOUDFLARE_CLIENT_IP=true` it prefers **`CF-Connecting-IP`**, falling back
+to the count when that header is absent or unparseable. The reason is
+operational rather than theoretical: the count was wrong **twice in one week**
+after DNS moved to Cloudflare — `1`, then `2`, before `3` proved correct — and
+both wrong answers were silent, because a miscount does not produce an error. It
+produces a well-formed address belonging to the wrong party, which the limiter
+keys on, the lockout counts and `audit_logs` stores as evidence.
+
+Two properties make the header safe *here* and are the whole of the trust
+argument. Cloudflare sets it to the address it accepted the connection from, and
+it **strips any copy the caller supplied** — so on a route that genuinely passes
+through the zone it cannot be forged. Nothing about the header itself proves the
+request came that way, which is why it is behind an explicit deployment flag,
+defaulting to off: a process reachable another way would be believing a value
+anyone can type. The value is also **parsed** rather than merely checked for
+emptiness, because it becomes a rate-limit key and an audit row and neither
+should be able to hold arbitrary text.
+
+The count remains the fallback and remains correct at `3`. This is not a
+replacement for understanding the chain; it is a way for the answer to survive
+somebody adding a hop to it.
 
 Four places in the Go API answered "which address is this caller?" and three of
 them read the **leftmost** `X-Forwarded-For` entry — the end the caller writes:
@@ -586,6 +611,13 @@ this month. **Confirm the shape from a real access-log line rather than from thi
 table**: whether a given edge appends to `X-Forwarded-For` or replaces it is that
 provider's behaviour, not something a document can promise, and the `ip` field
 must come out as the caller's own address.
+
+Measured on 2026-09-03, the header arrives with **three** entries — origin,
+Cloudflare, Render — and the support path resolved to `52.221.235.153`, AWS
+`ap-southeast-1`, which is Vercel's `sin1`. That is this ADR's fourth row
+happening in production: the proxied path reads **Vercel**, the direct path reads
+the member, one number serves both, and the per-member limit lives on the Next
+side because no number could serve both.
 
 So the per-member limit lives on the Next side, where the member's address is
 known and Vercel sets it: 60 mutations per minute per caller, matching the Go

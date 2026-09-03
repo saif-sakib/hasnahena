@@ -176,16 +176,28 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService, securityService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
 
-	// TRUSTED_PROXIES decides which X-Forwarded-For entry is believed, and four
-	// things read the answer: the rate limiter, the access log, the login
-	// lockout and the audit rows (ADR-019). Both ways of getting it wrong are
-	// silent, so the count this process is running with is stated at boot.
-	if config.TrustedProxies == 0 && config.Environment != "development" {
+	// How a caller's address is resolved, and four things read the answer: the
+	// rate limiter, the access log, the login lockout and the audit rows
+	// (ADR-019). Every way of getting it wrong is silent — a wrong count yields
+	// a well-formed address belonging to the wrong party — so the mode this
+	// process is running in is stated at boot rather than inferred from a
+	// dashboard later.
+	clientIPConfig := appmw.ClientIPConfig{
+		TrustedProxies:  config.TrustedProxies,
+		TrustCloudflare: config.TrustCloudflareClientIP,
+	}
+	switch {
+	case clientIPConfig.TrustCloudflare:
+		slog.Info("caller address resolution: CF-Connecting-IP, falling back to the proxy count",
+			"trustedProxies", config.TrustedProxies)
+	case config.TrustedProxies == 0 && config.Environment != "development":
 		slog.Warn("TRUSTED_PROXIES is 0: every caller behind a proxy is attributed to the proxy's address, "+
 			"so they share one rate-limit bucket and one lockout. Set it to the number of proxies in front "+
-			"of this process (Render is 1).", "environment", config.Environment)
-	} else {
-		slog.Info("caller address resolution", "trustedProxies", config.TrustedProxies)
+			"of this process, or set TRUST_CLOUDFLARE_CLIENT_IP=true if every route to it passes through "+
+			"your own Cloudflare zone.", "environment", config.Environment)
+	default:
+		slog.Info("caller address resolution: X-Forwarded-For by count",
+			"trustedProxies", config.TrustedProxies)
 	}
 
 	r := chi.NewRouter()
@@ -193,13 +205,13 @@ func main() {
 	limiterStop := make(chan struct{})
 	defer close(limiterStop)
 	mountMiddleware(r, middlewareConfig{
-		CORSOrigins:    config.CORSOrigins,
-		EnableHSTS:     config.EnableHSTS,
-		TrustedProxies: config.TrustedProxies,
+		CORSOrigins: config.CORSOrigins,
+		EnableHSTS:  config.EnableHSTS,
+		ClientIP:    clientIPConfig,
 		RateLimit: appmw.RateLimitConfig{
-			Requests:       config.RateLimitRequests,
-			Window:         config.RateLimitWindow,
-			TrustedProxies: config.TrustedProxies,
+			Requests: config.RateLimitRequests,
+			Window:   config.RateLimitWindow,
+			ClientIP: clientIPConfig,
 		},
 		LimiterStop: limiterStop,
 		// Signature and expiry only, deliberately: no revocation check, because
@@ -271,11 +283,10 @@ type middlewareConfig struct {
 	CORSOrigins []string
 	EnableHSTS  bool
 
-	// TrustedProxies is how many reverse proxies sit in front. It decides which
-	// X-Forwarded-For entry is believed — see middleware.ClientIP — and it is
-	// the one knob an operator has to get right: set it to the number of proxies
-	// in front of this process, and to 0 only when nothing is.
-	TrustedProxies int
+	// ClientIP decides which address a request is attributed to — see
+	// middleware.ClientIP. It is the setting an operator has to get right, and
+	// the only one whose two failure directions are both invisible.
+	ClientIP appmw.ClientIPConfig
 
 	RateLimit   appmw.RateLimitConfig
 	LimiterStop <-chan struct{}
@@ -310,7 +321,7 @@ func mountMiddleware(r chi.Router, cfg middlewareConfig) {
 	// Logging sits outside Recoverer so a panic is turned into a 500 while still
 	// inside the access-log wrapper, and therefore gets logged with that status.
 	// It also resolves the caller's address once, for everything downstream.
-	r.Use(appmw.Logging(cfg.TrustedProxies))
+	r.Use(appmw.Logging(cfg.ClientIP))
 	r.Use(appmw.Metrics)
 	r.Use(middleware.Recoverer)
 	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter

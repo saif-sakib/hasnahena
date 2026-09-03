@@ -43,12 +43,12 @@ func stackedRouterWithIdentity(
 
 	r := chi.NewRouter()
 	mountMiddleware(r, middlewareConfig{
-		CORSOrigins:    []string{"http://localhost:3000"},
-		TrustedProxies: trustedProxies,
+		CORSOrigins: []string{"http://localhost:3000"},
+		ClientIP:    appmw.ClientIPConfig{TrustedProxies: trustedProxies},
 		RateLimit: appmw.RateLimitConfig{
-			Requests:       requests,
-			Window:         time.Minute,
-			TrustedProxies: trustedProxies,
+			Requests: requests,
+			Window:   time.Minute,
+			ClientIP: appmw.ClientIPConfig{TrustedProxies: trustedProxies},
 		},
 		LimiterStop: stop,
 		VerifyToken: verify,

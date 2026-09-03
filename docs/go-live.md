@@ -223,15 +223,20 @@ for the *"Duplicate, Google chose different canonical than user"* report on
 
 ---
 
-## Bing — the half that was never set up
+## Bing — set up 2026-09-03
 
-Search Console covers Google. **Bing has never been told this site exists**, and
-that is the whole of "we do not appear on Bing": no Webmaster Tools property, so
-nothing has submitted the sitemap, nothing can see the crawl, and a domain with
+Search Console covers Google; Bing Webmaster Tools now covers Bing. Before that
+there was no property at all, which was the whole of "we do not appear on Bing":
+nothing had submitted the sitemap, nothing could see the crawl, and a domain with
 no inbound links waits months rather than weeks to be found on its own. The
-missing favicon in a Bing result is the same fact wearing a different hat — Bing
+missing favicon in a Bing result was the same fact wearing a different hat — Bing
 draws the generic globe for a result whose icon it has not fetched, and it does
 not fetch icons for pages it has barely indexed.
+
+**Indexing is not instant and there is nothing further to do.** Expect weeks, not
+days, and resist resubmitting: the `Disallow` lines that used to sit on the auth
+pages were removed in batch AG precisely because they were the reason Bing
+reported the site as blocked while it was trying to say the opposite.
 
 The technical side is already correct and was verified over HTTP on 2026-09-01:
 

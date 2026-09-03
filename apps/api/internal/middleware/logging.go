@@ -55,7 +55,7 @@ func RequestClientIP(r *http.Request) string {
 	if ip, ok := r.Context().Value(ctxKeyClientIP{}).(string); ok && ip != "" {
 		return ip
 	}
-	return ClientIP(r, 0)
+	return ClientIP(r, ClientIPConfig{})
 }
 
 // SetRequestUserID records who a request turned out to belong to, so the access
@@ -117,23 +117,23 @@ func (rr *responseRecorder) Unwrap() http.ResponseWriter {
 // is then converted to a 500 by Recoverer while still inside this wrapper, so
 // the panic gets an access log line with the right status instead of vanishing.
 //
-// Takes the trusted-proxy count because the address a request came from is a
+// Takes the resolver config because the address a request came from is a
 // deployment fact, not a request one — see ClientIP. Before WO-60 this logged
 // r.RemoteAddr after chi's RealIP had overwritten it with a caller-supplied
 // header, so the field naming where a request came from was chosen by whoever
 // sent it. An access log that cannot be trusted on that point is not evidence,
 // and in a financial system the log exists to answer "who did this".
-func Logging(trustedProxies int) func(http.Handler) http.Handler {
+func Logging(cfg ClientIPConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return loggingHandler(next, trustedProxies)
+		return loggingHandler(next, cfg)
 	}
 }
 
-func loggingHandler(next http.Handler, trustedProxies int) http.Handler {
+func loggingHandler(next http.Handler, cfg ClientIPConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		clientIP := ClientIP(r, trustedProxies)
+		clientIP := ClientIP(r, cfg)
 		state := &requestState{}
 		ctx := context.WithValue(r.Context(), ctxKeyRequestState{}, state)
 		ctx = context.WithValue(ctx, ctxKeyClientIP{}, clientIP)
@@ -160,7 +160,7 @@ func loggingHandler(next http.Handler, trustedProxies int) http.Handler {
 			// proxy in front they differ on every request and the pair is the
 			// full picture; with no proxy configured they differ only when
 			// someone sent a header claiming otherwise, which is a signal.
-			if peer := ClientIP(r, 0); peer != clientIP {
+			if peer := ClientIP(r, ClientIPConfig{}); peer != clientIP {
 				attrs = append(attrs, "peer", peer)
 			}
 			if userID := state.getUserID(); userID != "" {

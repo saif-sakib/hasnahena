@@ -16,11 +16,13 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 	// mint a fresh quota per request by varying a header and the limiter becomes
 	// decorative — with no failing test and no visible symptom.
 	tests := []struct {
-		name           string
-		xff            string
-		remoteAddr     string
-		trustedProxies int
-		want           string
+		name            string
+		xff             string
+		cfConnectingIP  string
+		remoteAddr      string
+		trustedProxies  int
+		trustCloudflare bool
+		want            string
 	}{
 		{
 			name:           "one proxy: trust the entry the proxy appended",
@@ -57,6 +59,59 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 			trustedProxies: 2,
 			want:           "203.0.113.7",
 		},
+
+		// CF-Connecting-IP. The count was wrong twice in one week — 1 after the
+		// DNS moved to Cloudflare, then 2 — and each time the answer was a
+		// well-formed address belonging to the wrong party, which is why no
+		// test and no alert caught it. This header does not move when a hop is
+		// added in front.
+		{
+			name:            "cloudflare trusted: the header wins over the count",
+			xff:             "9.9.9.9, 198.51.100.4, 10.0.0.9",
+			cfConnectingIP:  "203.0.113.7",
+			remoteAddr:      "10.0.0.1:5000",
+			trustedProxies:  2,
+			trustCloudflare: true,
+			want:            "203.0.113.7",
+		},
+		{
+			name:            "cloudflare trusted but the header is absent: the count still answers",
+			xff:             "9.9.9.9, 203.0.113.7, 10.0.0.9",
+			remoteAddr:      "10.0.0.1:5000",
+			trustedProxies:  2,
+			trustCloudflare: true,
+			want:            "203.0.113.7",
+		},
+		{
+			// This value becomes a rate-limit key and an audit row. Trusting it
+			// for being *present* would let anything be written into both.
+			name:            "cloudflare trusted but the header is not an address: ignored, not trusted",
+			xff:             "9.9.9.9, 203.0.113.7, 10.0.0.9",
+			cfConnectingIP:  "not-an-ip; drop table",
+			remoteAddr:      "10.0.0.1:5000",
+			trustedProxies:  2,
+			trustCloudflare: true,
+			want:            "203.0.113.7",
+		},
+		{
+			// The flag is the whole of the trust decision. Off, the header is
+			// just something a caller sent — which is exactly what it is on any
+			// route that does not pass through the zone.
+			name:           "cloudflare NOT trusted: the header is ignored even when present",
+			xff:            "9.9.9.9, 203.0.113.7, 10.0.0.9",
+			cfConnectingIP: "1.2.3.4",
+			remoteAddr:     "10.0.0.1:5000",
+			trustedProxies: 2,
+			want:           "203.0.113.7",
+		},
+		{
+			name:            "cloudflare trusted, IPv6 client",
+			cfConnectingIP:  "2001:db8::1",
+			remoteAddr:      "10.0.0.1:5000",
+			trustedProxies:  3,
+			trustCloudflare: true,
+			want:            "2001:db8::1",
+		},
 	}
 
 	for _, tc := range tests {
@@ -66,7 +121,10 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 			if tc.xff != "" {
 				r.Header.Set("X-Forwarded-For", tc.xff)
 			}
-			if got := ClientIP(r, tc.trustedProxies); got != tc.want {
+			if tc.cfConnectingIP != "" {
+				r.Header.Set("CF-Connecting-IP", tc.cfConnectingIP)
+			}
+			if got := ClientIP(r, ClientIPConfig{TrustedProxies: tc.trustedProxies, TrustCloudflare: tc.trustCloudflare}); got != tc.want {
 				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
 			}
 		})
