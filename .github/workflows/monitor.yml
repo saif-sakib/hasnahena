@@ -8,7 +8,11 @@ name: Monitor
 # runs — four times the entire free allowance, for something UptimeRobot does
 # for nothing at a one-minute interval. So:
 #
-#   * "Is the API up?"  -> UptimeRobot, free tier, hits /v1/ready.
+#   * "Is the API up?"  -> UptimeRobot, free tier, hits **/v1/health**, which
+#     touches nothing. NOT /v1/ready: that pings the pool, and at UptimeRobot's
+#     default five-minute interval the database never reaches its suspend timer
+#     — 182 compute-hours a month against an allowance of 100 (ADR-035).
+#     A readiness check belongs on a load balancer, or here at six-hourly.
 #   * "Is the error rate high?" -> Sentry, free tier, its own alert rules.
 #   * "Is a member waiting on money?" -> here. Nothing else can see it.
 #

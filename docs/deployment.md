@@ -298,7 +298,7 @@ only reason this is not the deployment path.
 
 ## Schema changes
 
-Migrations, not `db push` — see [ADR-014](decisions.md#adr-014--prisma-migrate-supersedes-db-push).
+Migrations, not `db push` — see [ADR-014](decisions/adr-014-prisma-migrate-supersedes-db-push.md).
 
 ```bash
 pnpm db:migrate:dev      # local: edit schema.prisma, then generate a migration
@@ -650,16 +650,31 @@ works — the checklist is Stage 2, launch day, in [go-live.md](go-live.md).
 
 ---
 
-## Phase 6 — VPS or AWS
+## Phase 6 — Getting off the free tiers
 
-T-30 in [tasks.md](tasks.md). Only start once everything else is quiet. Moving an unmonitored system onto
-infrastructure you now also have to patch makes things worse.
+**Superseded by [scaling.md](scaling.md)**, which prices this, orders it, and
+gives each stage a trigger. Read that first; the INF table below is the task
+breakdown for its Stage 3 and is still current.
 
-**Recommended target: a single VPS** (Hetzner/DigitalOcean, 4 GB), not AWS. One
-machine, Docker Compose, Caddy for TLS, managed Postgres or a well-backed-up
-local one. Roughly $10–25/month, one thing to understand, no surprise bills. Full
-AWS (ECS/RDS/ALB) is 5–10× the cost and complexity for this workload — take it
-only if a funder or regulator requires it.
+Three things that page changes about the plan recorded here:
+
+- **The trigger is ~10,000 members, not "when everything else is quiet."** The
+  first genuine capacity wall is Neon's 0.5 GB of storage at roughly 6,000
+  members, and passing that is a $7 dashboard toggle, not a host move.
+- **Fly.io in Singapore is preferred over a VPS** — the same Dockerfiles, no
+  operating system to own, ~$16–25/month for both apps. A VPS (Contabo or
+  Hostinger Singapore) is cheaper still and gives one environment store instead
+  of two, but only if somebody will administer it.
+- **Postgres stays on Neon**, which is what keeps either target a
+  low-maintenance choice rather than a high-maintenance one.
+
+Only start the host move once everything else is quiet. Moving an unmonitored
+system onto infrastructure you now also have to patch makes things worse.
+
+Full AWS (ECS/RDS/ALB) is 5–10× the cost and complexity for a workload that peaks
+around 10 requests per second — take it only if a funder or regulator requires
+it. The rejected alternatives, with reasons, are tabulated in
+[scaling.md](scaling.md).
 
 | ID | Task | Notes |
 |---|---|---|
@@ -667,7 +682,7 @@ only if a funder or regulator requires it.
 | INF-02 | Provision as code | Terraform or a documented shell script. "I clicked around and it works" is not a recoverable state |
 | INF-03 | Base-image hardening | SSH keys only, no root login, `ufw` default-deny, `fail2ban`, unattended security upgrades |
 | INF-04 | Reverse proxy + TLS | Caddy (automatic Let's Encrypt) or nginx + certbot. Terminate TLS, forward to both containers, set HSTS |
-| INF-05 | Decide the database's home | Staying on Neon is legitimate and keeps DATA-01 simpler. Self-hosting means you own backups, tuning, upgrades and failover |
+| INF-05 | ~~Decide the database's home~~ **Decided: Neon** | [scaling.md](scaling.md) settles this. Self-hosting saves $25/mo and costs you backups, point-in-time recovery, failover, major-version upgrades and vacuum tuning — for the foundation's actual books. Keeping it managed is also the single property that makes the VPS stateless, and therefore cheap to rebuild at 2am |
 | INF-06 | Deployment pipeline | CI already builds and pushes to GHCR → pull and restart on the host. Rollback = redeploy the previous SHA |
 | INF-07 | Zero-downtime deploys | Two containers behind the proxy, health-gated cutover |
 | INF-08 | Log shipping off the box | A dead disk must not take the audit trail with it |

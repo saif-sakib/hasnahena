@@ -1,0 +1,345 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{textcomp}
+\usepackage{eurosym}
+\usepackage{tgpagella}
+\usepackage{tgheros}
+\usepackage[margin=2.1cm,top=2.3cm,bottom=2.3cm]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{ragged2e}
+
+\renewcommand{\sfdefault}{qhv}
+
+\definecolor{ink}{HTML}{1A1A1A}
+\definecolor{teal}{HTML}{0F6E64}
+\definecolor{rust}{HTML}{A8442A}
+\definecolor{gold}{HTML}{8A6D1F}
+\definecolor{slate}{HTML}{4A5568}
+\definecolor{rule}{HTML}{D6D3CC}
+\definecolor{wash}{HTML}{F6F4F0}
+\definecolor{greenwash}{HTML}{ECF4F1}
+\definecolor{redwash}{HTML}{FBEFEA}
+\definecolor{goldwash}{HTML}{FAF5E6}
+
+\color{ink}
+\hypersetup{colorlinks=true,linkcolor=teal,urlcolor=teal,pdftitle={Hasnahena Scaling Plan}}
+
+\titleformat{\section}{\sffamily\Large\bfseries\color{teal}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\sffamily\large\bfseries\color{ink}}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{18pt}{7pt}
+\titlespacing*{\subsection}{0pt}{13pt}{5pt}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\sffamily\footnotesize\color{slate}Hasnahena Foundation — Infrastructure Scaling Plan}
+\fancyhead[R]{\sffamily\footnotesize\color{slate}\thepage}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\renewcommand{\arraystretch}{1.28}
+
+\newtcolorbox{keybox}[1]{colback=greenwash,colframe=teal,boxrule=0.9pt,left=8pt,right=8pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries\color{white},title={#1},coltitle=white,colbacktitle=teal,arc=2pt}
+\newtcolorbox{warnbox}[1]{colback=redwash,colframe=rust,boxrule=0.9pt,left=8pt,right=8pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries,title={#1},coltitle=white,colbacktitle=rust,arc=2pt}
+\newtcolorbox{notebox}[1]{colback=goldwash,colframe=gold,boxrule=0.9pt,left=8pt,right=8pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries,title={#1},coltitle=white,colbacktitle=gold,arc=2pt}
+
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcommand{\hd}[1]{\textbf{\sffamily\small #1}}
+\newcommand{\yes}{\textcolor{teal}{\textbf{yes}}}
+\newcommand{\no}{\textcolor{rust}{\textbf{no}}}
+
+\begin{document}
+
+\begin{center}
+{\sffamily\bfseries\fontsize{10}{12}\selectfont\color{slate} HASNAHENA FOUNDATION}\\[7pt]
+{\sffamily\bfseries\fontsize{27}{31}\selectfont\color{teal} When to Move, and What To}\\[11pt]
+{\sffamily\large\color{slate} An infrastructure plan built from measured limits, not guesses}\\[6pt]
+{\sffamily\footnotesize\color{slate} 3 September 2026 \quad\textperiodcentered{}\quad Prices verified against provider pages, September 2026}
+\end{center}
+
+\vspace{6pt}
+\textcolor{rule}{\hrule height 1.5pt}
+\vspace{10pt}
+
+\begin{keybox}{The short answer}
+\textbf{You do not need to spend anything yet, and the two problems you have today are both free to fix.}
+
+Your compute-hour shortage is almost certainly \emph{a misconfigured uptime monitor}, not growth — a second UptimeRobot check points at \texttt{/v1/ready}, which wakes the database on every ping. Your Actions shortage is a scheduling problem with three free remedies.
+
+The first genuine capacity wall is \textbf{Neon's 0.5\,GB storage, at roughly 6{,}000 members}. At six members today, that is years away at any realistic growth rate. When you get there, the fix costs about \textbf{\$7 a month}, not \$57 — Neon's paid plan has no base fee and bills only what you use.
+\end{keybox}
+
+\section{The two problems you have today}
+
+Both are configuration, not scale. Neither costs money to solve.
+
+\subsection{Neon compute hours --- a monitor is holding the database awake}
+
+Neon's free plan gives 100 CU-hours a month. Your database autoscales at 0.25\,CU, so being awake 24/7 for a month costs $730 \times 0.25 = 182$ CU-hours --- \textbf{almost twice the entire allowance}. The database suspends only after five minutes with no connection, so \emph{anything that touches it more often than every five minutes pins it awake permanently.}
+
+Your Go API is already tuned correctly for this. \texttt{DB\_MIN\_CONNS} is 0, and cleanup, reconciliation and the retention sweep all run on 24-hour intervals. Together those cost roughly \textbf{4 CU-hours a month}. That is not where the budget is going.
+
+\begin{warnbox}{The leak}
+\texttt{docs/deployment.md} line 516 documents \textbf{a second UptimeRobot monitor pointed at \texttt{/v1/ready}}, which pings the connection pool by design. UptimeRobot's free tier defaults to \textbf{five-minute} checks --- exactly the interval at which the database never gets to sleep.
+
+At 5 minutes: 288 wakes a day, \textbf{182 CU-hours a month, the whole allowance and then some.}\\
+At the documented 30 minutes: 48 wakes a day, \textbf{30 CU-hours} --- still a third of your budget on a health probe.
+
+\texttt{.github/workflows/monitor.yml} line 11 still says uptime checking ``hits \texttt{/v1/ready}'', contradicting the corrected checklist at \texttt{deployment.md} line 639. That stale comment is probably how the monitor came to be configured.
+\end{warnbox}
+
+\textbf{Fix, free:} open UptimeRobot and check the interval on the \texttt{/v1/ready} monitor. Delete it, or set it to once every six hours. The \texttt{/v1/health} monitor touches nothing and already answers ``is the API up?''; Sentry already answers ``is it erroring?''. Nothing is lost. Expect to recover \textbf{most of your 100 CU-hours}.
+
+\subsection{GitHub Actions minutes --- 2{,}000 against a heavy suite}
+
+A private repository gets 2{,}000 minutes a month, billed per job rounded up to the whole minute.
+
+\begin{center}
+\begin{tabular}{@{}L{7.1cm}rr@{}}
+\toprule
+\hd{What runs} & \hd{Per run} & \hd{Per month} \\
+\midrule
+Nightly backup (dump + assets, 2 jobs) & \textasciitilde8 min & 240 min \\
+Monitor workflow (twice daily) & \textasciitilde2 min & 120 min \\
+Weekly container image build & \textasciitilde15 min & 60 min \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Fixed scheduled cost}} & \textbf{\textasciitilde420 min} \\
+\multicolumn{2}{@{}l}{\textit{Left for CI}} & \textbf{\textasciitilde1{,}580 min} \\
+\midrule
+A full CI run (7 jobs: web, go, integration, & & \\
+restore drill, secrets, Playwright, changes) & \textasciitilde32 min & --- \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{Full CI runs affordable per month}} & \textbf{\textasciitilde45} \\
+\multicolumn{2}{@{}l}{\textbf{Which is}} & \textbf{2 per working day} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three free remedies, in the order I would apply them:
+
+\begin{enumerate}[leftmargin=1.4em,itemsep=4pt]
+\item \textbf{Trim the schedule} (10 minutes of work, recovers \textasciitilde230 min/month). The \emph{assets} half of the backup can run weekly rather than nightly --- member photographs change far less often than the ledger does, while the database dump stays nightly. And the weekly image build produces artefacts nothing currently deploys; \texttt{images.yml} already says so in its own header. Switch it to tags only until the host move happens.
+\item \textbf{Add a self-hosted runner} (free, unlimited minutes, repository stays private). Any always-on machine works --- your own PC, or a small free VM. This is the right answer if you want to keep pushing as often as you like.
+\item \textbf{Make the repository public} (free, unlimited minutes). The project is already MIT-licensed and the README invites contributions, so this may match your intent anyway. \textbf{Review \texttt{docs/runbook.md} first} --- it describes where every credential lives, which is a map worth withholding even though it contains no secrets.
+\end{enumerate}
+
+\subsection{A third thing worth fixing while you are in there}
+
+Render's free tier spins the API down after 15 minutes idle, so the first member each morning waits about a minute on a blank screen. Render gives 750 free instance-hours a month and a month is 730 hours, so an always-warm free service \emph{just} fits --- with no margin.
+
+\textbf{Better:} keep it warm only during waking hours. A Cloudflare Worker cron (free; 100{,}000 requests a day, you would use 288) pinging \texttt{/v1/health} every five minutes between 00:00 and 17:00 UTC --- that is 06:00 to 23:00 in Dhaka --- costs about \textbf{510 of the 750 hours}, leaves real headroom, and \textbf{wakes no database}, because \texttt{/v1/health} touches nothing. Members never meet a cold start; the service sleeps overnight when nobody is there.
+
+\clearpage
+\section{When each free tier actually breaks}
+
+Every number below is derived, not guessed. The assumptions are stated so you can disagree with them and redo the arithmetic.
+
+\begin{notebox}{Assumptions}
+\textbf{20\%} of members are active in a given month \textperiodcentered{} an active member has \textbf{4 sessions}, about \textbf{5 dashboard page views} each \textperiodcentered{} \textbf{0.8\,MB} of stored images per member (measured --- your 6-member nightly asset archive is 4.8\,MB) \textperiodcentered{} \textbf{\textasciitilde32\,KB} of database rows per member in year one, \textbf{\textasciitilde28\,KB} for each year after \textperiodcentered{} peak traffic concentrated in a 14-hour window.
+\end{notebox}
+
+\begin{center}
+\begin{tabular}{@{}L{3.9cm}L{3.5cm}L{3.2cm}L{4.1cm}@{}}
+\toprule
+\hd{Free tier} & \hd{The hard limit} & \hd{Binds at} & \hd{What it costs to pass} \\
+\midrule
+\rowcolor{redwash} \textbf{Neon storage} & 0.5 GB & \textbf{\textasciitilde6{,}000 members} & Neon Launch, \textasciitilde\$7/mo \\
+Neon compute & 100 CU-hours/mo & \textasciitilde15{,}000 & same plan, metered \\
+Vercel Hobby CPU & 4 CPU-hours/mo & \textasciitilde15{,}000--18{,}000 & Pro \$20, or leave \\
+R2 (your backups) & 10 GB & \textasciitilde10{,}000 & \$0.015/GB --- pennies \\
+Cloudinary & 25 credits/mo & \textasciitilde25{,}000 & migrate to R2 \\
+Vercel bandwidth & 100 GB/mo & \textasciitilde30{,}000 & --- \\
+Brevo email & 300/day & \textasciitilde50{,}000 & most members have no email \\
+Sentry & 5{,}000 errors/mo & not a member limit & --- \\
+\midrule
+Render Free & 750 instance-h & \textbf{now}, without care & \$0 --- warm it selectively \\
+GitHub Actions & 2{,}000 min/mo & \textbf{now} & \$0 --- see \S1.2 \\
+\rowcolor{goldwash} Vercel Hobby terms & non-commercial only & \textbf{a judgment call} & \$20, or move, or apply to their OSS programme \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}{The one number to remember}
+\textbf{The first real wall is Neon's 0.5\,GB of storage, at about 6{,}000 members} --- nearer 4{,}000 once three years of ledger and audit history have accumulated, because \texttt{audit\_logs} only grows.
+
+Everything that binds before that is either a configuration bug or a policy decision, and everything that binds after it is far away.
+\end{keybox}
+
+\subsection{So when do you reach 6{,}000 members?}
+
+You have about six today. This is the honest translation of the wall into calendar time.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\hd{If you admit} & \hd{You reach 6{,}000 in} & \hd{And 15{,}000 in} \\
+\midrule
+25 members / month & 20 years & 50 years \\
+50 members / month & 10 years & 25 years \\
+100 members / month & 5 years & 12 years \\
+\rowcolor{greenwash} 200 members / month & \textbf{2 years 6 months} & \textbf{6 years} \\
+500 members / month & 1 year & 2 years 6 months \\
+1{,}000 members / month & 6 months & 1 year 3 months \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A village cooperative in Jessore admitting 200 members a month is growing fast. Even then you have \textbf{two and a half years} before anything must change, and the change costs \$7.
+
+\section{The options, compared}
+
+Costs are per month, at two scales. ``Ops burden'' is the honest answer to \emph{who has to understand this when something breaks at 2\,am.}
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.35cm}L{4.3cm}rrL{1.5cm}L{4.1cm}@{}}
+\toprule
+& \hd{Option} & \hd{At 6k} & \hd{At 15k} & \hd{Ops} & \hd{Verdict} \\
+\midrule
+\rowcolor{greenwash}
+0 & \textbf{Free, but fixed}\newline{\footnotesize Neon Free \textperiodcentered{} Vercel Hobby \textperiodcentered{} Render Free warmed \textperiodcentered{} Cloudinary} & \textbf{\$0} & \textit{breaks} & none & \textbf{Do this now.} Buys years. \\
+\rowcolor{greenwash}
+1 & \textbf{+ Neon Launch}\newline{\footnotesize the one thing that actually runs out} & \textbf{\$7} & \$15 & none & \textbf{The first thing to pay for.} A dashboard toggle, no migration. \\
+2 & + Fly.io for the Go API\newline{\footnotesize Singapore, 256--512\,MB, no cold start} & \$10 & \$18 & very low & If Render's 750 hours get tight. \\
+\rowcolor{greenwash}
+3 & \textbf{+ Fly.io for both apps}\newline{\footnotesize leaves Vercel entirely} & \$16 & \$25 & low & \textbf{Best answer to the Vercel terms question.} Your Dockerfiles already work. \\
+4 & One VPS --- Contabo Singapore\newline{\footnotesize 3 vCPU, 8\,GB, \euro{}4.95, no renewal rise} & \$12 & \$20 & medium & Best price/performance. You own an OS. \\
+5 & One VPS --- Hostinger Singapore\newline{\footnotesize 2 vCPU, 8\,GB KVM 2} & \$17 & \$25 & medium & Better support and disks; renewal rises to \$11.99. \\
+6 & Fully managed\newline{\footnotesize Vercel Pro + Render Standard + Neon} & \$47 & \$60 & none & Only if your time is worth more than \$40/mo. \\
+\rowcolor{redwash}
+7 & VPS + self-hosted Postgres & \$5 & \$12 & \textbf{high} & \textbf{Not recommended.} See \S3.3. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Why Fly.io is the quiet winner in the middle}
+
+Your Go API is a 27\,MB static binary on a distroless base. It does not need a 4-core machine; it needs about 128\,MB of RAM and a Singapore address. Fly.io sells exactly that for roughly \textbf{\$2--3 a month}, runs your existing Dockerfile unchanged, terminates TLS for you, and has a Singapore region beside your database.
+
+That makes option 3 --- \textbf{both apps on Fly.io, Neon for the database, about \$16--25 a month} --- the cheapest way to leave Vercel and Render entirely \emph{without acquiring a server to patch}. It keeps the operational burden at roughly zero, which matters more here than the \$4 a VPS would save.
+
+\subsection{Why a VPS is still worth knowing about}
+
+Option 4 is genuinely cheaper per unit of compute and gives you one environment store instead of two --- a real benefit, since your own documentation records the two drifting apart. It is a good choice \emph{if} someone is willing to own an operating system.
+
+The property that makes it safe is that \textbf{no state lives on the box}: the database is Neon's, the files are Cloudinary's or R2's, the images are in GHCR. If the machine dies you rebuild it in twenty minutes from a script rather than restoring anything. Keep it that way.
+
+\subsection{Why you should not put Postgres on that box}
+
+Option 7 saves about \$8 a month and costs you backups, point-in-time recovery, failover, major-version upgrades and vacuum tuning --- for a database that \emph{is} the foundation's books. Nightly dumps mean a hardware failure loses up to a day of member transactions. Continuous WAL archiving fixes that and is another system to run correctly.
+
+It also destroys the property above. The moment the ledger lives on the machine, the machine stops being disposable, and a rebuild becomes a restore performed under pressure by whoever is available. \textbf{Managed Postgres is the best \$7--15 on this bill.}
+
+\subsection{Considered and rejected}
+
+\begin{center}
+\begin{tabular}{@{}L{4.3cm}L{10.5cm}@{}}
+\toprule
+\hd{Option} & \hd{Why not} \\
+\midrule
+Namecheap VPS & \textbf{Phoenix, Arizona is their only datacentre.} That is roughly 250\,ms from Dhaka on every dashboard request. Good value, wrong hemisphere. \\
+Oracle Cloud Always Free & Tempting --- and genuinely free --- but the ARM allowance was \textbf{halved in June 2026}, idle instances are reclaimed on a rolling 7-day assessment, and capacity in popular regions is a lottery. Fine as a free self-hosted CI runner; not for a platform holding members' money. \\
+Hetzner's cheap CX line & \euro{}5.49 for 2\,vCPU/4\,GB is the best price anywhere, but \textbf{CX is Germany and Finland only}. Serving Jessore from Falkenstein adds \textasciitilde150\,ms to every signed-in request. Hetzner's Singapore line carries a 20--40\% surcharge after the 2026 rises, which removes the advantage. \\
+AWS, GCP, Azure & Five to ten times the cost and complexity for a workload that peaks around 10 requests per second. Take one only if a funder or regulator names it. \\
+Kubernetes, anywhere & A control plane is a second system to operate. You have one service and one database. \\
+Railway & Fine platform, but \$5/month buys usage credit rather than capacity, and Fly.io is cheaper for a workload this small. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\clearpage
+\section{The recommended path}
+
+Four stages, each with a trigger you can measure rather than a date you have to guess.
+
+\subsection{Stage 0 --- this week --- \$0}
+
+\begin{center}
+\begin{tabular}{@{}p{0.5cm}L{9.3cm}L{4.6cm}@{}}
+\toprule
+& \hd{Do} & \hd{Recovers} \\
+\midrule
+1 & Check the UptimeRobot monitor on \texttt{/v1/ready}. Delete it, or set it to six-hourly. & Most of 100 CU-hours \\
+2 & Correct the stale comment at \texttt{monitor.yml} line 11 so the next person does not re-create it. & --- \\
+3 & Move the \emph{assets} half of the nightly backup to weekly; set \texttt{images.yml} to tags only. & \textasciitilde230 Actions minutes \\
+4 & Add a Cloudflare Worker cron pinging \texttt{/v1/health} every 5 minutes, 00:00--17:00 UTC. & No more morning cold starts \\
+5 & Decide the Vercel terms question --- pay \$20, apply to their open-source programme, or plan option 3. & Removes a real risk \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}{After Stage 0}
+You are back to a comfortable \$0 a month with no cold starts, a database that sleeps when the office is closed, and CI you can actually run. \textbf{This configuration carries you to roughly 6{,}000 members.}
+\end{keybox}
+
+\subsection{Stage 1 --- trigger: Neon storage past 0.4\,GB, or compute past 80 CU-hours --- \$7}
+
+Switch Neon from Free to \textbf{Launch}. There is no base fee and no migration; it is a plan change in a dashboard. You pay \$0.106 per CU-hour and \$0.35 per GB-month, and scale-to-zero still works, so a quiet night still costs nothing.
+
+At 6{,}000 members that is about \textbf{\$7 a month}. At 15{,}000, about \textbf{\$15}.
+
+\subsection{Stage 2 --- trigger: \textasciitilde10{,}000 members, or the Vercel decision --- \$16--25}
+
+Move both apps to \textbf{Fly.io in Singapore} (option 3), or to \textbf{one VPS} (option 4) if someone will own it. Your Dockerfiles, \texttt{docker-compose.yml} and per-commit GHCR images already exist for exactly this, so it is configuration rather than a project.
+
+\begin{warnbox}{The one thing that will bite you on the way}
+\texttt{TRUSTED\_PROXIES} counts the reverse proxies in front of the API and decides which \texttt{X-Forwarded-For} entry to trust. On Render behind Cloudflare it is \textbf{3}; on Fly.io or a VPS behind Cloudflare it is \textbf{2}. \textbf{Do not take that from this page} --- measure it from a real request's log line, where the \texttt{ip} field must show the caller's own address. Set it too low and the rate limiter, the access log, the login lockout and every audit row key on the proxy, giving everyone behind the edge one shared bucket and one shared lockout. Set it too high and a forged header is trusted. Both failures are silent, and this has already cost two wrong guesses on this project.
+\end{warnbox}
+
+\subsection{Stage 3 --- trigger: \textasciitilde25{,}000 members --- still under \$30}
+
+Migrate images from Cloudinary to Cloudflare R2. On cost alone this is not urgent --- 25 credits carries you to roughly 25{,}000 members.
+
+\begin{notebox}{But there is a reason to do it sooner that has nothing to do with money}
+Today a member's \textbf{NID scan is served from a Cloudinary URL that needs no login.} Anyone with the link has the document. Your own \texttt{ADR-038} works around this by deleting refused applicants' photographs quickly --- a mitigation, not a fix.
+
+On R2 the bucket is genuinely private and documents are served through an authenticated route or a short-lived signed link. The migration also deletes a whole bug class (Cloudinary's dynamic folder mode, which is why \texttt{cloudinary-reconcile.mjs} had to be written) and removes a vendor with \textbf{no export path}.
+
+It is cheapest to do while the asset count is in the hundreds. Treat it as a security task with a cost benefit attached, not the other way round.
+\end{notebox}
+
+\section{What it costs, end to end}
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\hd{Members} & \hd{Today} & \hd{After Stage 0} & \hd{Recommended} & \hd{Fully managed} \\
+\midrule
+6 (now) & \$0 \textit{(strained)} & \textbf{\$0} & \$0 & \$47 \\
+1{,}000 & --- & \textbf{\$0} & \$0 & \$47 \\
+6{,}000 & --- & \textit{Neon full} & \textbf{\$7} & \$47 \\
+10{,}000 & --- & --- & \textbf{\$10--18} & \$52 \\
+15{,}000 & --- & --- & \textbf{\$15--25} & \$60 \\
+25{,}000 & --- & --- & \textbf{\$25--35} & \$75 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At 15{,}000 members the recommended path is roughly \textbf{\$20 a month --- about BDT 2,400}. That is a third of the \$57 figure from the earlier plan, because that estimate assumed a Cloudinary cliff and a Neon bill that the measured limits do not support.
+
+\begin{keybox}{Summary}
+\textbf{Now:} fix the uptime monitor, trim the Actions schedule, warm Render from a Cloudflare Worker. \$0, and it removes both problems you have today.\\[3pt]
+\textbf{At \textasciitilde6{,}000 members:} turn on Neon Launch. \$7.\\[3pt]
+\textbf{At \textasciitilde10{,}000 members, or whenever you decide the Vercel terms matter:} move both apps to Fly.io Singapore. \$16--25.\\[3pt]
+\textbf{Whenever you have a session spare:} move the identity documents to R2 --- for privacy, not for cost.\\[3pt]
+\textbf{Never:} put Postgres on your own machine. That is the one thing here you cannot buy back.
+\end{keybox}
+
+\vspace{8pt}
+\textcolor{rule}{\hrule height 0.8pt}
+\vspace{4pt}
+{\footnotesize\color{slate}\sffamily Derived from the repository's own configuration and measured limits. Provider prices verified September 2026 and change without notice --- re-check before committing. The maintained version of this analysis lives at \texttt{docs/scaling.md}.}
+
+\end{document}

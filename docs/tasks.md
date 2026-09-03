@@ -166,11 +166,19 @@ are clear.
 
 ---
 
-## Phase 8 — Move hosts
+## Phase 8 — Get off the free tiers
+
+The plan, the measured limits and the triggers are [scaling.md](scaling.md).
+**T-31 is free and fixes both problems the platform has today.** Nothing else
+here is needed until roughly 6,000 members.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-30** | **VPS or AWS** (INF-01 → INF-12) | 4–6 | Only once everything above is quiet. The containers and the env contract are already built, which is most of the work; the risk is entirely in the cutover, not the packaging |
+| `[ ]` **T-31** | **Stage 0 — the free fixes** | `owner` + 0.5 | Three things, all $0. (a) The UptimeRobot monitor on `/v1/ready` pings the pool; at UptimeRobot's default 5-minute interval that is **182 CU-hours against an allowance of 100** — delete it or set it six-hourly. (b) Assets backup weekly not nightly, `images.yml` to tags only — recovers ~230 Actions minutes. (c) A Cloudflare Worker cron on `/v1/health` during Dhaka daytime keeps Render warm without waking the database. `monitor.yml`'s stale comment naming `/v1/ready` is already corrected |
+| `[ ]` **T-33** | **Decide the Vercel Hobby terms question** | `owner` | Hobby is non-commercial only. Pay $20/mo, apply to Vercel's open-source programme (this repo is MIT-licensed and may qualify), or bring T-30 forward. Capacity is fine to ~15,000 members; this is a policy risk, not a technical one |
+| `[ ]` **T-34** | **Neon Free → Launch** | `owner` | Trigger: storage past 0.4 GB or compute past 80 CU-h — about **6,000 members**, the first real capacity wall. A dashboard toggle, no migration, no base fee. ~$7/mo |
+| `[ ]` **T-32** | **Cloudinary → Cloudflare R2** | 1–2 | **A privacy task, not a cost one** — Cloudinary's 25 credits carry to ~25,000 members. But an NID scan is served today from a URL needing no login, which [ADR-038](decisions/adr-038-retention-is-tiered-by-what-the-data-is-not-by-one-clock.md) only mitigates. R2 makes the bucket private, deletes the dynamic-folder-mode bug class along with `cloudinary-reconcile.mjs`, and removes a vendor with no export path. Cheapest while the asset count is in the hundreds |
+| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-33 decided by moving. **Fly.io Singapore for both apps (~$16–25/mo) is preferred over a VPS** — same Dockerfiles, no operating system to own. A VPS (Contabo/Hostinger Singapore) is cheaper still if somebody will administer it. **Not AWS, not Kubernetes, and Postgres stays on Neon** — reasoning in [scaling.md](scaling.md) |
 
 ---
 ## Requirements

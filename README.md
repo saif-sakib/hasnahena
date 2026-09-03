@@ -16,9 +16,11 @@ Hasnahena Foundation is a community-run, interest-free (সুদমুক্ত
 
 ## Stack
 
-Next.js 16 (App Router, TypeScript, Tailwind 4, shadcn/ui, next-intl 4, React 19) · Go 1.25 (chi, pgx) · PostgreSQL via Prisma 5 · Brevo email · Cloudinary · deployed on Vercel + Render + Neon.
+Next.js 16 (App Router, TypeScript, Tailwind 4, shadcn/ui, next-intl 4, React 19) · Go 1.25 (chi, pgx) · PostgreSQL via Prisma 5 · Brevo email · Cloudinary · deployed on Vercel + Render + Neon, behind Cloudflare.
 
 The Go API owns everything that moves a balance; Next.js route handlers cover registration intake, content, and settings. See [docs/architecture.md](docs/architecture.md).
+
+Every layer is on a free tier, and **[docs/scaling.md](docs/scaling.md)** works out how long that lasts from the measured limits rather than from guesses. The short version: at 15,000 members the traffic is still around 10 requests per second at peak, so nothing here is a capacity problem. The first real wall is Neon's 0.5 GB of storage at roughly 6,000 members, and passing it costs about $7 a month. A typeset version is [docs/pdf/scaling-plan.pdf](docs/pdf/scaling-plan.pdf).
 
 ## Quick start
 
@@ -38,13 +40,17 @@ Full instructions, environment variables, and troubleshooting: [docs/setup.md](d
 ```
 apps/web     Next.js frontend + Prisma schema + content APIs
 apps/api     Go API — auth, dashboards, all financial writes
-docs/        product, architecture, data model, API, setup, deployment, decisions, tasks, traps
+docs/        product, architecture, data model, API, setup, deployment, scaling, tasks
+docs/decisions/  44 ADRs, one file each — indexed by docs/decisions.md
+docs/traps/      166 failures that each cost a session — indexed by docs/traps.md
 scripts/     test stack, backup, restore drill, PostgreSQL client resolution
 ```
 
 ## Documentation
 
-[docs/README.md](docs/README.md) is the index. Start with [product.md](docs/product.md) for the domain, [architecture.md](docs/architecture.md) for the system, [tasks.md](docs/tasks.md) for current status.
+[docs/README.md](docs/README.md) is the index, and it lists what each file costs to read. Start with [product.md](docs/product.md) for the domain, [architecture.md](docs/architecture.md) for the system, [tasks.md](docs/tasks.md) for current status, and [scaling.md](docs/scaling.md) for where the hosting goes next.
+
+Nothing in that tree repeats anything else — that is checked rather than asserted. The two largest bodies of knowledge, the decision record and the trap log, are directories behind a one-page index, so reading one entry costs one entry.
 
 ## Security
 
