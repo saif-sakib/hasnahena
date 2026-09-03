@@ -8,9 +8,9 @@ Free-tier production topology, currently live.
 | API | Render | api.hasnahenafoundation.com |
 | DB | Neon PostgreSQL | — |
 | Files | Cloudinary | — |
-| DNS | Namecheap | — |
+| DNS | **Cloudflare** (registrar: Namecheap) | proxied — apex, `www` and `api` |
 
-Shared hosting (Namecheap Stellar) cannot run either app — Go and the Next.js server runtime both need a real process. Use Namecheap for DNS only, or a VPS if you ever move off Vercel/Render.
+Shared hosting (Namecheap Stellar) cannot run either app — Go and the Next.js server runtime both need a real process. Namecheap is the **registrar only**; DNS moved to Cloudflare, and all three hostnames are proxied through it, which is why Cloudflare's TLS and WAF settings reach the API as well as the site.
 
 ## Neon
 
@@ -386,15 +386,49 @@ Whichever, the setup is the same:
    `AWS_DEFAULT_REGION` is not optional on R2 — the workflow's `us-east-1` default is rejected.
 
 4. **Actions → Backup → Run workflow**, then look in the bucket. Two objects: `hasnahena-<stamp>.dump.gpg` and `hasnahena-assets-<stamp>.tar.gz.gpg`.
-5. Set a lifecycle rule on the bucket — delete objects older than 180 days — so it cannot grow past the free tier unattended.
+5. Set **two** lifecycle rules, which is why the two jobs upload under different prefixes:
+
+   | Prefix | Keep | Why |
+   |---|---|---|
+   | `database/` | 365 days | The dump is ~63 KB. A year of them is ~23 MB — keeping it long costs nothing and buys a lot |
+   | `assets/` | 60 days | ~4.8 MB a night and **grows with the membership**. Sixty days is ~290 MB |
+
+   Together that is roughly **310 MB against a 10 GB free tier** — about 3%.
+
+**What it would take to be charged, concretely.** R2's free tier is 10 GB stored, 1M Class A operations (writes) and 10M Class B (reads) a month, and **egress is always free** — so the classic object-storage horror story, a hotlinked bucket producing a bandwidth bill, cannot happen here. This backup performs about **4 writes a day**, or 0.01% of the Class A allowance. On storage, even with the lifecycle rules switched off entirely, six members' worth of nightly archives would take **years** to reach 10 GB. The number that changes that is membership: at a hundred members the asset archive is nearer 80 MB a night, and *without* the `assets/` rule the free tier would be gone in about four months. The rule is what makes it safe to stop thinking about, so set it now rather than when the account is larger.
 
 The archives are already encrypted with `BACKUP_PASSPHRASE` before they leave the runner, so the storage provider holds ciphertext and never sees a member's NID. That is what makes a third-party bucket an acceptable place for this at all.
 
-### What the free GitHub plan actually covers
+### What the free GitHub plan actually covers, measured
 
-A **private** repository on GitHub Free gets **2,000 Actions minutes** and **500 MB of storage** per month, and storage is shared between Actions artifacts and GHCR packages — so `images.yml` competes with the backups for it. The authoritative number for this account is **Settings → Billing and licensing → Usage**; check it rather than trusting an estimate here.
+A **private** repository on GitHub Free gets **2,000 Actions minutes** and **500 MB of storage** a month, storage shared between Actions artifacts and GHCR packages.
 
-Minutes are not the constraint at this size. **Storage is, and it scales with membership.** The asset archive is a full snapshot every night: 4.8 MB for six members, so roughly 145 MB against a 30-day retention. At a hundred members it is gigabytes, and the artifact upload starts failing. Once the off-GitHub copy above is running, the fix is to shorten the *GitHub* retention for the assets job and let the bucket hold the long tail — GitHub becomes the convenient copy and the bucket the durable one.
+The August 2026 usage export settles what that means here, and it is not what an estimate would have guessed:
+
+| Workflow | Minutes, 15–31 Aug | Share |
+|---|---|---|
+| `ci.yml` | 1,744 | **85.8 %** |
+| `images.yml` | 217 | 10.7 % |
+| dependabot | 33 | 1.6 % |
+| `monitor.yml` | 23 | 1.1 % |
+| `backup.yml` | 16 | 0.8 % |
+| **Total** | **2,033** | in **17 days** |
+
+Two conclusions, one of which is a live incident.
+
+**The month's allowance was spent in seventeen days.** `backup.yml` and `monitor.yml` stop appearing in the export after 27 August, and 28–31 August record **no workflow runs at all** — only storage. GitHub Free carries a default spending limit of **\$0**, so exhausting the included minutes does not produce a bill; it stops Actions. Every row in the export is `net_amount 0`, which is the same fact from the other side.
+
+So **the cost risk on GitHub is nil and the availability risk is real**: CI spent the budget and the *nightly backup* went down with it for the rest of the month. Nothing reported this, because a backup that never starts writes no failure — the exact shape this repository keeps finding. **A backup starved by CI is the drill eating the thing it protects.**
+
+**Storage is comfortable**: 131–268 MB against 500 MB. The asset archive is the only part that grows with membership, which is why its artifact retention is 7 days rather than 30 while R2 keeps the long tail.
+
+What was done about the minutes:
+
+- `images.yml` moved from per-push to **tags only** (2026-08-27), which removed most of its 217 minutes, and its cron from weekly to **monthly** — nothing deploys those images; Vercel and Render build their own, and the registry copy is for the VPS move ([T-30](tasks.md)).
+- The **restore drill** now runs only when something it actually proves has changed — `scripts/`, the Prisma schema and migrations, or the two workflows — instead of on every code commit.
+- **The largest remaining lever is behavioural.** `ci.yml` triggers on `pull_request` and on `push` to `main` only, so **commits pushed to a feature branch cost nothing at all** until a pull request exists. Ten pushes straight to `main` is ten full CI runs; ten pushes to a branch and one PR is one. On 18 and 19 August that difference was 351 and 468 minutes. This is the strongest argument in [workflow.md](workflow.md) §2 and it is a billing argument, not only a safety one.
+
+Check **Settings → Billing and licensing → Usage** monthly. If minutes run out again, the first thing to verify is that last night's backup ran.
 
 ### The PostgreSQL client version
 
@@ -573,11 +607,11 @@ the project.
 
 | | To enable | Where |
 |---|---|---|
-| `[ ]` | `SENTRY_DSN` | **Render** (Go API) — **not** confirmed; the web app being connected says nothing about this one |
+| `[x]` | `SENTRY_DSN` | **Render** (Go API) — set by the owner. Note that a DSN alone reported nothing until 2026-09-03: `CaptureError` was dead code and the only path to Sentry was a panic, which this API does not do. `observability.Init` now installs a `slog` bridge, so every Error-level record is an event |
 | `[x]` | `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | **Vercel** — confirmed live 2026-08-25 (`sentry-environment=production`). `NEXT_PUBLIC_*` is baked at build time, so changing it needs a **redeploy**, not a restart |
 | `[ ]` | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | **Vercel** — optional; without them the build succeeds with minified stack traces |
 | `[~]` | `METRICS_TOKEN`, same value in both places | **Render** — confirmed live 2026-08-25 (`/metrics` answers 401). Still to do: the same value as a **GitHub secret**, which is what the Monitor workflow scrapes with |
-| `[ ]` | An UptimeRobot monitor on `/v1/ready` | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`) |
+| `[ ]` | An UptimeRobot monitor on **`/v1/health`** | UptimeRobot free tier — deliberately not Actions, on cost grounds (see `monitor.yml`). **Not `/v1/ready`**, which this row named until 2026-09-03 while the section above explained at length why that is a 100% database duty cycle and 182 compute-hours against an allowance of 100. A checklist that contradicts its own rule is worse than one that omits it, because the checklist is what gets followed |
 
 **Deliberately staying off:** tracing (`tracesSampleRate: 0`) and session replay.
 Tracing burns the free-tier quota that should hold actual exceptions, and replay

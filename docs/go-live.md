@@ -1,10 +1,15 @@
 # Go-Live Plan
 
-The sequence from where the platform is today — **deployed, working, holding fake
-data** — to real members' savings, with as little to fix afterwards as possible.
+**Executed on 2026-08-27.** The database was cleared to launch state, the
+document sequences reset, every secret rotated and the two real administrators
+created; the platform has held real members' savings since. Batches in
+[changelog.md](changelog.md) carry the record.
 
-[tasks.md](tasks.md) is everything left to do; this file is the **cutover
-itself** — the order and the timing, which is a different question.
+This file is kept rather than retired because it is a *procedure*, not a status:
+it is the order and the timing to repeat if the platform is ever re-cut onto
+another host ([T-30](tasks.md)), and Stage 2 and the Bing section below are still
+partly open. What is genuinely finished has been marked so; anything still to do
+is a row in [tasks.md](tasks.md), which remains the only board.
 
 ## The organising principle
 
@@ -290,12 +295,13 @@ Log aggregation, the operations dashboard, the audit viewer and the host move
 cost the same whenever they are done, so they must not delay launch — they are
 Phases 6 and 8 in [tasks.md](tasks.md).
 
-**One exception.** Backing up the Cloudinary assets (T-26) is Stage-1 work that
-simply cannot be done before there is anything to back up ([ADR-020](decisions.md)).
-**Its trigger is the first real member document, not a date** — from that moment
-the NID images and member photographs are regulatory documents living in one
-third-party account with no export, and the nightly dump covers the database and
-nothing else.
+**That one exception is now closed.** Backing up the Cloudinary assets could not
+be done before there was anything to back up ([ADR-020](decisions.md)), and its
+trigger was the first real member document rather than a date. That trigger fired:
+`scripts/cloudinary-backup.mjs` and the `assets` job have run since 2026-09-03,
+and both archives are copied to Cloudflare R2 under `database/` and `assets/`
+([deployment.md](deployment.md#keeping-a-copy-off-github)). The nightly dump still
+covers the database and nothing else — that is why the second job exists.
 
 ---
 

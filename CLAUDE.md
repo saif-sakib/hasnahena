@@ -454,7 +454,7 @@ apps/web/public/images/logo/      logo.png lockup · -mark square · -og social 
 | [docs/setup.md](docs/setup.md) · [deployment.md](docs/deployment.md) | env vars, hosting, **switching the monitoring on**, the host-move plan |
 | [docs/decisions.md](docs/decisions.md) | why the code contradicts an old assumption — check before "fixing" one. **Indexed**: read the one row you need |
 | [docs/tasks.md](docs/tasks.md) | **everything left to do**, ordered, one session estimate each. Closed rows are deleted, so the numbering has gaps — that is the board working, not a missing task. `do T-12` reads that row and executes it. The only board; **delete a row in the same commit as the work** |
-| [docs/go-live.md](docs/go-live.md) | **the cutover procedure** — freeze, clear the fake data, rotate every secret, create the real first admin, launch day |
+| [docs/go-live.md](docs/go-live.md) | **the cutover procedure, executed 2026-08-27** — freeze, clear, rotate, first real admin, launch day. Kept as the procedure to repeat for a host move, not as a status |
 | [docs/runbook.md](docs/runbook.md) | **the night something breaks** — rollback, a disputed transaction, what to rotate in which host and in what order, restore from backup, where every credential lives, and the steady-state cadences |
 | [docs/changelog.md](docs/changelog.md) | what is already done, one line per batch, plus the per-defect record. The only doc that keeps history |
 

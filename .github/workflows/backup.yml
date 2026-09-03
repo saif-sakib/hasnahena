@@ -114,7 +114,12 @@ jobs:
         run: |
           args=()
           [ -n "$ENDPOINT" ] && args+=(--endpoint-url "$ENDPOINT")
-          aws "${args[@]}" s3 cp backups/ "$BUCKET/" --recursive --exclude '*' --include '*.dump.gpg'
+          # Under database/ rather than the bucket root, so a lifecycle rule
+          # can keep the tiny dumps for a year and expire the large asset
+          # archives far sooner. At the root the two are told apart only by a
+          # filename prefix, which is a rule nobody can read at a glance and
+          # the wrong one deletes the wrong archive.
+          aws "${args[@]}" s3 cp backups/ "$BUCKET/database/" --recursive --exclude '*' --include '*.dump.gpg'
 
       - name: Summary
         run: |
@@ -193,7 +198,13 @@ jobs:
           name: ${{ steps.meta.outputs.name }}
           path: backups/*.tar.gz.gpg
           if-no-files-found: error
-          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 30 }}
+          # A week, not a month. This is the large archive — 4.8 MB a night and
+          # growing with the membership — and GitHub Free allows 500 MB of
+          # storage shared with the container registry. R2 holds the long tail
+          # now, so GitHub only needs to cover the window in which you would
+          # notice a problem and reach for yesterday's copy. The monthly run
+          # still keeps its 90 days.
+          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 7 }}
 
       - name: Copy off GitHub
         if: steps.meta.outputs.s3 == 'yes'
@@ -212,7 +223,7 @@ jobs:
         run: |
           args=()
           [ -n "$ENDPOINT" ] && args+=(--endpoint-url "$ENDPOINT")
-          aws "${args[@]}" s3 cp backups/ "$BUCKET/" --recursive --exclude '*' --include '*.tar.gz.gpg'
+          aws "${args[@]}" s3 cp backups/ "$BUCKET/assets/" --recursive --exclude '*' --include '*.tar.gz.gpg'
 
       - name: Summary
         run: |

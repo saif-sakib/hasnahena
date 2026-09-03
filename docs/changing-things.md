@@ -469,7 +469,7 @@ CI publishes images to GHCR tagged by commit SHA.
 | | Go API | Next web |
 |---|---|---|
 | Required | `DATABASE_URL`, `JWT_SECRET` (32+ chars) | `DATABASE_URL`, `JWT_SECRET`, `NEXT_PUBLIC_API_URL` |
-| Also set | `CORS_ORIGINS`, `ENABLE_HSTS=true`, `TRUSTED_PROXIES`, `METRICS_TOKEN` | Cloudinary keys |
+| Also set | `CORS_ORIGINS`, `ENABLE_HSTS=true`, `TRUSTED_PROXIES` (count the chain), `METRICS_TOKEN`, `SENTRY_DSN` | Cloudinary keys |
 | Listens on | `API_PORT` / `PORT`, default 8081 | 3000 |
 | Health | `GET /v1/health` (liveness), `GET /v1/ready` (pings DB) | — |
 
@@ -484,14 +484,18 @@ identical in both** or every login fails with a correct password.
    Encrypt) or nginx + certbot. `ENABLE_HSTS=true` only once HTTPS is permanent —
    browsers remember it for the whole `max-age`.
 2. **`TRUSTED_PROXIES`** counts the reverse proxies in front of the API and
-   decides which `X-Forwarded-For` entry is trusted. Render is `1`. Set it to
-   match your proxy chain: too low and the rate limiter, the access log, the
-   login lockout and the audit rows all key on a value the caller controls; too
-   high and a forged entry is treated as infrastructure's. One knob, four
-   consumers, both failure directions silent ([ADR-019](decisions.md)).
-   **It stays at 1 even though Vercel proxies the support routes** — that path is
-   one hop deeper, and there is no value correct for both, which is why the
-   support proxy limits per member on its own side instead
+   decides which `X-Forwarded-For` entry is trusted. **Count the chain you
+   actually have**: Render alone was `1`; since `api.` was put behind
+   Cloudflare's proxy it is `2` (2026-09-03). Too low and the rate limiter, the
+   access log, the login lockout and the audit rows all key on the *proxy's*
+   address — one bucket and one lockout for everyone behind an edge; too high
+   and a forged entry is treated as infrastructure's. One knob, four consumers,
+   both failure directions silent ([ADR-019](decisions.md)). Verify it from a
+   real request's log line rather than counting hops on paper — the `ip` field
+   must be the caller's own address.
+   **The count does not change for the support routes even though Vercel proxies
+   them** — that path is one hop deeper, and there is no value correct for both,
+   which is why the support proxy limits per member on its own side instead
    ([ADR-021](decisions.md)). Do not raise it to 2.
 3. **The stop grace period must exceed `SERVER_SHUTDOWN_TIMEOUT`** (30s default)
    or a deploy `SIGKILL`s the API mid-transaction. On Render this is a dashboard

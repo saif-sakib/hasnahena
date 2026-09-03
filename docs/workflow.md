@@ -128,6 +128,14 @@ buys you: a diff you can read before it is permanent, a preview URL to look at,
 CI that has actually run, and a revert that is one button rather than an
 archaeology session.
 
+**It is also the biggest saving available on the Actions bill.** `ci.yml`
+triggers on `pull_request` and on `push` to `main` — and on nothing else — so a
+commit pushed to a feature branch with no PR open **runs no CI at all**. Ten
+commits straight to `main` is ten full runs; ten commits on a branch and one
+pull request at the end is one. In August that pattern spent the whole month's
+2,000 minutes in seventeen days and the nightly backup stopped with them
+([deployment.md](deployment.md#what-the-free-github-plan-actually-covers-measured)).
+
 ### Making it enforced rather than remembered
 
 [T-29](tasks.md) — branch protection on a private repository needs GitHub Pro
@@ -194,7 +202,7 @@ Five layers, of which two do not exist yet.
 |---|---|---|
 | Neon point-in-time restore | anything, within the plan's history window | **on** — it is what recovered 2026-09-01. Check the retention window in the console; on the free plan it is short |
 | Nightly encrypted dump | the whole database, 24-hour RPO | **on** — [`backup.yml`](../.github/workflows/backup.yml), 01:00 Dhaka, kept 30 days (90 for the monthly) |
-| A copy outside GitHub | losing the GitHub account, and the 30-day artifact expiry | **missing** — five secrets, no code change: [deployment.md § Keeping a copy off GitHub](deployment.md#keeping-a-copy-off-github). Cloudflare R2's free tier holds 10 GB with no egress charge |
+| A copy outside GitHub | losing the GitHub account, and the artifact expiry | **on** since 2026-09-03 — Cloudflare R2, `database/` and `assets/` prefixes with a lifecycle rule each. About 3% of the free tier |
 | Cloudinary export | every NID scan, member photograph and signature | **on** since 2026-09-03 — the `assets` job in the same workflow. It fails rather than skips if its credentials go missing |
 | The paper passbook and the append-only `audit_logs` | reconstructing money after any of the above fails | **on**, and it is the reason a 24-hour RPO is tolerable at all |
 

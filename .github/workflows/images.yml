@@ -32,7 +32,13 @@ on:
     tags: ['v*']
   schedule:
     # Sunday 02:00 UTC — keeps the GHA layer cache from expiring (7 days).
-    - cron: '0 2 * * 0'
+    # Monthly, not weekly. Nothing deploys these images — Vercel and Render
+    # build their own, and the registry copy is for the VPS move (T-30). At
+    # weekly it was the second-largest consumer of Actions minutes on the
+    # account (217 of 2,033 in August) to rebuild something no member's request
+    # ever touches. Monthly still catches a Dockerfile that has silently
+    # stopped building, which is the whole point of the cron.
+    - cron: '0 2 1 * *'
   workflow_dispatch:
 
 # Both images are built from the same commit, so a partial publish would leave

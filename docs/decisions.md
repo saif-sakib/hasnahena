@@ -564,18 +564,28 @@ nobody tries it again.** `ClientIP` reads the header from the trusted end —
 `parts[len(parts)-TRUSTED_PROXIES]` — because that is the only end a caller
 cannot choose. Two paths reach the API with different depths:
 
-| Path | Header at the API | `TRUSTED_PROXIES=1` reads |
+| Path | Header at the API | The setting reads |
 |---|---|---|
-| browser → Render | `member` | `member` ✓ |
-| browser → Render, member spoofing | `9.9.9.9, member` | `member` ✓ |
-| browser → Vercel → Render | `vercel` | `vercel` |
-| browser → Vercel → Render, proxy forwarding | `member, vercel` | `vercel` |
+| browser → …edge… → Render | `member` | `member` ✓ |
+| browser → …edge… → Render, member spoofing | `9.9.9.9, member` | `member` ✓ |
+| browser → Vercel → …edge… → Render | `vercel` | `vercel` |
+| browser → Vercel → …edge… → Render, proxy forwarding | `member, vercel` | `vercel` |
 
 Forwarding puts the member's address at an index the setting does not read.
-Raising it to 2 would read the member on the proxied path and a **spoofed entry**
-on the direct one — and it is one global number, so there is no setting that is
-right for both. `TRUSTED_PROXIES` stays at **1**, and the proxy deliberately
-sends no `X-Forwarded-For` at all.
+Raising the count by one would read the member on the proxied path and a
+**spoofed entry** on the direct one — and it is one global number, so there is no
+setting that is right for both. The proxy therefore sends no `X-Forwarded-For`
+at all, and the per-member limit lives on the Next side instead.
+
+**The table is written in hops rather than in a number on purpose**, because the
+number moved: it was `1` when Render was the only thing in front, and became `2`
+when `api.hasnahenafoundation.com` was put behind Cloudflare's proxy on
+2026-09-03. Every row shifts by one and the conclusion is unchanged — what
+matters is that the two paths differ in depth, not what the depth happens to be
+this month. **Confirm the shape from a real access-log line rather than from this
+table**: whether a given edge appends to `X-Forwarded-For` or replaces it is that
+provider's behaviour, not something a document can promise, and the `ip` field
+must come out as the caller's own address.
 
 So the per-member limit lives on the Next side, where the member's address is
 known and Vercel sets it: 60 mutations per minute per caller, matching the Go
