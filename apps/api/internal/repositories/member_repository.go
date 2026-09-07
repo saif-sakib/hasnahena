@@ -471,10 +471,16 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	currentDepositBDT := currentDeposit
 	maxLoanAmountBDT := money.MaxLoanAmount(currentDepositBDT, maxLoanMultiplier)
 
+	// Thirteen columns were selected into twelve scan destinations here: `l.id`
+	// appeared twice, once cast and once bare. pgx rejects the mismatch per row,
+	// the loop below swallowed the error, and every borrower on the platform was
+	// told "No active loan" with an empty history — a screen that renders
+	// perfectly with nothing in it, which is the same failure the guarantor panel
+	// had. The duplicate is gone and the scan error is now returned rather than
+	// skipped, so the next one cannot be silent.
 	const loanQuery = `
 		SELECT
 			l.id::text,
-			l.id,
 			l."principalAmount"::bigint,
 			l."remainingAmount"::bigint,
 			l."totalInstallments",
@@ -509,7 +515,10 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			&totalInstallments, &paidInstallments, &installmentAmount,
 			&disbursementDate, &expectedEndDate, &installmentStart, &purpose, &status, &guarantor,
 		); scanErr != nil {
-			continue
+			// A scan failure here is a column list that no longer matches this
+			// Scan call — a programming error, never a data condition. Skipping
+			// it hides the member's whole loan history behind an empty state.
+			return nil, fmt.Errorf("scanning member loan row: %w", scanErr)
 		}
 
 		item := map[string]interface{}{

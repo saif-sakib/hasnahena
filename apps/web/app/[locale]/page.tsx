@@ -353,7 +353,7 @@ export default async function HomePage({ params }: PageProps) {
           <div className="container-wide">
             {/* Quran Section - First */}
             <div className="mb-16">
-              <div className="text-center mb-12">
+              <div className="reveal text-center mb-12">
                 <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 mb-4">
                   <BookOpen className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
                 </div>
@@ -365,7 +365,7 @@ export default async function HomePage({ params }: PageProps) {
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
                   <Card key={num} className="relative overflow-hidden border-emerald-100 dark:border-emerald-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
                     <CardContent className="pt-8 pb-8 px-6 relative">
@@ -384,7 +384,7 @@ export default async function HomePage({ params }: PageProps) {
 
             {/* Hadith Section - Second */}
             <div>
-              <div className="text-center mb-12">
+              <div className="reveal text-center mb-12">
                 <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-amber-100 dark:bg-amber-900/30 mb-4">
                   <BookOpen className="h-7 w-7 text-amber-600 dark:text-amber-400" />
                 </div>
@@ -396,7 +396,7 @@ export default async function HomePage({ params }: PageProps) {
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
                   <Card key={num} className="relative overflow-hidden border-amber-100 dark:border-amber-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
                     <CardContent className="pt-8 pb-8 px-6 relative">
@@ -425,7 +425,7 @@ export default async function HomePage({ params }: PageProps) {
         */}
         <section id="about" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="container-wide">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
                 {tActivities('title')}
               </h2>
@@ -434,7 +434,7 @@ export default async function HomePage({ params }: PageProps) {
               </p>
             </div>
 
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="reveal-row grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {activities.map((activity, index) => (
                 <Card key={index} className="group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                   <CardContent className="pt-6 pb-6">
@@ -457,7 +457,7 @@ export default async function HomePage({ params }: PageProps) {
         {/* Features Section */}
         <section id="features" className="py-16 md:py-20">
           <div className="container-wide">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
                 {localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
               </h2>
@@ -466,7 +466,7 @@ export default async function HomePage({ params }: PageProps) {
               </p>
             </div>
 
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal-row grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {features.map((feature, index) => (
                 <Card key={index} className="group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800">
                   <CardContent className="pt-6 pb-6">
@@ -492,7 +492,7 @@ export default async function HomePage({ params }: PageProps) {
         */}
         <section id="gallery" className="py-20 md:py-32 bg-slate-50 dark:bg-slate-900 relative overflow-hidden">
           <div className="container-wide relative z-10">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
+            <div className="reveal flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="max-w-2xl">
                 <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6">
                   <ImageIcon className="h-6 w-6" />
@@ -526,13 +526,13 @@ export default async function HomePage({ params }: PageProps) {
         {/* How It Works Section */}
         <section id="how-it-works" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="container-wide">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">
                 {tHowItWorks('title')}
               </h2>
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="reveal-row grid md:grid-cols-2 lg:grid-cols-4 gap-8">
               {steps.map((step, index) => (
                 <div key={index} className="relative">
                   <div className="flex flex-col items-center text-center">
@@ -558,7 +558,7 @@ export default async function HomePage({ params }: PageProps) {
         {/* Contact Section */}
         <section id="contact" className="py-16 md:py-20">
           <div className="container-wide">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
                 {localizedSetting(settings, 'contact.title', locale) || tContact('title')}
               </h2>
@@ -570,7 +570,7 @@ export default async function HomePage({ params }: PageProps) {
               the most-visited page on the site. A visitor cannot tell a
               placeholder from a number nobody answers.
             */}
-            <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            <div className="reveal-row grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {contactCards.map((item) => (
                 <Card key={item.title} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">
@@ -590,7 +590,7 @@ export default async function HomePage({ params }: PageProps) {
 
         <section id="donate" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="container-wide">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
                 {localizedSetting(settings, 'donation.title', locale) || tDonation('title')}
               </h2>
@@ -604,7 +604,7 @@ export default async function HomePage({ params }: PageProps) {
               reading the home page was being shown `+880 1XXXXXXXXX` as a
               mobile-banking number to send money to. Unset means absent.
             */}
-            <div className={donationChannels.length > 0 ? 'grid md:grid-cols-3 gap-6 max-w-5xl mx-auto' : 'hidden'}>
+            <div className={donationChannels.length > 0 ? 'reveal-row grid md:grid-cols-3 gap-6 max-w-5xl mx-auto' : 'hidden'}>
               {donationChannels.map((item) => (
                 <Card key={item.label} className="text-center hover:shadow-lg transition-shadow">
                   <CardContent className="pt-6 pb-6">

@@ -341,3 +341,92 @@ input::-ms-clear {
   width: 0;
   height: 0;
 }
+
+/*
+  Section reveal on the marketing pages.
+
+  Driven by the SCROLL POSITION, not by JavaScript. `animation-timeline: view()`
+  ties an animation's progress to where its element sits in the viewport, and
+  the browser runs it off the main thread — so every section of the home page
+  can have one without an IntersectionObserver, a scroll listener, a library, or
+  a single byte added to the JavaScript bundle. That is the whole reason this is
+  affordable on a page most members open on a low-end Android phone.
+
+  Two things about how it is written, both deliberate:
+
+  The animation lives inside `@supports`, and the element's RESTING state is the
+  finished state — visible, unmoved. A browser without scroll-driven animations
+  (Safari before 26, Firefox with the flag off) shows the page exactly as it is
+  today. The usual JavaScript reveal does the opposite: it hides everything in
+  CSS and waits for a script to show it, so a failed bundle leaves a blank page.
+  Nothing here can fail closed.
+
+  The movement is small on purpose — eight pixels and a fade, finishing while
+  the section is still arriving. A reveal you notice is a reveal that is too
+  big; this one should only make the page feel like it is being read rather
+  than being paged through.
+*/
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility reveal {
+  @supports (animation-timeline: view()) {
+    animation: reveal-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 4% cover 20%;
+  }
+}
+
+/*
+  The same thing for a row of cards, cascading left to right.
+
+  A scroll-driven animation has no `animation-delay` to stagger with — progress
+  is a function of position, not of time — so the stagger is a shifted
+  `animation-range` per column instead. Written against a three-column grid,
+  which is what every card row on the home page collapses from; at phone width
+  the columns stack, each child crosses the range on its own, and the cascade
+  becomes an ordinary one-after-another reveal for free.
+*/
+@utility reveal-row {
+  @supports (animation-timeline: view()) {
+    & > * {
+      animation: reveal-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 4% cover 20%;
+    }
+    & > *:nth-child(3n + 2) {
+      animation-range: entry 8% cover 26%;
+    }
+    & > *:nth-child(3n + 3) {
+      animation-range: entry 12% cover 32%;
+    }
+  }
+}
+
+/*
+  Somebody who has asked their system for less motion gets none of it.
+
+  This is the whole of that promise for the reveals above and for the utility
+  animations beside them: the elements are already in their finished state, so
+  turning the animation off is all that is needed and nothing has to be
+  reinstated. `scroll-behavior: auto` goes with it — a smooth-scrolled jump to
+  an anchor is motion too.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-row > * {
+    animation: none;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
