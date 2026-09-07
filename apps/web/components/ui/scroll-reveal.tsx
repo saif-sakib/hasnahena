@@ -52,12 +52,35 @@ export function ScrollReveal() {
       observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            entry.target.setAttribute('data-revealed', '');
-            // Once it has arrived it never leaves again — this is an entrance,
-            // not a scrubbable effect, and an element that fades back out on
-            // the way up is the thing that makes a page feel unstable.
-            observer.unobserve(entry.target);
+            if (entry.isIntersecting) {
+              entry.target.setAttribute('data-revealed', '');
+              continue;
+            }
+
+            /*
+              It arrives again if you come back to it.
+
+              The first version unobserved on arrival — an entrance plays once,
+              which is the conventional choice and the wrong one here: "if again
+              I go up then there is no animation". So the element is armed again
+              once it is BELOW the viewport, which is where scrolling up puts
+              it, and it plays the same way the second time as the first.
+
+              Only below. An element that has left through the TOP is left
+              alone: re-arming it would mean scrolling up brings it back in from
+              above while its animation slides it up from below, which is a
+              direction nobody scrolled in.
+
+              The test is `window.innerHeight` and not `entry.rootBounds`,
+              deliberately. `rootBounds` has the -8% trigger margin baked into
+              it, so an element resting in that band would be un-arming and
+              re-arming on every pixel of scroll — a flicker exactly at the
+              bottom edge of the screen. Measuring against the real viewport
+              leaves that 8% as hysteresis between the two events.
+            */
+            if (entry.boundingClientRect.top >= (window.innerHeight || 0)) {
+              entry.target.removeAttribute('data-revealed');
+            }
           }
         },
         {

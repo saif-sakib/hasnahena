@@ -160,6 +160,34 @@ test.describe('home page section reveal', () => {
     }
   });
 
+  test('arms again when you scroll back up past it', async ({ page }) => {
+    await openHome(page);
+
+    const cards = page.locator('#about .reveal-row > *');
+    const opacityOf = () =>
+      cards.evaluateAll((els) => els.map((e) => parseFloat(getComputedStyle(e).opacity)));
+
+    const sectionTop = await page.evaluate(
+      () => window.scrollY + document.getElementById('about')!.getBoundingClientRect().top,
+    );
+
+    // Down to it: it arrives.
+    await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), sectionTop + 250);
+    await page.waitForTimeout(1200);
+    expect((await opacityOf()).every((o) => o > 0.95)).toBe(true);
+
+    // Back to the top: it must be armed again, or the second visit is static —
+    // which is exactly what was reported once the reveal finally worked at all.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.waitForTimeout(700);
+    expect((await opacityOf()).some((o) => o < 0.05)).toBe(true);
+
+    // And down again: it plays a second time.
+    await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), sectionTop + 250);
+    await page.waitForTimeout(1200);
+    expect((await opacityOf()).every((o) => o > 0.95)).toBe(true);
+  });
+
   test('phone width reveals too — this site is read on a phone', async ({ browser }) => {
     const context = await browser.newContext({ ...devices['Pixel 7'] });
     const page = await context.newPage();

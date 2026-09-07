@@ -138,8 +138,10 @@ and the largest single file is 30 KB.
 - A guard was invalidated by a row added later in the same file.
 - Watch for a safety net positioned where it can never be reached.
 
-### [Tests and evidence](traps/tests-and-evidence.md) · 21
+### [Tests and evidence](traps/tests-and-evidence.md) · 23
 
+- A truncated read of a file is a claim about the file, and it will be believed as one.
+- The site's own domain is in the repository; do not take it from a screenshot.
 - A helper that throws fails the tests rather than the code, and the failure looks like the suite's fault.
 - A source-reading census anchored on an incidental detail goes blind the day that detail is removed, and passes.
 - Red-check a new census by planting the defect, not by reading the regex.
@@ -174,7 +176,7 @@ and the largest single file is 30 KB.
 - Chromium reports `'upgrade-insecure-requests' is ignored when delivered in a report-only policy` to the console on every page load.
 - Generous per-page waits multiply.
 
-### [Interface](traps/interface.md) · 43
+### [Interface](traps/interface.md) · 44
 
 - A barrel import charges you for everything the barrel touches.
 - `img-src` and `connect-src` are the same asset and not the same permission, and a screen that has one of them looks completely correct.
@@ -215,6 +217,7 @@ and the largest single file is 30 KB.
 - A config key nothing reads is worse than a missing one.
 - A feature behind `@supports` that degrades to nothing degrades silently, and looks exactly like never having built it.
 - A reveal that hides on a page which has already painted will animate the wrong way first.
+- `preserveAspectRatio="none"` makes a viewBox's height a divisor, not a canvas.
 - A spec that proves a negative must first prove its precondition.
 - Opacity and movement want different timing, whatever the mechanism.
 - An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering fault on a four-column one.

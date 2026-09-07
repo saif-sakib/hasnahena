@@ -1,5 +1,38 @@
 # Tests and evidence
 
+**A truncated read of a file is a claim about the file, and it will be believed
+as one.** Diagnosing a Search Console report, the served `robots.txt` was
+fetched and read through `head`. The app's own `Disallow` lines were not in what
+came back, so the conclusion was that Cloudflare's managed robots.txt had
+*replaced* the application's — a confident, specific, wrong finding, complete
+with a list of what it supposedly broke.
+
+Cloudflare **prepends**. The app's `Allow`, three `Disallow`s, `Host` and
+`Sitemap` were all present at lines 64–69 of a 69-line file, in their own
+`User-agent: *` group, which Google merges with the first one. Nothing was
+wrong.
+
+The general form: `head`, `grep -c`, a first page of output, and a summary are
+all *samples*, and a sample can only support "I saw X", never "there is no X".
+When the conclusion is going to be "the thing is missing", read the whole file
+and say how long it was. The correction here cost less than the original claim
+would have: acting on it meant asking the owner to change a CDN setting that was
+already correct.
+
+
+**The site's own domain is in the repository. Do not take it from a
+screenshot.** A whole diagnosis pass — DNS, redirect chains, sitemap fetches,
+and a confident report that the domain was serving an "Account Suspended" page —
+was run against `hasnahena.com`, which was read out of a Safari address bar in a
+*reference design* the owner had pasted for its visual style. The site is
+`hasnahenafoundation.com`. The evidence was in the same set of images: the
+contact card two screens below said `info@hasnahenafoundation.com`.
+
+`NEXT_PUBLIC_SITE_URL`, `lib/contact-details.ts` and the `org.email` setting all
+name the real one, and any of them settles it in a second. An image pasted to
+show a *style* carries no promise that anything else in it is this project.
+
+
 **`next dev` can serve a stale route handler, and a browser test will believe
 it.** Adding `totalPages` to `/api/v1/admin/audit-logs` and re-running the spec,
 the pager kept rendering one page. The source was correct, `tsc` was clean, and

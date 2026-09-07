@@ -49,6 +49,24 @@ before you scroll to them.** A reveal that reveals nothing passes every check
 that only looks at the finished page.
 
 
+**`preserveAspectRatio="none"` makes a viewBox's height a divisor, not a
+canvas.** The brushed underline under each section heading is an SVG stretched
+to whatever the title measures, which is the only way it can be right in both
+English and Bengali — Bengali sets wider at the same point size, so any constant
+width is wrong in one language by construction.
+
+Written with a 14-unit-tall viewBox rendering into a 10px-tall box, the vertical
+scale is 0.7, and a stroke drawn 3 units thick came out as two pixels of
+hairline. It looks like the shape is wrong; the shape is fine. With
+`preserveAspectRatio="none"` the two axes scale independently, so the viewBox
+height only ever appears as a ratio against the rendered height — make it
+smaller than the box, not larger, when you want the drawing to keep its weight.
+
+The trade is worth knowing: stretching is safe for a nearly-horizontal shape,
+where it changes length and almost nothing else, and ruinous for anything with
+its own proportions. The same trick on the leaf mark would read as a smear.
+
+
 **A reveal that hides on a page which has already painted will animate the wrong
 way first.** The replacement above hides elements by putting `data-reveal-js` on
 `<html>` from JavaScript — deliberately, so that no JavaScript means nothing
