@@ -174,7 +174,7 @@ and the largest single file is 30 KB.
 - Chromium reports `'upgrade-insecure-requests' is ignored when delivered in a report-only policy` to the console on every page load.
 - Generous per-page waits multiply.
 
-### [Interface](traps/interface.md) · 38
+### [Interface](traps/interface.md) · 40
 
 - A barrel import charges you for everything the barrel touches.
 - `img-src` and `connect-src` are the same asset and not the same permission, and a screen that has one of them looks completely correct.
@@ -213,6 +213,8 @@ and the largest single file is 30 KB.
 - A swallowed query error becomes a fabricated balance.
 - Never initialise a money figure to zero.
 - A config key nothing reads is worse than a missing one.
+- A scroll-driven reveal finishes where its `animation-range` ends, and that is usually not where the reader is looking.
+- An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering fault on a four-column one.
 - Measure a layout, do not look at it.
 
 ### [Go](traps/go.md) · 6

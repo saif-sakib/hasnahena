@@ -13,6 +13,43 @@ exact: true }` matches until the queue is non-empty, which is precisely the stat
 every test about the queue sets up.
 
 
+**A scroll-driven reveal finishes where its `animation-range` ends, and that is
+usually not where the reader is looking.** Every section of the home page had
+had a `view()`-timeline reveal on it since it was written, and the page was
+still reported as "everything is loaded previously and shown as static" — which
+was a fair description of it. The range was `entry 4% cover 20%`. On an 800px
+viewport, `cover 20%` is about 200px of scrolling after the element's first
+pixel appears, so the animation *completed while the element was still in the
+bottom quarter of the screen*; by the time it reached the part of the viewport
+anybody reads, it had been at rest for half a second. Eight pixels of travel on
+top of that put it under the threshold at which the movement is noticed at all.
+
+The lesson is that a scroll-driven animation has no duration to reason about,
+only a range, and the range has to be chosen from where the element will be
+*on screen* when it ends — not from how long the effect should feel. `cover 35%`
+lands it just above the middle of the viewport. Prefer `cover` to `entry` for
+the end of the range, too: cover's denominator is the viewport plus the element,
+so a 140px heading and a 260px card finish at nearly the same height on screen,
+where `entry` alone finishes each one wherever its own height happens to put it.
+
+It is also invisible in every kind of review that is not scrolling the real
+page. It typechecks, it lints, it renders, the CSS is present in the bundle, and
+a screenshot of the finished state is correct.
+
+
+**An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering
+fault on a four-column one.** `reveal-row` shifts each column's range by a step
+using `nth-child(3n + 2)` and `(3n + 3)`, which is right for the three- and
+six-card rows it was written against. Two rows on the home page are
+`lg:grid-cols-4`, and there the fourth card falls back onto the *first* card's
+offset — so cards 1 and 4 arrived together while 2 and 3 were still fading, and
+what a reader sees is not a stagger but one card that has failed to animate.
+
+CSS cannot count a grid's columns, so the cycle cannot be inferred: the caller
+has to say which one it is in (`reveal-row` or `reveal-row-4`). Keep the
+keyframe, the timeline and the base range shared between them, or the variants
+drift apart the first time one is tuned.
+
 **`position: fixed` escapes the page only while no ancestor opens a stacking
 context.** The gallery lightbox is `fixed inset-0 z-50`. On `/gallery` it
 covered the viewport correctly. On the home page the same component sits inside

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { GeometricPanel } from '@/components/ui/geometric-panel';
+import { LeafFlourish } from '@/components/ui/leaf-flourish';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale, siteTitle } from '@/lib/seo';
@@ -233,6 +234,17 @@ export default async function HomePage({ params }: PageProps) {
             </div>
           )}
           {/*
+            The khatam lattice, on a layer of its own because the hero's ground
+            is a Tailwind gradient and a gradient IS a background-image — the
+            two cannot share the property. Masked to fade out towards the
+            bottom right so it is texture at the top of the page, where the
+            reader arrives, and nothing behind the buttons.
+          */}
+          <div
+            aria-hidden="true"
+            className="lattice-tile pointer-events-none absolute inset-0 [mask-image:radial-gradient(120%_100%_at_15%_0%,black,transparent_72%)]"
+          />
+          {/*
             `w-full`, and it is the fix for a misalignment that had been on this
             page since it was written.
 
@@ -349,8 +361,25 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Islamic Teachings Section - Quran & Hadith */}
-        <section className="py-16 md:py-20 bg-linear-to-b from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-background">
-          <div className="container-wide">
+        {/*
+          The section that carries the sprigs, and the only one that carries two.
+          It is the page's still point — verses and hadith, nothing to click —
+          so it is the one place where a decorative element is not competing
+          with something a reader came for.
+
+          `overflow-hidden` crops them at the section's edge, which is what
+          makes them read as a flourish the page is set on rather than as an
+          illustration inside it. The container is `relative` so the type sits
+          in front of them; without that a text node with no stacking context
+          of its own paints UNDER an absolutely-positioned sibling.
+        */}
+        <section className="surface-veil surface-seam relative overflow-hidden bg-white py-16 dark:bg-background md:py-20">
+          <LeafFlourish className="absolute -left-24 bottom-0 h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 sm:-left-16 sm:h-[28rem]" />
+          <LeafFlourish
+            flipped
+            className="absolute -right-28 top-0 hidden h-[22rem] w-auto rotate-180 text-emerald-600/12 dark:text-emerald-400/8 lg:block"
+          />
+          <div className="container-wide relative">
             {/* Quran Section - First */}
             <div className="mb-16">
               <div className="reveal text-center mb-12">
@@ -423,7 +452,7 @@ export default async function HomePage({ params }: PageProps) {
           lands somewhere, but the menu now points at /activities and /about —
           the pages this section summarises. See components/layout/header.tsx.
         */}
-        <section id="about" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
+        <section id="about" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
             <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
@@ -455,7 +484,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Features Section */}
-        <section id="features" className="py-16 md:py-20">
+        <section id="features" className="surface-veil surface-seam py-16 md:py-20">
           <div className="container-wide">
             <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
@@ -466,7 +495,7 @@ export default async function HomePage({ params }: PageProps) {
               </p>
             </div>
 
-            <div className="reveal-row grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal-row-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {features.map((feature, index) => (
                 <Card key={index} className="group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800">
                   <CardContent className="pt-6 pb-6">
@@ -490,7 +519,7 @@ export default async function HomePage({ params }: PageProps) {
           never existed in `public/`. Every visit to the home page — the live
           one included — fetched it and got a 404.
         */}
-        <section id="gallery" className="py-20 md:py-32 bg-slate-50 dark:bg-slate-900 relative overflow-hidden">
+        <section id="gallery" className="surface-veil surface-seam relative overflow-hidden bg-slate-50 py-20 dark:bg-slate-900 md:py-32">
           <div className="container-wide relative z-10">
             <div className="reveal flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="max-w-2xl">
@@ -511,7 +540,9 @@ export default async function HomePage({ params }: PageProps) {
               </Link>
             </div>
 
-            <Gallery items={galleryItems} locale={locale} />
+            <div className="reveal-soft">
+              <Gallery items={galleryItems} locale={locale} />
+            </div>
             
             <div className="mt-12 text-center md:hidden">
               <Link href={localePath(locale, '/gallery')}>
@@ -524,7 +555,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* How It Works Section */}
-        <section id="how-it-works" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
+        <section id="how-it-works" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
             <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">
@@ -532,7 +563,7 @@ export default async function HomePage({ params }: PageProps) {
               </h2>
             </div>
 
-            <div className="reveal-row grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="reveal-row-4 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
               {steps.map((step, index) => (
                 <div key={index} className="relative">
                   <div className="flex flex-col items-center text-center">
@@ -556,7 +587,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Contact Section */}
-        <section id="contact" className="py-16 md:py-20">
+        <section id="contact" className="surface-veil surface-seam py-16 md:py-20">
           <div className="container-wide">
             <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
@@ -588,8 +619,12 @@ export default async function HomePage({ params }: PageProps) {
           </div>
         </section>
 
-        <section id="donate" className="py-16 md:py-20 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="container-wide">
+        <section id="donate" className="surface-lattice surface-seam relative overflow-hidden bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+          <LeafFlourish
+            flipped
+            className="pointer-events-none absolute -right-24 bottom-0 hidden h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 md:block"
+          />
+          <div className="container-wide relative">
             <div className="reveal text-center mb-12">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
                 {localizedSetting(settings, 'donation.title', locale) || tDonation('title')}
@@ -618,7 +653,7 @@ export default async function HomePage({ params }: PageProps) {
               ))}
             </div>
 
-            <div className="max-w-4xl mx-auto mt-8">
+            <div className="reveal-soft max-w-4xl mx-auto mt-8">
               <Card>
                 <CardContent className="pt-6">
                   <p className="text-sm text-muted-foreground text-center leading-relaxed">
@@ -655,7 +690,7 @@ export default async function HomePage({ params }: PageProps) {
  */
 function SectionLink({ href, label }: { href: string; label: string }) {
   return (
-    <div className="mt-10 text-center">
+    <div className="reveal-soft mt-10 text-center">
       <Link href={href}>
         <Button variant="outline" className="gap-2">
           {label}

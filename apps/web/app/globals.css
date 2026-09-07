@@ -361,19 +361,35 @@ input::-ms-clear {
   CSS and waits for a script to show it, so a failed bundle leaves a blank page.
   Nothing here can fail closed.
 
-  The movement is small on purpose — eight pixels and a fade, finishing while
-  the section is still arriving. A reveal you notice is a reveal that is too
-  big; this one should only make the page feel like it is being read rather
-  than being paged through.
+  WHERE THE RANGE ENDS IS THE WHOLE EFFECT, and the first version of this got it
+  wrong in a way that is invisible to read and obvious to scroll. It ended at
+  `cover 20%` — which on an 800px viewport is about 200px of scrolling after the
+  element's first pixel appears, so the element finished its reveal while it was
+  still in the bottom quarter of the screen. By the time a reader had scrolled it
+  into the part of the screen they actually read, it had been settled for half a
+  second. Eight pixels of travel on top of that, and the page reported back as
+  "everything is just there, static" — which it effectively was.
+
+  `cover 35%` is roughly double, and it lands the finish just above the middle of
+  the viewport: the element is still moving while it crosses into reading
+  position, which is the thing that makes a page feel like it is being read
+  rather than paged through. `cover` rather than `entry` for the end, because
+  cover's denominator is the viewport plus the element, so a 140px heading and a
+  260px card finish at nearly the same place on screen; `entry` alone would
+  finish wherever each element happened to be tall.
+
+  The travel is 22px and there is a hair of scale with it. That is still small —
+  a reveal you *notice* as an animation is too big — but it is above the
+  threshold at which a reader registers that something arrived.
 */
 @keyframes reveal-rise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(22px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -381,7 +397,7 @@ input::-ms-clear {
   @supports (animation-timeline: view()) {
     animation: reveal-rise linear both;
     animation-timeline: view();
-    animation-range: entry 4% cover 20%;
+    animation-range: entry 2% cover 35%;
   }
 }
 
@@ -394,20 +410,79 @@ input::-ms-clear {
   which is what every card row on the home page collapses from; at phone width
   the columns stack, each child crosses the range on its own, and the cascade
   becomes an ordinary one-after-another reveal for free.
+
+  The offsets are 8% of `cover` apart rather than the 4% they were. At 4% the
+  three cards of a row were within about 40px of scroll of each other, which is
+  not a cascade — it is three cards arriving together with a rounding error.
 */
 @utility reveal-row {
   @supports (animation-timeline: view()) {
     & > * {
       animation: reveal-rise linear both;
       animation-timeline: view();
-      animation-range: entry 4% cover 20%;
+      animation-range: entry 2% cover 35%;
     }
     & > *:nth-child(3n + 2) {
-      animation-range: entry 8% cover 26%;
+      animation-range: entry 10% cover 43%;
     }
     & > *:nth-child(3n + 3) {
-      animation-range: entry 12% cover 32%;
+      animation-range: entry 18% cover 51%;
     }
+  }
+}
+
+/*
+  The same, for the two rows that are four across rather than three.
+
+  `reveal-row`'s 3n cycle is correct for a three- or six-card grid and visibly
+  wrong for a four-card one: the fourth card lands back on the first card's
+  offset, so it arrives before its two neighbours and reads as a rendering
+  fault. There is no way for CSS to count a grid's columns, so the caller says
+  which cycle it is in. Everything else — keyframe, timeline, base range — is
+  shared, so the two cannot drift apart.
+*/
+@utility reveal-row-4 {
+  @supports (animation-timeline: view()) {
+    & > * {
+      animation: reveal-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 2% cover 35%;
+    }
+    & > *:nth-child(4n + 2) {
+      animation-range: entry 9% cover 42%;
+    }
+    & > *:nth-child(4n + 3) {
+      animation-range: entry 16% cover 49%;
+    }
+    & > *:nth-child(4n + 4) {
+      animation-range: entry 23% cover 56%;
+    }
+  }
+}
+
+/*
+  A single element that arrives from the side rather than from below — the
+  "Read more" button under a section, and the gallery's own heading block.
+
+  Same timeline, same range, different keyframe, so it cannot drift out of step
+  with the rows above it.
+*/
+@keyframes reveal-rise-sm {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility reveal-soft {
+  @supports (animation-timeline: view()) {
+    animation: reveal-rise-sm linear both;
+    animation-timeline: view();
+    animation-range: entry 4% cover 30%;
   }
 }
 
@@ -422,11 +497,140 @@ input::-ms-clear {
 */
 @media (prefers-reduced-motion: reduce) {
   .reveal,
-  .reveal-row > * {
+  .reveal-soft,
+  .reveal-row > *,
+  .reveal-row-4 > * {
     animation: none;
   }
 
   html {
     scroll-behavior: auto;
   }
+}
+
+/*
+  ---------------------------------------------------------------------------
+  The ambient surface the marketing pages sit on.
+  ---------------------------------------------------------------------------
+
+  Every section of the home page below the hero used to be one of two flat
+  fills — white, or `bg-slate-50/50` — alternating down the page. That is a
+  defensible neutral and it is also the reason the page read as a stack of
+  boxes: past the hero there was nothing to look at that was not type.
+
+  What goes behind the type instead is the motif this site already owns. The
+  hero's fallback illustration (`components/ui/geometric-panel.tsx`) is an
+  eight-point *khatam* tessellation, and this is the same construction — two
+  overlaid squares, one turned 45° — tiled across a section at an opacity low
+  enough that it is texture rather than pattern. It is not a second visual
+  language bolted on beside the first.
+
+  Three properties make it affordable on the phones this site is actually read
+  on, which is the constraint that decided the technique:
+
+  - It is a data URI in the stylesheet, so it costs no request and cannot 404
+    the way `/patterns/grid.svg` did. It is about 400 bytes, once, shared by
+    every section that uses it.
+  - It is vector, so it is sharp at any density and weighs the same at 1x as at
+    3x. A raster texture that looked right on a Pixel would be a 200KB download
+    to look right on anything else.
+  - It is `background-image` on the section itself wherever it can be, not a
+    positioned overlay: no extra element, no stacking context to get wrong, and
+    nothing that can end up painted over the words. Only the hero uses
+    `lattice-tile` on a layer of its own, because the hero's ground is a
+    Tailwind gradient — `bg-linear-to-br` *is* a `background-image`, so a
+    section cannot have both that and this. Where a section's gradient was
+    decoration rather than structure it was deleted in favour of the blooms
+    below, which is one class fewer and the same picture.
+
+  The colour is a variable rather than baked into the two data URIs so that the
+  dark theme swaps one declaration instead of carrying a second copy of the
+  drawing. Emerald in light, a lighter emerald at lower opacity in dark: on a
+  near-black ground the same value reads roughly twice as strong.
+*/
+@layer base {
+  :root {
+    --hn-lattice: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'%3E%3Cg fill='none' stroke='%23059669' stroke-opacity='.07' stroke-width='1'%3E%3Crect x='28' y='28' width='72' height='72'/%3E%3Crect x='28' y='28' width='72' height='72' transform='rotate(45 64 64)'/%3E%3C/g%3E%3Cpath d='M0 0 9 0 0 9Z M128 0 119 0 128 9Z M0 128 9 128 0 119Z M128 128 119 128 128 119Z' fill='%23059669' fill-opacity='.04'/%3E%3C/svg%3E");
+
+    /* The two blooms that keep a lattice from reading as graph paper: warm
+       emerald entering from the top left, cooler teal leaving at the bottom
+       right. Sized in `rem` so they scale with the page rather than with the
+       viewport — a `vw`-sized bloom is a dot on a phone and a wash on a
+       monitor. */
+    --hn-bloom-a: rgb(16 185 129 / 0.07);
+    --hn-bloom-b: rgb(20 184 166 / 0.06);
+  }
+
+  .dark {
+    --hn-lattice: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'%3E%3Cg fill='none' stroke='%2334d399' stroke-opacity='.05' stroke-width='1'%3E%3Crect x='28' y='28' width='72' height='72'/%3E%3Crect x='28' y='28' width='72' height='72' transform='rotate(45 64 64)'/%3E%3C/g%3E%3Cpath d='M0 0 9 0 0 9Z M128 0 119 0 128 9Z M0 128 9 128 0 119Z M128 128 119 128 128 119Z' fill='%2334d399' fill-opacity='.03'/%3E%3C/svg%3E");
+
+    --hn-bloom-a: rgb(16 185 129 / 0.10);
+    --hn-bloom-b: rgb(20 184 166 / 0.08);
+  }
+}
+
+/*
+  A section with the lattice and both blooms. The layer order is the paint
+  order: blooms in front of the lattice, so the pattern is strongest where the
+  section is coolest and fades under the light.
+*/
+@utility surface-lattice {
+  background-image:
+    radial-gradient(52rem 34rem at 8% -12%, var(--hn-bloom-a), transparent 62%),
+    radial-gradient(46rem 30rem at 96% 112%, var(--hn-bloom-b), transparent 62%),
+    var(--hn-lattice);
+  background-repeat: no-repeat, no-repeat, repeat;
+  background-size: auto, auto, 112px 112px;
+  background-attachment: scroll;
+}
+
+/*
+  The lattice on its own, for a layer that is not the section's own background —
+  the hero, whose ground is a Tailwind gradient and therefore already owns
+  `background-image`. Used on an `absolute inset-0` div BEHIND the content, and
+  the content above it must establish its own stacking (`relative z-10`, which
+  the hero's container already had for its other decoration).
+*/
+@utility lattice-tile {
+  background-image: var(--hn-lattice);
+  background-repeat: repeat;
+  background-size: 112px 112px;
+}
+
+/*
+  The blooms without the lattice, for a section that already has something to
+  look at — the gallery, where a pattern behind a grid of photographs is two
+  textures competing, and the quotation band, where it would sit under Bengali
+  script at 16px.
+*/
+@utility surface-veil {
+  background-image:
+    radial-gradient(52rem 34rem at 12% -10%, var(--hn-bloom-a), transparent 60%),
+    radial-gradient(46rem 30rem at 92% 110%, var(--hn-bloom-b), transparent 60%);
+  background-repeat: no-repeat;
+}
+
+/*
+  The seam between two sections.
+
+  A 1px border is the obvious way to separate them and the wrong one — it draws
+  a hard line across a page whose whole surface is now soft. This is a hairline
+  that fades out at both ends, so sections are *distinguished* without the page
+  acquiring rules.
+
+  `border-image` rather than a fourth background layer, deliberately: the
+  utilities above already own `background-image`, and a seam written as a
+  gradient background would silently replace the lattice on any section that
+  wanted both.
+*/
+@utility surface-seam {
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(
+      to right,
+      transparent,
+      rgb(16 185 129 / 0.22) 22%,
+      rgb(16 185 129 / 0.22) 78%,
+      transparent
+    )
+    1;
 }
