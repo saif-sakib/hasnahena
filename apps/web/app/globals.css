@@ -378,106 +378,165 @@ input::-ms-clear {
   every one of those the attribute is never set, the rules below never match,
   and the page renders finished. The resting state is still the finished state.
 */
-@media (prefers-reduced-motion: no-preference) {
-  /*
-    The waiting state — and there is deliberately NO `transition` on it.
-
-    Putting the transition here instead cost a debugging pass: `data-reveal-js`
-    lands on a page that has already painted, so every revealed element was
-    transitioning from its resting opacity of 1 DOWN to 0 — a 520ms fade-out of
-    twenty-nine elements at load, and then a fade back in. Measured at 0.9s
-    after load: 29 elements stranded between 0.05 and 0.95, none of them yet
-    revealed. On screen it is a blink.
-
-    With the transition on the arrival rule below, hiding is instantaneous —
-    which is invisible, because everything this applies to is off-screen when
-    it happens — and the animation can only ever run inwards.
-  */
-  [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft),
-  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > * {
+@keyframes reveal-fade {
+  from {
     opacity: 0;
   }
+  to {
+    opacity: 1;
+  }
+}
 
-  /* Up, for a heading or a block that owns the full width. */
-  [data-reveal-js] .reveal {
+/* Up, for a heading or a block that owns the full width. */
+@keyframes reveal-up {
+  from {
     transform: translate3d(0, 30px, 0);
   }
+}
 
-  /* In from the side — the hero's entrance, reused where the layout has a
-     side: the gallery's copy comes from the left, its button from the right. */
-  [data-reveal-js] .reveal-left {
+/* In from the side — the hero's entrance, reused where the layout has a side:
+   the gallery's copy comes from the left, its button from the right. */
+@keyframes reveal-left {
+  from {
     transform: translate3d(-52px, 0, 0);
   }
+}
 
-  [data-reveal-js] .reveal-right {
+@keyframes reveal-right {
+  from {
     transform: translate3d(52px, 0, 0);
   }
+}
 
-  /* Quieter, for a block already inside a revealed section. */
-  [data-reveal-js] .reveal-soft {
+/* Quieter, for a block already inside a revealed section. */
+@keyframes reveal-soft-up {
+  from {
     transform: translate3d(0, 18px, 0);
   }
+}
 
-  /*
-    Cards arrive on the diagonal, from the lower left. A row that rises
-    straight up reads as a list settling; the same row drifting in from the
-    left reads as the hero's entrance happening again.
-  */
-  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > * {
+/*
+  Cards arrive on the diagonal, from the lower left. A row that rises straight
+  up reads as a list settling; the same row drifting in from the left reads as
+  the hero's entrance happening again.
+*/
+@keyframes reveal-in {
+  from {
     transform: translate3d(-26px, 28px, 0);
   }
+}
 
+@media (prefers-reduced-motion: no-preference) {
   /*
-    Arrived. One attribute, set by the observer.
+    The waiting state.
 
-    Opacity is `linear` and the movement is an ease-out, because they answer
-    different questions: the text has to become readable early — tying the fade
-    to the same slow curve as the travel is what once left the hadith at 0.19
-    opacity while they were fully on screen — and the movement wants to arrive
-    quickly and settle, which is what the expo curve does and what makes this
-    read as the hero's entrance rather than as a slide.
+    `:not([data-revealed])` rather than a bare class, and `transition: none`,
+    and both are scars.
+
+    `transition: none` is there because the element's OWN transitions will
+    otherwise animate it into hiding. The activity and feature cards carry
+    Tailwind's `transition-all duration-300` for their hover lift, and
+    `transition-all` includes opacity — so the moment `data-reveal-js` landed on
+    an already-painted page, ten cards spent 300ms fading OUT before the reveal
+    had done anything. Measured at 0.41 opacity with no `data-revealed`
+    attribute on any of them, which is what finally named it: they were not
+    half-revealed, they were half-hidden.
+
+    `:not([data-revealed])` is there so the rule STOPS applying once the element
+    has arrived, which hands the card its own transitions back. A permanent
+    `transition: none` would have killed the hover lift it was written for.
   */
-  [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft)[data-revealed],
-  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > [data-revealed] {
-    opacity: 1;
-    transform: none;
-    transition:
-      opacity 520ms linear,
-      transform 760ms cubic-bezier(0.16, 1, 0.3, 1);
+  [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft):not([data-revealed]),
+  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > *:not([data-revealed]) {
+    opacity: 0;
+    transition: none;
   }
 
   /*
-    The cascade. `transition-delay` per column — the thing the scroll-driven
-    version could not have, because progress there was a function of position
-    rather than of time and every stagger had to be faked with a shifted range.
+    Arrival — an ANIMATION, not a transition, for the same reason.
+
+    A transition is a property of the element and anything else that sets
+    `transition` on it is in a fight with this. An animation is its own thing,
+    runs once, and cannot be overridden by a utility class.
+
+    Two of them: the fade is short and linear, the movement is longer and
+    eased. That split is the "why are the hadith grey" lesson and it survives
+    every rewrite of the mechanism — a reader who stops to read stops in the
+    middle of the animation, so the text must be readable well before the
+    movement finishes.
+
+    `backwards`, NOT `both`. `backwards` holds the from-state through the
+    stagger delay, which is what stops a card flashing in at full opacity and
+    then dropping to zero when its turn comes. A forwards fill would hold the
+    to-state for ever, and a filling animation outranks ordinary declarations —
+    so anything that later sets `transform` on the same element would be
+    silently ignored. With no forwards fill the element lands on its natural
+    style, which is already the finished state.
+
+    (The cards' own `hover:-translate-y-1` is safe either way, and it is worth
+    knowing why: Tailwind 4 compiles translate utilities to the separate
+    `translate` property, not to `transform`. So the hover lift and this
+    animation never touch the same property. Checked, not assumed — the first
+    reading of it looked like a regression because `getComputedStyle().transform`
+    is `none` on a hovered card, which is correct and means nothing.)
+  */
+  [data-reveal-js] .reveal[data-revealed] {
+    animation:
+      reveal-fade 480ms linear backwards,
+      reveal-up 760ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  [data-reveal-js] .reveal-left[data-revealed] {
+    animation:
+      reveal-fade 480ms linear backwards,
+      reveal-left 760ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  [data-reveal-js] .reveal-right[data-revealed] {
+    animation:
+      reveal-fade 480ms linear backwards,
+      reveal-right 760ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  [data-reveal-js] .reveal-soft[data-revealed] {
+    animation:
+      reveal-fade 420ms linear backwards,
+      reveal-soft-up 640ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > [data-revealed] {
+    animation:
+      reveal-fade 480ms linear backwards,
+      reveal-in 760ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /*
+    The cascade. One `animation-delay` applies to every animation in the list,
+    so the fade and the movement stay in step.
 
     Two cycles because CSS cannot count a grid's columns: `reveal-row` for the
     three- and six-card rows, `reveal-row-4` for the two that are four across.
     Sharing the 3n cycle between them put card 4 back on card 1's delay, which
     reads as one card failing to animate rather than as a stagger.
-
-    On the arrival rule, not the waiting one, or the delay would apply to the
-    hiding as well. At phone width every row stacks, each card crosses the
-    observer's line on its own, and the extra delay is imperceptible.
   */
   [data-reveal-js] .reveal-row > *:nth-child(3n + 2)[data-revealed] {
-    transition-delay: 120ms;
+    animation-delay: 120ms;
   }
 
   [data-reveal-js] .reveal-row > *:nth-child(3n + 3)[data-revealed] {
-    transition-delay: 240ms;
+    animation-delay: 240ms;
   }
 
   [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 2)[data-revealed] {
-    transition-delay: 100ms;
+    animation-delay: 100ms;
   }
 
   [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 3)[data-revealed] {
-    transition-delay: 200ms;
+    animation-delay: 200ms;
   }
 
   [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 4)[data-revealed] {
-    transition-delay: 300ms;
+    animation-delay: 300ms;
   }
 }
 
@@ -550,6 +609,23 @@ input::-ms-clear {
        monitor. */
     --hn-bloom-a: rgb(16 185 129 / 0.07);
     --hn-bloom-b: rgb(20 184 166 / 0.06);
+
+    /*
+      The ground the marketing pages are printed on.
+
+      A warm off-white, not white. The page used to alternate `#ffffff` with
+      `slate-50` down its length — a cool grey against a pure white, which is
+      the default of every admin panel ever built and reads as a screen. One
+      warm ivory instead, held all the way down, and the CARDS are the pure
+      white: a card then lifts off the page instead of dissolving into it,
+      which is where the separation between sections now comes from. The
+      alternating fills are gone.
+
+      Warm rather than green-tinted, deliberately, even though the brand is
+      emerald. Green ink on ivory is a printed page; green ink on green paper
+      is a tint, and the emerald blooms above have nothing to sit against.
+    */
+    --hn-paper: 40 30% 98%;
   }
 
   .dark {
@@ -557,6 +633,11 @@ input::-ms-clear {
 
     --hn-bloom-a: rgb(16 185 129 / 0.10);
     --hn-bloom-b: rgb(20 184 166 / 0.08);
+
+    /* The dark theme's ground is already right — paper is a light-theme idea,
+       and a "warm" near-black is just a brown cast. Same value as
+       `--background`, so the two cannot drift apart. */
+    --hn-paper: 222.2 84% 4.9%;
   }
 }
 
@@ -624,4 +705,45 @@ input::-ms-clear {
       transparent
     )
     1;
+}
+
+/*
+  The paper. Set once, on the marketing `<main>`, rather than per section.
+
+  Every section below the hero used to carry its own `bg-white` or
+  `bg-slate-50/50`, which is what made the page a stack of bands. They are
+  transparent now and this shows through all of them, so `surface-lattice` and
+  `surface-veil` layer their pattern and their blooms over one continuous
+  ground instead of over seven different ones.
+*/
+@utility surface-paper {
+  background-color: hsl(var(--hn-paper));
+}
+
+/*
+  What makes a white card read as ON the paper rather than as a hole in it.
+
+  Two shadows: a 1px contact shadow that does the work a border used to do, and
+  a wide, very soft drop that gives the card somewhere to sit. Both are nearly
+  colourless — a grey shadow on a warm ground goes muddy, so these are the
+  page's own ink colour at low alpha.
+
+  It is a resting shadow, which the cards on this page did not have: they had
+  `hover:shadow-lg` and nothing at all until you pointed at them, which is
+  fine on white and invisible on ivory.
+*/
+@utility card-raise {
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 0.04),
+    0 10px 28px -14px rgb(16 24 40 / 0.12);
+
+  /* `@variant` nested INSIDE the utility, which is the Tailwind 4 form. At the
+     top level wrapping a bare `.card-raise { … }` it compiles to nothing, and a
+     shadow that silently does not exist is indistinguishable from one tuned too
+     low — on a near-black ground, exactly the place you would not notice. */
+  @variant dark {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.35),
+      0 12px 30px -14px rgb(0 0 0 / 0.55);
+  }
 }

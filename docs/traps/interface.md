@@ -67,6 +67,57 @@ where it changes length and almost nothing else, and ruinous for anything with
 its own proportions. The same trick on the leaf mark would read as a smear.
 
 
+**Hide with an animation, not a transition — the element's own `transition`
+will otherwise animate it INTO hiding.** The reveal hid elements by putting
+`opacity: 0` on them from a class. Ten cards then spent 300ms fading *out* at
+every page load, and the reason was on the cards themselves: `transition-all
+duration-300`, written for their hover lift, and `transition-all` includes
+opacity.
+
+It presents as the reveal being broken, and it is not — the giveaway when it was
+finally measured was that the ten elements sitting at 0.41 opacity had **no
+`data-revealed` attribute at all**. They were not half-revealed. They were
+half-hidden.
+
+Two rules follow. The waiting state carries `transition: none`, so nothing can
+animate into it. And the waiting state is written `:not([data-revealed])` rather
+than as a bare class, so it stops applying the moment the element arrives and
+hands the card its own transitions back — a permanent `transition: none` would
+have killed the hover lift it was written for.
+
+The arrival is an `animation` rather than a transition for the same reason: a
+transition is a property of the element and any utility class that sets
+`transition` is in a fight with it, whereas an animation runs once and cannot be
+overridden.
+
+Use `animation-fill-mode: backwards`, not `both`. `backwards` holds the
+from-state through a stagger delay, which is what stops a card flashing in at
+full opacity and dropping to zero when its turn comes; a forwards fill would
+hold the end state for ever, and a filling animation outranks ordinary
+declarations, so anything setting the same property later is silently ignored.
+
+
+**A reveal that re-arms on scroll position also re-arms on layout growth, and at
+load the layout grows.** Un-revealing an element once it is below the viewport
+is how "scroll up, then down again, and it plays a second time" is implemented.
+The observer cannot tell that from "the page got taller underneath it" — and on
+first load the gallery's images arrive without reserved dimensions, the document
+grows by a thousand pixels, and ten elements that were on screen are suddenly
+far below it. Every one of them un-reveals. What a reader sees is a block of
+cards fading in and then vanishing.
+
+A reader cannot have scrolled up before the page has loaded, so the reset does
+not exist until `load` plus a short grace for the layout that settles just after
+it. Revealing is unconditional from the start; only un-revealing waits.
+
+The same event ordering bites one step earlier: deciding what is already on
+screen with `getBoundingClientRect()` inside the effect measures a document that
+has not finished laying out. Ask the IntersectionObserver instead and act in its
+first callback — it answers from the geometry the browser actually composites
+with, and arming there means the elements it hides are exactly the ones that
+pass did not mark.
+
+
 **A reveal that hides on a page which has already painted will animate the wrong
 way first.** The replacement above hides elements by putting `data-reveal-js` on
 `<html>` from JavaScript — deliberately, so that no JavaScript means nothing

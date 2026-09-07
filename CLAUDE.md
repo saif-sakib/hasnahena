@@ -454,7 +454,7 @@ then open the one entry — the sets are 108 KB and 114 KB, the entries 2–5 KB
 | File | For | KB |
 |---|---|---|
 | [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work | 32 |
-| [docs/traps.md](docs/traps.md) | **index of 174 failures that each cost a session**, grouped by what you have to be touching. All 174 titles are on the index page, so it alone answers "is this already known?" | 14 |
+| [docs/traps.md](docs/traps.md) | **index of 176 failures that each cost a session**, grouped by what you have to be touching. All 176 titles are on the index page, so it alone answers "is this already known?" | 14 |
 | [docs/decisions.md](docs/decisions.md) | **index of 44 ADRs** — why the code contradicts an old assumption. Check before "fixing" one | 7 |
 | [docs/guardrails.md](docs/guardrails.md) | the full account behind each row of the table above — the defect that put the guard there | 37 |
 | [docs/workflow.md](docs/workflow.md) | **the development habits** — which database to develop against, branch → PR → merge, preview deploys, and the ordered list of what to fix first | 12 |

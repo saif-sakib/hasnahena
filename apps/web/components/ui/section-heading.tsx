@@ -51,14 +51,27 @@ export function SectionHeading({
 
   return (
     <div className={['reveal text-center', className ?? 'mb-12'].join(' ')}>
+      {/*
+        The badge gets a BLOCK wrapper of its own, and that is load-bearing.
+
+        It is an `inline-flex` box, and the title below it is now inside an
+        `inline-block` (so the underline can measure the text). Two inline-level
+        boxes share a line — so the book icon jumped up beside "In Light of
+        Quran", hard against the "I" with no gap, and the underline ran beneath
+        the icon as well as the words. Reported as "the book icon is not
+        correctly fit there", and it was a side effect of adding the underline
+        rather than anything about the badge.
+      */}
       {icon && (
-        <div
-          className={[
-            'mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl',
-            amber ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-emerald-100 dark:bg-emerald-900/30',
-          ].join(' ')}
-        >
-          {icon}
+        <div className="mb-4 flex justify-center">
+          <div
+            className={[
+              'inline-flex h-14 w-14 items-center justify-center rounded-2xl',
+              amber ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-emerald-100 dark:bg-emerald-900/30',
+            ].join(' ')}
+          >
+            {icon}
+          </div>
         </div>
       )}
 

@@ -47,6 +47,43 @@ export function ScrollReveal() {
     );
     if (elements.length === 0) return;
 
+    /*
+      Whether the hiding rules are live yet.
+
+      Everything is visible until the observer's FIRST callback has told us what
+      is already on screen — see the block after the constructor.
+    */
+    let armed = false;
+
+    /*
+      Whether an element may be un-revealed yet.
+
+      Re-arming exists so that scrolling back up and down again replays the
+      entrance. But the observer cannot tell "the reader scrolled up past this"
+      from "the page grew underneath it", and at load the page grows a lot: the
+      gallery's images arrive without reserved dimensions, the document gets
+      taller, and ten elements that were on screen are suddenly a thousand
+      pixels below it. The reset then fires on all ten, correctly by its own
+      logic, and what a reader sees is a block of cards fading in and then
+      vanishing again.
+
+      A reader cannot have scrolled up before the page has finished loading, so
+      resets simply do not exist until then. The short delay after `load` covers
+      the layout that settles just after it — a late font, a lazy image.
+    */
+    let mayReset = false;
+    let resetTimer: number | undefined;
+    const allowResets = () => {
+      resetTimer = window.setTimeout(() => {
+        mayReset = true;
+      }, 300);
+    };
+    if (document.readyState === 'complete') {
+      allowResets();
+    } else {
+      window.addEventListener('load', allowResets, { once: true });
+    }
+
     let observer: IntersectionObserver;
     try {
       observer = new IntersectionObserver(
@@ -78,9 +115,22 @@ export function ScrollReveal() {
               bottom edge of the screen. Measuring against the real viewport
               leaves that 8% as hysteresis between the two events.
             */
-            if (entry.boundingClientRect.top >= (window.innerHeight || 0)) {
+            if (mayReset && entry.boundingClientRect.top >= (window.innerHeight || 0)) {
               entry.target.removeAttribute('data-revealed');
             }
+          }
+
+          /*
+            Arm on the way out of the first callback, never before.
+
+            Everything above has just been decided from the OBSERVER's geometry,
+            which is the only geometry that is right. Setting the attribute here
+            means the elements it hides are exactly the ones this pass did not
+            mark, and none of them has painted a hidden state.
+          */
+          if (!armed) {
+            armed = true;
+            root.setAttribute('data-reveal-js', '');
           }
         },
         {
@@ -107,31 +157,32 @@ export function ScrollReveal() {
     }
 
     /*
-      Order matters here, and it is the difference between a reveal and a
-      flash.
+      Observe everything, and hide nothing yet.
 
-      Anything already on screen is marked arrived FIRST, and the attribute
-      that enables hiding is set SECOND — both in this one synchronous block,
-      so the browser computes style once and those elements never paint their
-      hidden state. Setting the attribute first would blank every visible
-      revealed element for a frame and then animate it back in, which is worse
-      than no animation.
+      The first version decided what was already on screen itself, with
+      `getBoundingClientRect()`, and then set the attribute. That reads as the
+      careful order — mark what is visible, only then start hiding — and it is
+      wrong for a reason that only shows up in a browser: **the effect runs
+      before the page has finished laying out.** The gallery's images had not
+      loaded, so the document was short, so ten elements that are really far
+      below the fold measured as being near the top and were marked arrived.
+      They began fading in; the observer's first callback then measured them
+      correctly and took the mark away. A flash of ten cards at every load.
+
+      So the geometry question is asked once, of the observer, which answers it
+      from the same layout information the browser uses to composite — and the
+      answer arrives in the first callback, where the attribute is set. Until
+      then nothing is hidden, which is also the safe direction: a first callback
+      that never comes leaves the page finished.
     */
-    const viewportHeight = window.innerHeight || root.clientHeight;
     for (const element of elements) {
-      if (element.getBoundingClientRect().top < viewportHeight * 0.92) {
-        element.setAttribute('data-revealed', '');
-      }
-    }
-
-    root.setAttribute('data-reveal-js', '');
-
-    for (const element of elements) {
-      if (!element.hasAttribute('data-revealed')) observer.observe(element);
+      observer.observe(element);
     }
 
     return () => {
       observer.disconnect();
+      window.removeEventListener('load', allowResets);
+      window.clearTimeout(resetTimer);
       root.removeAttribute('data-reveal-js');
     };
   }, []);

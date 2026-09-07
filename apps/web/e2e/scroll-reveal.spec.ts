@@ -139,17 +139,22 @@ test.describe('home page section reveal', () => {
     }
     await page.waitForTimeout(900);
 
-    // Measured on the arrival rule rather than caught mid-transition, which is
-    // a race on a fast machine. Three columns and four columns are two separate
+    // Measured on the arrival rule rather than caught mid-flight, which is a
+    // race on a fast machine. Three columns and four columns are two separate
     // cycles: sharing the 3n one put card 4 back on card 1's delay, and a
     // fourth card arriving with the first reads as a rendering fault.
+    //
+    // `animationDelay`, not `transitionDelay`: the reveal is an animation so
+    // that a card's own `transition-all` cannot hijack it. Two animations run
+    // per card (a short fade and a longer move), so the computed value is a
+    // list and the first entry is the one to read.
     for (const [selector, expected] of [
       ['#features .reveal-row-4 > *', 4],
       ['#about .reveal-row > *', 3],
     ] as const) {
       const delays = (
         await page.$$eval(selector, (els) =>
-          els.map((e) => parseFloat(getComputedStyle(e).transitionDelay)),
+          els.map((e) => parseFloat(getComputedStyle(e).animationDelay.split(',')[0])),
         )
       ).slice(0, expected);
 

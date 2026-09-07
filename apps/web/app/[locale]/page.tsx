@@ -216,7 +216,13 @@ export default async function HomePage({ params }: PageProps) {
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1">
+      {/*
+        The ground for everything below the hero — set once here rather than
+        per section. Each section used to carry its own `bg-white` or
+        `bg-slate-50/50`, alternating down the page, and that alternation was
+        what made it read as a stack of bands rather than as one page.
+      */}
+      <main className="surface-paper flex-1">
         {/* Hero Section */}
         {/*
           `pt-24`/`md:pt-28` matches the header at the top of the page, where it
@@ -375,7 +381,7 @@ export default async function HomePage({ params }: PageProps) {
           in front of them; without that a text node with no stacking context
           of its own paints UNDER an absolutely-positioned sibling.
         */}
-        <section className="surface-veil relative overflow-hidden bg-white py-16 dark:bg-background md:py-20">
+        <section className="surface-veil relative overflow-hidden py-16 md:py-20">
           <LeafFlourish className="absolute -left-24 bottom-0 h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 sm:-left-16 sm:h-[28rem]" />
           <LeafFlourish
             flipped
@@ -392,7 +398,7 @@ export default async function HomePage({ params }: PageProps) {
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="relative overflow-hidden border-emerald-100 dark:border-emerald-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
+                  <Card key={num} className="card-raise relative overflow-hidden border-emerald-100 bg-white dark:border-emerald-900/50 dark:bg-slate-900">
                     <CardContent className="pt-8 pb-8 px-6 relative">
                       <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-emerald-100 dark:text-emerald-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
                       <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
@@ -418,7 +424,7 @@ export default async function HomePage({ params }: PageProps) {
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="relative overflow-hidden border-amber-100 dark:border-amber-900/50 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xs">
+                  <Card key={num} className="card-raise relative overflow-hidden border-amber-100 bg-white dark:border-amber-900/50 dark:bg-slate-900">
                     <CardContent className="pt-8 pb-8 px-6 relative">
                       <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-amber-100 dark:text-amber-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
                       <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
@@ -443,13 +449,13 @@ export default async function HomePage({ params }: PageProps) {
           lands somewhere, but the menu now points at /activities and /about —
           the pages this section summarises. See components/layout/header.tsx.
         */}
-        <section id="about" className="surface-lattice bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="about" className="surface-lattice py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading title={tActivities('title')} subtitle={tActivities('subtitle')} />
 
             <div className="reveal-row grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {activities.map((activity, index) => (
-                <Card key={index} className="group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                <Card key={index} className="card-raise group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
                       <activity.icon className="h-6 w-6 text-primary" />
@@ -468,7 +474,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Features Section */}
-        <section id="features" className="surface-veil py-16 md:py-20">
+        <section id="features" className="py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading
               title={localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
@@ -477,7 +483,7 @@ export default async function HomePage({ params }: PageProps) {
 
             <div className="reveal-row-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {features.map((feature, index) => (
-                <Card key={index} className="group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 dark:border-slate-800">
+                <Card key={index} className="card-raise group hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-1 transition-all duration-300 border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
                       <feature.icon className="h-6 w-6 text-primary" />
@@ -499,7 +505,7 @@ export default async function HomePage({ params }: PageProps) {
           never existed in `public/`. Every visit to the home page — the live
           one included — fetched it and got a 404.
         */}
-        <section id="gallery" className="surface-veil relative overflow-hidden bg-slate-50 py-20 dark:bg-slate-900 md:py-32">
+        <section id="gallery" className="relative overflow-hidden py-20 md:py-32">
           <div className="container-wide relative z-10">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="reveal-left max-w-2xl">
@@ -535,7 +541,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* How It Works Section */}
-        <section id="how-it-works" className="surface-lattice bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="how-it-works" className="surface-veil py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading title={tHowItWorks('title')} />
 
@@ -563,7 +569,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Contact Section */}
-        <section id="contact" className="surface-veil py-16 md:py-20">
+        <section id="contact" className="py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading
               title={localizedSetting(settings, 'contact.title', locale) || tContact('title')}
@@ -577,7 +583,7 @@ export default async function HomePage({ params }: PageProps) {
             */}
             <div className="reveal-row grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {contactCards.map((item) => (
-                <Card key={item.title} className="text-center hover:shadow-lg transition-shadow">
+                <Card key={item.title} className="card-raise bg-white text-center transition-shadow hover:shadow-lg dark:bg-slate-900">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                       <item.icon className="h-5 w-5 text-primary" />
@@ -593,7 +599,7 @@ export default async function HomePage({ params }: PageProps) {
           </div>
         </section>
 
-        <section id="donate" className="surface-lattice relative overflow-hidden bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="donate" className="surface-lattice relative overflow-hidden py-16 md:py-20">
           <LeafFlourish
             flipped
             className="pointer-events-none absolute -right-24 bottom-0 hidden h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 md:block"
@@ -611,7 +617,7 @@ export default async function HomePage({ params }: PageProps) {
             */}
             <div className={donationChannels.length > 0 ? 'reveal-row grid md:grid-cols-3 gap-6 max-w-5xl mx-auto' : 'hidden'}>
               {donationChannels.map((item) => (
-                <Card key={item.label} className="text-center hover:shadow-lg transition-shadow">
+                <Card key={item.label} className="card-raise bg-white text-center transition-shadow hover:shadow-lg dark:bg-slate-900">
                   <CardContent className="pt-6 pb-6">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                       <Wallet className="h-5 w-5 text-primary" />
