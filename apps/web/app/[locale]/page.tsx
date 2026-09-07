@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { GeometricPanel } from '@/components/ui/geometric-panel';
 import { LeafFlourish } from '@/components/ui/leaf-flourish';
+import { SectionHeading } from '@/components/ui/section-heading';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale, siteTitle } from '@/lib/seo';
@@ -382,17 +383,11 @@ export default async function HomePage({ params }: PageProps) {
           <div className="container-wide relative">
             {/* Quran Section - First */}
             <div className="mb-16">
-              <div className="reveal text-center mb-12">
-                <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 mb-4">
-                  <BookOpen className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                  {tQuran('title')}
-                </h2>
-                <p className="text-muted-foreground max-w-2xl mx-auto">
-                  {tQuran('subtitle')}
-                </p>
-              </div>
+              <SectionHeading
+                icon={<BookOpen className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />}
+                title={tQuran('title')}
+                subtitle={tQuran('subtitle')}
+              />
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
@@ -413,17 +408,12 @@ export default async function HomePage({ params }: PageProps) {
 
             {/* Hadith Section - Second */}
             <div>
-              <div className="reveal text-center mb-12">
-                <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-amber-100 dark:bg-amber-900/30 mb-4">
-                  <BookOpen className="h-7 w-7 text-amber-600 dark:text-amber-400" />
-                </div>
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                  {tHadith('title')}
-                </h2>
-                <p className="text-muted-foreground max-w-2xl mx-auto">
-                  {tHadith('subtitle')}
-                </p>
-              </div>
+              <SectionHeading
+                accent="amber"
+                icon={<BookOpen className="h-7 w-7 text-amber-600 dark:text-amber-400" />}
+                title={tHadith('title')}
+                subtitle={tHadith('subtitle')}
+              />
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
@@ -454,14 +444,7 @@ export default async function HomePage({ params }: PageProps) {
         */}
         <section id="about" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
-            <div className="reveal text-center mb-12">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {tActivities('title')}
-              </h2>
-              <p className="text-muted-foreground max-w-2xl mx-auto">
-                {tActivities('subtitle')}
-              </p>
-            </div>
+            <SectionHeading title={tActivities('title')} subtitle={tActivities('subtitle')} />
 
             <div className="reveal-row grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {activities.map((activity, index) => (
@@ -486,14 +469,10 @@ export default async function HomePage({ params }: PageProps) {
         {/* Features Section */}
         <section id="features" className="surface-veil surface-seam py-16 md:py-20">
           <div className="container-wide">
-            <div className="reveal text-center mb-12">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
-              </h2>
-              <p className="text-muted-foreground max-w-2xl mx-auto">
-                {tFeatures('subtitle')}
-              </p>
-            </div>
+            <SectionHeading
+              title={localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
+              subtitle={tFeatures('subtitle')}
+            />
 
             <div className="reveal-row-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {features.map((feature, index) => (
@@ -521,8 +500,8 @@ export default async function HomePage({ params }: PageProps) {
         */}
         <section id="gallery" className="surface-veil surface-seam relative overflow-hidden bg-slate-50 py-20 dark:bg-slate-900 md:py-32">
           <div className="container-wide relative z-10">
-            <div className="reveal flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
-              <div className="max-w-2xl">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
+              <div className="reveal-left max-w-2xl">
                 <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6">
                   <ImageIcon className="h-6 w-6" />
                 </div>
@@ -533,7 +512,7 @@ export default async function HomePage({ params }: PageProps) {
                   {tGallery('subtitle')}
                 </p>
               </div>
-              <Link href={localePath(locale, '/gallery')}>
+              <Link href={localePath(locale, '/gallery')} className="reveal-right">
                 <Button variant="outline" className="hidden md:flex gap-2">
                     {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -557,11 +536,7 @@ export default async function HomePage({ params }: PageProps) {
         {/* How It Works Section */}
         <section id="how-it-works" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
-            <div className="reveal text-center mb-12">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold">
-                {tHowItWorks('title')}
-              </h2>
-            </div>
+            <SectionHeading title={tHowItWorks('title')} />
 
             <div className="reveal-row-4 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
               {steps.map((step, index) => (
@@ -589,11 +564,9 @@ export default async function HomePage({ params }: PageProps) {
         {/* Contact Section */}
         <section id="contact" className="surface-veil surface-seam py-16 md:py-20">
           <div className="container-wide">
-            <div className="reveal text-center mb-12">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {localizedSetting(settings, 'contact.title', locale) || tContact('title')}
-              </h2>
-            </div>
+            <SectionHeading
+              title={localizedSetting(settings, 'contact.title', locale) || tContact('title')}
+            />
 
             {/*
               WO-67 took the invented fallbacks off /donate and /support and
@@ -625,14 +598,10 @@ export default async function HomePage({ params }: PageProps) {
             className="pointer-events-none absolute -right-24 bottom-0 hidden h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 md:block"
           />
           <div className="container-wide relative">
-            <div className="reveal text-center mb-12">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3">
-                {localizedSetting(settings, 'donation.title', locale) || tDonation('title')}
-              </h2>
-              <p className="text-muted-foreground max-w-2xl mx-auto">
-                {localizedSetting(settings, 'donation.subtitle', locale) || tDonation('subtitle')}
-              </p>
-            </div>
+            <SectionHeading
+              title={localizedSetting(settings, 'donation.title', locale) || tDonation('title')}
+              subtitle={localizedSetting(settings, 'donation.subtitle', locale) || tDonation('subtitle')}
+            />
 
             {/*
               Same rule as the /donate page, and here it matters most: a donor

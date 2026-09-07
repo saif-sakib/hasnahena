@@ -213,7 +213,7 @@ and the largest single file is 30 KB.
 - A swallowed query error becomes a fabricated balance.
 - Never initialise a money figure to zero.
 - A config key nothing reads is worse than a missing one.
-- A scroll-driven reveal finishes where its `animation-range` ends, and that is usually not where the reader is looking.
+- A scroll-driven reveal has no duration, only a range — and one range cannot serve both the fade and the movement.
 - An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering fault on a four-column one.
 - Measure a layout, do not look at it.
 

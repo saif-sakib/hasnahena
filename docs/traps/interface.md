@@ -13,28 +13,58 @@ exact: true }` matches until the queue is non-empty, which is precisely the stat
 every test about the queue sets up.
 
 
-**A scroll-driven reveal finishes where its `animation-range` ends, and that is
-usually not where the reader is looking.** Every section of the home page had
-had a `view()`-timeline reveal on it since it was written, and the page was
-still reported as "everything is loaded previously and shown as static" — which
-was a fair description of it. The range was `entry 4% cover 20%`. On an 800px
-viewport, `cover 20%` is about 200px of scrolling after the element's first
-pixel appears, so the animation *completed while the element was still in the
-bottom quarter of the screen*; by the time it reached the part of the viewport
-anybody reads, it had been at rest for half a second. Eight pixels of travel on
-top of that put it under the threshold at which the movement is noticed at all.
+**A scroll-driven reveal has no duration, only a range — and one range cannot
+serve both the fade and the movement.** This went wrong twice, in opposite
+directions, and the second time was caused by the fix for the first.
 
-The lesson is that a scroll-driven animation has no duration to reason about,
-only a range, and the range has to be chosen from where the element will be
-*on screen* when it ends — not from how long the effect should feel. `cover 35%`
-lands it just above the middle of the viewport. Prefer `cover` to `entry` for
-the end of the range, too: cover's denominator is the viewport plus the element,
-so a 140px heading and a 260px card finish at nearly the same height on screen,
-where `entry` alone finishes each one wherever its own height happens to put it.
+Every section of the home page had had a `view()`-timeline reveal on it since it
+was written, and the page was still reported as *"everything is loaded
+previously and shown as static"* — a fair description. The range was
+`entry 4% cover 20%`. On an 800px viewport `cover 20%` is about 200px of
+scrolling after the element's first pixel appears, so the animation *completed
+while the element was still in the bottom quarter of the screen*; by the time it
+reached the part of the viewport anybody reads, it had been at rest for half a
+second. Eight pixels of travel on top of that put it under the threshold at
+which movement is noticed at all.
 
-It is also invisible in every kind of review that is not scrolling the real
-page. It typechecks, it lints, it renders, the CSS is present in the bundle, and
-a screenshot of the finished state is correct.
+So the range was lengthened to `cover 35%`, which lands the finish just above
+the middle of the viewport and looks right when you scroll past it. It was
+reported the next day as **"why are the hadith grey, the colour is so light"** —
+and measuring it was worse than it looked. The third card of the hadith row sat
+at **0.19 opacity while fully on screen**, and stayed under 0.9 for five hundred
+pixels of scrolling; thirty-four elements did the same. Nothing was wrong with
+the colours. Text tied to a range long enough to make the movement feel
+unhurried is text that is unreadable for as long as the movement lasts, and a
+reader who stops to read is a reader standing still in the middle of the range.
+
+The resolution is that they are two animations on two ranges — `animation`,
+`animation-timeline` and `animation-range` all take lists, so this costs one
+extra comma:
+
+```css
+animation: reveal-fade linear both, reveal-slide-up linear both;
+animation-timeline: view(), view();
+animation-range: entry 0% entry 60%, entry 0% cover 26%;
+```
+
+**Opacity belongs on `entry`, movement on `cover`,** and the reason is what each
+range is measured against. `entry` is denominated in the element's OWN height,
+so "60% of the way in" is before the element is fully on screen whatever size it
+is — a 140px heading and a 260px card both go opaque in time. `cover`'s
+denominator is the viewport plus the element, which is what makes it the right
+unit for a movement that should end at a consistent height on screen, and
+exactly the wrong unit for a fade: on a tall screen a short card would still be
+washed out.
+
+The corollary for a staggered row: **stagger the movement, not the fade.**
+Shifting both by the same amount per column is what made the third card the one
+still grey when you stopped at it.
+
+Neither version is visible in any review that is not scrolling the real page at
+a real viewport. Both typecheck, both lint, both render, the CSS is present in
+the bundle, and a screenshot of the finished state is correct in both. The check
+that catches it is a loop that scrolls the page in steps and asserts no element
+which is *fully on screen* is below 0.9 opacity.
 
 
 **An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering
