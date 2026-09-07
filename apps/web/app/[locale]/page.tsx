@@ -12,6 +12,7 @@ import { Gallery, GalleryItem } from '@/components/ui/gallery';
 import { GeometricPanel } from '@/components/ui/geometric-panel';
 import { LeafFlourish } from '@/components/ui/leaf-flourish';
 import { SectionHeading } from '@/components/ui/section-heading';
+import { ScrollReveal } from '@/components/ui/scroll-reveal';
 import { AuthAwareCTA } from '@/components/ui/auth-aware-cta';
 import { locales, type Locale } from '@/i18n';
 import { createLocalizedMetadata, normalizeLocale, siteTitle } from '@/lib/seo';
@@ -374,7 +375,7 @@ export default async function HomePage({ params }: PageProps) {
           in front of them; without that a text node with no stacking context
           of its own paints UNDER an absolutely-positioned sibling.
         */}
-        <section className="surface-veil surface-seam relative overflow-hidden bg-white py-16 dark:bg-background md:py-20">
+        <section className="surface-veil relative overflow-hidden bg-white py-16 dark:bg-background md:py-20">
           <LeafFlourish className="absolute -left-24 bottom-0 h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 sm:-left-16 sm:h-[28rem]" />
           <LeafFlourish
             flipped
@@ -442,7 +443,7 @@ export default async function HomePage({ params }: PageProps) {
           lands somewhere, but the menu now points at /activities and /about —
           the pages this section summarises. See components/layout/header.tsx.
         */}
-        <section id="about" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="about" className="surface-lattice bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
             <SectionHeading title={tActivities('title')} subtitle={tActivities('subtitle')} />
 
@@ -467,7 +468,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Features Section */}
-        <section id="features" className="surface-veil surface-seam py-16 md:py-20">
+        <section id="features" className="surface-veil py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading
               title={localizedSetting(settings, 'features.title', locale) || tFeatures('title')}
@@ -498,7 +499,7 @@ export default async function HomePage({ params }: PageProps) {
           never existed in `public/`. Every visit to the home page — the live
           one included — fetched it and got a 404.
         */}
-        <section id="gallery" className="surface-veil surface-seam relative overflow-hidden bg-slate-50 py-20 dark:bg-slate-900 md:py-32">
+        <section id="gallery" className="surface-veil relative overflow-hidden bg-slate-50 py-20 dark:bg-slate-900 md:py-32">
           <div className="container-wide relative z-10">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="reveal-left max-w-2xl">
@@ -534,7 +535,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* How It Works Section */}
-        <section id="how-it-works" className="surface-lattice surface-seam bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="how-it-works" className="surface-lattice bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <div className="container-wide">
             <SectionHeading title={tHowItWorks('title')} />
 
@@ -562,7 +563,7 @@ export default async function HomePage({ params }: PageProps) {
         </section>
 
         {/* Contact Section */}
-        <section id="contact" className="surface-veil surface-seam py-16 md:py-20">
+        <section id="contact" className="surface-veil py-16 md:py-20">
           <div className="container-wide">
             <SectionHeading
               title={localizedSetting(settings, 'contact.title', locale) || tContact('title')}
@@ -592,7 +593,7 @@ export default async function HomePage({ params }: PageProps) {
           </div>
         </section>
 
-        <section id="donate" className="surface-lattice surface-seam relative overflow-hidden bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
+        <section id="donate" className="surface-lattice relative overflow-hidden bg-slate-50/50 py-16 dark:bg-slate-900/50 md:py-20">
           <LeafFlourish
             flipped
             className="pointer-events-none absolute -right-24 bottom-0 hidden h-[22rem] w-auto text-emerald-600/15 dark:text-emerald-400/10 md:block"
@@ -645,6 +646,7 @@ export default async function HomePage({ params }: PageProps) {
         />
       </main>
       <Footer settings={settings} />
+      <ScrollReveal />
     </>
   );
 }

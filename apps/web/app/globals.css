@@ -343,229 +343,157 @@ input::-ms-clear {
 }
 
 /*
+  ---------------------------------------------------------------------------
   Section reveal on the marketing pages.
+  ---------------------------------------------------------------------------
 
-  Driven by the SCROLL POSITION, not by JavaScript. `animation-timeline: view()`
-  ties an animation's progress to where its element sits in the viewport, and
-  the browser runs it off the main thread — so every section of the home page
-  can have one without an IntersectionObserver, a scroll listener, a library, or
-  a single byte added to the JavaScript bundle. That is the whole reason this is
-  affordable on a page most members open on a low-end Android phone.
+  WHY THIS IS NOT `animation-timeline: view()` ANY MORE, having been exactly
+  that for two rounds of this work.
 
-  The animation lives inside `@supports`, and the element's RESTING state is the
-  finished state — visible, unmoved. A browser without scroll-driven animations
-  shows the page exactly as it is today. The usual JavaScript reveal does the
-  opposite: it hides everything in CSS and waits for a script to show it, so a
-  failed bundle leaves a blank page. Nothing here can fail closed.
+  Scroll-driven CSS animations are the elegant answer: progress tied to the
+  element's position, run off the main thread, no observer, no listener, not one
+  byte of JavaScript. They are also, right now, a feature the reader may simply
+  not have — `animation-timeline` reached Safari in **26** and Firefox in 144 —
+  and the whole thing was written inside `@supports`, which means a browser
+  without it got *silently nothing*. It was reported twice, in the same words
+  both times: "everything is like static as the previous". Both reports were
+  correct, and neither of the two fixes in between could have helped, because on
+  that browser not one line of the block was ever applied.
 
-  THE FADE AND THE MOVEMENT ARE TWO ANIMATIONS ON TWO RANGES, and that is the
-  whole design. Running them as one keyframe was reported as "why are the hadith
-  grey, the colour is so light", and measuring it was worse than it looked: the
-  third card of the hadith row sat at **0.19 opacity while fully on screen**,
-  and stayed under 0.9 for five hundred pixels of scrolling. Thirty-four
-  elements did that. Text tied to a range long enough to make the movement feel
-  unhurried is text that is unreadable for as long as the movement lasts.
+  A guard that degrades to nothing degrades to nothing SILENTLY. It looks
+  identical to the bug it was hiding, and it cannot be caught by testing in the
+  engine that supports the feature — which is the one a headless check runs in.
 
-  So opacity runs on `entry`, which is measured in the element's OWN height: it
-  reaches 1 at around 60% of the way in, always before the element is fully on
-  screen, whatever size it is. The transform runs on `cover`, which is measured
-  against the viewport, and carries on afterwards. The reader gets legible text
-  immediately and the page still moves. `entry` for the fade is not
-  interchangeable with `cover` here — `cover`'s denominator includes the
-  viewport, so on a tall screen a short card would still be washed out.
+  So: an IntersectionObserver and a CSS transition, which every browser this
+  site supports has had since about 2019. One code path, one behaviour, and the
+  entrance is time-based — which is what was actually asked for ("like the top
+  appears from left, likewise while I scroll down"), the hero's own entrance
+  repeated down the page.
 
-  The travel is small — a reveal you *notice* as an animation is too big — but
-  above the threshold at which a reader registers that something arrived. The
-  first version moved 8px and finished at `cover 20%`, about 200px after the
-  element's first pixel appears, so it was over while the card was still in the
-  bottom quarter of the screen. That version read as no animation at all.
+  IT STILL CANNOT FAIL CLOSED, and that property was the reason for the original
+  design, so it is preserved deliberately. Nothing here hides anything on its
+  own: the hidden state is scoped to `[data-reveal-js]`, an attribute that ONLY
+  `components/ui/scroll-reveal.tsx` sets, and only once it has an observer in
+  hand. No JavaScript, a thrown constructor, an old engine, a failed chunk — in
+  every one of those the attribute is never set, the rules below never match,
+  and the page renders finished. The resting state is still the finished state.
 */
-@keyframes reveal-fade {
-  from {
+@media (prefers-reduced-motion: no-preference) {
+  /*
+    The waiting state — and there is deliberately NO `transition` on it.
+
+    Putting the transition here instead cost a debugging pass: `data-reveal-js`
+    lands on a page that has already painted, so every revealed element was
+    transitioning from its resting opacity of 1 DOWN to 0 — a 520ms fade-out of
+    twenty-nine elements at load, and then a fade back in. Measured at 0.9s
+    after load: 29 elements stranded between 0.05 and 0.95, none of them yet
+    revealed. On screen it is a blink.
+
+    With the transition on the arrival rule below, hiding is instantaneous —
+    which is invisible, because everything this applies to is off-screen when
+    it happens — and the animation can only ever run inwards.
+  */
+  [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft),
+  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > * {
     opacity: 0;
   }
-  to {
+
+  /* Up, for a heading or a block that owns the full width. */
+  [data-reveal-js] .reveal {
+    transform: translate3d(0, 30px, 0);
+  }
+
+  /* In from the side — the hero's entrance, reused where the layout has a
+     side: the gallery's copy comes from the left, its button from the right. */
+  [data-reveal-js] .reveal-left {
+    transform: translate3d(-52px, 0, 0);
+  }
+
+  [data-reveal-js] .reveal-right {
+    transform: translate3d(52px, 0, 0);
+  }
+
+  /* Quieter, for a block already inside a revealed section. */
+  [data-reveal-js] .reveal-soft {
+    transform: translate3d(0, 18px, 0);
+  }
+
+  /*
+    Cards arrive on the diagonal, from the lower left. A row that rises
+    straight up reads as a list settling; the same row drifting in from the
+    left reads as the hero's entrance happening again.
+  */
+  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > * {
+    transform: translate3d(-26px, 28px, 0);
+  }
+
+  /*
+    Arrived. One attribute, set by the observer.
+
+    Opacity is `linear` and the movement is an ease-out, because they answer
+    different questions: the text has to become readable early — tying the fade
+    to the same slow curve as the travel is what once left the hadith at 0.19
+    opacity while they were fully on screen — and the movement wants to arrive
+    quickly and settle, which is what the expo curve does and what makes this
+    read as the hero's entrance rather than as a slide.
+  */
+  [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft)[data-revealed],
+  [data-reveal-js] :is(.reveal-row, .reveal-row-4) > [data-revealed] {
     opacity: 1;
-  }
-}
-
-/* Up, for a heading or a block that owns the full width. */
-@keyframes reveal-slide-up {
-  from {
-    transform: translate3d(0, 24px, 0);
-  }
-  to {
     transform: none;
+    transition:
+      opacity 520ms linear,
+      transform 760ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-}
 
-/*
-  In from the left, and in from the right — the hero's own entrance, which is
-  the one piece of motion on this page that was never in question, repeated
-  down it. `translate3d` rather than `translateY`/`translateX` throughout so
-  every one of these is a compositor transform on a phone.
-*/
-@keyframes reveal-slide-left {
-  from {
-    transform: translate3d(-40px, 0, 0);
+  /*
+    The cascade. `transition-delay` per column — the thing the scroll-driven
+    version could not have, because progress there was a function of position
+    rather than of time and every stagger had to be faked with a shifted range.
+
+    Two cycles because CSS cannot count a grid's columns: `reveal-row` for the
+    three- and six-card rows, `reveal-row-4` for the two that are four across.
+    Sharing the 3n cycle between them put card 4 back on card 1's delay, which
+    reads as one card failing to animate rather than as a stagger.
+
+    On the arrival rule, not the waiting one, or the delay would apply to the
+    hiding as well. At phone width every row stacks, each card crosses the
+    observer's line on its own, and the extra delay is imperceptible.
+  */
+  [data-reveal-js] .reveal-row > *:nth-child(3n + 2)[data-revealed] {
+    transition-delay: 120ms;
   }
-  to {
-    transform: none;
+
+  [data-reveal-js] .reveal-row > *:nth-child(3n + 3)[data-revealed] {
+    transition-delay: 240ms;
   }
-}
 
-@keyframes reveal-slide-right {
-  from {
-    transform: translate3d(40px, 0, 0);
+  [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 2)[data-revealed] {
+    transition-delay: 100ms;
   }
-  to {
-    transform: none;
+
+  [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 3)[data-revealed] {
+    transition-delay: 200ms;
   }
-}
 
-/*
-  Cards arrive on the diagonal, from the lower left. A card row that rises
-  straight up reads as a list settling; the same row drifting in from the left
-  reads as the hero's entrance happening again, which is what was asked for.
-  Sixteen pixels of it — enough to see the direction, not enough to make four
-  cards look like they are being dealt.
-*/
-@keyframes reveal-slide-in {
-  from {
-    transform: translate3d(-18px, 20px, 0) scale(0.99);
-  }
-  to {
-    transform: none;
-  }
-}
-
-@utility reveal {
-  @supports (animation-timeline: view()) {
-    animation: reveal-fade linear both, reveal-slide-up linear both;
-    animation-timeline: view(), view();
-    animation-range: entry 0% entry 60%, entry 0% cover 26%;
-  }
-}
-
-@utility reveal-left {
-  @supports (animation-timeline: view()) {
-    animation: reveal-fade linear both, reveal-slide-left linear both;
-    animation-timeline: view(), view();
-    animation-range: entry 0% entry 60%, entry 0% cover 28%;
-  }
-}
-
-@utility reveal-right {
-  @supports (animation-timeline: view()) {
-    animation: reveal-fade linear both, reveal-slide-right linear both;
-    animation-timeline: view(), view();
-    animation-range: entry 0% entry 60%, entry 0% cover 28%;
-  }
-}
-
-/*
-  A row of cards, cascading left to right.
-
-  A scroll-driven animation has no `animation-delay` to stagger with — progress
-  is a function of position, not of time — so the stagger is a shifted range per
-  column instead.
-
-  THE STAGGER IS IN THE MOVEMENT, NOT IN THE FADE. Each column's transform range
-  is 10% of `cover` behind the last, which is about 100px of scrolling on a
-  phone and a cascade you can see; the fades are only 12% of `entry` apart and
-  every one of them completes before its card is fully on screen. Staggering the
-  fade by the same amount as the movement is what made the third card of a row
-  the one that was still grey when you stopped to read it.
-
-  Written against a three-column grid, which is what most card rows on this page
-  collapse from; at phone width the columns stack, each child crosses its range
-  on its own, and the cascade becomes an ordinary one-after-another reveal.
-*/
-@utility reveal-row {
-  @supports (animation-timeline: view()) {
-    & > * {
-      animation: reveal-fade linear both, reveal-slide-in linear both;
-      animation-timeline: view(), view();
-      animation-range: entry 0% entry 60%, entry 0% cover 26%;
-    }
-    & > *:nth-child(3n + 2) {
-      animation-range: entry 12% entry 72%, entry 10% cover 36%;
-    }
-    & > *:nth-child(3n + 3) {
-      animation-range: entry 24% entry 84%, entry 20% cover 46%;
-    }
-  }
-}
-
-/*
-  The same, for the two rows that are four across rather than three.
-
-  `reveal-row`'s 3n cycle is correct for a three- or six-card grid and visibly
-  wrong for a four-card one: the fourth card lands back on the first card's
-  offset, so it arrives before its two neighbours and reads as a rendering
-  fault. There is no way for CSS to count a grid's columns, so the caller says
-  which cycle it is in. Everything else is shared, so the two cannot drift.
-*/
-@utility reveal-row-4 {
-  @supports (animation-timeline: view()) {
-    & > * {
-      animation: reveal-fade linear both, reveal-slide-in linear both;
-      animation-timeline: view(), view();
-      animation-range: entry 0% entry 60%, entry 0% cover 26%;
-    }
-    & > *:nth-child(4n + 2) {
-      animation-range: entry 10% entry 70%, entry 8% cover 34%;
-    }
-    & > *:nth-child(4n + 3) {
-      animation-range: entry 20% entry 80%, entry 16% cover 42%;
-    }
-    & > *:nth-child(4n + 4) {
-      animation-range: entry 30% entry 90%, entry 24% cover 50%;
-    }
-  }
-}
-
-/*
-  A quieter one, for a block that is already inside a revealed section — the
-  gallery grid, a "Read more" button, the donation note. Same fade contract,
-  shorter travel, so it does not compete with the row above it.
-*/
-@keyframes reveal-slide-sm {
-  from {
-    transform: translate3d(0, 14px, 0);
-  }
-  to {
-    transform: none;
-  }
-}
-
-@utility reveal-soft {
-  @supports (animation-timeline: view()) {
-    animation: reveal-fade linear both, reveal-slide-sm linear both;
-    animation-timeline: view(), view();
-    animation-range: entry 0% entry 55%, entry 0% cover 22%;
+  [data-reveal-js] .reveal-row-4 > *:nth-child(4n + 4)[data-revealed] {
+    transition-delay: 300ms;
   }
 }
 
 /*
   Somebody who has asked their system for less motion gets none of it.
 
-  This is the whole of that promise for the reveals above and for the utility
-  animations beside them: the elements are already in their finished state, so
-  turning the animation off is all that is needed and nothing has to be
-  reinstated. `scroll-behavior: auto` goes with it — a smooth-scrolled jump to
-  an anchor is motion too.
+  The reveal above lives entirely inside `prefers-reduced-motion: no-preference`
+  — so for a reader who has asked for less, the rules never match, nothing is
+  ever hidden, and there is nothing to switch back on. `scroll-reveal.tsx`
+  checks the same query and returns without setting its attribute, so the
+  observer is never even constructed.
+
+  `scroll-behavior: auto` goes with it: a smooth-scrolled jump to an anchor is
+  motion too.
 */
 @media (prefers-reduced-motion: reduce) {
-  .reveal,
-  .reveal-left,
-  .reveal-right,
-  .reveal-soft,
-  .reveal-row > *,
-  .reveal-row-4 > * {
-    animation: none;
-  }
-
   html {
     scroll-behavior: auto;
   }

@@ -164,6 +164,7 @@ guard is wrong.
 | a **page of a list that only grows** | `apps/web/test/unit/pagination.test.ts` and the bounded count in `app/api/v1/admin/audit-logs/route.ts` |
 | a **`Disallow` in `robots.ts`** | ask whether the page is linked. `Disallow` forbids *fetching*, so a crawler never reads a `noindex` on the… |
 | a **submit handler for anything that must happen once** | `apps/web/e2e/forms.spec.ts` |
+| an **entrance animation on a public page** | `apps/web/e2e/scroll-reveal.spec.ts`. It asserts the NEGATIVE — that elements below the fold are actually hidden…|
 | **SQL inside a Go string** | `apps/api/internal/repositories/sql_schema_census_test.go` |
 | **a script under `apps/web/scripts/`** | `apps/web/test/unit/script-safety.test.ts` |
 | **an overlay, modal or lightbox** | `apps/web/e2e/gallery-lightbox.spec.ts` |
@@ -453,7 +454,7 @@ then open the one entry — the sets are 108 KB and 114 KB, the entries 2–5 KB
 | File | For | KB |
 |---|---|---|
 | [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work | 32 |
-| [docs/traps.md](docs/traps.md) | **index of 168 failures that each cost a session**, grouped by what you have to be touching. All 168 titles are on the index page, so it alone answers "is this already known?" | 14 |
+| [docs/traps.md](docs/traps.md) | **index of 171 failures that each cost a session**, grouped by what you have to be touching. All 171 titles are on the index page, so it alone answers "is this already known?" | 14 |
 | [docs/decisions.md](docs/decisions.md) | **index of 44 ADRs** — why the code contradicts an old assumption. Check before "fixing" one | 7 |
 | [docs/guardrails.md](docs/guardrails.md) | the full account behind each row of the table above — the defect that put the guard there | 37 |
 | [docs/workflow.md](docs/workflow.md) | **the development habits** — which database to develop against, branch → PR → merge, preview deploys, and the ordered list of what to fix first | 12 |

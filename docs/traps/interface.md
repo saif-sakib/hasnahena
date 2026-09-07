@@ -13,58 +13,85 @@ exact: true }` matches until the queue is non-empty, which is precisely the stat
 every test about the queue sets up.
 
 
-**A scroll-driven reveal has no duration, only a range — and one range cannot
-serve both the fade and the movement.** This went wrong twice, in opposite
-directions, and the second time was caused by the fix for the first.
+**A feature behind `@supports` that degrades to nothing degrades SILENTLY, and
+looks exactly like never having built it.** The home page's section reveal was
+written as a scroll-driven CSS animation — `animation-timeline: view()`, no
+observer, no listener, off the main thread, not one byte of JavaScript. It is
+the right answer on paper and it was wrapped in `@supports` so that a browser
+without the feature would fall back to the finished page, which is the correct
+way to write it.
 
-Every section of the home page had had a `view()`-timeline reveal on it since it
-was written, and the page was still reported as *"everything is loaded
-previously and shown as static"* — a fair description. The range was
-`entry 4% cover 20%`. On an 800px viewport `cover 20%` is about 200px of
-scrolling after the element's first pixel appears, so the animation *completed
-while the element was still in the bottom quarter of the screen*; by the time it
-reached the part of the viewport anybody reads, it had been at rest for half a
-second. Eight pixels of travel on top of that put it under the threshold at
-which movement is noticed at all.
+`animation-timeline` reached Safari in **26** and Firefox in **144**. The owner
+was on an engine that had neither, so *not one line of the block was ever
+applied for them*. It was reported twice, in the same words both times —
+"everything is loaded previously and shown as static" — and both reports were
+accurate. Two rounds of fixes were made in between, each carefully measured, and
+neither could possibly have helped: they were adjustments to a block that never
+ran.
 
-So the range was lengthened to `cover 35%`, which lands the finish just above
-the middle of the viewport and looks right when you scroll past it. It was
-reported the next day as **"why are the hadith grey, the colour is so light"** —
-and measuring it was worse than it looked. The third card of the hadith row sat
-at **0.19 opacity while fully on screen**, and stayed under 0.9 for five hundred
-pixels of scrolling; thirty-four elements did the same. Nothing was wrong with
-the colours. Text tied to a range long enough to make the movement feel
-unhurried is text that is unreadable for as long as the movement lasts, and a
-reader who stops to read is a reader standing still in the middle of the range.
+Three things generalise:
 
-The resolution is that they are two animations on two ranges — `animation`,
-`animation-timeline` and `animation-range` all take lists, so this costs one
-extra comma:
+- **The engine you test in is the one that supports the feature.** A headless
+  Chromium check confirms the animation works, which is true and irrelevant. So
+  does reading the CSS. So does the bundle containing it.
+- **A graceful degradation and a broken feature are the same observation.** The
+  page renders correctly in both, which is why the report was "nothing happens"
+  rather than "something is wrong" — and why it took a second identical report
+  to suspect the mechanism rather than the tuning.
+- **Ask what the reader's browser is before optimising for elegance.** The
+  replacement — `IntersectionObserver` plus a CSS transition — costs 1,280 bytes
+  of first-load JavaScript and has worked in every engine since 2019. That was
+  the right trade from the start for a site whose readers are not chosen.
 
-```css
-animation: reveal-fade linear both, reveal-slide-up linear both;
-animation-timeline: view(), view();
-animation-range: entry 0% entry 60%, entry 0% cover 26%;
-```
+Guarded now by `apps/web/e2e/scroll-reveal.spec.ts`, and the assertion that
+matters is the negative one: **elements below the fold must actually be hidden
+before you scroll to them.** A reveal that reveals nothing passes every check
+that only looks at the finished page.
 
-**Opacity belongs on `entry`, movement on `cover`,** and the reason is what each
-range is measured against. `entry` is denominated in the element's OWN height,
-so "60% of the way in" is before the element is fully on screen whatever size it
-is — a 140px heading and a 260px card both go opaque in time. `cover`'s
-denominator is the viewport plus the element, which is what makes it the right
-unit for a movement that should end at a consistent height on screen, and
-exactly the wrong unit for a fade: on a tall screen a short card would still be
-washed out.
 
-The corollary for a staggered row: **stagger the movement, not the fade.**
-Shifting both by the same amount per column is what made the third card the one
+**A reveal that hides on a page which has already painted will animate the wrong
+way first.** The replacement above hides elements by putting `data-reveal-js` on
+`<html>` from JavaScript — deliberately, so that no JavaScript means nothing
+hidden and the page can never fail closed. But the `transition` was written on
+the hiding rule, so when the attribute landed on an already-painted page, every
+revealed element transitioned from its resting opacity of **1 down to 0**: a
+520ms fade-OUT of twenty-nine elements at load, then a fade back in. On screen
+it is a blink.
+
+Put the transition on the ARRIVAL rule (`[data-revealed]`) and nowhere else.
+Hiding then happens in one frame — invisible, because everything it applies to
+is off-screen when it happens — and the animation can only ever run inwards.
+
+The test for it is a direction, not a state: sample opacity twice and assert
+nothing **decreased**. "Nothing is part-way" is the obvious assertion and it is
+wrong, because part-way is also what a legitimate reveal looks like — that form
+failed on ten elements sitting at 0.915 on their way up.
+
+
+**A spec that proves a negative must first prove its precondition.** The
+reduced-motion case asserts that no observer is armed and nothing is hidden.
+Written with `test.use({ reducedMotion: 'reduce' })` inside a `describe`, the
+emulation never reached the page under this project's Playwright config —
+`matchMedia('(prefers-reduced-motion: reduce)').matches` was `false` — so the
+test was asserting the ordinary behaviour of an ordinary page and would have
+passed forever. `page.emulateMedia()` sets it unambiguously, and the spec now
+asserts the media query is in force before asserting what follows from it.
+
+
+**Opacity and movement want different timing, whatever the mechanism.** This
+survived a complete rewrite of the reveal, which is the sign that it is about
+reading rather than about CSS. Tie a fade to the same slow curve as the travel
+and the text is unreadable for as long as the travel lasts — that was reported
+as "why are the hadith grey, the colour is so light", and measured at **0.19
+opacity on an element that was fully on screen**, under 0.9 for five hundred
+pixels of scrolling, across thirty-four elements. Nothing was wrong with the
+colours; the paragraphs have no `text-*` class at all and inherit near-black.
+
+A reader who stops to read stops in the middle of your animation. So the fade is
+short and linear and finishes early; the movement is longer and eased and
+finishes late. In a staggered row, stagger the **movement** — staggering the
+fade by the same amount is what made the third card of each row the one that was
 still grey when you stopped at it.
-
-Neither version is visible in any review that is not scrolling the real page at
-a real viewport. Both typecheck, both lint, both render, the CSS is present in
-the bundle, and a screenshot of the finished state is correct in both. The check
-that catches it is a loop that scrolls the page in steps and asserts no element
-which is *fully on screen* is below 0.9 opacity.
 
 
 **An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering
