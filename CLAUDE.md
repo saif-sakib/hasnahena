@@ -188,7 +188,7 @@ guard is wrong.
    refusals no longer exist — [ADR-030](docs/decisions.md) — but the rule they
    taught does.)
 2a. **Write a balance relatively** (`SET "savingsBalance" = "savingsBalance" + $1 ... RETURNING`), or read it `FOR UPDATE` inside the same transaction. Reading it from the pool and writing back an absolute total is a lost update: it silently destroys money and makes the ledger disagree with the balance. That was LEDGER-01, fixed 2026-08-17 and pinned by concurrency tests — see [ADR-015](docs/decisions.md).
-3. **Zero interest, zero fees.** A rate, markup, or processing fee is a Shariah violation — stop and flag it.
+3. **Zero interest, zero fees on a loan.** A rate, markup, percentage fee or late fee is a Shariah violation — stop and flag it. The one exception is the owner's: a flat ৳500 for office expenses at registration and at a loan application, non-refundable and never added to the loan ([ADR-045](docs/decisions.md)). It does not grow with the amount, and nothing may make it.
 4. Lifecycle is **Request → Process → Confirm** for deposits and loan
    repayments: the member requests, staff process, the member confirms.
    **Withdrawals are the exception** — the member asks a field worker in person,
@@ -455,7 +455,7 @@ then open the one entry — the sets are 108 KB and 114 KB, the entries 2–5 KB
 |---|---|---|
 | [docs/changing-things.md](docs/changing-things.md) | **"I want to change ___"** — blast radius, files to touch, how to prove nothing broke. Start here for routine work | 32 |
 | [docs/traps.md](docs/traps.md) | **index of 176 failures that each cost a session**, grouped by what you have to be touching. All 176 titles are on the index page, so it alone answers "is this already known?" | 14 |
-| [docs/decisions.md](docs/decisions.md) | **index of 44 ADRs** — why the code contradicts an old assumption. Check before "fixing" one | 7 |
+| [docs/decisions.md](docs/decisions.md) | **index of 45 ADRs** — why the code contradicts an old assumption. Check before "fixing" one | 7 |
 | [docs/guardrails.md](docs/guardrails.md) | the full account behind each row of the table above — the defect that put the guard there | 37 |
 | [docs/workflow.md](docs/workflow.md) | **the development habits** — which database to develop against, branch → PR → merge, preview deploys, and the ordered list of what to fix first | 12 |
 | [docs/product.md](docs/product.md) | domain rules, roles, loan/withdrawal/default policy, FR-01…23 | 16 |

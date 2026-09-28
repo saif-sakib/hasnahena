@@ -26,7 +26,8 @@ import { DEFAULT_ORG } from '../theme';
 import type { Block, DocumentModel, Field, LoanDocumentData, OrgSettings } from '../types';
 
 const TERMS = [
-  'This loan is granted under Qard al-Hasan: no interest, profit, or processing fee is charged at any stage.',
+  'This loan is granted under Qard al-Hasan: no interest, profit, or markup is charged at any stage.',
+  'The only payment beyond the principal is BDT 500 for office expenses, paid once at the time of application. It is non-refundable, the same for every loan amount, and not added to the loan.',
   'The borrower shall pay each installment in full on its due date.',
   'The borrower may prepay part or all of the outstanding amount at any time at no additional cost.',
   'No late fee, penalty, or additional charge of any kind is applied to a late or missed installment.',
@@ -50,7 +51,7 @@ export function buildLoanAgreement(
 
   const particulars: Field[] = [
     { label: 'Interest rate', value: '0% — Qard al-Hasan' },
-    { label: 'Processing fee', value: 'None' },
+    { label: 'Office expense', value: 'BDT 500 at application, non-refundable — not part of this loan' },
     { label: 'Total repayable', value: formatCurrency(principal) },
     { label: 'Loan number', value: orDash(data.loanNumber) },
   ];

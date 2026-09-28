@@ -142,6 +142,11 @@ describe('EN/BN message parity', () => {
  * So this reads the prose. It is deliberately a search for the *promise of a
  * charge* rather than for the word "fee": the copy has to be able to say "no
  * processing fee", which is the whole point.
+ *
+ * Since 2026-09-29 there is exactly one charge, and it is not open-ended: ৳500
+ * for office expenses at registration and at a loan application, flat and
+ * never added to a loan (ADR-045). The Terms state that sum; an unbounded
+ * "fees may apply" is still what this census refuses.
  */
 describe('no member-facing page promises a fee', () => {
   const PAGES = join(WEB_ROOT, 'app');
@@ -229,7 +234,13 @@ describe('no member-facing page promises a fee', () => {
       'the loan clause is gone from legal.terms.sections.loans.content — if it was ' +
         'renamed, move this assertion with it rather than deleting it',
     ).toBeDefined();
-    expect(loans.en).toMatch(/no\s+(?:administrative|processing)/i);
+    expect(loans.en).toMatch(/no\s+profit\s+rate/i);
+    // The one charge the foundation makes (ADR-045) is stated with the three
+    // properties that keep it from being riba: a flat sum, not refundable, and
+    // never added to what is owed. Drop any of them and it reads as a markup.
+    expect(loans.en).toMatch(/same whatever amount you borrow/i);
+    expect(loans.en).toMatch(/not added to the loan/i);
+    expect(loans.bn).toContain('ঋণের সাথে যোগ হয় না');
     // "no late fee" is the second half of the same ruling (T-05, 2026-08-25):
     // the agreement denies one rather than reserving one, and so must the page.
     expect(loans.en).toMatch(/no\s+penalty|no\s+additional\s+charge/i);

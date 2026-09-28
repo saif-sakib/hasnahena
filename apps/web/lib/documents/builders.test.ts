@@ -256,12 +256,16 @@ const LOAN = {
 };
 
 describe('buildLoanAgreement', () => {
-  it('states zero interest and zero processing fee explicitly', () => {
+  it('states zero interest, and the one office-expense payment, explicitly', () => {
     // An interest-free loan document that does not say so is worthless as
-    // evidence of Shariah compliance (rule 3).
+    // evidence of Shariah compliance (rule 3). The ৳500 office expense is the
+    // owner's ruling (ADR-045): flat, paid at application, never part of the
+    // loan — so it is printed as exactly that, beside a total equal to the principal.
     const model = buildLoanAgreement(LOAN);
     expect(fieldValue(model, 'Interest rate')).toBe('0% — Qard al-Hasan');
-    expect(fieldValue(model, 'Processing fee')).toBe('None');
+    expect(fieldValue(model, 'Office expense')).toBe(
+      'BDT 500 at application, non-refundable — not part of this loan',
+    );
   });
 
   it('makes the total repayable exactly the principal', () => {
@@ -299,7 +303,8 @@ describe('buildLoanAgreement', () => {
 
   it('prints the terms, including the recovery order a member is agreeing to', () => {
     const terms = findBlock(buildLoanAgreement(LOAN), 'terms')!;
-    expect(terms.items.join(' ')).toContain('no interest, profit, or processing fee');
+    expect(terms.items.join(' ')).toContain('no interest, profit, or markup');
+    expect(terms.items.join(' ')).toContain('not added to the loan');
     expect(terms.items.join(' ')).toContain(
       'the borrower’s own savings, then the guarantor’s savings, then the donation pool',
     );

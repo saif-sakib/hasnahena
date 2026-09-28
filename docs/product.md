@@ -4,7 +4,7 @@ Source of truth for domain rules. Supersedes the former BRD/SRS/FRD/Use-Case PDF
 
 ## Purpose
 
-Hasnahena (হাসনাহেনা) is a community-run, interest-free cooperative in Vekutia, Sadar, Jessore, Bangladesh, operating on Qard al-Hasan. Members deposit savings that earn no interest, borrow with no interest or fees, guarantee each other's loans, and donate. The platform digitises a paper passbook workflow while keeping every taka traceable to a member request and a member confirmation.
+Hasnahena (হাসনাহেনা) is a community-run, interest-free cooperative in Vekutia, Sadar, Jessore, Bangladesh, operating on Qard al-Hasan. Members deposit savings that earn no interest, borrow with no interest or markup, guarantee each other's loans, and donate. The platform digitises a paper passbook workflow while keeping every taka traceable to a member request and a member confirmation.
 
 Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়ি — "Building an interest-free and poverty-free society".
 
@@ -58,7 +58,8 @@ This three-step handshake replaces OTP. Statuses map to `TransactionStatus`: `PE
 | Personal loan cap | 5 × current deposit | `loan.maxLoanMultiplier` |
 | Max installment months | 24 | `loan.maxInstallmentMonths` |
 | Withdrawal while loan active | blocked | `loan.allowActiveLoanWithdrawal` |
-| Interest / processing fee | **zero, always** | not configurable |
+| Interest / markup / late fee | **zero, always** | not configurable |
+| Office expenses, at registration and at a loan application | **৳500 flat, non-refundable, never added to the loan** ([ADR-045](decisions.md)) | not configurable; paid in cash, not recorded |
 | Withdrawal notice **asked for** (not enforced) | 90 days | `loan.noticePeriodDays` (`0` = say nothing) |
 | Missed payments before a loan may be defaulted | 3 | `loan.missedPaymentsForDefault` |
 
@@ -104,7 +105,7 @@ The added amount raises `principalAmount` and `remainingAmount` together, so the
 loan never claims to owe more than was lent. `totalInstallments` does not change:
 the outstanding balance is re-spread over the payments that are *left*, so the
 schedule keeps its end date and each remaining instalment goes up. Zero interest,
-zero fees — the amount added and the amount owed are the same money.
+no markup — the amount added and the amount owed are the same money.
 
 The borrowing ceiling is measured against the **total** owed afterwards, not
 against the increment; otherwise five small top-ups would do what one large loan

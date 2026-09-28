@@ -35,6 +35,11 @@
 export const PRIVACY_LAST_UPDATED = '2026-08-27';
 
 /**
+ * 2026-09-28. The owner's ruling on office expenses (ADR-045): ৳500,
+ * non-refundable, at registration and at a loan application. `responsibilities`
+ * and `loans` now say so in both languages, and `responsibilities` names the
+ * intention — the pleasure of Allah — that the foundation's own wording opens with.
+ *
  * 2026-09-02. `terms.sections.records` was added: the foundation's physical
  * books are the authoritative record and prevail over anything this website
  * shows. Members agree to it at registration, so it has to be readable on the
@@ -45,7 +50,7 @@ export const PRIVACY_LAST_UPDATED = '2026-08-27';
  * the message files; the loan clause last changed on 2026-08-25, when the
  * foundation ruled out a late fee.
  */
-export const TERMS_LAST_UPDATED = '2026-09-02';
+export const TERMS_LAST_UPDATED = '2026-09-28';
 
 /**
  * A revision date in the reader's language.

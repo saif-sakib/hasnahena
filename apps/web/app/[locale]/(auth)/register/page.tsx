@@ -39,6 +39,7 @@ import { Logo } from '@/components/ui/logo';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { fetchSettings } from '@/lib/settings-client';
+import { noticePeriodDaysFrom } from '@/lib/faq';
 import {
   DEFAULT_MINIMUM_AGE_YEARS,
   dateOfBirthMessage,
@@ -295,12 +296,16 @@ export default function RegisterPage() {
   // Falls back to the same default the server uses, so a settings fetch that
   // fails leaves the two agreeing rather than silently disabling the check here.
   const [minimumAge, setMinimumAge] = useState<number>(DEFAULT_MINIMUM_AGE_YEARS);
+  const [noticePeriodDays, setNoticePeriodDays] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     void fetchSettings()
       .then((settings) => {
-        if (!cancelled && settings) setMinimumAge(minimumAgeYears(settings));
+        if (!cancelled && settings) {
+          setMinimumAge(minimumAgeYears(settings));
+          setNoticePeriodDays(noticePeriodDaysFrom(settings));
+        }
       })
       .catch(() => {
         // Silent by design: the applicant is mid-form and the server enforces
@@ -2140,39 +2145,25 @@ export default function RegisterPage() {
                       })}
                     </div>
 
-                    <h3 className="border-b pb-3 text-lg font-semibold">
-                      {isBn ? 'নিয়মাবলী' : 'Rules & Regulations'}
-                    </h3>
+                    <h3 className="border-b pb-3 text-lg font-semibold">{tReg('rulesHeading')}</h3>
 
                     <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+                      <p>{tReg('rulesMembership')}</p>
+                      {/* `loan.noticePeriodDays` is what the foundation asks for and
+                          gates nothing (ADR-030) — the same reading as the FAQ. */}
                       <p>
-                        {isBn
-                          ? '১. সুদ মুক্ত সমাজ গঠনের লক্ষ্যে এককালীন ১০০ টাকা অনুদান দিয়ে কর্জ প্রদানে ওয়াদাবদ্ধ হয়ে যে কেউ সদস্য হতে পারবে। উল্লেখ্য যে, সদস্যদের অনুদান অবশ্যই হালাল হতে হবে।'
-                          : '1. Anyone can become a member by donating a one-time fee of ৳100 and committing to provide interest-free loans. Note: Member donations must be from halal sources.'}
+                        {noticePeriodDays > 0
+                          ? tReg('rulesWithdrawalNotice', { days: noticePeriodDays })
+                          : tReg('rulesWithdrawalNoNotice')}
                       </p>
-                      <p>
-                        {isBn
-                          ? '২. কোন সদস্য জমাকৃত টাকা উত্তোলন করতে চাইলে তাকে কমপক্ষে তিন মাস আগে কর্তৃপক্ষকে অবহিত করতে হবে।'
-                          : '2. If a member wishes to withdraw deposited funds, they must notify the management at least three months in advance.'}
-                      </p>
-                      <p>
-                        {isBn
-                          ? '৩. সদস্য জমাকৃত টাকার উপর কোন প্রকার লভ্যাংশ পাবে না।'
-                          : '3. Members will not receive any interest or dividends on their deposited funds.'}
-                      </p>
+                      <p>{tReg('rulesNoReturn')}</p>
                       <p>{tReg('rulesPhysicalRecords')}</p>
                     </div>
 
-                    <h3 className="border-b pb-3 text-lg font-semibold">
-                      {isBn ? 'অঙ্গীকারনামা' : 'Pledge'}
-                    </h3>
+                    <h3 className="border-b pb-3 text-lg font-semibold">{tReg('pledgeHeading')}</h3>
 
                     <div className="rounded-lg bg-muted/50 p-4 text-sm">
-                      <p className="font-bengali">
-                        {isBn
-                          ? 'আমি অঙ্গীকার করছি যে, অত্র ম্যানেজমেন্টের যাবতীয় নিয়ম কানুন নীতিমালা ও গৃহীত সকল সিদ্ধান্ত আন্তরিকভাবে মেনে চলব। অত্র ম্যানেজমেন্টের স্বার্থ ও মান ক্ষুন্ন ও নিয়ম পরিপন্থী কর্মকান্ডে লিপ্ত হব না।'
-                          : 'I pledge that I will sincerely abide by all rules, regulations, policies, and decisions of this management. I will not engage in any activities that harm the interests or violate the rules of this management.'}
-                      </p>
+                      <p className={cn(isBn && 'font-bengali')}>{tReg('pledge')}</p>
                     </div>
 
                     <h3 className="border-b pb-3 text-lg font-semibold">{tReg('termsHeading')}</h3>

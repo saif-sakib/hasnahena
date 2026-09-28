@@ -371,7 +371,10 @@ describe('TEST-21 — no interest, markup or fee is reachable from a money path'
     // A zero-interest contract that does not say so proves nothing at a counter.
     const agreement = read('apps/web/lib/documents/builders/loan-agreement.ts');
     expect(agreement).toContain("'0% — Qard al-Hasan'");
-    expect(agreement).toContain("label: 'Processing fee', value: 'None'");
+    // The one charge (ADR-045) is printed as flat and outside the loan, never
+    // as a fee on it — a "Processing fee" row with an amount would read as markup.
+    expect(agreement).not.toContain("label: 'Processing fee'");
+    expect(agreement).toContain('not part of this loan');
   });
 
   it('the agreement rules a late fee out, and none is implemented anywhere', () => {

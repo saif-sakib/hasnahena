@@ -60,3 +60,4 @@ heading and a `**Status:**` line, then add its row below.
 | [ADR-042](decisions/adr-042-admission-hands-out-a-number-a-password-is-issued-separately.md) | Admission hands out a number; a password is issued separately | accepted |
 | [ADR-043](decisions/adr-043-a-persons-row-id-is-the-number-they-are-known-by.md) | A person's row id is the number they are known by | accepted, extended by [ADR-044](decisions/adr-044-every-row-is-keyed-by-what-it-is-already-called.md) |
 | [ADR-044](decisions/adr-044-every-row-is-keyed-by-what-it-is-already-called.md) | Every row is keyed by what it is already called | accepted |
+| [ADR-045](decisions/adr-045-office-expenses-are-a-flat-500-taka-outside-the-loan.md) | Office expenses are a flat ৳500, outside the loan | accepted |

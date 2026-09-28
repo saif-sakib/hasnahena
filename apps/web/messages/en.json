@@ -162,7 +162,7 @@
     },
     "step4": {
       "title": "Repay Flexibly",
-      "description": "Repay at your own pace with no interest or hidden fees"
+      "description": "Repay at your own pace — no interest, no markup, no late penalty"
     }
   },
   "contact": {
@@ -231,6 +231,13 @@
       "pendingApplicationHint": "Applied recently? An application has to be approved before you can log in — you will be emailed either way."
     },
     "register": {
+      "rulesHeading": "Rules & Regulations",
+      "rulesMembership": "1. With the aim of building an interest-free society, anyone can become a member by paying five hundred taka (৳500, non-refundable) for office expenses and committing to take part in interest-free lending. Money paid in by members must come from halal sources.",
+      "rulesWithdrawalNotice": "2. A member who wishes to withdraw savings tells their field worker. We ask for at least {days} days' notice so the money can be ready.",
+      "rulesWithdrawalNoNotice": "2. A member who wishes to withdraw savings tells their field worker, who arranges the payment.",
+      "rulesNoReturn": "3. Members receive no interest, profit or dividend on the money they deposit.",
+      "pledgeHeading": "Pledge",
+      "pledge": "I pledge that I will sincerely abide by all rules, regulations, policies, and decisions of this management. I will not engage in any activities that harm the interests or violate the rules of this management.",
       "rulesPhysicalRecords": "4. The Foundation's official physical books and signed documents are the final record. This website may contain errors or delays, so if anything shown here conflicts with the physical books, the physical books prevail.",
       "termsHeading": "Terms & Conditions",
       "termsIntro": "The rules above are part of our full Terms & Conditions. Please read them before you complete your registration.",
@@ -388,7 +395,7 @@
     "withdrawalBlocked": "Withdrawal blocked due to active loan or guarantee",
     "downloadStatement": "Download Statement",
     "applyTitle": "Apply for a loan",
-    "applyIntro": "Interest-free. You repay exactly what you borrow — no fees, no markup.",
+    "applyIntro": "Interest-free. You repay exactly what you borrow — no interest, no markup. A one-time ৳500 for office expenses (non-refundable) is paid when you apply.",
     "applyAmount": "Loan amount",
     "applyInstallments": "Number of monthly installments",
     "applyPurpose": "Purpose of the loan",
@@ -559,11 +566,11 @@
         },
         "responsibilities": {
           "title": "Member Responsibilities",
-          "content": "Members agree to use our services only for lawful purposes, provide truthful information, make timely repayments on any loans, and comply with all applicable laws and regulations."
+          "content": "Members agree to use our services solely for the pleasure of Allah and only for lawful purposes. To register as a new member you pay five hundred taka (৳500) towards office expenses; this payment is non-refundable. Members also agree to provide truthful information, make timely repayments on any loans, and comply with all applicable laws and regulations."
         },
         "loans": {
           "title": "Loan Terms",
-          "content": "Loans provided by Hasnahena Foundation are interest-free. There is no profit rate, no markup, no service charge and no administrative or processing fee — you repay exactly the amount you borrowed and not one taka more. A late or missed instalment carries no penalty and no additional charge of any kind. Specific repayment schedules and conditions are set out in your individual loan agreement."
+          "content": "Loans provided by Hasnahena Foundation are entirely interest-free. There is no profit rate, no markup and no service charge. The only payment is five hundred taka (৳500) towards office expenses, made once when you apply for a loan. It is non-refundable, it is the same whatever amount you borrow, and it is not added to the loan. Apart from that, you repay exactly the amount you borrowed and not one taka more. A late or missed instalment carries no penalty and no additional charge of any kind. Specific repayment schedules and conditions are set out in your individual loan agreement."
         },
         "records": {
           "title": "Official Records",
