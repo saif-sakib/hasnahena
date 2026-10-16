@@ -1,16 +1,8 @@
 # =============================================================================
-#  Hasnahena web app  —  WO-21 (PKG-02)
-# =============================================================================
-#  Build from the REPOSITORY ROOT, not from apps/web:
+#  Hasnahena web app (WO-21). Build from the REPOSITORY ROOT (pnpm workspace):
 #      docker build -f apps/web/Dockerfile -t hasnahena-web .
-#  The whole pnpm workspace is needed — the lockfile and workspace manifest live
-#  at the root, and `--frozen-lockfile` will not work without them.
-#
-#  Base image is bookworm-slim on purpose. Prisma loads a query engine matched
-#  to the runtime's libc and OpenSSL; on this image `native` resolves to
-#  `debian-openssl-3.0.x`, verified present in the traced output. Switching to
-#  Alpine means musl, and needs `binaryTargets = ["linux-musl-openssl-3.0.x"]`
-#  added to schema.prisma or the container starts and dies on the first query.
+#  bookworm-slim on purpose: Prisma's engine must match libc/OpenSSL
+#  (debian-openssl-3.0.x). Alpine needs a musl binaryTarget in schema.prisma.
 # =============================================================================
 
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
@@ -19,11 +11,7 @@ ARG NODE_IMAGE=node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /src
 
-# The slim image carries no libssl and no openssl binary, so Prisma cannot
-# detect a version and falls back to "openssl-1.1.x" — the wrong engine for
-# bookworm, which is openssl-3.0.x. It says so during install and then carries
-# on, which means the failure surfaces at the first query rather than at build
-# time. Installing openssl makes the detection correct instead of lucky.
+# Without openssl, Prisma guesses openssl-1.1.x and fails at the first query.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -79,9 +67,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# HOSTNAME matters: the standalone server binds 127.0.0.1 unless told
-# otherwise, which from outside the container is indistinguishable from the
-# process having failed to start.
+# HOSTNAME: standalone binds 127.0.0.1 otherwise (unreachable from outside).
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -100,9 +86,7 @@ COPY --from=build --chown=node:node /src/apps/web/public ./apps/web/public
 
 EXPOSE 3000
 
-# No curl or wget in the slim image, but node itself is right there. Hits the
-# locale root rather than an API route so the check stays green when the Go API
-# is down — this probe is about *this* container.
+# node-based probe of the locale root, so a Go API outage does not fail it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/en').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 

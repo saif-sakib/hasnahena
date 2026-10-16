@@ -18,23 +18,8 @@ env:
   NODE_VERSION: '24'
 
 jobs:
-  # What this commit actually touched.
-  #
-  # Actions minutes are a metered resource on this account, and the four heavy
-  # jobs below — two Postgres services, a Playwright browser and a full backup
-  # and restore drill — cost the great majority of them. A commit that edits only
-  # prose has nothing for any of them to find.
-  #
-  # `web` is deliberately **not** gated on this. Several of its tests read the
-  # documentation and fail when the docs and the code disagree — the requirement
-  # census reads product.md and tasks.md, the settings census reads the key
-  # lists — so a docs-only commit is exactly the kind that can break it. Skipping
-  # it here to save ninety seconds would defeat the guard that makes those docs
-  # trustworthy.
-  #
-  # Written with git rather than a marketplace filter action: it is six lines,
-  # and this repository already avoids third-party actions where a binary or a
-  # shell line will do (see the note on gitleaks below).
+  # What this commit touched, so docs-only commits skip the four heavy jobs
+  # (Actions minutes are metered). `web` always runs — its tests read the docs.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -56,9 +41,7 @@ jobs:
             BASE="${{ github.event.before }}"
           fi
 
-          # A first push to a branch, or a force-push, has no usable base. Run
-          # everything rather than guess — the failure mode of guessing wrong is
-          # a merged commit nothing tested.
+          # No usable base (first push, force-push): run everything.
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
              || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "no usable base commit; running every job"
@@ -80,15 +63,9 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # The restore drill proves that a dump taken by scripts/backup.sh can
-          # be restored and still satisfies the money invariants. Its inputs are
-          # those scripts, the schema and the migrations — not the button colour
-          # on the approvals screen, which is what it was re-proving on every
-          # push. In August it ran on every code commit and Actions minutes ran
-          # out on the 27th, taking the *nightly backup* down with them for the
-          # rest of the month: the drill was starving the thing it exists to
-          # protect. It still runs on every change that could actually break it,
-          # and nightly from the Backup workflow against a real archive.
+          # The restore drill only when its inputs change (scripts, schema,
+          # migrations) — running it on every push once exhausted Actions minutes
+          # and took the nightly backup down. Backup.yml runs it nightly.
           if echo "$CHANGED" | grep -qE '^(scripts/|apps/web/prisma/|\.github/(workflows/(ci|backup)\.yml|actions/postgres-client/))'; then
             echo "backup=true" >> "$GITHUB_OUTPUT"
           else
@@ -125,16 +102,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # CI-04. Pure functions in lib/ — money formatting, amount-in-words on
-      # generated documents, member-id parsing, the registration validators.
-      # Runs in about a second, so there is never a reason to skip it.
+      # CI-04. Pure lib/ functions; about a second.
       - name: Unit tests
         run: pnpm test:unit
 
-      # Replaces the Dependabot version-update PR stream (see dependabot.yml).
-      # A new advisory becomes a failed check instead of a pull request nobody
-      # reads. `|| true` on purpose: an advisory in a transitive dependency is
-      # not a reason to block a deploy at 2am, but it must be visible.
+      # Advisories as a visible, non-blocking check (replaces Dependabot version PRs).
       - name: Audit
         run: |
           pnpm audit --audit-level=high || true
@@ -167,9 +139,7 @@ jobs:
 
       - name: Formatting
         run: |
-          # The whole tree, with no exclusions. The three files that used to be
-          # carved out here were reformatted in the 2026-08-16 audit, so an
-          # exclusion list is no longer carrying anything.
+          # The whole tree, no exclusions.
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"; echo "$unformatted"; exit 1
@@ -178,17 +148,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # CI-06. `go vet` alone missed the unused ValidateToken and
-      # MaxRequestBodySize that hid SEC-01 and SEC-07 for months — both were
-      # written, never called, and looked like working security. `unused` is the
-      # linter that names that class of defect.
-      #
-      # Five linters as of WO-40 (2026-08-18): errcheck, govet, ineffassign,
-      # staticcheck, unused. errcheck and staticcheck were the staged half —
-      # 44 findings when configured, 0 now — so this step is green rather than
-      # advisory, and a finding here is a defect introduced by the diff under
-      # test. WO-60 removed the last suppression (SA1019 on chi's RealIP) along
-      # with the middleware itself, so nothing is nolint'd for staticcheck.
+      # CI-06. errcheck, govet, ineffassign, staticcheck, unused — green, with no
+      # nolint suppressions (`unused` catches written-but-never-called code).
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -245,54 +206,26 @@ jobs:
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
-      # The schema under test is the one that actually deploys — migrations, not
-      # `db push`. That matters: neither path emits a database default for an
-      # `@updatedAt` column (Prisma applies those client-side), so hand-written
-      # SQL has to write its own timestamps. See docs/data-model.md.
+      # The schema that deploys: migrations, not `db push`.
       - name: Apply schema
         run: pnpm db:migrate
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
-      # WO-54. The migrations are the truth (ADR-014), and that only holds if
-      # something checks. An edit to schema.prisma with no generated migration
-      # is one keystroke away, and nothing notices until a column is missing in
-      # production — which surfaces as a runtime error on a money path. This
-      # compares the just-migrated database against schema.prisma and exits
-      # non-zero with the diff printed.
-      #
-      # Runs here rather than in the `web` job because it needs a migrated
-      # database, and this is the job that has one.
+      # WO-54: fail if the migrated database differs from schema.prisma (ADR-014).
       - name: Schema drift
         run: pnpm db:migrate:check
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
-      # -p 1 is required, not a tuning knob: these packages share one database
-      # and each truncates it between tests. Go runs packages in parallel by
-      # default, so without this they wipe each other's fixtures.
-      #
-      # WO-66. -race here and nowhere else. This system's defining defect class
-      # is concurrent money movement — LEDGER-01 and LEDGER-05 were both lost
-      # updates — and the concurrency tests that pin those fixes were running
-      # without a detector, so a reintroduced race would have had to corrupt a
-      # balance visibly to be noticed. The suite reports zero races today, so
-      # this locks in a property that already holds rather than starting a
-      # cleanup: about 40 seconds of CI for the one guarantee no assertion can
-      # make on its own.
-      #
-      # -race needs cgo. The runner has it; the deployed image is built
-      # CGO_ENABLED=0 and must stay that way. This is a test flag and must
-      # never reach the Dockerfile.
+      # -p 1 is required: packages share one database and truncate it.
+      # -race (WO-66) guards the concurrency tests; needs cgo, which the deployed
+      # CGO_ENABLED=0 image must never get.
       - name: Integration tests
         working-directory: apps/api
         run: go test ./... -tags=integration -count=1 -p 1 -race
 
-      # TEST-16. Drives the exported GET/POST/PUT/PATCH/DELETE of all 11 Next
-      # route files directly, against this same database. It seeds its own
-      # fixtures, so it does not care that the Go suites just truncated
-      # everything. Separate from `test:unit` in the web job on purpose: that
-      # suite must stay runnable without Postgres.
+      # TEST-16: every Next route method, against this database (test:unit stays DB-free).
       - name: Next route contract tests
         run: pnpm test:routes
         env:
@@ -300,42 +233,23 @@ jobs:
           JWT_SECRET: test-secret-at-least-thirty-two-characters
           NEXT_PUBLIC_API_URL: http://localhost:8099
 
-      # WO-73. "Is this route static?" is a conclusion `next build` draws after
-      # following every import in a page, its layout and every component it
-      # renders — no test that reads the source can know it, and a grep for
-      # `export const revalidate` would pass on exactly the regression this
-      # catches. So the build runs and the script reads what it emitted.
-      #
-      # Here rather than in the `web` job because prerendering the marketing
-      # pages reads `system_config`, and this is the job with a migrated
-      # database. Before WO-73, 50 of 52 routes were server-rendered on demand
-      # and every visit to `/en/privacy` opened a Neon connection.
+      # WO-73: build, then assert the marketing pages were prerendered (only the
+      # build knows). Here because prerendering reads the migrated database.
       - name: Build the web app
         run: pnpm build
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
           JWT_SECRET: test-secret-at-least-thirty-two-characters
           NEXT_PUBLIC_API_URL: http://localhost:8099
-          # `next build` sets NODE_ENV=production, so resolveSiteOrigin's
-          # WO-80 guard applies here exactly as it does on Vercel: with no
-          # origin the build fails on /robots.txt before it renders a page.
-          # That guard is right — the fallback it replaced was a domain this
-          # project does not own — so the answer is to name an origin rather
-          # than to weaken it. localhost, deliberately: this output is never
-          # deployed, and a real domain here would let a canonical-URL
-          # regression pass CI by matching a string nobody set on purpose.
+          # resolveSiteOrigin throws on a production build without an origin;
+          # localhost, never a real domain.
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
 
       - name: Marketing pages are prerendered, dashboards are not
         working-directory: apps/web
         run: node scripts/assert-static-routes.mjs
 
-      # WO-83. First-load JavaScript per route, against a checked-in baseline.
-      # Reads .next/diagnostics/route-bundle-stats.json, which the build emits —
-      # "how much JS does this route ship" is a conclusion the bundler draws
-      # after following every import, and no test over the source can reach it.
-      # A route that grew more than 10%, or one with no recorded budget, fails
-      # here rather than arriving on a member's phone unnoticed.
+      # WO-83: first-load JS per route vs bundle-budget.json (+10% or unbudgeted fails).
       - name: Client bundles are within budget
         working-directory: apps/web
         run: node scripts/assert-bundle-budget.mjs
@@ -365,22 +279,12 @@ jobs:
       JWT_SECRET: ci-only-secret-at-least-thirty-two-chars
       NEXT_PUBLIC_API_URL: http://localhost:8081
       E2E_BASE_URL: http://localhost:3000
-      # The whole suite comes from one address and far exceeds the production
-      # default of 60 requests a minute, so the limiter would 429 the later
-      # specs and they would render empty pages. See scripts/test-stack.sh.
+      # The whole suite comes from one address; lift the rate limit.
       RATE_LIMIT_REQUESTS: '100000'
-      # The seeded admin, below. Without these every spec that acts as an
-      # administrator fails rather than skipping — `entry-path.spec.ts` asserts
-      # on them, because a silent skip of the approve/reject journey is the
-      # coverage Phase 1 existed to add. They must match the `db:seed` step.
+      # The seeded admin (must match the db:seed step) — required, not optional.
       E2E_ADMIN_IDENTIFIER: admin@hasnahena.test
       E2E_ADMIN_PASSWORD: ci-password-1234567
-      # **No CLOUDINARY_* on purpose.** That account holds real members' NID
-      # photographs and nothing in CI may write to it. `POST /registrations`
-      # uploads the four documents and rolls the application back if it cannot,
-      # so the two specs that drive the registration form end to end skip here
-      # and say why; the decision half of the entry path seeds its applicant
-      # with Prisma and runs.
+      # No CLOUDINARY_* on purpose (real NID scans): the two real-submission specs skip.
 
     steps:
       - uses: actions/checkout@v7
@@ -409,14 +313,8 @@ jobs:
           SEED_ADMIN_PASSWORD=ci-password-1234567 \
             pnpm db:seed
 
-      # The browser talks to the Go API directly (NEXT_PUBLIC_API_URL), so
-      # without this every spec that logs in fails: login, the dashboards and
-      # all four money journeys. `playwright.config.ts` starts Next itself but
-      # knows nothing about this process — the local equivalent is
-      # `scripts/test-stack.sh up --serve`, which starts both.
-      #
-      # Built rather than `go run`, so a compile error fails here with a
-      # compiler message instead of as a connection refused sixty seconds later.
+      # The browser calls the Go API directly. Built (not `go run`) so a compile
+      # error fails here clearly.
       - name: Start the Go API
         working-directory: apps/api
         run: |
@@ -430,9 +328,7 @@ jobs:
           done
           echo "API did not become ready:"; cat /tmp/api.log; exit 1
 
-      # Only chromium. The specs assert layout and visibility on a Pixel 7
-      # viewport, which chromium emulates; three engines would triple the run
-      # for no extra signal until there is a browser-specific bug to chase.
+      # Chromium only (Pixel 7 emulation).
       - name: Install Playwright browser
         run: pnpm --filter @hasnahena/web exec playwright install --with-deps chromium
 
@@ -448,9 +344,7 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report
 
-      # The API log is where a whole-suite failure explains itself: a run that
-      # trips the rate limiter renders empty pages in the *later* specs, which
-      # reads as flaky ordering until `grep -c 429` says otherwise.
+      # The API log explains whole-suite failures (e.g. `grep -c 429`).
       - name: Upload the API log when something fails
         if: failure()
         uses: actions/upload-artifact@v4
@@ -485,19 +379,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The service container above is Postgres 17, matching production Neon,
-      # and the runner's bundled client is 16. pg_restore rejects an archive
-      # newer than itself outright, so without this the drill fails on the dump
-      # file's header. Same action the nightly Backup uses.
+      # Postgres 17 client to match the service (pg_restore rejects newer archives).
       - uses: ./.github/actions/postgres-client
 
-      # Throwaway values for one job on one ephemeral runner — but a literal
-      # that *looks* like a password is a literal a secret scanner will flag,
-      # and GitGuardian did flag this file. Minting them at run time removes the
-      # fingerprint and is genuinely better: the drill now proves the scripts
-      # work with an arbitrary passphrase instead of one particular string.
-      #
-      # add-mask keeps them out of the log even though they are worthless.
+      # Throwaway credentials minted per run (a literal password trips scanners); masked.
       - name: Mint throwaway credentials for this run
         run: |
           passphrase="$(openssl rand -base64 32)"
@@ -532,9 +417,7 @@ jobs:
           SEED_ADMIN_EMAIL: admin@hasnahena.local
           # SEED_ADMIN_PASSWORD arrives from the mint step via $GITHUB_ENV.
 
-      # An untested backup is a rumour. Running the real scripts on every push
-      # is what stops the restore path rotting quietly between the day it is
-      # written and the day it is needed.
+      # An untested backup is a rumour.
       - name: Dump
         run: scripts/backup.sh backups
         env:
@@ -554,11 +437,7 @@ jobs:
           # gitleaks needs history to scan commits, not just the tree.
           fetch-depth: 0
 
-      # The gitleaks *binary*, not gitleaks-action. The action is free for
-      # personal accounts but asks for a licence key the moment a repository
-      # moves under an organisation, and its major versions have changed that
-      # boundary before. The binary is MIT and has no such condition, so this
-      # job keeps working whoever owns the repo.
+      # The gitleaks binary (MIT), not the action (licence key under an org).
       - name: Install gitleaks
         run: |
           VERSION=8.28.0

@@ -58,10 +58,7 @@ func withSentry(t *testing.T) (*slog.Logger, *recordingTransport) {
 	return slog.New(sentryHandler{inner: inner}), transport
 }
 
-// The whole point of the bridge: an error logged by a handler becomes an alert
-// without that handler knowing Sentry exists. Before it, the only path to
-// Sentry was a panic, and this API answers errors instead of panicking — so
-// fifty slog.Error sites reported nothing for as long as the DSN had been set.
+// An error logged by a handler becomes a Sentry event via the slog bridge.
 func TestErrorLogBecomesASentryEvent(t *testing.T) {
 	log, transport := withSentry(t)
 
@@ -74,9 +71,7 @@ func TestErrorLogBecomesASentryEvent(t *testing.T) {
 	if len(events[0].Exception) == 0 {
 		t.Fatal("want an exception, got none")
 	}
-	// sentry-go unwraps the chain and reports it root-cause first, so the
-	// wrapper — the sentence a person wrote — is last, and that is the one the
-	// issue is titled and grouped by.
+	// Root cause first, so the human-written wrapper (the issue title) is last.
 	outermost := events[0].Exception[len(events[0].Exception)-1]
 	if outermost.Value != "failed to post deposit: connection refused" {
 		t.Errorf("exception value = %q", outermost.Value)
@@ -86,9 +81,7 @@ func TestErrorLogBecomesASentryEvent(t *testing.T) {
 	}
 }
 
-// "ledger drift" is the single most important line this API can log and it
-// carries no error value — reporting only records with an `error` attribute
-// would silently drop it.
+// Records with no error value (e.g. ledger drift) still report.
 func TestAnErrorLogWithNoErrorValueStillReports(t *testing.T) {
 	log, transport := withSentry(t)
 
@@ -103,9 +96,7 @@ func TestAnErrorLogWithNoErrorValueStillReports(t *testing.T) {
 	}
 }
 
-// The access log writes a 5xx line at Error level. It must not double-report:
-// the handler already logged the cause, and one issue holding every 500 the API
-// has ever served is worse than useless.
+// The access log's 5xx line must not double-report.
 func TestTheSkipMarkerSuppressesTheEvent(t *testing.T) {
 	log, transport := withSentry(t)
 
@@ -128,9 +119,7 @@ func TestLevelsBelowErrorDoNotReport(t *testing.T) {
 	}
 }
 
-// A logger built with With() must not lose the attributes it was built with —
-// the reconciliation job tags itself that way, and an untagged drift alert is
-// one nobody can route.
+// Attributes fixed by With() survive (the reconciliation job tags itself).
 func TestAttributesFixedByWithSurvive(t *testing.T) {
 	log, transport := withSentry(t)
 

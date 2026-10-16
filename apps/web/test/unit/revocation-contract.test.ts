@@ -9,21 +9,9 @@ import {
 } from '@/lib/auth-revocation';
 
 /**
- * WO-91. `token_blacklist` is now **written** in two languages as well as read
- * in two languages.
- *
- * The Go API writes the revoke-all marker when a password changes or resets;
- * the Next admin route writes it when a worker is deactivated, archived or
- * deleted. Both backends check it on every authenticated request. So the row has
- * to be the same row: the same key, and a lifetime that outlives the same
- * tokens.
- *
- * A mismatch is invisible in either file — each looks correct alone. It surfaces
- * as a dismissed worker whose staff token is refused by one backend and honoured
- * by the other, which is worse than neither checking, because it looks like it
- * works.
- *
- * Read off disk, no database, no network.
+ * WO-91: token_blacklist is written by both backends (Go on password
+ * change/reset, Next on worker deactivation) — the row must match exactly, or a
+ * token is dead on one backend and live on the other. Read off disk.
  */
 
 const goPath = (relative: string) =>
@@ -53,10 +41,7 @@ describe('the revoke-all marker is the same row on both backends', () => {
   });
 
   it('defaults to the token lifetime the Go config defaults to', () => {
-    // Only Render mints tokens, so only Render has to have JWT_EXPIRY_SECONDS
-    // set — which means the Next half runs on the default far more often than
-    // the Go half does. If the two defaults ever part, the marker on this side
-    // is the wrong length on every deployment that never set the variable.
+    // The defaults must match: the Next half usually runs on the default.
     const fallback = config.match(/getEnvInt64\("JWT_EXPIRY_SECONDS",\s*(\d+)\)/);
     if (!fallback) throw new Error('JWT_EXPIRY_SECONDS is no longer read the way this test expects');
     expect(DEFAULT_JWT_EXPIRY_SECONDS).toBe(Number(fallback[1]));
@@ -82,19 +67,14 @@ describe('the revoke-all marker is the same row on both backends', () => {
   });
 
   it('is upserted, not inserted, on both sides', () => {
-    // `tokenHash` is unique, so a second revocation for the same account has to
-    // move the existing marker forward. An INSERT would raise a constraint
-    // violation and — in the Next half, inside the transaction that deactivates
-    // the worker — roll the deactivation back.
+    // Upsert: an INSERT would violate the unique key and roll back the deactivation.
     expect(authRepository).toMatch(/ON CONFLICT \("tokenHash"\) DO UPDATE SET/);
     const nextSource = readFileSync(
       fileURLToPath(new URL('../../lib/auth-revocation.ts', import.meta.url)),
       'utf8',
     );
     expect(nextSource).toMatch(/tokenBlacklist\.upsert\(/);
-    // And it must move `createdAt`, because that is the timestamp every `iat` is
-    // compared against — a repeat revocation that left it alone would revoke
-    // nothing issued since the first one.
+    // And move createdAt — what every iat is compared to.
     expect(authRepository).toMatch(/"createdAt" = EXCLUDED\."createdAt"/);
     expect(nextSource).toMatch(/update: \{ reason, expiresAt, createdAt: now \}/);
   });
@@ -106,12 +86,7 @@ describe('every path that ends a staff session writes the marker', () => {
     'utf8',
   );
 
-  /**
-   * A census, not a list. The three branches that end a worker's access today
-   * are PATCH → INACTIVE, DELETE → archive and DELETE → hard delete, and all
-   * three used to stop one step short of revoking. The point of counting rather
-   * than naming them is that a fourth branch added tomorrow fails here.
-   */
+  /** A census: every branch that deactivates or deletes a worker revokes. */
   it('has a revocation call for every branch that deactivates or deletes', () => {
     const revocations = workersRoute.match(/revokeAllTokens\(tx, id, 'admin_revoke'\)/g) ?? [];
     const endings =
@@ -128,9 +103,7 @@ describe('every path that ends a staff session writes the marker', () => {
   });
 
   it('writes it inside the transaction, not beside it', () => {
-    // Two statements with a crash in between is the same defect on a smaller
-    // scale: the worker is deactivated and their token is not revoked, or the
-    // reverse, and nothing anywhere says which.
+    // Inside the caller's transaction, never on the bare client.
     expect(workersRoute).not.toMatch(/revokeAllTokens\(prisma[,)]/);
     expect(workersRoute).toMatch(/prisma\.\$transaction\(async \(tx\)/);
   });

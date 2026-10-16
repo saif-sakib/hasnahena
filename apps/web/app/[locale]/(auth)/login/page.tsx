@@ -46,8 +46,7 @@ function getRolePath(role: string | undefined, locale: string) {
 
 export default function LoginPage() {
   const t = useTranslations('auth');
-  // The page's own copy — WO-96. `auth` holds the shared labels; everything
-  // that belongs to this screen alone lives under `auth.login`.
+  // This screen's own copy (WO-96).
   const tp = useTranslations('auth.login');
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
@@ -63,16 +62,10 @@ export default function LoginPage() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
-    // Anonymous by definition — nobody is signed in on this screen — and
-    // `auth.welcomeBack` is in the public tier, so this is the one caller WO-77
-    // changes nothing for. It goes through the same helper as the rest so there
-    // is one place that knows this endpoint's shape.
+    // Anonymous; same helper as everywhere for one endpoint shape.
     fetchSettings()
       .then(data => {
-        // Through `localizedSetting`, not `data['auth.welcomeBack']`: the
-        // greeting is a PAIR as of 2026-08-26. One box shown to two audiences
-        // put a Bengali greeting above an English login form for everybody who
-        // reached this page in English.
+        // A prose pair — through localizedSetting.
         const greeting = localizedSetting(data, 'auth.welcomeBack', locale);
         if (greeting) setWelcomeMessage(greeting);
       })
@@ -90,23 +83,9 @@ export default function LoginPage() {
   });
 
   /**
-   * One login per press, enforced synchronously.
-   *
-   * `disabled={isSubmitting}` is not enough on its own and the browser suite
-   * caught it: two taps delivered inside one tick both pass, because
-   * `isSubmitting` is React state and the button is not actually disabled in
-   * the DOM until the next render. A frustrated thumb on a slow Android
-   * connection — which is most of this platform's traffic — is exactly how that
-   * gets delivered.
-   *
-   * Two logins is not a cosmetic problem. Each mints a session, and the two
-   * responses race to write the token: the loser's value can land second and
-   * leave the browser holding a token the server has already replaced, which
-   * presents as signing in successfully and going nowhere. That is the other
-   * shape this same test failed in.
-   *
-   * A ref is checked and set before the first `await`, so the second call
-   * returns having done nothing whatever the renderer is doing.
+   * One login per press, checked synchronously before the first await:
+   * isSubmitting is state and lags a render, and two racing logins can leave
+   * the browser holding a replaced token.
    */
   const loginInFlight = useRef(false);
 
@@ -133,13 +112,7 @@ export default function LoginPage() {
 
       const payload = await response.json();
       if (!response.ok || !payload?.success) {
-        // Branch on the **code**, not on the English message.
-        //
-        // This used to read `errorMessage.toLowerCase().includes('not active')`
-        // against the server's prose — so rewording "User is not active yet"
-        // would silently drop the member back to a raw error string, and the
-        // check could only ever work in English. `AUTH_USER_INACTIVE` was in the
-        // same payload the whole time.
+        // Branch on the error CODE, never the English message.
         const errorCode = typeof payload?.error?.code === 'string' ? payload.error.code : '';
         const errorMessage = payload?.error?.message || 'Login failed';
         if (errorCode === 'AUTH_USER_INACTIVE') {
@@ -205,9 +178,7 @@ export default function LoginPage() {
         tp('serverUnavailable')
       );
     } finally {
-      // Reset even on the success path: `router.replace` does not unmount this
-      // synchronously, and a member sent back here by a failed navigation must
-      // be able to try again.
+      // Reset on success too: a failed navigation may bring the member back.
       loginInFlight.current = false;
     }
   };
@@ -460,10 +431,7 @@ export default function LoginPage() {
               </form>
             ) : (
               <form
-                // Built inside the event, not during render: called at render
-                // time this puts `onSubmit` — and the single-flight ref it
-                // reads — on the render path, which the React Compiler refuses
-                // with "Cannot access refs during render".
+                // Built in the event: a ref read at render is refused by the React Compiler.
                 onSubmit={(event) => {
                   void handleSubmit(onSubmit)(event);
                 }}
@@ -522,25 +490,7 @@ export default function LoginPage() {
               {submitError && (
                 <div className="p-4 mt-2 rounded-xl bg-red-50/80 border border-red-100 backdrop-blur-xs shadow-xs animate-in fade-in zoom-in-95 duration-200">
                   <p className="text-[13px] font-semibold text-red-600 leading-snug text-center">{submitError}</p>
-                  {/*
-                    Shown on **every** failure, never only for a pending
-                    applicant — and that is the whole design.
-
-                    Someone whose application is still being reviewed cannot log
-                    in: they have no password until an admin approves them, so
-                    they get the same "invalid credentials" as a stranger and
-                    have no way to tell which they are. Answering that question
-                    properly is forbidden: telling this caller "your application
-                    is under review" would confirm that the identifier they typed
-                    belongs to an applicant, which is the membership oracle
-                    ADR-032 closed on `forgot-password`, on a busier endpoint.
-                    For a religious-finance cooperative in one town, membership
-                    itself is the sensitive fact (rule 7a).
-
-                    So the hint is unconditional. It discloses nothing, because
-                    it says the same thing to everybody, and the person it is
-                    written for recognises themselves in it.
-                  */}
+                  {/* Shown on EVERY failure: telling a pending applicant "under review" would confirm membership (ADR-032, rule 7a). */}
                   <p className="mt-2 text-[12px] text-red-700/80 leading-snug text-center">
                     {tp('pendingApplicationHint')}
                   </p>

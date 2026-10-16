@@ -1,21 +1,14 @@
 #!/usr/bin/env bash
 #
-# TEST-01 — an ephemeral stack for tests, in one command.
-#
-# Exercising a single endpoint used to mean starting Postgres by hand, running
-# migrations, seeding, minting a JWT with a throwaway script and remembering to
-# tear it all down. That cost is why the 86 HTTP endpoints have no tests: not
-# because anyone decided not to write them.
+# TEST-01 — an ephemeral test stack in one command.
 #
 #   scripts/test-stack.sh up          # database only — enough for integration tests
 #   scripts/test-stack.sh up --serve  # database + Go API + Next, for e2e
 #   scripts/test-stack.sh env         # print the exports the suites need
-#   scripts/test-stack.sh down        # remove everything
+#   scripts/test-stack.sh down        # remove everything (destroys the volume)
 #
-# Everything is namespaced and non-default (container `hn-test`, port 55433) so
-# it cannot collide with a development database — and cannot be mistaken for one.
-# `down` destroys the volume. That is the point: these suites truncate tables
-# between tests, so the database must be one nobody minds losing.
+# Namespaced and non-default (container `hn-test`, port 55433) so it can never
+# be mistaken for a development database — the suites truncate tables.
 
 set -euo pipefail
 
@@ -26,17 +19,10 @@ API_PORT="${HN_TEST_API_PORT:-8099}"
 WEB_PORT="${HN_TEST_WEB_PORT:-3099}"
 PGURL="postgresql://postgres:postgres@localhost:${PGPORT}/${DBNAME}"
 
-# Deterministic and obviously fake. Never read from the developer's .env, so a
-# misconfigured run cannot reach a real database or sign a token a real
-# deployment would accept.
+# Deterministic and obviously fake; never read from the developer's .env.
 JWT_SECRET="test-secret-at-least-thirty-two-characters"
 
-# The admin this stack seeds, in one place — because two specs sign in as it and
-# they used to have to be told its credentials by hand. `test-stack.sh env` now
-# exports them, so `eval "$(scripts/test-stack.sh env)" && pnpm test:e2e` is
-# enough: without them `public-content.spec.ts` fails with "Set
-# E2E_ADMIN_IDENTIFIER and E2E_ADMIN_PASSWORD", which reads like a broken spec
-# and is a rig that did not finish introducing itself.
+# The seeded admin; `env` exports these so e2e specs can sign in.
 ADMIN_EMAIL="admin@hasnahena.test"
 ADMIN_PASSWORD="test-password-123456"
 
@@ -70,9 +56,7 @@ start_db() {
 
 migrate_and_seed() {
   say "applying migrations"
-  # Migrations, not `db push` (ADR-014). These suites must run against the
-  # schema that actually deploys, including the column defaults Prisma strips —
-  # that difference is what catches the `@updatedAt` class of bug.
+  # Migrations, not `db push` (ADR-014) — the schema that actually deploys.
   DATABASE_URL="$PGURL" pnpm --dir "$ROOT" db:migrate >/dev/null
 
   say "seeding config and an admin"
@@ -86,31 +70,10 @@ serve() {
   mkdir -p "$RUNDIR"
 
   say "starting Go API on ${API_PORT}"
-  # RATE_LIMIT_REQUESTS is raised far above the production default of 60/min.
-  #
-  # The whole browser suite comes from one address, and a single spec logs in and
-  # then loads a dashboard that fetches four endpoints. Forty specs comfortably
-  # exceed sixty requests a minute, so the limiter starts answering 429 partway
-  # through a run and the *later* pages render empty — which looks exactly like
-  # flakiness and is order-dependent, so it reproduces only in a full run.
-  #
-  # Found the hard way: an admin-member-list spec that passed three times alone
-  # and failed inside the suite, with 91 rejections sitting in api.log. The
-  # tempting fix was a retry, which would have hidden it permanently.
-  # Built, not `go run`. Two reasons, both learned here.
-  #
-  # `go run` compiles to a temp binary and execs it as a CHILD, so the pid
-  # recorded below was the `go run` wrapper's and the fallback `pkill -f
-  # cmd/server/main.go` did not match the child either — its command line is
-  # /tmp/go-buildNNN/b001/exe/main. `down` therefore reported success while the
-  # API kept port ${API_PORT} bound, and the next `up --serve` polled /v1/health,
-  # got an answer from the OLD binary and moved on. That is the stale-process
-  # trap in docs/traps.md, and it is what made a full green browser run
-  # prove nothing about the code just written.
-  #
-  # Building also turns a compile error into a compiler message here, instead of
-  # a connection refused ninety seconds later. CI does the same, for the same
-  # reason.
+  # RATE_LIMIT_REQUESTS is raised: the whole browser suite comes from one
+  # address and would otherwise get 429s and empty pages partway through.
+  # Built, not `go run`: `go run` execs a child the pid file and pkill miss, so a
+  # stale API kept answering (docs/traps.md); a compile error also fails here.
   say "building the API"
   ( cd "$ROOT/apps/api" && go build -o "$RUNDIR/api-bin" ./cmd/server ) \
     || die "the Go API did not compile"
@@ -121,13 +84,8 @@ serve() {
   "$RUNDIR/api-bin" > "$RUNDIR/api.log" 2>&1 &
   echo $! > "$RUNDIR/api.pid"
 
-  # TEST_DATABASE_URL as well as DATABASE_URL, and it is the one that decides.
-  # Next re-applies `apps/web/.env` over the inherited environment before any of
-  # our code runs (@next/env), so `DATABASE_URL` handed in here loses to a file
-  # on disk: the API ran on the test database while the web app quietly ran on
-  # the developer's Neon dev one, in the same browser suite. Nothing in this
-  # repo's .env files defines TEST_DATABASE_URL, so nothing can override it —
-  # see the note in apps/web/lib/prisma.ts.
+  # TEST_DATABASE_URL decides the web app's database — Next re-applies
+  # apps/web/.env over DATABASE_URL (see apps/web/lib/prisma.ts).
   say "starting Next on ${WEB_PORT}"
   ( cd "$ROOT/apps/web" && \
     DATABASE_URL="$PGURL" TEST_DATABASE_URL="$PGURL" JWT_SECRET="$JWT_SECRET" \
@@ -160,13 +118,7 @@ stop_servers() {
   pkill -f "${RUNDIR}/api-bin" 2>/dev/null || true
   pkill -f "cmd/server/main.go" 2>/dev/null || true
 
-  # Last resort: whatever still holds the ports, whoever started it.
-  #
-  # The pid files and the pattern matches above both assume this script started
-  # the process. Neither is true after a crashed run, a killed terminal, or a
-  # server someone started by hand — and a survivor is worse than a failure to
-  # start, because the next run connects to it and passes. Ports, not names, are
-  # the thing that actually has to be free.
+  # Last resort: free the ports whoever holds them — a survivor makes the next run pass falsely.
   for port in "$API_PORT" "$WEB_PORT"; do
     for pid in $(ss -lptnH "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u); do
       say "port ${port} still held by pid ${pid} — stopping it"

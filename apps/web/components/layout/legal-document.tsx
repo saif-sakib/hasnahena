@@ -20,18 +20,8 @@ interface LegalDocumentProps {
 }
 
 /**
- * The shell both legal pages render into.
- *
- * One component rather than two near-identical page bodies, because the two
- * pages had already drifted apart in the ways two copies always do — the same
- * "Last updated: March 2026" literal in both, the same bespoke header in both,
- * and no way to change one without remembering the other.
- *
- * `pt-32 md:pt-36` is the shared clearance under the fixed header, which is
- * `h-24`/`md:h-28` at the top of a page and shrinks on scroll. It matches
- * /support, /faq and the four card pages.
- * Before T-10 the interior pages used `pt-32`, `pt-24` and `pt-20` depending on
- * which was written last.
+ * The shell both legal pages render into. `pt-32 md:pt-36` clears the fixed
+ * header, matching the other interior pages.
  */
 export async function LegalDocument({
   icon,
@@ -45,13 +35,8 @@ export async function LegalDocument({
   const t = await getTranslations({ locale, namespace: 'legal' });
 
   /**
-   * `{rejectedDays}` → `365`.
-   *
-   * Deliberately not next-intl's own interpolation: the section bodies arrive
-   * through `t.raw()` as plain strings so the page can iterate them, and `raw`
-   * by definition skips the ICU pass. Substituting here keeps the placeholder
-   * syntax identical in the message files, so `messages.test.ts` still checks
-   * that Bengali carries every `{placeholder}` the English string has.
+   * `{rejectedDays}` → `365`. Manual, because t.raw() skips ICU; the placeholder
+   * syntax stays checkable by messages.test.ts.
    */
   const fill = (text: string) =>
     values

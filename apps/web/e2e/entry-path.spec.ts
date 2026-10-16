@@ -8,31 +8,9 @@ import { resolve } from 'node:path';
 import { PENDING_APPROVAL_PASSWORD_HASH } from '../lib/rejected-application';
 
 /**
- * T-08 — the entry path, walked end to end.
- *
- * *"The entry point to this foundation is the registration process, so the whole
- * entry point should be user friendly, zero bugs, and the arising of bugs in the
- * future should be very minimum."* — the owner, 2026-08-25.
- *
- * `registration.spec.ts` covers the **form**: which field is flagged, whether
- * the message can be seen on a handset, whether a step scrolls. This covers the
- * **journey** the form is the first step of, which nothing did:
- *
- *     apply → the applicant is told what happens next
- *           → an admin decides
- *           → the applicant is told the decision
- *           → and, if approved, can actually get in
- *
- * Every defect the T-06 audit found lived in the *gaps* between those, which is
- * why no existing test caught them. The form worked. The approval endpoint
- * worked. What did not work was that a rejected applicant was never told
- * anything and could not be told afterwards, that a submitted applicant got a
- * two-second toast and a redirect to a login page they cannot use, and that the
- * one email the foundation sends did not say what to log in with.
- *
- * At a **phone viewport, in both languages** (rule 10). The registration form is
- * eight steps of dense Bengali text on a 412 px screen; the language that fits
- * in English is the one that overflows in Bengali.
+ * T-08 — the entry path end to end, at a phone viewport in both languages:
+ * apply → told what happens next → an admin decides → told the decision → if
+ * approved, can get in. (registration.spec.ts covers the form itself.)
  */
 
 test.use({ ...devices['Pixel 7'] });
@@ -40,10 +18,7 @@ test.use({ ...devices['Pixel 7'] });
 test.describe('the entry path', () => {
   test.skip(!hasDatabase(), 'Set DATABASE_URL (scripts/test-stack.sh env) to run the entry-path spec.');
 
-  // Namespaced so this file can clean up after itself without touching rows
-  // another suite seeded — the Go suites truncate between tests, this one does
-  // not, and a spec that deletes by shape eventually deletes somebody else's
-  // fixture.
+  // Namespaced, so cleanup never touches another suite's rows.
   const NS = 'entrypath-e2e';
   const applicant = (tag: string) => ({
     nameEn: `Entry Path ${tag}`,
@@ -66,15 +41,7 @@ test.describe('the entry path', () => {
     prisma = new PrismaClient();
   });
 
-  /**
-   * The seeded application has to be the shape the route actually writes.
-   *
-   * A hand-built fixture that has drifted from the code passes forever while
-   * testing nothing, and this one carries the two fields the decision path turns
-   * on: the password-hash sentinel that makes a row a rejectable *application*
-   * rather than a member, and `preferredLocale`. Reading the route is how the
-   * drift becomes a failure instead of a false green.
-   */
+  /** The seeded application must match what the route writes — read the route. */
   test('the seeded application matches what POST /registrations writes', async () => {
     const route = readFileSync(
       resolve(__dirname, '..', 'app/api/v1/registrations/route.ts'),
@@ -102,20 +69,9 @@ test.describe('the entry path', () => {
   });
 
   /**
-   * Whether a real form submission can reach the end of `POST /registrations`.
-   *
-   * It uploads four images to Cloudinary and rolls the whole application back if
-   * any of them fails — correctly, because the NID scan is a regulatory record
-   * and a member row without one is worse than no member row. So on a machine
-   * with no Cloudinary credentials the form cannot be driven end to end, and
-   * **CI is deliberately such a machine**: that account holds real members' NID
-   * photographs and no test may write to it.
-   *
-   * That is why the four tests below that are about the *decision* create their
-   * applicant with Prisma instead of through the form. They are not about the
-   * form — `registration.spec.ts` owns it, and stubs the POST for the same
-   * reason. Only the two that assert what the applicant is shown after
-   * submitting need the real round trip, and those skip when this is false.
+   * A real submission uploads four images to Cloudinary; CI has no credentials
+   * on purpose (real NID scans), so decision tests seed via Prisma and only the
+   * two post-submission tests need — and skip without — the real round trip.
    */
   const CLOUDINARY_KEYS = [
     'CLOUDINARY_CLOUD_NAME',
@@ -125,9 +81,7 @@ test.describe('the entry path', () => {
 
   const hasCloudinaryCredentials = (() => {
     if (CLOUDINARY_KEYS.every((key) => process.env[key])) return true;
-    // Playwright's own process does not load `apps/web/.env`; **Next does**, so
-    // asking `process.env` alone would skip these two tests on every developer
-    // machine that can actually run them. Read the file the server reads.
+    // Next loads apps/web/.env; Playwright does not — read the file.
     try {
       const env = readFileSync(resolve(__dirname, '..', '.env'), 'utf8');
       return CLOUDINARY_KEYS.every((key) => new RegExp(`^\\s*${key}\\s*=\\s*\\S`, 'm').test(env));
@@ -137,45 +91,22 @@ test.describe('the entry path', () => {
   })();
 
   /**
-   * Credentials are not permission.
-   *
-   * Reading them out of `apps/web/.env` is what makes these two tests runnable
-   * on a developer's machine — and `apps/web/.env` holds the **foundation's own
-   * cloud**, the one with real members' NID photographs in it. Every local run
-   * of this file uploaded four 1×1 pixels named `nid-front`, `nid-back`,
-   * `member-photo` and `signature` into it and left them there: the database
-   * half of the rig is disposable (`scripts/test-stack.sh`), the image host has
-   * no disposable half at all, and nothing anywhere said so. Eleven application
-   * folders were still holding those pixels on 2026-09-02, four of them beside
-   * the real documents of admitted members.
-   *
-   * So the switch is explicit, and it is the same one `lib/cloudinary.ts`
-   * refuses uploads without — one name to set, one place to understand.
+   * Credentials are not permission: apps/web/.env is the foundation's real
+   * cloud. Uploads require ALLOW_TEST_IMAGE_UPLOADS, the same switch
+   * lib/cloudinary.ts enforces.
    */
   const canSubmitForReal =
     hasCloudinaryCredentials && process.env.ALLOW_TEST_IMAGE_UPLOADS === 'yes';
 
   /**
-   * A PENDING application, written the way the route writes one.
-   *
-   * Every field here is one the decision path reads: `passwordHash` is the
-   * sentinel that makes this a *rejected-able application* rather than a member
-   * (`lib/rejected-application.ts`), `preferredLocale` decides which language the
-   * decision email goes out in, and `formNumber` is the reference the applicant
-   * was given — **not** an account number, which they do not have until they are
-   * admitted ([ADR-039](../../../docs/decisions.md)). Getting any of them wrong would make these tests pass
-   * against a row the real flow never produces, which is the failure mode of
-   * every hand-built fixture — so `applicationShapeMatchesTheRoute` below reads
-   * the route and checks.
+   * A PENDING application as the route writes it: the password-hash sentinel,
+   * preferredLocale, and a formNumber — no account number (ADR-039).
    */
   let seededApplications = 0;
 
   async function seedApplication(tag: string, locale: 'en' | 'bn' = 'en') {
     const who = applicant(tag);
-    // `formNumber` is derived per seeded row rather than from the tag alone: a
-    // re-application is a **second row** holding the same email, phone and NID
-    // as the first, so a number derived from the tag would collide on exactly
-    // the test that matters.
+    // Per row: a re-application reuses the same email, phone and NID.
     seededApplications += 1;
     const seq = (Math.abs(hash(tag)) % 90_000) + 9000 + seededApplications;
     const formNumber = `APP-2026-${String(seq).padStart(6, '0')}`;
@@ -190,10 +121,7 @@ test.describe('the entry path', () => {
         preferredLocale: locale,
         role: 'MEMBER',
         status: 'PENDING',
-        // **No account number.** An application does not have one — it is
-        // issued on approval and nowhere else ([ADR-039](../../../docs/decisions.md)),
-        // so that refusing somebody does not consume a number from the
-        // foundation's register. This mirrors what `POST /registrations` writes.
+        // No account number until approval (ADR-039).
         formNumber,
         nameEn: who.nameEn,
         fatherName: 'Mohammad Ali',
@@ -237,14 +165,7 @@ test.describe('the entry path', () => {
     'base64',
   );
 
-  /**
-   * Wait until react-hook-form is driving the page.
-   *
-   * Copied deliberately from `registration.spec.ts` rather than shared: until
-   * React hydrates, Playwright types into server-rendered markup and none of it
-   * reaches the form — the DOM changes, the form state does not, and the next
-   * step never opens. Probing a *derived* value is the only reliable signal.
-   */
+  /** Wait for react-hook-form to drive the page (typing before hydration is lost). */
   async function waitForHydration(page: Page) {
     await expect(async () => {
       await page.selectOption('#maritalStatus', 'MARRIED');
@@ -320,20 +241,13 @@ test.describe('the entry path', () => {
       await reset(tag);
       await apply(page, tag, locale);
 
-      // What this replaces: a two-second toast, then `router.push('/login')`.
-      // The receipt for twenty minutes of form-filling vanished on its own, and
-      // the applicant was left on a door that cannot open — an application has
-      // no password until it is approved.
+      // A confirmation screen, not a toast and a redirect to an unusable login.
       const heading = page.getByRole('heading', {
         name: locale === 'bn' ? 'আবেদন জমা হয়েছে' : 'Application submitted',
       });
       await expect(heading).toBeVisible({ timeout: 30_000 });
 
-      // The **application's** reference — `APP-2026-000001` — allocated at
-      // submission. Not an account number: that is issued if and when the
-      // application is approved, and is in the approval email. This used to
-      // assert `ACC-KH-…`, which is what a public form allocating membership
-      // numbers looked like from the outside.
+      // The application reference (APP-…), not an account number.
       await expect(page.getByText(/APP-\d{4}-\d{6}/)).toBeVisible();
       await expect(page.getByText(/ACC-KH-\d+/)).toHaveCount(0);
 
@@ -363,20 +277,11 @@ test.describe('the entry path', () => {
   }
 
   test('the login page never confirms whether an identifier belongs to an applicant', async ({ page }) => {
-    // A pending applicant cannot log in — they have no password yet — so they
-    // see the same refusal as a stranger. That is deliberate and must stay:
-    // answering "your application is under review" would confirm the identifier
-    // belongs to an applicant, which is the membership oracle ADR-032 closed on
-    // forgot-password, on a busier endpoint. For a religious-finance
-    // cooperative in one town, membership itself is the sensitive fact.
-    //
-    // So the hint is unconditional, and this test is what stops somebody
-    // "improving" it into a conditional one.
+    // A pending applicant gets the SAME refusal as a stranger (ADR-032) — this
+    // stops anyone making the hint conditional.
     const tag = 'oracle';
     await reset(tag);
-    // The application is seeded rather than filled in: what is under test is the
-    // *login page's* answer, and driving twenty form fields to reach it would
-    // make this test depend on an image host for no assertion of its own.
+    // Seeded: the subject is the login page's answer.
     await seedApplication(tag);
 
     const who = applicant(tag);
@@ -411,23 +316,12 @@ test.describe('the entry path', () => {
     await reset(tag);
     const application = await seedApplication(tag);
 
-    // Approve through the API rather than the admin screen: this test is about
-    // the *applicant's* half of the journey, and admin-dashboard.spec.ts owns
-    // the screen. No pre-check that an admin exists: `adminToken()` logs one in
-    // and asserts on the response, which proves the same thing without guessing
-    // at the seeded account's role — the seeded admin is SUPER_ADMIN, and the
-    // only row with role ADMIN is the inactive donation-fund system account.
+    // Approve via the API (admin-dashboard.spec.ts owns the screen).
     const approval = await approveViaApi(page, application.id);
     expect(approval.accountNo, 'the approval must hand back the account number it allocated')
       .toMatch(/^ACC-KH-\d+$/);
 
-    // **The row id moved with it** (ADR-043). Admission is the one moment a
-    // person's id changes, and it is safe only because nothing outside the
-    // database holds the old one: an applicant has never signed in. Asserted
-    // here rather than in a unit test because the thing that could go wrong is a
-    // cascade — the account, the addresses, the nominee and the documents all
-    // follow, and a foreign key that did not cascade would leave a member whose
-    // own savings account belongs to an id that no longer exists.
+    // The row id moved to the account number (ADR-043) and its children cascaded.
     const renamed = await prisma.user.findUnique({
       where: { id: approval.accountNo },
       select: { id: true, formNumber: true, account: { select: { userId: true } } },
@@ -438,17 +332,8 @@ test.describe('the entry path', () => {
     expect(renamed?.account?.userId).toBe(approval.accountNo);
     expect(await prisma.user.findUnique({ where: { id: application.id } })).toBeNull();
 
-    // **The password comes from the staff-assisted reset, not from the
-    // approval.** The approval used to return a temporary password and the
-    // admin screen displayed it; it does not any more, because a working
-    // credential for a fresh account does not belong on a queue screen in a
-    // shared office. Most members of this cooperative have no email (ADR-036),
-    // so this route *is* how they are given one — which makes it part of the
-    // entry path, and this is the test that walks it.
-    // `approval.accountNo`, not `application.id` — admission renamed the row
-    // (ADR-043), and a caller holding the old id addresses nobody. That is the
-    // whole hazard of a mutable key, so the journey that spans the rename is
-    // where it is asserted.
+    // The password comes from the staff-assisted reset (ADR-036), addressed by
+    // the NEW id (approval.accountNo).
     const temporaryPassword = await resetPasswordViaApi(page, approval.accountNo, approval.accountNo);
     expect(temporaryPassword, 'an admin must be able to issue a password to a member with no email')
       .toBeTruthy();
@@ -458,9 +343,7 @@ test.describe('the entry path', () => {
     await page.fill('input[name="password"]', temporaryPassword);
     await page.click('button[type="submit"]');
 
-    // The forced password change, which is the last step of the entry path and
-    // the one nothing walked end to end. A member arriving with a password that
-    // was emailed to them must not be able to keep it.
+    // The forced password change at first login.
     await expect(
       page.getByText(/set (a )?new password|choose a( new)? password/i).first(),
     ).toBeVisible({ timeout: 25_000 });
@@ -470,11 +353,7 @@ test.describe('the entry path', () => {
   });
 
   test('a rejected applicant is told why, and may apply again with the same details', async ({ page }) => {
-    // The finding this exists for. Rejection wrote a status, overwrote the
-    // applicant's email and phone so the unique constraint would let them
-    // reapply, and told them **nothing** — not by email, not in the app. The
-    // scramble meant they could not be told afterwards either. The foundation
-    // held an application it had refused and no way to say so.
+    // A rejected applicant is told.
     const tag = 'reject';
     await reset(tag);
     const who = applicant(tag);
@@ -501,21 +380,12 @@ test.describe('the entry path', () => {
     expect(rejected.rejectionReasonNote).toContain('blurred');
     expect(rejected.rejectedAt).toBeTruthy();
 
-    // **The contact details survive**, which is the whole point: they are what
-    // the rejection email is sent to, and they used to be destroyed by the same
-    // statement that recorded the decision.
+    // Contact details survive rejection.
     expect(rejected.email).toBe(who.email);
     expect(rejected.phone).toBe(who.phone);
 
-    // And the same person can apply again with the same email, phone and NID —
-    // the owner's ruling, enforced by the live-scoped unique indexes.
-    //
-    // Asserted as a second INSERT rather than a second trip through the form,
-    // and that is the stronger check of the two: what permits the re-application
-    // is `users_email_live_key` / `users_phone_live_key` / `users_nid_live_key`,
-    // and only a write reaches them. A form submission would be refused by the
-    // route's own duplicate check first, so it would never touch the constraint
-    // this is about. The form path is covered by the gated pair above.
+    // Re-application with the same details, as a second INSERT — only a write
+    // reaches the live-scoped unique indexes.
     await seedApplication(`${tag}`);
 
     const rows = await prisma.user.findMany({
@@ -558,13 +428,7 @@ test.describe('the entry path', () => {
     };
   }
 
-  /**
-   * The staff-assisted reset (ADR-036), through the Next route that owns it.
-   *
-   * `E2E_BASE_URL` rather than `apiBase`: this half lives in the web app, not
-   * the Go API, because it revokes every session in the same transaction as the
-   * password.
-   */
+  /** The staff-assisted reset (ADR-036), via the Next route. */
   async function resetPasswordViaApi(page: Page, userId: string, confirmAccountNo: string) {
     const token = await adminToken(page);
     const base = process.env.E2E_BASE_URL || 'http://localhost:3000';
@@ -594,10 +458,7 @@ test.describe('the entry path', () => {
   }
 
   test('a rejection with no reason is refused', async ({ page }) => {
-    // FR-05 asks for "approve/reject with reason". The admin screen used to
-    // post `reason: ''` — hardcoded, with no control to change it — so the
-    // requirement was met on paper and by nothing in practice. The server is
-    // where that has to be enforced, because the screen is only one caller.
+    // FR-05: a rejection reason is enforced by the server.
     const tag = 'noreason';
     await reset(tag);
     const created = await seedApplication(tag);

@@ -40,9 +40,7 @@ interface Worker {
   email: string;
   phone: string;
   status: 'ACTIVE' | 'INACTIVE';
-  // WO-72. The branch is a row now. `assignedArea` survives as the *display*
-  // string derived from it, so the search box and the table keep working
-  // unchanged; `branchId` is what the form posts.
+  // Branch row id (WO-72); assignedArea is its display string.
   branchId: string;
   assignedArea: string;
   joinDate: string;
@@ -101,22 +99,8 @@ async function requestWorkersApi<T>(path: string, method: 'POST' | 'PUT' | 'PATC
 }
 
 /**
- * Field-worker accounts.
- *
- * This screen creates and edits **workers**. It does not create admins, and it
- * cannot promote a worker into one: an admin account is made directly in the
- * database, deliberately, because the alternative is that anyone who reaches an
- * admin session can mint another one from a web form and the audit trail records
- * it as ordinary staff administration. `/api/v1/admin/workers` enforces the same
- * rule server-side — role is not a field it accepts on create or on update — so
- * this is a UI that matches the API rather than a UI that hides a capability.
- *
- * Admin accounts are not listed at all. `/v1/dashboard/admin/workers` returns
- * `u.role = 'WORKER'` and nothing else. They used to appear here with every
- * action disabled, which is a row that can only be read — and a screen whose
- * job is create/edit/suspend/delete has no use for one. Nothing else on the
- * screen distinguishes a worker from an admin any more, so the Role column, the
- * role filter and the "Admins" tally are gone with them.
+ * Field-worker accounts only. No admin creation or promotion — admins are made
+ * in the database, and the API refuses a role field too. Admins are not listed.
  */
 export default function AdminWorkersPage() {
   const locale = useLocale();

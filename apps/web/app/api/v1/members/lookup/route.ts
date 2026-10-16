@@ -7,36 +7,9 @@ import { UserRole } from '@prisma/client';
 import { isStandardAccountNo } from '@/lib/account-no';
 
 /**
- * Resolve a human-readable member ID to the minimum a loan applicant needs to
- * nominate a guarantor: the internal id to submit, and the name to confirm they
- * picked the right person.
- *
- * Why this exists at all
- * ---------------------
- * `POST /api/v1/loans/applications` takes a `guarantorId` — a cuid. A member has
- * no way to obtain one: members cannot browse other members (product.md), and
- * nothing lists them. Without this endpoint FR-11 has no reachable UI, which is
- * exactly the state the 2026-08-17 audit found it in.
- *
- * Why it is shaped this narrowly
- * ------------------------------
- * Any id-to-name resolver is an enumeration oracle, and SEC-08 was closed to
- * remove one. Four things keep this from re-opening it:
- *
- *   1. **Authenticated.** Only a signed-in member can call it, so an anonymous
- *      scraper cannot. The registration endpoint SEC-08 was about is public.
- *   2. **Exact match on a full member ID only.** No prefix search, no listing,
- *      no partial match. The caller must already know `ACC-KH-33001` — the
- *      number written in a passbook and read aloud at the counter.
- *   3. **Name and eligibility only.** Never a phone, email, NID, address or
- *      balance. The answer is "yes, that ID is an active member called X", which
- *      is what a person nominating their neighbour already knows.
- *   4. **Rate limited to 10 per 10 minutes per caller.** Enumerating the
- *      ACC-KH-33### space at that rate takes weeks and leaves an audit trail of
- *      a member id doing it.
- *
- * A wrong-but-valid ID would otherwise silently send the guarantor request to a
- * stranger, so confirming the name is a correctness feature, not a convenience.
+ * Resolve a full account number to a name, so a loan applicant can nominate a
+ * guarantor (FR-11). Narrow on purpose (an id-to-name resolver is an oracle):
+ * authenticated, exact match only, name and eligibility only, 10 per 10 min.
  */
 export async function GET(req: Request) {
   try {
@@ -50,10 +23,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: 'INVALID_MEMBER_ID' }, { status: 400 });
     }
 
-    // Keyed on the caller's user id, not their address: the point is to bound
-    // what one account can enumerate, and an address is shared by a household
-    // or a village internet cafe. The address is folded in so one account
-    // cannot parallelise across networks either.
+    // Keyed on the caller's id plus address.
     const limit = await consumeRateLimit(
       'member-lookup',
       `${auth.id}:${callerAddress(req)}`,
@@ -71,9 +41,7 @@ export async function GET(req: Request) {
       select: { id: true, accountNo: true, nameEn: true, nameBn: true },
     });
 
-    // Deliberately the same answer for "no such member", "not a member" and
-    // "not active": distinguishing them would turn this into the status oracle
-    // it is careful not to be.
+    // One answer for missing, non-member and inactive.
     if (!member || member.id === auth.id) {
       return NextResponse.json({ ok: false, error: 'MEMBER_NOT_FOUND' }, { status: 404 });
     }

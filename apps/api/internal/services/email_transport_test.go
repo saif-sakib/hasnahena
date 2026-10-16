@@ -11,16 +11,8 @@ import (
 	"time"
 )
 
-// WO-62 — the transport, as opposed to the rendering that WO-52 covered.
-//
-// The defect was arithmetic, not logic: three attempts against a 12-second
-// client with a 1.5-second sleep between them is a 39-second synchronous call
-// inside an HTTP handler, and SERVER_SHUTDOWN_TIMEOUT is 30. A deploy landing
-// during a slow Brevo call was a SIGKILL mid-request.
-//
-// None of these tests waits out a real timeout. The service's timings are
-// fields so a test can run the same code paths in milliseconds; the one test
-// that uses the real constants only does arithmetic on them.
+// WO-62 — the Brevo transport must fit inside the shutdown drain. Timings are
+// fields, so no test waits out a real timeout.
 
 // newTestEmailService points the service at a stub and shrinks its clocks.
 func newTestEmailService(t *testing.T, handler http.HandlerFunc) (*EmailService, *httptest.Server) {
@@ -42,16 +34,8 @@ func newTestEmailService(t *testing.T, handler http.HandlerFunc) (*EmailService,
 	return svc, server
 }
 
-// hangUntilTheClientGivesUp is a Brevo that accepts the connection and then says
-// nothing — the failure shape WO-62 is about, since a hang is what spends a
-// timeout budget where an error would not.
-//
-// It drains the request body first, deliberately. net/http learns that the peer
-// has gone from a read on the connection, and an unread request body is what
-// that read returns instead; leave it unread and the handler sits well past the
-// client's cancellation, which makes httptest.Server.Close block with it. The
-// second arm is a backstop so a mistake here fails a test rather than hanging
-// the suite.
+// hangUntilTheClientGivesUp accepts and says nothing. It drains the body first
+// so httptest.Server.Close does not block.
 func hangUntilTheClientGivesUp(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, r.Body)
 	select {
@@ -64,10 +48,7 @@ func send(svc *EmailService) error {
 	return svc.sendWithRetry(context.Background(), "member@example.test", "Subject", "text body", "<p>html body</p>")
 }
 
-// The invariant the order was written about. Real constants, no network: if
-// someone raises the budget past the drain, or shortens the drain, this is what
-// says so — rather than a member's approval being SIGKILLed mid-flight on the
-// next deploy.
+// Real constants: the worst case must fit inside the shutdown drain.
 func TestTheWorstCaseFitsInsideTheShutdownDrain(t *testing.T) {
 	// config.go: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 30*time.Second).
 	const shutdownDefault = 30 * time.Second
@@ -132,9 +113,7 @@ func TestASlowBrevoIsAbandonedWhenTheBudgetRunsOut(t *testing.T) {
 	}
 }
 
-// The reason attempts are bounded separately from the sequence. With only an
-// outer budget, the first hung connection eats all of it and the retries that
-// exist for exactly this case never run.
+// A hung attempt must not consume every retry.
 func TestAHungAttemptDoesNotConsumeEveryRetry(t *testing.T) {
 	var calls int32
 	svc, _ := newTestEmailService(t, func(w http.ResponseWriter, r *http.Request) {
@@ -172,14 +151,8 @@ func TestRetriesStopAtTheAttemptLimit(t *testing.T) {
 	}
 }
 
-// Pins the deliberate context.WithoutCancel in sendWithRetry.
-//
-// Both cancellations a request context carries would do harm. The approval has
-// already committed by the time this runs, and the HTTP response is what
-// carries the temporary password — so if the admin's browser has gone, this
-// email is the only way the member will ever receive it. A test, because
-// "ctx is not used for cancellation" reads like an oversight and would be
-// tidied up by the next person through.
+// Pins context.WithoutCancel in sendWithRetry — the email may be the only
+// delivery of the password. Not an oversight.
 func TestTheCallersCancellationDoesNotCancelTheSend(t *testing.T) {
 	var calls int32
 	svc, _ := newTestEmailService(t, func(w http.ResponseWriter, r *http.Request) {

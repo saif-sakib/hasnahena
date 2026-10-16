@@ -1,16 +1,7 @@
 /**
- * Seeded accounts for the browser journeys (TEST-26 … TEST-30).
- *
- * Playwright specs run in Node, so they can reach the database directly rather
- * than driving the whole sign-up-and-approve flow before every test. That
- * matters twice over: the journeys under test start *after* approval, and a spec
- * that depends on another spec having run first fails on execution order.
- *
- * Every account is created here, idempotently, with a password this file knows.
- * Real credentials never appear: the password is fixed, obviously fake, and the
- * accounts are namespaced `e2e-` so they cannot be confused with member data.
- *
- * Guarded against pointing at anything real — see assertDisposableDatabase.
+ * Seeded accounts for the browser journeys: created idempotently in the
+ * database with a fixed fake password, namespaced `e2e-`. Refuses a
+ * non-disposable database (assertDisposableDatabase).
  */
 
 import bcrypt from 'bcryptjs';
@@ -38,13 +29,7 @@ export async function disconnect(): Promise<void> {
   }
 }
 
-/**
- * Refuse to run against anything that might hold real records.
- *
- * These specs create users and move balances. A `DATABASE_URL` pointing at Neon
- * would do that to the cooperative's own ledger, and the mistake is one
- * copied-and-pasted environment variable away.
- */
+/** Refuse anything that might hold real records. */
 export function assertDisposableDatabase(): void {
   const url = process.env.DATABASE_URL ?? '';
   if (!url) throw new Error('DATABASE_URL is not set; run `eval "$(scripts/test-stack.sh env)"` first.');
@@ -62,20 +47,12 @@ export function hasDatabase(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
-/**
- * Create the three accounts, plus an account row and an opening balance for the
- * member so the money journeys have something to work with.
- *
- * Upserted rather than truncated: the Go suites share this database and clearing
- * it out from under them is how a suite starts failing on ordering.
- */
+/** The three accounts plus the member's account and balance; upserted, never truncated. */
 export async function seedAccounts(openingBalance = 50_000): Promise<void> {
   assertDisposableDatabase();
   const passwordHash = await bcrypt.hash(E2E_PASSWORD, 10);
 
-  // `mustChangePassword` is not a column — the API derives it from an unused
-  // first-login row in password_reset_tokens. Clearing those is what stops
-  // the login form diverting these accounts to the change-password step.
+  // Clear first-login rows, or login diverts to the change-password step.
   await db().passwordResetToken.updateMany({
     where: {
       usedAt: null,

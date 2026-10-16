@@ -1,15 +1,5 @@
-// WO-57 — the success path of a route, driven end to end.
-//
-// The finding that produced this file is not the BigInt. It is that
-// `routes.contract.test.ts` drives every route with an id that does not exist,
-// so it proves who may *call* a route and almost nothing about what the route
-// answers once the caller is allowed. The dispute route's success path had
-// never been executed by a test, and in production it committed the write and
-// then answered 500 — a member objecting to a wrong posting was told twice that
-// the platform could not hear them.
-//
-//   scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// WO-57 — routes driven along their SUCCESS path (the contract suite only
+// proves who may call them). Needs a database.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -131,15 +121,8 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
 // ---------------------------------------------------------------------------
 
 /**
- * Four Prisma models carry BigInt columns, and `JSON.stringify` throws on a
- * BigInt. A route that hands one of them straight to `NextResponse.json`
- * therefore fails *after* its write has committed — the worst shape an error
- * can take on a money path, because the caller is told the opposite of what
- * happened.
- *
- * Serialise at the boundary. A `BigInt.prototype.toJSON` polyfill would silence
- * this globally and turn every BigInt in every response into a string nobody
- * reviewed.
+ * Routes returning BigInt-model rows must serialise at the boundary —
+ * JSON.stringify throws AFTER the write committed. No global toJSON polyfill.
  */
 const BIGINT_MODELS = ['transaction', 'loan', 'account', 'documentSequence'];
 

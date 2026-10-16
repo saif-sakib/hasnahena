@@ -9,16 +9,8 @@ import {
 } from '@/lib/reset-tokens';
 
 /**
- * WO-86. `password_reset_tokens` is written in two languages: the Go API issues
- * and spends every secret in it, and the Next staff-creation route plants the
- * first-login marker whose existence *is* `mustChangePassword`.
- *
- * Both halves have to agree on two columns. A mismatch is invisible in either
- * file — each looks correct alone — and surfaces as a member who is never asked
- * to change the temporary password they were emailed, or one who is asked for
- * ever because nothing can find the row to retire.
- *
- * Read off disk, no database, no network.
+ * WO-86: password_reset_tokens is written by Go and by the Next staff route;
+ * scopes and hashing must agree. Read off disk.
  */
 
 const goSource = readFileSync(
@@ -60,9 +52,7 @@ describe('the password_reset_tokens contract agrees across both backends', () =>
   });
 
   it('the Go half hashes on the way in, so a caller cannot store plaintext by mistake', () => {
-    // CreateResetToken takes the plaintext and hashes it itself. If it ever
-    // took a hash from its caller, one call site forgetting to hash would put a
-    // working credential back in the table with nothing failing.
+    // CreateResetToken hashes the plaintext itself — never trusts a caller's hash.
     expect(goSource).toMatch(/INSERT INTO password_reset_tokens[\s\S]*?"tokenHash"/);
     expect(goSource).toMatch(/hashResetSecret\(secret\)/);
   });

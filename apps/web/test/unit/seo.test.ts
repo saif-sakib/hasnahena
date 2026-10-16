@@ -16,22 +16,10 @@ import {
   siteVerification,
 } from '@/lib/seo';
 
-/**
- * WO-80 and WO-81 — three correctness defects in the SEO that already existed,
- * and the Open Graph properties that keep a shared link looking like the page it
- * points at.
- *
- * None of these is an enhancement. Each was emitting something specific and
- * wrong to every crawler that asked.
- */
+/** WO-80 / WO-81 — SEO correctness and Open Graph. */
 
 describe('the site origin is resolved, never guessed', () => {
-  /**
-   * The old fallback was `https://hasnahena.org` — a domain this project does
-   * not own. `siteOrigin` is the base of every canonical URL, every `hreflang`,
-   * every Open Graph URL, the sitemap and `robots.txt`, so one build with
-   * neither variable set told every crawler the real content lives elsewhere.
-   */
+  /** Never a fallback domain the project does not own. */
   it('prefers NEXT_PUBLIC_SITE_URL', () => {
     expect(
       resolveSiteOrigin({
@@ -117,11 +105,7 @@ describe('hreflang', () => {
 });
 
 describe('the sitemap tells the truth about when a page changed', () => {
-  /**
-   * `lastModified: new Date()` made every URL claim to have changed today, on
-   * every crawl, forever. A crawler that learns the field is always "now" stops
-   * believing it — which costs the signal for the pages that really did change.
-   */
+  /** No lastModified it cannot support. */
   it('claims no modification date it cannot support', () => {
     for (const entry of sitemap()) {
       expect(entry.lastModified, `${entry.url} claims a lastModified`).toBeUndefined();
@@ -191,20 +175,7 @@ describe('the social card survives being shared', () => {
 // The favicon, and the name a crawler reads
 // ---------------------------------------------------------------------------
 
-/**
- * Reported by the owner: searching "hasnahena foundation" returns this site
- * first, with the generic globe where the logo should be.
- *
- * The cause was not the icon file. `public/favicon.ico` was served — a browser
- * requests `/favicon.ico` by convention whether anything links to it or not —
- * but **no `<link rel="icon">` reached the HTML**, because Next only emits one
- * for an icon inside `app/`. Google's favicon crawler reads the page's `head`,
- * so it found nothing and fell back to the globe.
- *
- * These assertions are about the declaration rather than the pixels. The pixels
- * were the other half of the report ("there is white background") and are a
- * property of the file, which no unit test can usefully read.
- */
+/** A declared `<link rel="icon">` (Next only emits one for app/ icons). */
 describe('the site declares a favicon a crawler can find', () => {
   const icons = SITE_ICONS.icon as Array<{ url: string; sizes?: string }>;
 
@@ -232,9 +203,7 @@ describe('the site declares a favicon a crawler can find', () => {
   });
 
   it('uses stable paths, not content-hashed ones', () => {
-    // Google caches the favicon against its URL. Next's `app/icon.png`
-    // convention appends a hash that moves whenever the file is edited, which
-    // is why these live in `public/` and are declared by hand.
+    // Stable public/ paths (Google caches by URL).
     for (const icon of [...icons, ...(SITE_ICONS.apple as Array<{ url: string }>)]) {
       expect(icon.url, `${icon.url} must be a stable absolute path`).toMatch(/^\/[\w.-]+$/);
     }
@@ -242,13 +211,7 @@ describe('the site declares a favicon a crawler can find', () => {
 });
 
 describe('the site is named the same everywhere a crawler looks', () => {
-  /**
-   * The `<title>` existed three times: the root layout's metadata call, that
-   * same layout's `title.default`, and the home page's own `generateMetadata`,
-   * which overrides both. They drifted — the layout said "Hasnahena Foundation"
-   * while the home page said "Hasnahena", and the home page is the one that
-   * wins. `siteTitle()` is the single copy; this refuses a fourth.
-   */
+  /** siteTitle() is the single copy of the site's title; this refuses a fourth. */
   const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 
   function sourceFiles(): string[] {
@@ -275,14 +238,7 @@ describe('the site is named the same everywhere a crawler looks', () => {
   });
 
   it('no page writes its own "Hasnahena — …" title string', () => {
-    // Title-shaped: a string that STARTS with the site name and carries a
-    // spaced separator. Two narrowings, both learned from false positives —
-    // a census that cries wolf gets deleted rather than obeyed:
-    //
-    //   - anchored at the opening quote, so body copy is out ("Learn about
-    //     Hasnahena's mission", "interest-free microfinance");
-    //   - not preceded by `=`, so a JSX attribute is out. The logo's `alt` is
-    //     the site's name with a dash in it and is not a page title.
+    // Title-shaped: starts with the site name, spaced separator, not after `=`.
     const pattern = /(.?)(['"`])\s*(?:Hasnahena|হাসনাহেনা)[\w\s'’]*\s[-—]\s[^'"`\n]{6,}\2/g;
     const hardcodesATitle = (text: string) =>
       [...text.matchAll(pattern)].some((m) => m[1] !== '=');
@@ -321,11 +277,7 @@ describe('the web app manifest', () => {
 });
 
 describe('search-engine ownership tokens', () => {
-  /**
-   * Bing was never told this site exists — no Webmaster Tools property, so no
-   * submitted sitemap and no view of the crawl. The tag is how the property is
-   * claimed when the Search Console import is not used.
-   */
+  /** Bing verification tag when the token is set. */
   it('emits msvalidate.01 for Bing when the token is set', () => {
     expect(siteVerification({ BING_SITE_VERIFICATION: 'ABC123' })).toEqual({
       other: { 'msvalidate.01': 'ABC123' },
@@ -338,12 +290,7 @@ describe('search-engine ownership tokens', () => {
     ).toEqual({ google: 'g-tok', other: { 'msvalidate.01': 'ABC123' } });
   });
 
-  /**
-   * Undefined rather than an empty object, and it matters: `verification: {}`
-   * is what Next is handed, and an empty `other` is a shape it has no reason to
-   * keep behaving well on. Unset must produce exactly the HTML that shipped
-   * before the field existed.
-   */
+  /** Undefined (not {}) when unset — exactly the old HTML. */
   it('is absent when neither is set, and when either is blank', () => {
     expect(siteVerification({})).toBeUndefined();
     expect(siteVerification({ BING_SITE_VERIFICATION: '   ' })).toBeUndefined();
@@ -354,14 +301,7 @@ describe('the IndexNow key', () => {
   const publicDir = resolve(new URL('.', import.meta.url).pathname, '..', '..', 'public');
   const keyFiles = readdirSync(publicDir).filter((name) => /^[0-9a-f]{8,128}\.txt$/.test(name));
 
-  /**
-   * IndexNow authenticates by asking the site to serve its own key: the file
-   * must be reachable at `/<key>.txt` and contain the key. A second key file
-   * means the submit script cannot tell which one the crawler was told about,
-   * and a mismatch between name and contents is a bare 403 that explains
-   * nothing. scripts/indexnow-submit.mjs reads the key from the filename, so
-   * these two facts are the whole protocol.
-   */
+  /** Exactly one IndexNow key file, whose name equals its contents. */
   it('is exactly one file in public/', () => {
     expect(keyFiles).toHaveLength(1);
   });

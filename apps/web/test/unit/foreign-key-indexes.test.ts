@@ -3,27 +3,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * WO-68. Every foreign key is indexed, with its column **leading** the index.
- *
- * Two costs, and the second is the one that gets missed:
- *
- * 1. **Reads.** `Loan.guarantorId` is filtered in nine places, including a
- *    correlated subquery evaluated once per row of the member list —
- *    `EXISTS(SELECT 1 FROM loans l WHERE l."guarantorId" = u.id AND …)`. With no
- *    index that is a sequential scan of `loans` per member rendered. Invisible at
- *    today's row counts; quadratic as membership grows.
- * 2. **Writes to the *parent*.** Postgres validates a foreign key by looking for
- *    referencing rows, and with no index on the child that means scanning the
- *    whole child table — while holding a lock. Deleting or updating a user is
- *    slow for a reason nothing about the user table explains.
- *
- * This is a census, not a list, deliberately: the point is that the *next*
- * foreign key someone adds fails the build until it is indexed. A list of the
- * six that were missing on 2026-08-19 would be satisfied and then stale.
- *
- * "Leading" matters. Postgres can use `@@index([a, b])` for a predicate on `a`,
- * but not for one on `b` alone — so an index that merely *contains* the column
- * does not answer a lookup by it.
+ * WO-68: every foreign key is indexed with its column LEADING the index —
+ * unindexed FKs mean per-row scans and full child scans (under lock) when a
+ * parent changes. A census, so the next FK fails until indexed.
  */
 
 const SCHEMA = readFileSync(
@@ -50,14 +32,7 @@ function foreignKeys(body: string): string[] {
   return [...out];
 }
 
-/**
- * Columns that lead *some* index on the model.
- *
- * Counts `@@index`, `@@unique`, `@@id` and a single-field `@unique`, because
- * every one of those is backed by a real index Postgres can use. The
- * `(sort: Desc)` suffix is stripped — it changes the ordering, not what the
- * index can answer.
- */
+/** Columns that lead some index (@@index, @@unique, @@id, @unique). */
 function indexedLeadingColumns(body: string): Set<string> {
   const out = new Set<string>();
   const lead = (list: string) => list.split(',')[0].trim().split('(')[0].trim();
@@ -101,14 +76,7 @@ describe('every foreign key is indexed', () => {
 });
 
 describe('the indexes the hot paths actually need', () => {
-  /**
-   * A bare `@@index([guarantorId])` satisfies the census above, but every real
-   * predicate is `guarantorId = ? AND status IN (…)`. The composite answers it
-   * from the index alone rather than reading the heap to check the status.
-   *
-   * Pinned separately because the census cannot know the query shape, and
-   * because someone tidying "redundant" indexes would otherwise be told nothing.
-   */
+  /** guarantorId + status composite: every real predicate filters both. */
   it('loans are indexed by guarantor *and* status together', () => {
     const loan = MODELS.find((m) => m.name === 'Loan');
     expect(loan).toBeDefined();

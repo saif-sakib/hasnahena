@@ -1,22 +1,6 @@
-// ADR-040 — an admitted member's files live in one folder, named after them.
-//
-// The four registration documents arrive from a public form, before anybody is
-// a member and therefore before an account number exists, so they are uploaded
-// under the application. Approval moves them next to the avatar. This walks the
-// route that does it.
-//
-// **Cloudinary is stubbed at the module boundary.** That account holds real
-// members' NID scans and CI has no credentials for it on purpose, so a spec that
-// drives the real thing fails the whole workflow. Stubbing also buys the half
-// that cannot be tested against it either way: the *successful* move, where the
-// URL is rewritten and the emptied folder is cleaned up.
-//
-// Only the two functions that talk over the network are replaced. `personFolder`
-// and `extractPublicId` are pure and come from the real module — restating them
-// here would let the route and the test agree with each other and with nothing.
-//
-//   scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// ADR-040 — approval moves an admitted member's documents into people/<accountNo>.
+// Cloudinary's network functions are stubbed (CI has no credentials); pure
+// helpers come from the real module. Needs a database.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
@@ -66,9 +50,7 @@ d('filing an admitted member’s documents', () => {
     await testPrisma().user.deleteMany({ where: { phone: { startsWith: `01${TAG}` } } });
     cloud.moveAsset.mockReset();
     cloud.deleteEmptyFolder.mockReset().mockResolvedValue(undefined);
-    // The default is a move that does not happen — an image host that is down,
-    // or credentials that are absent, which is what CI has. Each test that cares
-    // about the happy path says so.
+    // Default: the move does not happen (as in CI).
     cloud.moveAsset.mockResolvedValue(null);
   });
 
@@ -132,9 +114,7 @@ d('filing an admitted member’s documents', () => {
   });
 
   it('counts a document already filed under the member as needing nothing', async () => {
-    // Idempotency is the whole safety of this route: the approvals screen calls
-    // it and so does the nightly sweep, so "already there" has to be an outcome
-    // rather than a failure — and it must not be a Cloudinary round trip either.
+    // Idempotent, with no Cloudinary round trip for "already there".
     const id = await makeUser({
       accountNo: 'ACC-KH-39001',
       formNumber: 'APP-2026-009002',
@@ -179,9 +159,7 @@ d('filing an admitted member’s documents', () => {
   });
 
   it('leaves the application folder alone when anything failed to move', async () => {
-    // Half-moved is the dangerous state. Removing the folder here would need
-    // `deleteFolder`, which deletes contents — finishing the move by destroying
-    // the half that did not move.
+    // Half-moved: never delete the folder.
     const id = await makeUser({
       accountNo: 'ACC-KH-39005',
       formNumber: 'APP-2026-009006',
@@ -203,9 +181,7 @@ d('filing an admitted member’s documents', () => {
   });
 
   it('leaves the row alone when the move cannot happen', async () => {
-    // The URL must still point at where the file actually is: rewriting it on a
-    // move that did not happen is the one outcome worse than not moving, because
-    // the row then names nothing and the sweep has nothing to retry from.
+    // A failed move leaves the URL pointing at the file's real location.
     const url =
       'https://res.cloudinary.com/demo/image/upload/v1/hasnahena/applications/APP-2026-009003/nid-front.jpg';
     const id = await makeUser({
@@ -224,9 +200,7 @@ d('filing an admitted member’s documents', () => {
   });
 
   it('never deletes a document row', async () => {
-    // Filing is not purging. `purgeApplicationDocuments` deletes rows and
-    // assets at a rejection; this one only ever renames, and a bug that
-    // confused the two would destroy an admitted member's identity documents.
+    // Filing never purges.
     const id = await makeUser({
       accountNo: 'ACC-KH-39003',
       formNumber: 'APP-2026-009004',

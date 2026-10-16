@@ -10,25 +10,9 @@ import {
 } from '@/lib/rejection-reasons';
 
 /**
- * The rejection reasons exist in three places and must agree.
- *
- *   1. **`lib/rejection-reasons.ts`** — what the admin's picker offers.
- *   2. **`dashboard_handler.go`** — the allow-list that accepts or refuses the
- *      POST.
- *   3. **`email_service.go`** — the sentence the applicant actually reads.
- *
- * Every pair of those can fail differently, and none loudly:
- *
- *   - a code offered by the picker but missing from the handler is a **400 on a
- *     button that looks like it works**;
- *   - a code the handler accepts but the email has no sentence for is a
- *     rejection email that says the application was refused **and gives no
- *     reason** — which is the exact state this whole feature replaced;
- *   - a code in Go that the picker never offers is dead vocabulary.
- *
- * This is the same shape as `reset-token-scopes.test.ts`: a vocabulary shared
- * across two languages where the runtime consequence of drift lands on a member
- * rather than on a developer.
+ * Rejection reason codes must agree across lib/rejection-reasons.ts (picker),
+ * dashboard_handler.go (allow-list) and email_service.go (the applicant's
+ * sentence) — drift is a dead button, a reasonless email, or dead vocabulary.
  */
 
 const REPO = resolve(process.cwd(), '..', '..');

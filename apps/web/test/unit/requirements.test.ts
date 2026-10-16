@@ -2,24 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// TEST-20 — one entry per FR-01…22, checked against the documentation.
-//
-// The plan asks for "one test per requirement, named for the requirement, so
-// the doc and the suite cannot drift". A file of 22 hand-written tests would
-// satisfy the letter of that and none of the intent: it drifts the moment a
-// requirement is added, renamed, or quietly implemented.
-//
-// So the enumeration comes from `docs/product.md`, the status from
-// `docs/tasks.md`, and this file supplies one row per FR saying either *where*
-// it is covered or *what is still missing*. Three things then have to agree —
-// the specification, the status board, and the code — and any two disagreeing
-// fails here.
-//
-// The sharpest part is the gap assertions. A requirement marked `[~]` claims
-// something is absent; each such row proves it is *still* absent by searching
-// the source. Implement the notice period without updating tasks.md and this
-// test fails — which is the only mechanism that has ever kept a status board
-// honest.
+// TEST-20 — one row per FR: the list comes from docs/product.md, the status
+// from docs/tasks.md, and each row says where it is covered or what is missing.
+// A gap row proves the gap still exists by searching the source, so
+// implementing it without updating tasks.md fails here.
 
 const REPO = resolve(process.cwd(), '..', '..');
 const read = (rel: string) => readFileSync(join(REPO, rel), 'utf8');
@@ -70,26 +56,14 @@ function sourceFiles(): string[] {
 
 const SOURCES = sourceFiles();
 
-/**
- * Source with comments removed.
- *
- * A rule that forbids the word "markup" has to search code, not prose — the
- * header of `loan_repository.go` says "Nothing here may compute a rate, a
- * markup or a fee", and the first run of this test flagged that comment as a
- * Shariah violation. A detector that fires on its own rule being written down
- * trains people to delete the documentation.
- */
+/** Source with comments removed, so a rule forbidding "markup" reads code, not prose. */
 function codeOf(file: string): string {
   return readFileSync(file, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
-/**
- * Files whose *code* matches a pattern — the evidence a gap is or is not real.
- * `within` narrows the search to a surface, for gaps where the thing exists in
- * one place and is missing from another.
- */
+/** Files whose CODE matches a pattern; `within` narrows to one surface. */
 function filesMatching(pattern: RegExp, within?: RegExp): string[] {
   return SOURCES.filter((file) => (within ? within.test(file) : true))
     .filter((file) => pattern.test(codeOf(file)))
@@ -103,10 +77,7 @@ function filesMatching(pattern: RegExp, within?: RegExp): string[] {
 type Coverage =
   /** Implemented, and this names the suite that proves it. */
   | { covered: string }
-  /**
-   * Not implemented, or only partly. `absent` is a pattern that must match
-   * nothing: it is the proof the gap is still a gap.
-   */
+  /** Not (fully) implemented; `absent` must match nothing — the proof the gap remains. */
   | { gap: string; absent?: RegExp; absentIn?: RegExp };
 
 const REQUIREMENTS: Record<string, Coverage> = {
@@ -121,12 +92,7 @@ const REQUIREMENTS: Record<string, Coverage> = {
     absent: /nominee\.update|UPDATE\s+nominees|updateNominee/i,
   },
   'FR-07': { covered: 'lifecycle_integration_test.go — only a PENDING request can be approved or rejected' },
-  // Rewritten 2026-08-24 (ADR-030). FR-08 was "withdrawal request with
-  // notice-period validation" and was implemented as exactly that: the member's
-  // request was a binding notice, and both payout paths refused until it
-  // matured. The owner removed the rule — a member asks a field worker, and
-  // staff pay at the desk — so the requirement now describes the act rather
-  // than the gate, and the tests that cover it assert an ABSENCE of refusal.
+  // FR-08 now describes staff paying at the desk (ADR-030).
   'FR-08': {
     covered:
       'apps/api/internal/repositories/policy_enforcement_integration_test.go — paid with no request behind it, paid on the day one is filed, and an outstanding request settled rather than duplicated',
@@ -144,17 +110,9 @@ const REQUIREMENTS: Record<string, Coverage> = {
   'FR-11': { covered: 'apps/web/test/routes/routes.contract.test.ts — POST /loans/[id]/guarantor-approval is MEMBER-only' },
   'FR-12': {
     gap: 'the worker path writes status ACTIVE directly, skipping PENDING_GUARANTOR → PENDING_APPROVAL',
-    // Deliberately no `absent`: the lifecycle *is* implemented, just bypassable.
-    // lifecycle_integration_test.go pins the admin path; the bypass is a
-    // product decision, recorded in tasks.md, not a missing identifier.
+    // No `absent`: the lifecycle exists but is bypassable (a product decision).
   },
-  // Rewritten 2026-08-25 (T-05). FR-13 was "record installments and late-fee
-  // flags per policy" and stood at `[~]` because the second half had no policy
-  // behind it — the printed agreement reserved a fee, nothing implemented one,
-  // and rule 3 forbade a session from picking. The foundation ruled that there
-  // is **no** late fee, so the requirement now describes what it actually asks
-  // for, and the absence of a fee is guarded by TEST-21 below rather than by a
-  // gap row here: it is a permanent rule, not an unfinished feature.
+  // FR-13: no late fee by ruling (T-05) — guarded by TEST-21 below.
   'FR-13': {
     covered:
       'apps/api/internal/money/shariah_test.go — the schedule repays the principal exactly and never a taka more; policy_enforcement_integration_test.go TestPaidInstalmentsCountAgainstTheMissedTotal',
@@ -170,21 +128,11 @@ const REQUIREMENTS: Record<string, Coverage> = {
     // what is missing is per-fund accounting, which FR-15 gates.
   },
   'FR-17': {
-    // Was [!] from 2026-08-18 until WO-57 landed the same day. The endpoint had
-    // always authorised correctly, frozen the transaction and written the audit
-    // row — and then answered 500, because it returned the raw Prisma row and
-    // `NextResponse.json` cannot serialise a BigInt. The member was told their
-    // dispute failed while it succeeded.
-    //
-    // The contract suite drove this route with a non-existent id, so it only
-    // ever exercised the 404. That is the finding this row now guards: a
-    // requirement is not proven by a test of its refusals.
+    // A requirement is proven by its success path, not its refusals (WO-57).
     covered: 'test/routes/success-paths.test.ts — a successful dispute answers 200 with a serialised body, and the audit row is there',
   },
   'FR-18': {
-    // The freeze and the notification both work — routes.contract.test.ts
-    // drives the endpoint. What is missing is the admin's correction flow,
-    // which is done by hand today.
+    // The correction flow is manual today.
     gap: 'the transaction freezes and admins are notified; the correction flow is manual',
   },
   'FR-19': { covered: 'money_paths_integration_test.go — exactly one audit row per posting, none on a refusal' },
@@ -199,26 +147,17 @@ const REQUIREMENTS: Record<string, Coverage> = {
     gap: 'approvals, reports, settings, support and the audit viewer are done; no liquidity alerts',
     absent: /liquidityAlert|LiquidityAlert|liquidityThreshold/,
   },
-  // WO-93 / ADR-033, added 2026-08-25 from the owner review. Two halves and two
-  // backends: the admin-triggered erasure is a Next route, because it has to
-  // delete the Cloudinary assets; the rejected-application sweep is a Go
-  // background loop, because it has to run unattended and needs no Cloudinary.
+  // Two halves: admin erasure (Next, Cloudinary) and the rejected sweep (Go).
   'FR-23': {
     covered:
       'apps/web/test/routes/identity-integrity.test.ts (anonymise vs delete, the refusals, the audit row that names nothing it erased) + apps/api/internal/repositories/retention_integration_test.go (the window, what it must not touch) + cmd/server/wiring_test.go (the loop is actually started)',
   },
-  // The audit trail had been complete data that nobody could read: the table was
-  // written by both backends, the endpoint existed, and no screen called it. The
-  // catalogue is what makes a screen possible at all — before it, `audit.ts`
-  // carried a hand-written union naming five events that never happen and
-  // missing every one the Go API writes.
+  // The audit screen, built on the catalogue in lib/audit-actions.ts.
   'FR-24': {
     covered:
       'apps/web/test/unit/audit-actions.test.ts (every action either backend writes is catalogued, and nothing is catalogued that nothing writes) + routes.contract.test.ts (admins only) + e2e/matrix.spec.ts (the screen at 412px in both languages)',
   },
-  // ADR-038. The tier lives beside the action rather than in the job that
-  // applies it, so a new action with no tier fails the census instead of
-  // silently inheriting a default.
+  // ADR-038: the tier lives beside the action.
   'FR-25': {
     covered:
       'apps/web/test/unit/audit-actions.test.ts (money, lending, membership, staff and erasure are permanent; no critical row on the short clock) + routes.contract.test.ts (the sweep is admins-only on POST and scheduler-only on GET)',
@@ -300,9 +239,7 @@ describe('TEST-20 — a requirement marked incomplete is still incomplete', () =
 
     if ('gap' in coverage && coverage.absent) {
       it(`${id}: the missing piece is genuinely still missing`, () => {
-        // The anti-drift assertion. If someone implements this and forgets the
-        // status board, the search starts matching and this fails — naming the
-        // file that now implements it.
+        // Anti-drift: an implemented gap starts matching and names the file.
         const found = filesMatching(coverage.absent!, coverage.absentIn);
         expect(
           found,
@@ -319,9 +256,7 @@ describe('TEST-20 — a requirement marked incomplete is still incomplete', () =
 // ---------------------------------------------------------------------------
 
 describe('TEST-21 — no interest, markup or fee is reachable from a money path', () => {
-  // Rule 3 is not a preference. A rate, a markup or a processing fee is a
-  // Shariah violation, so the useful test is not "is the rate zero" but "is
-  // there anywhere a rate could be set at all".
+  // Rule 3: there must be nowhere a rate could be set at all.
   const MONEY_PATHS = SOURCES.filter((file) =>
     /apps\/api\/internal\/(repositories|money)\/|apps\/web\/app\/api\/v1\/loans\//.test(file),
   );
@@ -378,20 +313,8 @@ describe('TEST-21 — no interest, markup or fee is reachable from a money path'
   });
 
   it('the agreement rules a late fee out, and none is implemented anywhere', () => {
-    // RESOLVED 2026-08-25, by the foundation rather than by a session.
-    //
-    // This test used to pin a tension instead of a decision. The agreement
-    // reserved "a fixed, interest-free late fee as set by foundation policy"
-    // and FR-13 asked for late-fee flags "per policy" — but no policy said what
-    // the fee was or, the question that actually decides it, *who keeps the
-    // money*. A penalty retained by the lender is riba on the mainstream
-    // reading; one paid entirely to charity is the form scholars permit. Rule 3
-    // says flag rather than pick, so the flag stood and every member signed a
-    // document promising a charge nobody could explain.
-    //
-    // The ruling is that there is no late fee. So the agreement now denies one
-    // rather than reserving one, and both halves are pinned: deleting the
-    // denial fails the first assertion, implementing a fee fails the second.
+    // No late fee (ruling, 2026-08-25): the agreement must deny one and no code
+    // may implement one.
     const agreement = read('apps/web/lib/documents/builders/loan-agreement.ts');
     expect(
       agreement,

@@ -8,18 +8,8 @@ import (
 	"testing"
 )
 
-// WO-52's backstop. The table test in messages_test.go proves the builders in
-// this package render whole taka — but it can only prove that about strings
-// that go THROUGH this package. Nothing stops the next repository change from
-// building a notification message inline again, which is where all fourteen
-// `%.2f` amounts lived until 2026-08-18.
-//
-// So this reads the repository source. It is deliberately blunt: a money verb
-// in a repository file fails, and the fix is to add a builder here rather than
-// to widen the exclusion.
-//
-// **This test is supposed to fail when you format an amount outside this
-// package.** Move the wording into messages.go and give it a table row.
+// WO-52's backstop: a money verb in a repository file fails. Move the wording
+// into messages.go and give it a table row — do not widen the exclusion.
 
 const repositoriesDir = "../repositories"
 
@@ -27,9 +17,7 @@ const repositoriesDir = "../repositories"
 // others are the same mistake spelled differently.
 var floatVerb = regexp.MustCompile(`%[-+ #0-9.]*[eEfFgG]`)
 
-// Lines that legitimately compute a percentage rather than an amount. Recovery
-// and default rates are ratios, not money, and are reported as numbers rather
-// than rendered into a member-facing string.
+// Ratios (recovery and default rates), not money.
 var percentageIdentifiers = []string{
 	"recoveryRate",
 	"defaultRate",
@@ -64,9 +52,7 @@ func TestRepositoriesDoNotFormatMoneyAsFloat(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(data), "\n") {
 			trimmed := strings.TrimSpace(line)
-			// Comments describe the defect on purpose — loan_repository.go
-			// carries the history of two of them. A rule that fires on its own
-			// documentation teaches people to delete the documentation.
+			// Comments may quote the banned shape.
 			if strings.HasPrefix(trimmed, "//") {
 				continue
 			}
@@ -92,13 +78,9 @@ func isPercentageLine(line string) bool {
 	return false
 }
 
-// The repositories must not hand insertNotificationTx a string literal either.
-// A literal title or message is one this package's census cannot see, and
-// therefore one nothing tests.
+// insertNotificationTx must not get a literal title or message.
 func TestRepositoriesBuildNotificationTextHere(t *testing.T) {
-	// `insertNotificationTx(ctx, tx, "TYPE", <title>, <message>, ...)` — the
-	// third argument is the NotificationType enum and is legitimately a literal.
-	// Arguments four and five are the title and message, and must be variables.
+	// Arg 3 is the enum (a literal is fine); args 4 and 5 must be variables.
 	call := regexp.MustCompile(`insertNotificationTx\(`)
 
 	for _, path := range repositoryFiles(t) {

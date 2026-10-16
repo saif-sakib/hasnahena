@@ -31,36 +31,10 @@ import {
 } from "@/lib/audit-actions";
 
 /**
- * The audit trail as a screen.
- *
- * ---
- *
- * **What an admin is actually doing here.** Not browsing. They arrive with a
- * question — "who processed Rahim's withdrawal on Tuesday", "why is this member
- * suspended", "did anyone touch this before the balance went wrong" — and the
- * screen is good exactly to the degree that it answers one of those in a few
- * seconds. That shapes every decision below:
- *
- * - **A timeline, grouped by day.** The question is almost always anchored in
- *   time, and a flat table of ISO timestamps makes the reader do the grouping.
- * - **Colour carries importance, not category.** A rose rail means *somebody
- *   should be able to explain this*: an erasure, a default, a lockout, a
- *   dispute. Tinting by category instead would make a routine deposit as loud as
- *   a member being erased, which is how colour-coded screens stop being read.
- * - **Routine sign-ins are hidden until asked for.** They are the majority of
- *   rows and almost never the answer. Hiding them is a real editorial decision
- *   and it is reversible in one click, with the control visible rather than
- *   buried in a menu — a filter the reader cannot see is a screen that is
- *   lying about what it contains.
- * - **The subject is spelled out.** `entityId` is a cuid; the API resolves it to
- *   `Rahim Uddin (ACC-KH-33001)`. An audit trail whose rows have to be looked up
- *   elsewhere is one nobody opens twice.
- *
- * **Phone first** (rule 10). Most staff reach this on a 412 px Android screen,
- * so the timeline is a single column of cards at every width and the filters
- * collapse behind one button; the desktop view is the same cards with more room.
- * There is no horizontal table to scroll, in either language — Bengali labels are
- * the wider ones and a table would have overflowed on them first.
+ * The audit trail as a screen, built to answer a specific question fast: a
+ * timeline grouped by day; colour carries importance (severity), not category;
+ * routine sign-ins hidden behind a visible toggle; subjects spelled out. Phone
+ * first — one column of cards at every width, filters behind one button.
  */
 
 const CATEGORY_ICONS: Record<AuditCategory, LucideIcon> = {
@@ -142,22 +116,11 @@ interface AuditResponse {
 
 const CATEGORIES = Object.keys(AUDIT_CATEGORY_LABELS) as AuditCategory[];
 const SEVERITIES: AuditSeverity[] = ["critical", "notable", "routine"];
-/**
- * How many entries the screen asks for at a time.
- *
- * Twenty, and more only when the reader asks. The trail grows for ever — it is
- * append-only by construction (DATA-08) and most of it is kept permanently — so
- * "how many entries are there" is a question whose answer only gets larger and
- * whose only use was the word "of" in a caption. What an admin opening this
- * screen wants is the last few things that happened, on a phone, over a
- * connection in Jessore.
- */
+/** Entries per page; the trail only grows. */
 const PAGE_SIZE = 20;
 
 async function fetchAudit(url: string): Promise<AuditResponse> {
-  // Same-origin Next route, so a plain fetch rather than `useApi`, which
-  // resolves against the Go API base. The token is attached the way every other
-  // Next-route caller in the dashboard attaches it.
+  // Same-origin Next route: plain fetch with the token, not useApi.
   const token =
     typeof window !== "undefined"
       ? localStorage.getItem("hn_access_token")
@@ -210,26 +173,8 @@ export default function AuditScreen() {
   }, [query, category, severity, from, to, includeNoise]);
 
   /**
-   * One page at a time, replaced — the owner's decision, 2026-09-02.
-   *
-   * This was `useSWRInfinite`, appending each page to the ones already read, on
-   * the reasoning that an admin reading down a timeline does not want the part
-   * they have read to disappear. What that costs is that the screen only grows:
-   * by the fourth press it is holding eighty rows, re-grouping all of them by
-   * day on every keystroke in the search box, and a reader who wanted something
-   * from last week had to keep loading until it appeared.
-   *
-   * Numbered pages fetch exactly one page and drop the last, so the work is
-   * constant however deep somebody goes.
-   *
-   * There is still **no `COUNT(*)`**, so there is no "of 12" — that was a full
-   * scan of every matching row per keystroke, against a database that bills for
-   * being awake (ADR-035), to render two words. `hasMore` comes from asking for
-   * one row more than fits, which is what Next actually needs to know.
-   *
-   * `keepPreviousData` is what stops the list blanking to a spinner and back on
-   * every press; the page that is leaving stays on screen until its replacement
-   * has arrived.
+   * Numbered pages, one at a time (owner's decision) — constant work at any
+   * depth. The total is a bounded count. keepPreviousData avoids a blank flash.
    */
   const [page, setPage] = useState(1);
 
@@ -258,9 +203,7 @@ export default function AuditScreen() {
   // the rows underneath them vanishing.
   const isPaging = isValidating && !isLoading;
 
-  /** Back to the first page whenever the filter set changes. Without this,
-   *  changing a filter would keep however many pages were open and quietly ask
-   *  for that many again. */
+  /** Back to page 1 whenever the filters change. */
   const applyFilter =
     <T,>(setter: (value: T) => void) =>
     (value: T) => {
@@ -278,10 +221,7 @@ export default function AuditScreen() {
     return [...map.entries()];
   }, [rows]);
 
-  // One reading of the clock per render, and "yesterday" derived by calendar
-  // rather than by subtracting 86,400,000 milliseconds — the arithmetic version
-  // is wrong on any day that is not 24 hours long, and it is also the impure
-  // call the React Compiler refuses during render.
+  // One clock read per render; "yesterday" by calendar, not 86,400,000 ms.
   const now = new Date();
   const todayKey = dayKey(now.toISOString());
   const yesterdayDate = new Date(now);
@@ -342,9 +282,7 @@ export default function AuditScreen() {
         </button>
       </div>
 
-      {/* Append-only is a property worth stating on the screen, not only in the
-          schema: it is the reason this list can be trusted at all, and an admin
-          who does not know it has no reason to prefer it to their memory. */}
+      {/* Append-only is why this list can be trusted — say so on screen. */}
       <p className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
         <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         {t("appendOnly")}
@@ -553,11 +491,7 @@ export default function AuditScreen() {
                           <Icon className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          {/* The time is its own column, not the last item of a
-                              wrapping row. As one it dropped onto a line of its
-                              own whenever the label was long — which in Bengali
-                              is most of them, since "অতি গুরুত্বপূর্ণ" is three
-                              times the width of "CRITICAL". */}
+                          {/* Time in its own column, so long (Bengali) labels do not push it to a new line. */}
                           <div className="flex items-start gap-2">
                             <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
                               <span className="font-medium text-slate-900">
@@ -673,17 +607,10 @@ export default function AuditScreen() {
       {(rows.length > 0 || page > 1) && (
         <div className="flex flex-col items-center gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:justify-between">
           <p className="text-xs text-slate-500">
-            {/* No total: counting every matching row to render "of 12" is a
-                full scan per keystroke against a database that bills for being
-                awake (ADR-035). The page number and whether there is another
-                are what the controls actually need. */}
+            {/* Bounded count; the controls only need the page and whether there is another. */}
             {t("pageNumber", { page })} · {t("shown", { count: rows.length })}
           </p>
-          {/*
-            Numbered, so a jump to page 7 is one press rather than seven.
-            `pageWindow` keeps the control a constant width — see the note there
-            for why that matters more than it sounds like it does.
-          */}
+          {/* Numbered pages; pageWindow keeps the control a constant width. */}
           <nav className="flex items-center gap-1" aria-label={t("pagination")}>
             <button
               type="button"

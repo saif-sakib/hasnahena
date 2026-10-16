@@ -11,23 +11,9 @@ import { formatMoney } from '@/lib/notify';
 
 const isDev = process.env.NODE_ENV === 'development';
 
-// guarantorId is optional: a loan at or below loan.guarantorThresholdAmount does
-// not need one (product.md). The threshold is checked server-side below — an
-// application that omits a guarantor for a loan above it is rejected, not
-// quietly accepted.
-// `.int().finite()` on the amount, not just `.positive()`.
-//
-// `z.number()` accepts Infinity and JSON parses `1e400` as Infinity, so
-// `{"amount": 1e400}` passed validation and then threw
-// "The number Infinity cannot be converted to a BigInt" out of the BigInt
-// conversion below — a 500 for a request the schema was supposed to refuse
-// (TEST-18). `.int()` also removes the silent `Math.floor` that used to turn
-// 1000.9 into 1000: money is whole taka, so a fractional amount is a mistake to
-// report, not one to round away (rule 1).
-//
-// The cap mirrors utils.MaxLoanAmount in the Go API (1 crore, ADR-002); without
-// it, an amount inside float64 but outside anything sane reached the eligibility
-// arithmetic.
+// guarantorId is optional at or below loan.guarantorThresholdAmount (checked
+// below). The amount is .int().finite(): 1e400 parses as Infinity (TEST-18), and
+// a fraction is refused, never rounded (rule 1). Cap = Go's MaxLoanAmount (ADR-002).
 const MAX_LOAN_AMOUNT = 1_00_00_000;
 const MAX_INSTALLMENTS = 600;
 
@@ -56,25 +42,18 @@ async function getLoanPolicySettings() {
     acc[row.key] = row.value;
     return acc;
   }, {});
-  // For a multiplier and an installment cap, zero is nonsense rather than a
-  // policy — it would mean nobody may borrow anything — so it falls back.
+  // Zero is nonsense for a multiplier or instalment cap: fall back.
   const parsePositiveInt = (raw: string | undefined, fallback: number) => {
     const parsed = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   };
-  // For a minimum balance and a guarantor threshold, zero is a real setting:
-  // "no minimum" and "always require a guarantor". Rejecting it is not a safe
-  // default, it is a different policy from the one the admin chose.
+  // Zero is a real setting for a minimum or a threshold.
   const parseNonNegativeInt = (raw: string | undefined, fallback: number) => {
     const parsed = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
   };
   return {
-    // Non-negative, matching the Go API, which reads the same key through
-    // getSystemConfigNonNegativeInt64 and honours 0. While this used
-    // parsePositiveInt the two backends disagreed about the same row: an admin
-    // who set the minimum deposit to 0 got a member shown as loan-eligible by
-    // the Go dashboard and refused by this endpoint with LOAN_ELIGIBILITY_FAILED.
+    // Non-negative, as the Go API reads it.
     minDepositForLoan: parseNonNegativeInt(map['loan.minDepositForLoan'], 8000),
     maxLoanMultiplier: parsePositiveInt(map['loan.maxLoanMultiplier'], 5),
     maxInstallmentMonths: parsePositiveInt(map['loan.maxInstallmentMonths'], 24),
@@ -86,9 +65,7 @@ export async function POST(req: Request) {
   try {
     const auth = await requireActiveAuth(req);
 
-    // Authorization before validation, so a caller who may not borrow gets 403
-    // rather than a 400 describing the fields a loan application takes
-    // (TEST-16).
+    // Authorization before validation (TEST-16).
     const borrower = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true, status: true },
@@ -115,9 +92,7 @@ export async function POST(req: Request) {
 
     const minDepositRequired = BigInt(loanPolicy.minDepositForLoan);
     const maxLoanMultiplier = BigInt(loanPolicy.maxLoanMultiplier);
-    // No Math.floor: the schema already requires a whole number, so anything
-    // reaching here is one. Flooring here was what let a fractional amount
-    // through silently.
+    // Already a whole number (schema).
     const amountBig = BigInt(payload.amount);
     const maxAllowed = borrowerAccount.savingsBalance * maxLoanMultiplier;
     if (borrowerAccount.savingsBalance < minDepositRequired || amountBig > maxAllowed) {
@@ -127,10 +102,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // A guarantor is required above the configured threshold, not on every loan
-    // (product.md). Below it the application skips PENDING_GUARANTOR and goes
-    // straight to admin review — the default waterfall handles an unguaranteed
-    // loan correctly since WO-42.
+    // A guarantor only above the threshold; below it, straight to admin review.
     const guarantorRequired = amountBig > BigInt(loanPolicy.guarantorThresholdAmount);
     if (guarantorRequired && !payload.guarantorId) {
       return NextResponse.json(
@@ -156,14 +128,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: 'GUARANTOR_IS_SELF' }, { status: 422 });
       }
 
-      // The guarantee is proportional, not full cover: the guarantor is liable
-      // for whatever they hold, which is exactly what ProcessWaterfallRecovery
-      // takes. This used to demand savings >= the entire loan and answer
-      // GUARANTOR_DECLINED — a rule that, at a 5x multiplier, required the
-      // guarantor to have saved five times what the borrower had, and a name
-      // that blamed the guarantor for a balance check they never saw.
-      //
-      // What is still worth refusing is a guarantee worth nothing.
+      // The guarantee is proportional (the guarantor's savings are what the
+      // waterfall takes); refuse only a guarantee worth nothing.
       const guarantorAccount = await prisma.account.findFirst({
         where: { userId: found.id },
         select: { savingsBalance: true },
@@ -205,9 +171,7 @@ export async function POST(req: Request) {
 
     const loan = await prisma.loan.create({
       data: {
-        // The loan number IS the row (ADR-044). There is no second column for
-        // it, so there is nothing that can drift out of step with the number
-        // printed on the agreement.
+        // The loan number IS the row id (ADR-044).
         id: await nextDocumentNumber(SERIES.loan),
         principalAmount: amountBig,
         remainingAmount: amountBig,
@@ -216,8 +180,7 @@ export async function POST(req: Request) {
         paidInstallments: 0,
         purpose: payload.purpose.trim(),
         applicationFee: BigInt(0),
-        // With no guarantor there is nobody to wait for, so the loan starts at
-        // admin review rather than sitting in PENDING_GUARANTOR forever.
+        // No guarantor → straight to admin review.
         status: guarantor ? LoanStatus.PENDING_GUARANTOR : LoanStatus.PENDING_APPROVAL,
         borrowerId: auth.id,
         guarantorId: guarantor?.id ?? null,
@@ -232,8 +195,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // Create notification for guarantor to approve the loan — only when there is
-    // one to ask.
+    // Notify the guarantor, if there is one.
     if (guarantor) {
       await prisma.notification.create({
         data: {
@@ -278,8 +240,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Validation failed', ...(isDev && { details: err.flatten() }) }, { status: 400 });
     }
     const msg = typeof (err as any)?.message === 'string' ? (err as any).message : 'Server error';
-    // Covers a malformed body and Prisma's request errors alongside auth, all
-    // of which used to fall through to the 500 below (TEST-18).
     const status = routeErrorStatus(err);
     if (status) {
       return NextResponse.json({ ok: false, error: routeErrorMessage(err, 'Failed to create loan application') }, { status });

@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
 import { verifyHs256Jwt } from './jwt';
 
-// TEST-05. This function decides whether a request is authenticated. Before
-// these tests it had none, and it did not correctly reject a token with a
-// truncated signature — it threw a RangeError out of `timingSafeEqual` instead,
-// which callers classified as a server fault.
+// TEST-05: token verification, including a truncated signature.
 
 const SECRET = 'test-secret-at-least-thirty-two-characters';
 

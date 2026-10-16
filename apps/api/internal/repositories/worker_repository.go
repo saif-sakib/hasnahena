@@ -1,8 +1,7 @@
 package repositories
 
-// The field worker's view and the postings they process. Workers never initiate
-// money movement; they process what a member requested, and the member confirms
-// it afterwards (CLAUDE.md rule 4).
+// The field worker's view and the postings they process; the member confirms
+// afterwards (rule 4).
 
 import (
 	"context"
@@ -18,9 +17,7 @@ func (r *UserRepository) GetWorkerDashboard(ctx context.Context) (map[string]int
 		SELECT
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM users WHERE status = 'PENDING'), 0)::bigint,
-			-- CONFIRMED only: a deposit request and a withdrawal notice are both
-			-- PENDING rows in this table, and today's takings must not count
-			-- money nobody has handed over yet.
+			-- CONFIRMED only: PENDING rows are money not yet handed over.
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED' AND "createdAt"::date = CURRENT_DATE), 0)::bigint,
 			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status = 'ACTIVE' AND "createdAt"::date = CURRENT_DATE), 0)::bigint
@@ -90,9 +87,7 @@ func (r *UserRepository) GetWorkerProfile(ctx context.Context, userID string) (m
 			u.status::text,
 			COALESCE(u."avatarUrl", ''),
 			COALESCE(u."accountNo", ''),
-			-- WO-72: the assigned branch is a row now, not a free string on the
-			-- user. Joined rather than selected so a renamed office is renamed
-			-- everywhere at once, which is the whole point of the change.
+			-- Branch is a joined row (WO-72).
 			COALESCE(b.name, ''),
 			-- The branch id IS its code since 2026-08-27.
 			COALESCE(b.id, ''),
@@ -137,18 +132,8 @@ func (r *UserRepository) GetWorkerRequests(ctx context.Context, workerID string)
 }
 
 func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
-	// **Every loan, not the worker's branch's loans.** The comment here used to
-	// say "loans from members in worker's branch" and the query has never had a
-	// branch predicate — nor could it, because a *member* has no branch: only
-	// staff carry `assignedBranchId`. A comment describing a filter that does
-	// not exist is worse than none, because the next reader adding branch
-	// scoping trusts it and looks in the wrong place.
-	//
-	// Returning everything is also correct today: the foundation runs one
-	// office, and `/worker/loans` and `/admin/loans` are one React component
-	// that must return the same rows (see loan_schedule_integration_test.go).
-	// If members ever belong to a branch, this is one of the queries that has to
-	// learn about it.
+	// Every loan — members have no branch, so there is no branch filter, and
+	// /worker/loans and /admin/loans must return the same rows.
 	const query = `
 		SELECT
 			l.id::text,
@@ -169,11 +154,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 		FROM loans l
 		JOIN users u ON u.id = l."borrowerId"
 		LEFT JOIN users g ON g.id = l."guarantorId"
-		-- Every loan, like GetAllLoans. This used to omit APPROVED and REJECTED,
-		-- and since both dashboards render one Loans component the same table
-		-- reported a different number of loans depending on who opened it. A
-		-- rejected application is also the thing a member is most likely to ask a
-		-- field worker about, and the worker could not see it.
+		-- Every loan, including APPROVED and REJECTED (same rows as GetAllLoans).
 		ORDER BY l."createdAt" DESC
 		LIMIT 100
 	`
@@ -228,9 +209,7 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 			"guarantorName":     guarantorName,
 			"createdAt":         createdAt.Format(time.RFC3339),
 		}
-		// Not `installmentStart` — that is the day the schedule opened, which is
-		// behind every active loan and made this list report every borrower
-		// overdue. See attachLoanSchedule.
+		// Next due date from attachLoanSchedule, never installmentStart.
 		attachLoanSchedule(loan, status, installmentStart, totalInstallments, paidInstallments)
 		loans = append(loans, loan)
 	}
@@ -239,13 +218,6 @@ func (r *UserRepository) GetWorkerLoans(ctx context.Context, workerID string) ([
 }
 
 // GetWorkerTransactions lists the postings this member of staff processed.
-//
-// The `u.id::text` column is load-bearing: without it the SELECT returned twelve
-// columns while the Scan below asked for thirteen, so *every* row failed and hit
-// the `continue`. The endpoint answered `[]` with a 200 and no log line, which
-// is why both worker screens that read it — the deposits ledger and the
-// transaction history — were permanently empty and looked like a member with no
-// activity rather than a broken query.
 func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID string) ([]map[string]interface{}, error) {
 	const query = `
 		SELECT
@@ -261,11 +233,7 @@ func (r *UserRepository) GetWorkerTransactions(ctx context.Context, workerID str
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."accountNo", ''),
 			COALESCE(u.phone, ''),
-			-- Every row here was processed by the worker asking, so this is
-			-- always their own name. It is selected anyway rather than filled in
-			-- by the caller, because the receipt this feeds names the person who
-			-- took the money and that must come from the posting, not from
-			-- whoever happens to be looking at the list.
+			-- The processor's name comes from the posting; receipts name who took the money.
 			COALESCE(processor."nameEn", '')
 		FROM transactions t
 		JOIN users u ON u.id = t."userId"
@@ -393,18 +361,8 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		},
 	}
 
-	// Withdrawal requests this member has outstanding.
-	//
-	// These no longer gate anything (ADR-030): staff may pay a withdrawal with
-	// no request behind it at all, and there is no maturity date to wait out —
-	// which is why `eligibleFrom` and `matured` are gone from this payload
-	// along with the notice period itself. What the screen still needs is the
-	// list, so a worker paying at the desk can see that ৳5,000 was already
-	// asked for and settle *that* rather than pay it twice.
-	//
-	// Rows here are pre-ADR-030 notices and anything a member filed before the
-	// member-side request was removed. The list empties on its own as they are
-	// paid; nothing creates a new one.
+	// Outstanding withdrawal requests (pre-ADR-030). They gate nothing; listed
+	// so a worker settles one instead of paying twice.
 	const pendingWithdrawalQuery = `
 		SELECT
 			t.id::text,
@@ -533,8 +491,7 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 
 	const documentQuery = `
 		SELECT
-			-- A document is the (userId, type) pair; this list is one member's,
-			-- so the type IS the identifier (ADR-044). There is no d.id.
+			-- (userId, type) is the key; the type is the identifier (ADR-044).
 			d.type::text,
 			COALESCE(d.type, ''),
 			COALESCE(d.url, ''),

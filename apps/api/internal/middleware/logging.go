@@ -12,13 +12,10 @@ import (
 	"hasnahena/apps/api/internal/observability"
 )
 
-// ctxKeyRequestState carries the per-request holder that lets a handler add
-// facts to the access log line after the middleware has already started.
+// ctxKeyRequestState lets a handler add facts to the access log line.
 type ctxKeyRequestState struct{}
 
-// ctxKeyClientIP carries the address this request is attributed to, resolved
-// once by Logging so that the access log, the rate limiter and any audit row a
-// handler writes all name the same caller.
+// ctxKeyClientIP carries the attributed address, resolved once by Logging.
 type ctxKeyClientIP struct{}
 
 type requestState struct {
@@ -38,19 +35,8 @@ func (s *requestState) getUserID() string {
 	return s.userID
 }
 
-// RequestClientIP returns the address this request is attributed to.
-//
-// Set by Logging from ClientIP, so a handler recording who did something gets
-// the same answer the limiter and the access log got. Falls back to the TCP
-// peer for a request that did not pass through Logging, which keeps handler
-// tests working — and is the safe direction to fail, because the peer is the
-// one value no caller can choose.
-//
-// Never read X-Forwarded-For directly in a handler. Three did, taking the
-// LEFTMOST entry, which is the attacker-supplied end: two recorded it as the
-// address a password change came from, and the login lockout counted failed
-// attempts against it — so varying one header stepped around the lockout
-// entirely (WO-60).
+// RequestClientIP returns the attributed address (falls back to the TCP peer).
+// Never read X-Forwarded-For directly in a handler (WO-60, ADR-019).
 func RequestClientIP(r *http.Request) string {
 	if ip, ok := r.Context().Value(ctxKeyClientIP{}).(string); ok && ip != "" {
 		return ip
@@ -58,22 +44,15 @@ func RequestClientIP(r *http.Request) string {
 	return ClientIP(r, ClientIPConfig{})
 }
 
-// SetRequestUserID records who a request turned out to belong to, so the access
-// log can carry a user ID without the middleware having to parse the token
-// itself. Call it from the auth path. It is a no-op for a request that did not
-// pass through Logging, which keeps it safe to call from tests.
+// SetRequestUserID records who a request belongs to, for the access log.
 func SetRequestUserID(ctx context.Context, userID string) {
 	if state, ok := ctx.Value(ctxKeyRequestState{}).(*requestState); ok {
 		state.setUserID(userID)
 	}
 }
 
-// responseRecorder captures the status and byte count for the access log.
-//
-// Wrapping the ResponseWriter is not free: anything a handler type-asserts for
-// has to survive the wrap. Flush keeps the SSE handler's http.Flusher assertion
-// working, and Unwrap lets http.ResponseController reach the real writer so
-// that same handler can clear its write deadline.
+// responseRecorder captures status and bytes. Flush and Unwrap keep the SSE
+// handler's Flusher and ResponseController working through the wrap.
 type responseRecorder struct {
 	http.ResponseWriter
 	status int
@@ -106,23 +85,9 @@ func (rr *responseRecorder) Unwrap() http.ResponseWriter {
 	return rr.ResponseWriter
 }
 
-// Logging writes one structured line per request.
-//
-// Deliberately logs r.URL.Path and never r.URL.RawQuery: query strings carry
-// thread ids and stream tickets, and an access log is the wrong place for
-// either. Member email addresses never appear here or in any handler log —
-// user IDs identify people in logs (RUN-05).
-//
-// Register this BEFORE Recoverer so that Logging is the outer wrapper. A panic
-// is then converted to a 500 by Recoverer while still inside this wrapper, so
-// the panic gets an access log line with the right status instead of vanishing.
-//
-// Takes the resolver config because the address a request came from is a
-// deployment fact, not a request one — see ClientIP. Before WO-60 this logged
-// r.RemoteAddr after chi's RealIP had overwritten it with a caller-supplied
-// header, so the field naming where a request came from was chosen by whoever
-// sent it. An access log that cannot be trusted on that point is not evidence,
-// and in a financial system the log exists to answer "who did this".
+// Logging writes one structured line per request: path only, never the query
+// (tickets, thread ids), and user IDs rather than emails (RUN-05). Register it
+// BEFORE Recoverer so panics are logged with their 500.
 func Logging(cfg ClientIPConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return loggingHandler(next, cfg)
@@ -156,10 +121,7 @@ func loggingHandler(next http.Handler, cfg ClientIPConfig) http.Handler {
 				"durationMs", time.Since(start).Milliseconds(),
 				"ip", clientIP,
 			}
-			// The TCP peer, when it is not the address being attributed. With a
-			// proxy in front they differ on every request and the pair is the
-			// full picture; with no proxy configured they differ only when
-			// someone sent a header claiming otherwise, which is a signal.
+			// The TCP peer when it differs from the attributed address.
 			if peer := ClientIP(r, ClientIPConfig{}); peer != clientIP {
 				attrs = append(attrs, "peer", peer)
 			}
@@ -171,12 +133,7 @@ func loggingHandler(next http.Handler, cfg ClientIPConfig) http.Handler {
 			switch {
 			case status >= 500:
 				level = slog.LevelError
-				// Error level so a 5xx stands out in Render's log stream, but
-				// NOT an alert: the handler that produced it has already
-				// logged the cause, and reporting both would file every server
-				// error twice — once with its reason and once in a single
-				// "http_request" issue containing every 500 the API has ever
-				// served. See observability.SkipKey.
+				// Error level, but not a Sentry alert (observability.SkipKey).
 				attrs = append(attrs, observability.SkipKey, true)
 			case status >= 400:
 				level = slog.LevelWarn

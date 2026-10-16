@@ -77,9 +77,7 @@ type RegisterFieldName = FieldPath<RegisterFormData>;
 
 const REGISTRATION_DRAFT_KEY_PREFIX = 'hn_registration_draft_v1';
 
-// A half-finished form is worth restoring for a few days; a two-month-old one
-// is a stranger's data sitting on what may be a shared handset, and a schema
-// this draft predates. Expire it rather than silently repopulating.
+// Old drafts expire: stale data on a possibly shared handset.
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FORM_DEFAULT_VALUES: Partial<RegisterFormData> = {
@@ -103,14 +101,7 @@ const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'signatureImage',
 ];
 
-/**
- * The four uploads, named.
- *
- * At module scope rather than inline in the step, because the error summary has
- * to name a missing document and the summary is built before the step renders.
- * These are not schema fields — the files live in component state, not in the
- * zod form — so nothing else knows what to call them.
- */
+/** The four uploads' labels — needed by the error summary before the step renders. */
 const DOCUMENT_LABELS: Record<RequiredDocumentKey, { en: string; bn: string; helperEn: string; helperBn: string }> = {
   nidFrontImage: {
     en: 'NID front image',
@@ -157,13 +148,9 @@ const EMPTY_DOCUMENTS: Record<RequiredDocumentKey, DocumentSlot | null> = {
 };
 
 /**
- * Which fields belong to which step.
- *
- * Every field in the schema must appear exactly once, and the assertion below
- * makes the compiler enforce that. It is not decoration: `childrenCount` was
- * missing from this list, so the cross-field rule "children must be 0 when
- * unmarried" could fail the form while `onInvalidSubmit` had no step to send
- * the member to — the submit button did nothing a member could act on.
+ * Which fields belong to which step. Every schema field must appear exactly
+ * once (enforced by the type below), or a failing field has no step to send
+ * the member to.
  */
 const STEP_FIELDS = [
   // Step 0 — Personal
@@ -207,8 +194,7 @@ const STEP_FIELDS = [
 type RoutedField = (typeof STEP_FIELDS)[number][number];
 type UnroutedField = Exclude<keyof RegisterFormData, RoutedField>;
 type Assert<T extends true> = T;
-// Type-only. Fails to compile if a schema field belongs to no step, and the
-// error names the field. Erased at build time, so it costs nothing at runtime.
+// Type-only: fails to compile if a schema field belongs to no step.
 export type _EveryRegistrationFieldHasAStep = Assert<
   [UnroutedField] extends [never] ? true : false
 >;
@@ -230,18 +216,8 @@ const CONDITIONAL_ADDRESS_FIELDS: RegisterFieldName[] = [
   'presentDistrict',
 ];
 
-// Android-first field sizing.
-//
-// 48px is the Android touch-target minimum and 16px is the threshold below
-// which mobile browsers zoom the viewport on focus, leaving the member scrolled
-// sideways mid-address. The shared Input primitive is 40px/14px, which is right
-// for the dense dashboard tables it was built for and wrong for a form filled
-// in one-handed — so this is applied here rather than by changing the primitive
-// underneath every other page.
-//
-// Applied per field on purpose: an `[&_input]:h-12` variant on the form reads
-// better but compiles to nothing once it contains nested brackets, and a style
-// that fails silently is worse than one that is repeated.
+// Android-first sizing: 48px touch targets, 16px text (below it mobile browsers
+// zoom on focus). Applied per field — a nested-bracket variant compiles to nothing.
 const FIELD = 'h-12 text-base sm:h-10 sm:text-sm';
 
 const SELECT_CLASS = cn(
@@ -262,18 +238,14 @@ function FieldError({ message }: { message?: string }) {
 export default function RegisterPage() {
   const locale = useLocale();
   const isBn = locale === 'bn';
-  // Rule 5. The rest of this page still chooses its copy inline, which is the
-  // dashboard-sized cleanup in tasks.md; anything added here goes in the
-  // message files, where the parity census and the fee-promise search can read it.
+  // Rule 5: new copy goes in the message files.
   const tReg = useTranslations('auth.register');
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitStage, setSubmitStage] =
     useState<'idle' | 'uploading' | 'finishing' | 'submitted'>('idle');
-  // The account number allocated at submission — the applicant's reference for
-  // the application, and the identifier the foundation will use for them
-  // afterwards (ADR-023). Shown on the confirmation screen.
+  // The application number (APP-…) issued at submission, shown on the confirmation screen.
   const [submittedReference, setSubmittedReference] = useState('');
   const [emailAvailability, setEmailAvailability] = useState<AvailabilityState>('idle');
   const [phoneAvailability, setPhoneAvailability] = useState<AvailabilityState>('idle');
@@ -285,16 +257,8 @@ export default function RegisterPage() {
   const [processingDocument, setProcessingDocument] = useState<RequiredDocumentKey | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
 
-  // The membership age floor, from Admin → Settings.
-  //
-  // The Zod schema deliberately does not know it: the schema is shared with the
-  // API and a rule the foundation can change does not belong in a constant. The
-  // *server* is what enforces it (`POST /registrations` reads the same setting);
-  // this copy exists so the applicant is told on step 1 rather than after
-  // filling in eight steps and uploading four photographs.
-  //
-  // Falls back to the same default the server uses, so a settings fetch that
-  // fails leaves the two agreeing rather than silently disabling the check here.
+  // The age floor from Settings — the server enforces it; this copy tells the
+  // applicant on step 1. Defaults to the server's default if the fetch fails.
   const [minimumAge, setMinimumAge] = useState<number>(DEFAULT_MINIMUM_AGE_YEARS);
   const [noticePeriodDays, setNoticePeriodDays] = useState(0);
 
@@ -308,29 +272,17 @@ export default function RegisterPage() {
         }
       })
       .catch(() => {
-        // Silent by design: the applicant is mid-form and the server enforces
-        // this regardless. A banner about a settings fetch would be noise.
+        // Silent: the server enforces it anyway.
       });
     return () => { cancelled = true; };
   }, []);
 
-  // **One key, not one per locale.**
-  //
-  // This was `${PREFIX}:${locale}`, and the language toggle sits in the header
-  // of this very page. An applicant six steps into the English form who tapped
-  // "বাংলা" — which is exactly what a Bengali reader who landed on the English
-  // form does — came back to an empty form and no explanation, because the
-  // draft was filed under the language they had just left.
-  //
-  // Nothing in the draft is language-specific: it holds names, an NID, an
-  // address and a nominee. The values are the same application whichever
-  // language the labels are in.
+  // One draft key for both locales, so switching language mid-form keeps it.
   const draftStorageKey = REGISTRATION_DRAFT_KEY_PREFIX;
   const errorBannerRef = useRef<HTMLDivElement | null>(null);
   const formTopRef = useRef<HTMLDivElement | null>(null);
   const hasMountedRef = useRef(false);
-  // Remembers verdicts we already paid a rate-limit token for, so correcting a
-  // typo and coming back to the original value does not spend another one.
+  // Cached verdicts, so returning to a value spends no extra rate-limit token.
   const availabilityCacheRef = useRef<Map<string, boolean>>(new Map());
 
   const {
@@ -350,15 +302,9 @@ export default function RegisterPage() {
     defaultValues: FORM_DEFAULT_VALUES,
     mode: 'onChange',
     reValidateMode: 'onChange',
-    // This form reveals errors itself — a summary banner at the top of the
-    // card, then a deliberate scroll to the first thing to fix. React Hook
-    // Form's default is to focus the first errored field instead, and on the
-    // Documents step that field is `agreeToTerms`: the LAST control on a very
-    // long step. So a blocked submit scrolled the member to the bottom of the
-    // page, below the rules and the pledge, with the four document slots left
-    // off-screen above them — which is how members came to submit without
-    // noticing there was anything to upload. Our own scrolling has to be the
-    // only scrolling, or the two fight and the field wins.
+    // We reveal errors ourselves (summary + scroll). RHF's default focuses the
+    // first errored field — on the Documents step that is the agreement at the
+    // bottom, which scrolled members past the upload slots.
     shouldFocusError: false,
   });
 
@@ -366,18 +312,14 @@ export default function RegisterPage() {
   const watchedEmail = watch('email');
   const watchedPhone = watch('phone');
   const maritalStatus = watch('maritalStatus');
-  // The birthdate control is not an `<input>`, so its value comes from the form
-  // rather than from the DOM. Everything else about the field is unchanged.
+  // The birthdate control is not an <input>, so read its value from the form.
   const watchedDateOfBirth = watch('dateOfBirth');
 
   const stepTitles = isBn
     ? ['ব্যক্তিগত তথ্য', 'ঠিকানা', 'নমিনী', 'নথি ও চুক্তি']
     : ['Personal Info', 'Address', 'Nominee', 'Documents'];
 
-  // Switching back to Unmarried must clear any children already entered.
-  // The count input is disabled while Unmarried is selected, so a leftover
-  // value would fail the "must be 0 when unmarried" rule in a field the member
-  // is no longer allowed to touch — an unfixable form.
+  // Back to Unmarried clears children, or the disabled field fails validation.
   useEffect(() => {
     if (maritalStatus === 'UNMARRIED' && (getValues('childrenCount') ?? 0) !== 0) {
       setValue('childrenCount', 0, { shouldValidate: true, shouldDirty: true });
@@ -391,20 +333,13 @@ export default function RegisterPage() {
     if (!element) return;
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     element.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
-    // Focusing immediately cancels the smooth scroll on Chrome; focusing after
-    // it settles keeps both the scroll and the Android keyboard.
+    // Focus after the smooth scroll settles (focusing at once cancels it on Chrome).
     window.setTimeout(() => {
       (element as HTMLElement).focus({ preventScroll: true });
     }, reduceMotion ? 0 : 300);
   }, []);
 
-  /**
-   * Mark every missing upload at once and report which they are.
-   *
-   * All four, not the first: flagging one at a time turned a single omission
-   * into four submit-and-read rounds, on a step where each round costs the
-   * member a scroll through the rules and the pledge.
-   */
+  /** Mark every missing upload at once, not one per submit. */
   const flagMissingDocuments = useCallback((): RequiredDocumentKey[] => {
     const missing = REQUIRED_DOCUMENT_KEYS.filter((key) => !documentFiles[key]);
     if (missing.length > 0) {
@@ -427,14 +362,8 @@ export default function RegisterPage() {
   }, []);
 
   /**
-   * Send the reader to the error summary.
-   *
-   * The summary sits at the top of the card and the submit button at the
-   * bottom, so on a phone a blocked submit wrote an explanation onto a part of
-   * the page the member could not see — which is what "it says the form needs
-   * attention but there is no error" was describing. Focusing the summary is
-   * also the accessible pattern: a screen reader announces the whole list of
-   * problems rather than a single field the member has not reached yet.
+   * Send the reader to the error summary at the top of the card (the submit
+   * button is at the bottom); screen readers announce the whole list.
    */
   const revealErrorSummary = useCallback(() => {
     window.setTimeout(() => {
@@ -446,10 +375,7 @@ export default function RegisterPage() {
     }, 0);
   }, []);
 
-  // Moving between steps replaces the entire visible form. Without this the
-  // member stays parked at the old scroll offset — they press "Next" at the
-  // bottom of Personal and land at the bottom of Address, looking at the
-  // buttons they just used and none of the fields they now have to fill.
+  // Scroll to the top of each new step.
   useEffect(() => {
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
@@ -502,8 +428,7 @@ export default function RegisterPage() {
     }
 
     const controller = new AbortController();
-    // 700ms rather than 450ms: this endpoint is rate limited, and every extra
-    // round trip while someone types their address is a token spent.
+    // 700ms: the endpoint is rate limited.
     const timeoutId = window.setTimeout(async () => {
       setEmailAvailability('checking');
       try {
@@ -607,8 +532,7 @@ export default function RegisterPage() {
       const restored: Partial<RegisterFormData> = {
         ...FORM_DEFAULT_VALUES,
         ...(parsed.data || {}),
-        // Consent is an act, not a saved preference. Restoring a ticked box
-        // would let someone submit a pledge they never read.
+        // Consent is an act — never restored from a draft.
         agreeToTerms: undefined as unknown as true,
       };
       reset(restored);
@@ -622,8 +546,7 @@ export default function RegisterPage() {
     }
   }, [draftStorageKey, reset]);
 
-  // Persist the draft, debounced. Writing on every keystroke serialises the
-  // whole form into localStorage thirty times a second on a slow handset.
+  // Persist the draft, debounced.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -650,9 +573,7 @@ export default function RegisterPage() {
     };
   }, [watch, currentStep, draftStorageKey]);
 
-  // Object URLs for the document previews leak until revoked. The unmount
-  // handler has to read the *current* slots, not the empty set it closed over
-  // on mount, so it goes through a ref.
+  // Object URLs leak until revoked; read the current slots through a ref.
   const documentFilesRef = useRef(documentFiles);
   documentFilesRef.current = documentFiles;
   useEffect(() => {
@@ -667,11 +588,7 @@ export default function RegisterPage() {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(draftStorageKey);
     }
-    // Every field has to be named. `reset(FORM_DEFAULT_VALUES)` only mentions
-    // the five fields with defaults, and react-hook-form leaves the DOM value
-    // of a field it was not given alone — so "Start fresh" cleared the saved
-    // draft and the form state while the member went on looking at their old
-    // answers still typed into the boxes.
+    // Name every field: reset() leaves DOM values alone for fields it is not given.
     reset(BLANK_FORM);
     setCurrentStep(0);
     setDraftRestored(false);
@@ -691,12 +608,8 @@ export default function RegisterPage() {
   );
 
   /**
-   * Pre-flight duplicate check.
-   *
-   * Advisory only. The POST handler re-checks and answers 409, so a failure
-   * here — a rate limit, a flaky connection — must never be what stops someone
-   * registering. It used to: an unreachable check returned 'error' and the
-   * Next button refused to advance, with a message offering no way forward.
+   * Pre-flight duplicate check. Advisory only — the POST re-checks (409), so a
+   * failure here must never block registration.
    */
   const checkContactAvailability = useCallback(
     async (emailValue: string, phoneValue: string): Promise<'available' | 'taken' | 'error'> => {
@@ -834,12 +747,8 @@ export default function RegisterPage() {
 
       const formData = new FormData();
       formData.append('payload', JSON.stringify(registrationPayload));
-      // The language the applicant is reading, recorded on the row so the
-      // approval or rejection email arrives in it. It used to be the *admin's*
-      // dashboard language, so a Bengali applicant approved by an English-
-      // speaking admin got their temporary password in English. Sent outside
-      // `payload` because `registerApiSchema` is `.strict()` — and should stay
-      // so: the payload is the application, not facts about the request.
+      // The applicant's language, for the decision email. Outside `payload`,
+      // which is strict and holds only the application.
       formData.append('locale', isBn ? 'bn' : 'en');
       for (const key of REQUIRED_DOCUMENT_KEYS) {
         const slot = documentFiles[key];
@@ -869,8 +778,7 @@ export default function RegisterPage() {
       if (!response.ok) {
         setSubmitStage('idle');
 
-        // A duplicate is decided by the server, and the field to fix is three
-        // steps back. Say which, and take them there.
+        // Duplicate: say which field, and go to its step.
         if (response.status === 409) {
           const conflictsWithPhone = /phone/i.test(json.error || '');
           const field: RegisterFieldName = conflictsWithPhone ? 'phone' : 'email';
@@ -898,8 +806,7 @@ export default function RegisterPage() {
           return;
         }
 
-        // The platform rejects an oversized body before this route runs, so the
-        // reply is an HTML error page rather than our JSON.
+        // Oversized body: the platform answers with HTML before the route runs.
         if (response.status === 413) {
           setSubmitError(
             isBn
@@ -941,9 +848,7 @@ export default function RegisterPage() {
           return;
         }
 
-        // Never surface a raw response body: when the platform answers instead
-        // of the route, it is an HTML page, and dumping it in the error box
-        // showed members a wall of markup.
+        // Never show a raw response body (it may be a platform HTML page).
         const serverMessage =
           typeof json?.error === 'string' && json.error.trim() ? json.error.trim() : '';
         setSubmitError(
@@ -961,14 +866,8 @@ export default function RegisterPage() {
       setDocumentFiles(EMPTY_DOCUMENTS);
       setDocumentErrors({});
 
-      // A confirmation *screen*, not a toast and a redirect.
-      //
-      // What this replaces: a two-second toast, then `router.push('/login')` —
-      // so the applicant's receipt for twenty minutes of form-filling
-      // disappeared on its own, and they were left standing on a login page
-      // they cannot use, because an application has no password until an admin
-      // approves it. They were never shown any reference at all, never told
-      // what happens next, and never told how long it takes.
+      // A confirmation SCREEN with the reference and next steps — an applicant
+      // has no password yet, so redirecting to login was useless.
       setSubmittedReference(
         typeof json?.user?.formNumber === 'string' ? json.user.formNumber : '',
       );
@@ -983,16 +882,7 @@ export default function RegisterPage() {
     }
   };
 
-  /**
-   * Submission blocked by validation.
-   *
-   * The old version fired a "Form needs attention" toast and moved the step,
-   * and that was all: the toast vanished after a few seconds, three fields
-   * rendered no error text at all, and nothing scrolled, so the member arrived
-   * at a step that looked complete and was told, briefly, that it was not.
-   * Now the reason stays on screen, names the fields, and the first bad one is
-   * scrolled to and focused.
-   */
+  /** Submission blocked: a persistent summary naming the fields, scrolled into view. */
   const onInvalidSubmit = (formErrors: FieldErrors<RegisterFormData>) => {
     const errored = (Object.keys(formErrors) as RegisterFieldName[]).filter((field) => {
       if (sameAsPermanent && CONDITIONAL_ADDRESS_FIELDS.includes(field)) return false;
@@ -1000,8 +890,7 @@ export default function RegisterPage() {
     });
 
     if (!errored.length) {
-      // Nothing maps to a step — a root-level schema issue. Show whatever the
-      // resolver said rather than an empty banner.
+      // A root-level schema issue: show the resolver's message.
       const rootMessage = (formErrors as { root?: { message?: unknown } }).root?.message;
       const firstMessage = Object.values(formErrors).find(
         (value) =>
@@ -1030,11 +919,8 @@ export default function RegisterPage() {
     );
     const labels = fieldsOnTarget.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
 
-    // The uploads are component state, not schema fields, so the resolver has
-    // nothing to say about them and they were reported only *after* everything
-    // in the schema passed. A member who had not ticked the agreement was told
-    // about the agreement, fixed it, submitted again, and only then learned
-    // that four photos were also missing. Name both the first time.
+    // Uploads are component state, not schema fields: report them alongside
+    // schema errors the first time.
     const missingDocuments = targetStep === DOCUMENTS_STEP ? flagMissingDocuments() : [];
     const documentLabels = missingDocuments.map((key) =>
       isBn ? DOCUMENT_LABELS[key].bn : DOCUMENT_LABELS[key].en,
@@ -1042,8 +928,7 @@ export default function RegisterPage() {
     const allLabels = [...documentLabels, ...labels];
 
     setSubmitError(
-      // No "on the X step" when they are already standing on step X: it reads
-      // as an instruction to go somewhere, and the member is there.
+      // No "on step X" when already there.
       targetStep === currentStep
         ? isBn
           ? `এই তথ্যগুলো ঠিক করুন: ${allLabels.join(', ')}`
@@ -1054,10 +939,7 @@ export default function RegisterPage() {
     );
     setCurrentStep(targetStep);
 
-    // One scroll, always to the summary. The summary sits directly above the
-    // upload slots, so revealing it puts both the list of problems and the
-    // boxes to fill on screen together — which is the whole difference from
-    // shouldFocusError, whose one focused field was the checkbox at the bottom.
+    // One scroll, always to the summary (directly above the upload slots).
     revealErrorSummary();
   };
 
@@ -1068,9 +950,7 @@ export default function RegisterPage() {
     const isValid = await trigger(fieldsToValidate);
 
     if (!isValid) {
-      // `errors` from the render closure is a tick behind `trigger`, so asking
-      // it which fields failed the validation we just ran returns the previous
-      // answer. getFieldState reads the live state the trigger updated.
+      // getFieldState reads the live state; `errors` is a tick behind trigger().
       const badFields = fieldsToValidate.filter((field) => getFieldState(field).invalid);
       const labels = badFields.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
       setSubmitError(
@@ -1087,10 +967,7 @@ export default function RegisterPage() {
     }
 
     if (currentStep === 0) {
-      // Age, against the foundation's configured floor. Not in the Zod schema
-      // because the schema is shared with the API and the floor is a setting;
-      // checked here so the applicant learns it on the step that holds the
-      // field, rather than after eight steps and four photographs.
+      // Age against the configured floor (not in the shared Zod schema).
       const dobProblem = dateOfBirthProblem(getValues('dateOfBirth'), minimumAge);
       if (dobProblem) {
         const message = dateOfBirthMessage(dobProblem, minimumAge, isBn ? 'bn' : 'en');
@@ -1111,14 +988,10 @@ export default function RegisterPage() {
         revealErrorSummary();
         return;
       }
-      // 'error' deliberately falls through: the check is advisory and the POST
-      // is authoritative. Blocking here on a rate limit or a dropped packet
-      // stranded people who had done nothing wrong.
+      // 'error' falls through: the check is advisory, the POST authoritative.
     }
 
-    // Step 2 is the nominee. A nominee is who receives the account if the member
-    // dies, so the member cannot be their own — nothing checked it, and the same
-    // NID in both boxes produced a nomination that can never be acted on.
+    // Step 2: a member cannot be their own nominee.
     if (currentStep === 2) {
       const applicantNid = String(getValues('nidNumber') ?? '').trim();
       const nomineeNid = String(getValues('nomineeNid') ?? '').trim();
@@ -1145,8 +1018,7 @@ export default function RegisterPage() {
   };
 
   const goToStep = (index: number) => {
-    // Backwards only. Jumping forward would skip the per-step validation that
-    // keeps a member from reaching the documents step with an unusable form.
+    // Backwards only; forward would skip per-step validation.
     if (index < currentStep) {
       setSubmitError(null);
       setCurrentStep(index);
@@ -1169,16 +1041,14 @@ export default function RegisterPage() {
   ) => {
     const file = event.target.files?.[0] ?? null;
     setSubmitError(null);
-    // Let the same file be re-picked after an error; without this the change
-    // event never fires again for an identical filename.
+    // Allow re-picking the same file after an error.
     event.target.value = '';
 
     if (!file) return;
 
     setProcessingDocument(key);
     try {
-      // Type first: downscaling a PDF or a HEIC is not going to help, and the
-      // member should hear why rather than watch a spinner.
+      // Type first: downscaling a PDF or HEIC will not help.
       const typeCheck = validateImageFile(file, {
         acceptedTypes: UPLOAD_TYPES.avatar,
         maxSizeMB: Number.MAX_SAFE_INTEGER,
@@ -1260,9 +1130,7 @@ export default function RegisterPage() {
   const isLastStep = currentStep === steps.length - 1;
   const busy = isSubmitting || submitStage !== 'idle';
 
-  // The confirmation screen. It replaces the whole form rather than sitting
-  // above it, because the form's state has been cleared and going back to it
-  // would show eight empty steps and invite a second application.
+  // The confirmation screen replaces the form, so it cannot invite a second application.
   if (submitStage === 'submitted') {
     return (
       <div className="min-h-dvh bg-muted/30">
@@ -1290,17 +1158,7 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            {/*
-              The application's number — `APP-2026-000001` — allocated the
-              moment the application is stored, and what the office will ask for
-              on the telephone.
-
-              This is NOT the member's account number. That is issued if and when
-              the application is approved, so that refusing an applicant does not
-              consume a number from the foundation's register; the applicant is
-              told their `ACC-` number in the approval email. The heading here
-              has always said "application reference", which is what this now is.
-            */}
+            {/* The APPLICATION number (APP-…), not the account number — that comes with approval. */}
             {submittedReference && (
               <div className="rounded-lg border border-dashed bg-muted/40 p-4 text-center">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -1352,11 +1210,7 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            {/*
-              No link to /login. An application has no password until it is
-              approved, so sending the applicant there — which is exactly what
-              this screen replaces — offers them a door that cannot open.
-            */}
+            {/* No link to /login: an applicant has no password until approved. */}
             <div className="flex flex-col gap-2 sm:flex-row">
               <Link href={localePath(locale)} className="flex-1">
                 <Button variant="outline" className="w-full">
@@ -1678,13 +1532,7 @@ export default function RegisterPage() {
 
                       <div className="space-y-2">
                         <Label htmlFor="dateOfBirth">{isBn ? 'জন্ম তারিখ *' : 'Date of Birth *'}</Label>
-                        {/*
-                          Three dropdowns rather than `type="date"`. The platform
-                          calendar opens on this month and asks somebody born in
-                          1985 to travel there — see components/ui/date-of-birth-input.tsx.
-                          `register` still owns the value; the control only writes
-                          the same ISO string the field always held.
-                        */}
+                        {/* Three dropdowns, not type="date" — see components/ui/date-of-birth-input.tsx. */}
                         <DateOfBirthInput
                           id="dateOfBirth"
                           locale={isBn ? 'bn' : 'en'}
@@ -2168,10 +2016,7 @@ export default function RegisterPage() {
 
                     <h3 className="border-b pb-3 text-lg font-semibold">{tReg('termsHeading')}</h3>
 
-                    {/* The full document, not a summary of it. It opens in a new
-                        tab deliberately: this form holds four uploaded images and
-                        eleven answered fields in browser state, and navigating away
-                        from it loses all of them. */}
+                    {/* Opens in a new tab: navigating away would lose four images and the answers. */}
                     <div className="space-y-3 rounded-lg border bg-muted/50 p-4 text-sm">
                       <p>{tReg('termsIntro')}</p>
                       <Link
@@ -2221,20 +2066,7 @@ export default function RegisterPage() {
                     {isBn ? 'পেছনে' : 'Back'}
                   </Button>
 
-                  {/* Distinct keys, deliberately, and load-bearing.
-
-                      Without them React sees one <Button> in one slot and reuses
-                      the same DOM node when the step changes: the node the member
-                      just clicked "Next" on becomes type="submit" in place. And
-                      `nextStep` is async — the continuation after `await
-                      trigger(...)` runs as a microtask, which is *before* the
-                      browser performs the click's default action. So a single
-                      ordinary click advanced to this step and then submitted it,
-                      and the member landed on the Documents step already being
-                      told about fields they had not been shown.
-
-                      A key forces a fresh node, and a node that did not exist
-                      when the click began has no default action to perform. */}
+                  {/* Distinct keys: otherwise React reuses the clicked "Next" node as type="submit", and one click advances AND submits. */}
                   {!isLastStep ? (
                     <Button
                       key="next"

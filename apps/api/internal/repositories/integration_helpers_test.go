@@ -1,18 +1,7 @@
 //go:build integration
 
-// Integration tests run against a real PostgreSQL database, because the things
-// worth testing here — transactions, constraints, the waterfall's ordering —
-// only exist in the database. They are behind a build tag so `go test ./...`
-// stays fast and dependency-free for everyone else.
-//
-//	docker compose up -d db
-//	TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_test \
-//	  pnpm --filter @hasnahena/web exec prisma db push
-//	TEST_DATABASE_URL=... go test ./... -tags=integration
-//
-// The schema comes from `prisma db push`, not from these tests: the point is to
-// exercise the schema the application actually deploys, including the defaults
-// Prisma strips. See docs/data-model.md.
+// Integration tests run against a real, migrated PostgreSQL (behind the
+// `integration` tag). Bring one up with scripts/test-stack.sh — see docs/testing.md.
 package repositories
 
 import (
@@ -45,9 +34,7 @@ func TestMain(m *testing.M) {
 		panic("bad TEST_DATABASE_URL: " + err.Error())
 	}
 	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	// Same UTC pinning as main.go. Without it, timestamp comparisons in these
-	// tests would depend on the machine's timezone — which is exactly the bug
-	// documented in docs/data-model.md.
+	// Same UTC pinning as main.go.
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
 
 	testPool, err = pgxpool.NewWithConfig(ctx, cfg)
@@ -58,9 +45,7 @@ func TestMain(m *testing.M) {
 		panic("cannot ping TEST_DATABASE_URL: " + err.Error())
 	}
 
-	// The schema comes from `pnpm db:migrate`, which scripts/test-stack.sh runs
-	// before these suites. Creating it here as well is what WO-70 removed: two
-	// definitions, one of them subtly different, and whichever ran first won.
+	// The schema comes from `pnpm db:migrate` (scripts/test-stack.sh), never from here (WO-70).
 	code := m.Run()
 	testPool.Close()
 	os.Exit(code)
@@ -174,28 +159,14 @@ func loanBalanceOf(t *testing.T, userID string) int64 {
 	return v
 }
 
-// fileWithdrawalRequest inserts an outstanding PENDING withdrawal — the row a
-// member's own request used to create before ADR-030 removed the member-side
-// notice.
-//
-// It is no longer a precondition of anything: AddMemberWithdrawal pays with or
-// without one. What it still exercises is the *settlement* path — a payout
-// consumes an outstanding request rather than writing a second row for the same
-// money — so tests that care about the ledger's shape use this, and tests that
-// only care about balances no longer need it at all.
-//
-// `monthsAgo` backdates `createdAt`. Nothing reads that date as policy any more;
-// it is here so a test can distinguish an old request from one filed today,
-// which is what the deleted notice period turned on.
+// fileWithdrawalRequest inserts an outstanding PENDING withdrawal, backdated by
+// monthsAgo. It gates nothing (ADR-030); it exercises the settlement path.
 func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAgo int) string {
 	t.Helper()
 	var id string
 	err := testPool.QueryRow(context.Background(), `
 		WITH allocated AS (
-			-- A request is a document from the moment it is filed, and its
-			-- number is the row (ADR-044). Allocated from document_sequences
-			-- exactly as the application does, so a fixture can never hand out a
-			-- number the allocator will later issue to a real withdrawal.
+			-- Number allocated from document_sequences, as the application does.
 			INSERT INTO document_sequences (series, year, counter, "createdAt", "updatedAt")
 			VALUES ('WDR', EXTRACT(YEAR FROM NOW())::int, 1, NOW(), NOW())
 			ON CONFLICT (series, year)

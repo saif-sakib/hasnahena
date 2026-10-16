@@ -21,10 +21,7 @@ describe('member id formatting', () => {
   });
 
   it('stops padding rather than truncating past 999', () => {
-    // The foundation will pass 999 members one day. Padding is cosmetic and
-    // widening it must not change any existing id, so 1000 has to grow, never
-    // wrap — an id that collides with an existing member is unrecoverable once
-    // it is printed on a passbook.
+    // Past 999 the number grows, never wraps.
     expect(formatAccountSequenceNumber(1000)).toBe('1000');
     expect(formatAccountNo(1000)).toBe('ACC-KH-331000');
   });
@@ -109,10 +106,7 @@ describe('the staff series', () => {
   });
 
   it('does not claim the numbers issued before this series existed', () => {
-    // `STF-MOB97EFH-A1B2C3` was the old shape. Casting one to an integer fails,
-    // which is why the allocator's SQL matches `^STF-[0-9]+$` and not `^STF-`.
-    // Existing staff keep the number they were given: renumbering a live account
-    // would move the folder their photograph lives in on the image host.
+    // Legacy STF-<base36>-<hex> values are outside the series and kept.
     expect(parseStaffSequence('STF-MOB97EFH-A1B2C3')).toBeNull();
     expect(parseStaffSequence('ACC-KH-33001')).toBeNull();
     expect(parseStaffSequence(null)).toBeNull();

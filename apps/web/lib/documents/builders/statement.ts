@@ -23,18 +23,8 @@ import type {
   StatementTransaction,
 } from '../types';
 
-// Widths are a share of the content width and must sum to 1.
-//
-// Reference was 0.15, which is 26.7 mm on A4 — 22.7 mm once the cell padding is
-// taken off. A document number is 15 characters (`DEP-2026-000123`) and measures
-// 23.14 mm at the table's 8 pt Helvetica, so **every** reference on **every**
-// statement wrapped, printing as `DEP-2026-00000` with a stray `1` on the line
-// below. A member reading that off a printed statement to query a transaction
-// transcribes it wrong (TEST-25).
-//
-// The 0.03 comes from Particulars, which wraps gracefully because it contains
-// spaces. `TestTableColumnsFitTheirContent` in boundaries.test.ts now measures
-// this, so a future column cannot be a little too narrow unnoticed.
+// Widths are shares of the content width and must sum to 1. Reference must fit
+// a 15-char document number at 8pt (TEST-25); boundaries.test.ts measures it.
 const COLUMNS: Column[] = [
   { header: '#', width: 0.05 },
   { header: 'Date', width: 0.13 },
@@ -42,10 +32,7 @@ const COLUMNS: Column[] = [
   { header: 'Reference', width: 0.18 },
   { header: 'Credit (BDT)', width: 0.12, align: 'right' },
   { header: 'Debit (BDT)', width: 0.12, align: 'right' },
-  // 0.13, not 0.12: "BALANCE (BDT)" measures 18.02 mm at the header's 6.5 pt
-  // bold, and 0.12 leaves 17.36 mm. Headers are drawn without wrapping, so the
-  // overflow ran leftwards out of a right-aligned column and into "DEBIT (BDT)"
-  // beside it. Found by the same measurement that caught the reference wrap.
+  // 0.13: "BALANCE (BDT)" headers do not wrap.
   { header: 'Balance (BDT)', width: 0.13, align: 'right' },
 ];
 
@@ -77,9 +64,8 @@ export function buildStatement(
   const totalCredit = entries.length ? derived.credit : Math.round(data.totalDeposits || 0);
   const totalDebit = entries.length ? derived.debit : Math.round(data.totalWithdrawals || 0);
 
-  // A statement must tie out: opening + credits − debits = closing. When the
-  // caller passes a filtered slice of a longer history, the remainder is shown
-  // as one explicit reconciling line rather than leaving the reader to wonder.
+  // Must tie out: opening + credits − debits = closing (a filtered slice gets a
+  // reconciling line).
   const opening = Math.round(data.openingBalance || 0);
   const closing = Math.round(data.closingBalance || 0);
   const unreconciled = closing - (opening + totalCredit - totalDebit);

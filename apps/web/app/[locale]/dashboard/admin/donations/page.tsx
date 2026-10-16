@@ -24,15 +24,7 @@ type Donation = {
   status?: string;
 };
 
-/**
- * Which rows total as the fund.
- *
- * A donation is written CONFIRMED and only leaves that state through a dispute,
- * so this excludes exactly one thing: a donation somebody has challenged. The
- * table below still lists it — hiding a posting from the admin who has to
- * explain it helps nobody — but the headline figure is the fund, and the
- * overview and the reports screen total it the same way.
- */
+/** Rows that total as the fund: everything but a disputed donation (still listed). */
 const isCountedDonation = (d: Donation) => (d.status ?? 'CONFIRMED') === 'CONFIRMED';
 
 function exportDonationsCsv(rows: Donation[], locale: string) {

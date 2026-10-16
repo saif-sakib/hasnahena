@@ -1,26 +1,10 @@
 #!/usr/bin/env node
 /**
- * WO-83 — the client bundle cannot grow silently.
- *
- * Every other gain in blocks S–V is a one-time improvement that decays. Bundle
- * size decays faster than any of them, because nothing about adding an import
- * feels like a performance decision: one `import { format } from 'date-fns'` in
- * a shared component is thirty kilobytes on every route that renders it, on a
- * phone on a Bangladeshi mobile connection, and no test, type or lint rule says
- * a word.
- *
- * This reads `.next/diagnostics/route-bundle-stats.json`, which the build
- * itself emits, for the same reason `assert-static-routes.mjs` reads
- * `prerender-manifest.json`: "how much JavaScript does this route ship" is a
- * conclusion the bundler draws after following every import, and no test over
- * the source can reach it.
+ * WO-83: first-load JS per route against bundle-budget.json, from the build's
+ * own route-bundle-stats.json. A route missing from the baseline fails.
  *
  *   node scripts/assert-bundle-budget.mjs            # check (CI)
  *   node scripts/assert-bundle-budget.mjs --update   # re-record the baseline
- *
- * The baseline is `bundle-budget.json`, checked in, one entry per route. A route
- * that is not in it fails — deliberately. A new route's first-load cost is a
- * number somebody should look at once, and `--update` is how you accept it.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -31,13 +15,7 @@ const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STATS = resolve(WEB_ROOT, '.next/diagnostics/route-bundle-stats.json');
 const BASELINE = resolve(WEB_ROOT, 'bundle-budget.json');
 
-/**
- * How much a route may grow before this fails.
- *
- * Ten percent, from the order. Loose enough that a genuine feature does not
- * trip it on the day it lands, tight enough that four unnoticed regressions in
- * a row cannot pass as noise.
- */
+/** Allowed growth per route. */
 const DEFAULT_TOLERANCE = 0.1;
 
 const kb = (bytes) => `${(bytes / 1024).toFixed(1)} kB`;

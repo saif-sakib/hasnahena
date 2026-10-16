@@ -12,10 +12,7 @@ interface UploadAvatarResult {
   error?: string;
 }
 
-/**
- * Upload avatar server action
- * Authenticates user, uploads to Cloudinary, updates database, and deletes old avatar
- */
+/** Upload an avatar: authenticate, upload, update the row, delete the old one. */
 export async function uploadAvatarAction(
   formData: FormData
 ): Promise<UploadAvatarResult> {
@@ -71,15 +68,8 @@ export async function uploadAvatarAction(
     // Upload to Cloudinary
     const uploadResult = await uploadAvatar(buffer, currentUser.accountNo, userId);
 
-    // Remove the previous asset — but only when it is genuinely a different one.
-    //
-    // Avatars go to a fixed public id now (`people/<accountNo>/avatar`), so
-    // replacing one is an overwrite and there is nothing left behind. Without
-    // this guard the delete below would name the file we have just written and
-    // destroy it, leaving `avatarUrl` pointing at a 404 with the upload reported
-    // as successful. The comparison still earns its place: avatars uploaded
-    // before this change live under a cuid with a random filename, and those do
-    // need removing the first time each is replaced.
+    // Delete the previous asset only if it is a DIFFERENT one: avatars now
+    // overwrite a fixed id, but older ones live under random ids.
     if (currentUser.avatarUrl && extractPublicId(currentUser.avatarUrl) !== uploadResult.publicId) {
       const deleted = await deleteOldAvatar(currentUser.avatarUrl);
       if (!deleted) {

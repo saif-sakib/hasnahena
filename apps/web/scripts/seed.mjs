@@ -1,28 +1,11 @@
 #!/usr/bin/env node
 
-// Creates the minimum a fresh database needs to be usable: one SUPER_ADMIN who
-// can log in, and the system_config rows the loan rules read.
+// The minimum a fresh database needs: one SUPER_ADMIN and the system_config
+// defaults. Idempotent — never a second admin, never a password reset. It
+// refuses to invent a password.
 //
-// Idempotent by design — running it twice is a no-op, never a second admin and
-// never a password reset on an existing one. That matters because this is the
-// script someone will reach for in a hurry, against a database they are not
-// completely sure about.
-//
-// First run, on an empty database:
-//
-//   SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... pnpm db:seed
-//
-// Every run after that, to pick up config keys added since:
-//
-//   pnpm db:seed
-//
-// The admin variables are only required when there is no admin yet. Once one
-// exists the admin step is skipped and only system_config is ensured, because
-// needing a password to add a settings row is how a routine re-seed turns into
-// a reason to go looking for credentials.
-//
-// It refuses to invent a password. An admin account with a guessable default is
-// how a cooperative's entire member ledger walks out the door.
+//   SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... pnpm db:seed   # first run
+//   pnpm db:seed                                                # later: new config keys
 
 import bcrypt from 'bcryptjs';
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
@@ -30,10 +13,7 @@ import { loadDatabaseEnv } from './lib/env.mjs';
 import { runAsScript } from './lib/guard.mjs';
 import { allocateStaffNo } from './lib/account-no.mjs';
 
-// Only keys the application actually reads. Defaults match the fallbacks
-// hardcoded in the Go repository (repositories/repository.go) and lib/documents/theme.ts
-// — seeding them makes the effective policy visible in the admin settings page
-// instead of invisible in two codebases.
+// Only keys the application reads; defaults match the code's own fallbacks.
 const CONFIG_DEFAULTS = [
   {
     key: 'loan.minDepositForLoan',
@@ -61,10 +41,7 @@ const CONFIG_DEFAULTS = [
     description: 'Loans above this amount (taka) require a guarantor; 0 requires one always',
   },
   {
-    // Days, and informational only (ADR-030). Seeded so the member savings
-    // screen and the FAQ have a figure to publish; nothing in either backend
-    // reads it, and no payout waits on it. 90 is the three months that the
-    // enforced `loan.noticePeriodMonths` used to mean.
+    // Days, informational only (ADR-030).
     key: 'loan.noticePeriodDays',
     value: '90',
     description: 'Days of notice a member is ASKED to give before withdrawing (not enforced)',
@@ -75,21 +52,13 @@ const CONFIG_DEFAULTS = [
     description: 'Days a resolved support thread is kept before deletion',
   },
   {
-    // WO-93 / ADR-033. A rejection keeps its decision and its audit row for
-    // ever; the applicant's NID number, both parents' names, date of birth and
-    // two addresses are cleared a year later by the Go API's retention sweep.
-    // A year, because a re-application or a dispute inside that window can
-    // still be checked against what was submitted.
+    // ADR-033: identity data of a rejected application is cleared after a year.
     key: 'security.rejectedRetentionDays',
     value: '365',
     description: "Days a rejected application keeps its identity data before the sweep clears it",
   },
 
-  // Membership eligibility (T-07, 2026-08-26). Date of birth used to be checked
-  // only for "not in the future", so an infant passed validation and created a
-  // pending member. 18 is the age of majority in Bangladesh and the ordinary
-  // threshold for a binding contract; the owner asked for it to be editable in
-  // Settings rather than fixed in the source.
+  // Membership age floor (T-07): 18, the age of majority in Bangladesh.
   {
     key: 'membership.minimumAgeYears',
     value: '18',
@@ -97,10 +66,7 @@ const CONFIG_DEFAULTS = [
   },
   { key: 'org.name', value: 'হাসনাহেনা ফাউন্ডেশন', description: 'Organisation name (Bengali)' },
   { key: 'org.nameEn', value: 'Hasnahena Foundation', description: 'Organisation name (English)' },
-  // Two addresses, for the same reason there are two names: whichever script a
-  // single address box is filled in with is shown to both audiences, and the
-  // Bengali one under an English "Address" heading is what the public site
-  // shipped. `orgAddress()` in lib/system-config.ts picks between them.
+  // Two addresses (Bengali + English), like the two names.
   {
     key: 'org.address',
     value: 'ভেকুটিয়া, সদর, যশোর',
@@ -115,13 +81,7 @@ const CONFIG_DEFAULTS = [
   { key: 'org.email', value: 'info@hasnahenafoundation.com', description: 'Public contact email' },
   { key: 'org.website', value: 'hasnahenafoundation.com', description: 'Public website' },
 
-  // Two descriptions, for the same reason as the two names and the two
-  // addresses. This pair was found last (2026-08-25): nothing on any page
-  // renders it, so its only reader is the JSON-LD `organizationSchema()`
-  // publishes — a surface no admin looks at and no test could read, because the
-  // value lives in the database. The single box defaulted to the Bengali
-  // sentence below, so the English home page described the foundation in
-  // Bengali to every crawler and assistant that asked.
+  // Two descriptions; the English one feeds the JSON-LD.
   {
     key: 'org.description',
     value: 'একটি কর্দ আল-হাসান (সুদমুক্ত ইসলামী অর্থায়ন) সমবায় সংস্থা',
@@ -133,35 +93,16 @@ const CONFIG_DEFAULTS = [
     description: 'One-line description (English) — the JSON-LD every search engine reads',
   },
 
-  // Bank transfer details for /donate (WO-67).
-  //
-  // Seeded EMPTY on purpose, unlike every other row here. The page hides its
-  // bank card entirely while the account number is blank, because the thing
-  // being replaced was a hardcoded placeholder — `2050 0000 0000 0000` — that a
-  // donor could read as real and send money to. A visible gap is recoverable;
-  // a plausible wrong account number is not.
-  //
-  // The admin fills these in on Settings → Organisation. Until then the card
-  // does not render, which is the intended state and not a defect.
+  // Bank details for /donate (WO-67), seeded EMPTY: the card hides until filled,
+  // since a plausible wrong account number is unrecoverable.
   { key: 'bank.name', value: '', description: 'Bank name shown on /donate — empty hides the bank card' },
   { key: 'bank.accountName', value: '', description: 'Bank account holder name shown on /donate' },
   { key: 'bank.accountNo', value: '', description: 'Bank account number shown on /donate — empty hides the bank card' },
   { key: 'bank.branch', value: '', description: 'Bank branch shown on /donate' },
 
   // ---------------------------------------------------------------------
-  // The public site's own words.
-  //
-  // Seeded, and that is a change of position taken on the owner's instruction
-  // (2026-08-26): the landing copy used to fall back to strings in
-  // `messages/{en,bn}.json`, so a fresh install rendered correctly but Admin →
-  // Content & Media showed **empty boxes**, and an admin opening that screen
-  // could not tell whether the site had no copy or whether the form had failed
-  // to load. Seeding it makes the screen show what the visitor is being shown,
-  // which is the only state from which editing makes sense.
-  //
-  // Every one of these is a PAIR — the bare key is Bengali, the `…En` twin is
-  // English (`lib/localized-settings.ts`). Seeding only one half would put
-  // Bengali on the English home page, which is the bug the pairs exist for.
+  // The public site's copy, seeded so Content & Media shows what visitors see.
+  // Every row is a PAIR (bare key Bengali, `…En` English) — seed both halves.
   { key: 'hero.tagline', value: 'ইসলামী শরীয়াহ সম্মত', description: 'Hero badge (Bengali)' },
   { key: 'hero.taglineEn', value: 'Shariah Compliant Finance', description: 'Hero badge (English)' },
 
@@ -210,33 +151,9 @@ const CONFIG_DEFAULTS = [
     description: 'Donate reference note (English)',
   },
 
-  // The four figures beside the home page headline.
-  //
-  // These are the foundation's **stated** figures, and stated is the whole
-  // point. They were briefly counted from the ledger — true by construction,
-  // never stale — and the owner's ruling on 2026-08-26 was that the fund's real
-  // member count and real balances are **not for publication**. A cooperative
-  // is entitled to describe its scale without opening its books to anyone who
-  // loads the home page, and a figure the database can reach is a figure that
-  // moves every time somebody deposits, which is not what a headline is for.
-  //
-  // So the page reads these rows and nothing else. `lib/public-stats.ts`,
-  // which did the counting, is gone rather than left switched off: code that
-  // can publish a real balance is a hazard for as long as it exists.
-  //
-  // The numbers below are the owner's `135+` members and estimates consistent
-  // with it — roughly ৳18,500 saved per member, rather less than that lent out,
-  // and a charitable fund about a seventh of deposits. **They are a starting
-  // point and the foundation is expected to correct them** on Admin → Content &
-  // Media → Public Pages; they are published under its name, not this file's.
-  //
-  // Lakh notation, not seven digits, and that is a layout decision as much as a
-  // stylistic one: `৳২৫,০০,০০০+` in half of a hero panel wraps between its own
-  // digits on a phone. It is also the notation the figures had before they were
-  // ever settings (`৳১.৮ লক্ষ+`), so it is what the owner reads them in.
-  //
-  // A pair per figure, like every other prose row, because `১৩৫+` and `135+`
-  // are the same fact in two alphabets.
+  // The four hero figures: the foundation's STATED values, never the ledger
+  // (owner's ruling). Starting estimates for the foundation to correct. Lakh
+  // notation so they do not wrap on a phone; a pair per figure.
   { key: 'stats.members', value: '১৩৫+', description: 'Members figure (Bengali)' },
   { key: 'stats.membersEn', value: '135+', description: 'Members figure (English)' },
   { key: 'stats.deposits', value: '৳২৫ লক্ষ+', description: 'Total deposits figure (Bengali)' },
@@ -259,26 +176,10 @@ async function seedAdmin(prisma) {
   const email = process.env.SEED_ADMIN_EMAIL?.trim();
   const phone = process.env.SEED_ADMIN_PHONE?.trim() || '01700000000';
 
-  // No credentials supplied. That is the ordinary case for re-running the seed
-  // on a working database to pick up newly added config keys, and it used to
-  // fail before reaching seedConfig at all — demanding an admin email to write
-  // a settings row, on a database whose admin has existed for months.
-  //
-  // Skipping is only safe when an admin already exists. On a genuinely fresh
-  // database, silently seeding config and no admin would leave something that
-  // looks seeded and cannot be logged into, so that still fails loudly.
+  // No credentials: fine for a re-seed when a loginable admin exists; on a
+  // fresh database it fails loudly rather than seed something nobody can log into.
   if (!email) {
-    // "An admin exists" has to mean an admin somebody can log in as, not merely
-    // a row with an admin role. The donation pool's owner is exactly such a row
-    // — role ADMIN so it can hold an account, INACTIVE with a password hash
-    // bcrypt can never match, by design — and it satisfied this check. Once the
-    // pool existed, re-running the seed on a database whose real admin had been
-    // removed printed "admin: skipped" and exited 0, leaving the thing the
-    // comment above promises cannot happen: seeded, and impossible to log into.
-    //
-    // Both conditions, deliberately. ACTIVE is the property that matters;
-    // naming the system id as well keeps the intent legible if a future system
-    // account is created ACTIVE for some other reason.
+    // ACTIVE and not the donation pool's owner (an INACTIVE ADMIN-role row).
     const anyAdmin = await prisma.user.findFirst({
       where: {
         role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
@@ -322,21 +223,10 @@ async function seedAdmin(prisma) {
     throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.');
   }
 
-  // The rest of the codebase hashes at cost 10; this one account gets 12. The
-  // cost is encoded in the hash itself, so Go's CompareHashAndPassword reads it
-  // back without knowing or caring — and this is the account that owns every
-  // member's savings record.
+  // Cost 12 for this account (the rest use 10); bcrypt stores the cost in the hash.
   const passwordHash = await bcrypt.hash(password, 12);
 
-  // A staff number, from the same series every other staff account is issued
-  // from — and the row's id, because the id **is** the account number
-  // ([ADR-043](../../../docs/decisions.md)).
-  //
-  // The seeded admin used to have no `accountNo` at all. Nothing failed, because
-  // the column is nullable; what it meant was that the foundation's first
-  // account was the one account with no number, and the cutover purge had to
-  // notice and allocate one. Allocating it here makes a seeded database and a
-  // purged one describe the same thing.
+  // A staff number from the STF series — and the row id (ADR-043).
   const created = await prisma.$transaction(async (tx) => {
     const accountNo = await allocateStaffNo(tx);
     return tx.user.create({
@@ -362,36 +252,10 @@ async function seedAdmin(prisma) {
 }
 
 /**
- * Ensure every default exists, and **fill in the blanks**.
- *
- * The rule is unchanged where it matters: an operator who typed a value into
- * the admin UI outranks this file, and re-running the seed must never undo
- * their edit. But an *empty* row is not somebody's edit — it is the absence of
- * one, and treating it as a decision is what produced the defect this now
- * exists to fix.
- *
- * What happened (2026-08-26). The public site's copy moved into `system_config`
- * with a Bengali key and an `…En` twin each. The English halves were brand new,
- * so `create` ran and they got their words. The Bengali halves already existed
- * as **empty strings** — the Content & Media screen POSTs every field on save,
- * so an admin who had once opened that screen and pressed Save had written a
- * blank row for each of them. `update: { description }` then dutifully declined
- * to touch a value nobody had ever set, and the result was `hero.tagline` empty
- * beside `hero.taglineEn` filled: an English home page rendering correctly, a
- * Bengali one falling back to `messages/bn.json`, and Admin → Content & Media
- * showing half a screen of empty boxes. Re-running the seed could not fix it,
- * which is what made it worth changing this function rather than the data.
- *
- * So a stored value of `''` (or whitespace) is backfilled from the default, and
- * anything else is left alone. The rows deliberately seeded empty — `bank.*`
- * and `hero.partnerLogo*` — have an empty default too, so backfilling them is a
- * no-op and their intent survives.
- *
- * The one behaviour to be aware of: an operator who clears a box *to* empty on
- * purpose will have it refilled by the next seed run. That is the right way for
- * this to be wrong. A settings screen can express "blank" in a way this file
- * cannot express "deliberately blank", and the failure mode above — copy that
- * no re-run can repair — is far worse than a default coming back.
+ * Ensure every default exists and FILL IN BLANKS: an admin's edit wins, but an
+ * empty row (Content & Media saves every field) is the absence of an edit and
+ * is backfilled. Rows seeded empty have empty defaults, so they stay empty.
+ * Caveat: a box cleared on purpose is refilled by the next seed.
  */
 async function seedConfig(prisma) {
   let atDefault = 0;
@@ -425,23 +289,10 @@ async function seedConfig(prisma) {
   );
 }
 
-// The donation pool is a real account in the ledger, not a computed total:
-// RecordDonation locks the account owned by DONATION_OWNER_ID and credits it,
-// so without this row every attempt to record a donation failed
-// with a 500 and the message "Failed to record donation". Nothing in the schema,
-// the migrations or the application ever created it — only a test did — so it
-// would have been missing on the day the foundation recorded its first
-// donation (found by TEST-18, 2026-08-17).
-//
-// It is owned by a placeholder user because `accounts.userId` is NOT NULL. That
-// user must never be able to log in: `passwordHash` is a string bcrypt can
-// never produce a match for, and the status is INACTIVE, so the auth gate
-// refuses it even if someone later sets a password.
-// The pool is identified by its owner, not by an account number: there is no
-// account number any more (ADR-023), and `accounts.userId` is unique, so this
-// id names exactly one row — which matters because the Go side takes
-// FOR UPDATE on it. Keep it in step with DonationFundUserID in
-// apps/api/internal/repositories/transaction_repository.go.
+// The donation pool: a real account RecordDonation locks and credits. Its owner
+// can never log in (unmatchable hash, INACTIVE). Identified by owner id
+// (accounts.userId is unique) — keep equal to DonationFundUserID in
+// transaction_repository.go.
 const DONATION_OWNER_ID = 'system_donation_fund';
 
 async function seedDonationPool(prisma) {
@@ -484,21 +335,8 @@ async function seedDonationPool(prisma) {
 }
 
 /**
- * The foundation's own office (WO-72).
- *
- * `branches` existed from the first migration and nothing ever wrote a row to
- * it, while `users.assignedBranch` held a free-text office name with no link
- * back — so there was a table modelling branches and a string modelling
- * branches, and neither knew about the other.
- *
- * The code `KH` matches the prefix inside `utils.MemberIDPrefix`
- * ("ACC-KH-33"). They are **not** connected in code and deliberately so: member
- * IDs are read aloud and written into paper passbooks, so their format is fixed
- * (ADR-008) rather than derived from whatever rows happen to be in this table.
- * The match is a convention for humans reading both.
- *
- * Idempotent on the code, which is the primary key, so re-seeding never creates
- * a second Bhekutia and never overwrites an address an admin has corrected.
+ * The foundation's own office (WO-72). Code `KH` matches the ACC-KH prefix by
+ * convention only (ADR-008). Idempotent on the code, never overwriting edits.
  */
 async function seedBranches(prisma) {
   const existing = await prisma.branch.findUnique({ where: { id: 'KH' }, select: { id: true } });

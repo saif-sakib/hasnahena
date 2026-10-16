@@ -1,8 +1,7 @@
 package repositories
 
-// Everything a member sees about their own money: dashboard, notifications,
-// their deposits, transactions, loans and profile. Read-only — a member never
-// moves money, they request and confirm (CLAUDE.md rule 4).
+// What a member sees about their own money. Read-only — a member requests and
+// confirms, never moves money (rule 4).
 
 import (
 	"context"
@@ -23,9 +22,8 @@ type DashboardStats struct {
 	LoanEligibility int64 `json:"loanEligibility"`
 }
 
-// PendingConfirmation is a posting staff have made that the member has not yet
-// agreed with. `ID` is the receipt number (ADR-044); there is no second field
-// holding the same string under another name.
+// PendingConfirmation is a staff posting awaiting the member's agreement.
+// ID is the receipt number (ADR-044).
 type PendingConfirmation struct {
 	ID     string `json:"id"`
 	Type   string `json:"type"`
@@ -48,10 +46,7 @@ type ActiveLoan struct {
 	NextDueDate       string `json:"nextDueDate"`
 	PaidInstallments  int    `json:"paidInstallments"`
 	TotalInstallments int    `json:"totalInstallments"`
-	// How many due instalments are unpaid, from money.MissedInstallments. The
-	// member's own dashboard used to render the schedule's START date under
-	// "next payment due", so anyone with an active loan was shown a date in the
-	// past and no way to tell whether they were actually behind.
+	// Due instalments unpaid, from money.MissedInstallments.
 	MissedInstallments int  `json:"missedInstallments"`
 	IsOverdue          bool `json:"isOverdue"`
 }
@@ -112,36 +107,18 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		&stats.TotalDeposited,
 		&stats.LoanBalance,
 	); err != nil {
-		// Returning zeros here was the shape of TEST-26's worst finding, on the
-		// server side rather than the client: a member whose savings are ৳73,500
-		// shown "Current Balance: BDT 0", with no error, nothing to retry, and
-		// nothing to distinguish it from the truth.
-		//
-		// It was not hypothetical. WO-71 removed the legacy 'APPROVED' label from
-		// LoanStatus and this query still named it, so every member dashboard
-		// answered 200 with four zeros — a silently wrong balance rather than a
-		// visible failure. `pgx.ErrNoRows` is the one case that legitimately
-		// means zero: a member approved but with no account row yet.
+		// Never answer zeros on error — a silently wrong balance. Only
+		// ErrNoRows (approved, no account row yet) means zero.
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("member dashboard stats for %s: %w", userID, err)
 		}
 	}
-	// Derived, never stored. `accounts.maxLoanAmount` used to answer this and was
-	// written 0 at account creation and never updated again — so the headline
-	// tile on every member's home screen read "Loan Eligibility: ৳0" for ever,
-	// while the loans page two clicks away computed the real figure and showed
-	// it. One fact, two homes, kept equal by nobody (ADR-023). The column is gone;
-	// this is the same call `GetLoanEligibility` and the staff screens make.
+	// Derived, never stored (ADR-023) — same call as GetLoanEligibility.
 	_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 	stats.LoanEligibility = money.MaxLoanAmount(stats.CurrentBalance, maxLoanMultiplier)
 	data.Stats = stats
 
-	// A deposit waiting on the member's confirmation is `PROCESSED` — staff have
-	// posted it and the member has not yet agreed it is right (rule 4). This
-	// used to say `"receiptNumber" <> ''`, which stood in for "staff have
-	// touched it" and was never quite that: a member's own PENDING request
-	// carried a bKash reference in the same column, so a request the member had
-	// just made appeared on their home screen as something to confirm.
+	// Awaiting the member's confirmation means PROCESSED (rule 4).
 	const pendingQuery = `
 		SELECT
 			t.id::text,
@@ -169,16 +146,6 @@ func (r *UserRepository) GetMemberDashboardData(ctx context.Context, userID stri
 		}
 	}
 
-	// Two defects fixed here 2026-08-17, both of which made this panel
-	// permanently empty and neither of which could fail loudly:
-	//
-	//  1. The SELECT listed five columns and the Scan below took four, so every
-	//     row errored and was swallowed by the `continue`.
-	//  2. It filtered on the legacy `PENDING` status while a guarantor request is
-	//     created as `PENDING_GUARANTOR`, so even a correct scan matched nothing.
-	//
-	// This is the legacy-status ambiguity in tasks.md costing something real:
-	// two vocabularies for one concept, and the query picked the wrong one.
 	const guarantorQuery = `
 		SELECT
 			l.id::text,
@@ -334,11 +301,6 @@ func (r *UserRepository) MarkAllNotificationsRead(ctx context.Context, userID, r
 	return err
 }
 
-// nextDocumentNumber allocates the next receipt, withdrawal, loan or repayment
-// number in its series. It must be called with the same transaction as the
-// posting it identifies: the number is then only consumed if the money actually
-// moves, and concurrent postings can never share a number.
-
 func (r *UserRepository) GetMemberDeposits(ctx context.Context, userID string) (map[string]interface{}, error) {
 	const query = `
 		SELECT
@@ -471,13 +433,6 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 	currentDepositBDT := currentDeposit
 	maxLoanAmountBDT := money.MaxLoanAmount(currentDepositBDT, maxLoanMultiplier)
 
-	// Thirteen columns were selected into twelve scan destinations here: `l.id`
-	// appeared twice, once cast and once bare. pgx rejects the mismatch per row,
-	// the loop below swallowed the error, and every borrower on the platform was
-	// told "No active loan" with an empty history — a screen that renders
-	// perfectly with nothing in it, which is the same failure the guarantor panel
-	// had. The duplicate is gone and the scan error is now returned rather than
-	// skipped, so the next one cannot be silent.
 	const loanQuery = `
 		SELECT
 			l.id::text,
@@ -515,9 +470,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			&totalInstallments, &paidInstallments, &installmentAmount,
 			&disbursementDate, &expectedEndDate, &installmentStart, &purpose, &status, &guarantor,
 		); scanErr != nil {
-			// A scan failure here is a column list that no longer matches this
-			// Scan call — a programming error, never a data condition. Skipping
-			// it hides the member's whole loan history behind an empty state.
+			// A column-list/Scan mismatch is a bug; never hide it as an empty history.
 			return nil, fmt.Errorf("scanning member loan row: %w", scanErr)
 		}
 
@@ -536,9 +489,7 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			item["disbursementDate"] = disbursementDate.Format(time.RFC3339)
 		}
 		if expectedEndDate != nil {
-			// The day the LAST instalment is due. It used to be sent as
-			// `nextDueDate`, which told a member on instalment 2 of 24 that
-			// nothing was due for two years.
+			// The day the LAST instalment is due (not the next one).
 			item["expectedEndDate"] = expectedEndDate.Format(time.RFC3339)
 		}
 		attachLoanSchedule(item, status, installmentStart, totalInstallments, paidInstallments)
@@ -583,19 +534,6 @@ func (r *UserRepository) GetMemberLoans(ctx context.Context, userID string) (map
 			})
 		}
 	}
-
-	// availableGuarantors was removed 2026-08-17 (SEC-13).
-	//
-	// It answered every signed-in member with the name AND savings balance of the
-	// 50 wealthiest other members, ordered by balance descending — a ranked list
-	// of who in the village has the most money, handed to anyone with a login.
-	// product.md is explicit that a member cannot see another member's data, and
-	// no UI ever consumed this, so it was pure disclosure with no feature behind
-	// it.
-	//
-	// Nominating a guarantor now goes through GET /api/v1/members/lookup: the
-	// applicant types a member ID they already know and gets back one name to
-	// confirm, rate limited, with no balance in the response.
 
 	return map[string]interface{}{
 		"currentDeposit":     currentDepositBDT,

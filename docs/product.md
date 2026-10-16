@@ -1,20 +1,16 @@
 # Product Specification
 
-Source of truth for domain rules. Supersedes the former BRD/SRS/FRD/Use-Case PDFs.
+Source of truth for domain rules.
 
 ## Purpose
 
-Hasnahena (হাসনাহেনা) is a community-run, interest-free cooperative in Vekutia, Sadar, Jessore, Bangladesh, operating on Qard al-Hasan. Members deposit savings that earn no interest, borrow with no interest or markup, guarantee each other's loans, and donate. The platform digitises a paper passbook workflow while keeping every taka traceable to a member request and a member confirmation.
-
-Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়ি — "Building an interest-free and poverty-free society".
-
-## Glossary
+Hasnahena (হাসনাহেনা) is a community-run, interest-free cooperative in Vekutia, Sadar, Jessore, Bangladesh, operating on Qard al-Hasan. Members deposit savings that earn no interest, borrow with no interest or markup, guarantee each other's loans, and donate. The platform digitises a paper passbook workflow, keeping every taka traceable to a member request and a member confirmation. Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়ি — "Building an interest-free and poverty-free society".
 
 | Term | Meaning |
 |---|---|
-| Qard al-Hasan | Benevolent, interest-free loan |
-| Riba | Interest — forbidden; the platform must never charge or pay it |
-| Zakat / Sadaqah | Obligatory / voluntary charity, held separately from deposits |
+| Qard al-Hasan | benevolent, interest-free loan |
+| Riba | interest — never charged or paid |
+| Zakat / Sadaqah | obligatory / voluntary charity, held separately from deposits |
 | NID | Bangladesh National ID (10 or 17 digits) |
 | BDT / ৳ | Bangladeshi Taka, the only currency |
 
@@ -22,24 +18,11 @@ Motto: সুদ ও দারিদ্রমুক্ত সমাজ গড়
 
 | Role | Can | Cannot |
 |---|---|---|
-| **Member** | Register, request deposit/withdrawal/loan/repayment, confirm or dispute postings, guarantee another member, donate, edit nominee | See another member's data |
-| **Worker** | Process pending member requests, record deposits/withdrawals/disbursements/installments, record offline donations, publish the public site (gallery, page copy, brand images), read reports | Initiate money movement without a request; **decide** anything — a registration, a loan, a default; delete anything |
-| **Admin** | Everything a worker can, plus approve/reject registrations and loans, mark defaults, run settlement, manage workers, configure policy, publish public page copy and brand assets, read audit log | Delete or alter audit history; create another admin from the application |
+| **Member** | register; request deposit/loan/repayment; confirm or dispute postings; guarantee another member; donate; edit nominee | see another member's data |
+| **Worker** | **process** pending requests and record deposits, withdrawals, disbursements, instalments and offline donations; publish the public site (gallery, copy, brand images); read reports | initiate money movement without a request; **decide** anything (a registration, a loan, a default); delete anything |
+| **Admin** | everything a worker can, plus approve/reject registrations and loans, mark defaults, run settlement, manage workers, configure policy, read the audit log | alter audit history; create another admin from the application |
 
-"Approve" was doing two jobs in this table. **Processing** a pending posting — a
-member's deposit request, their matured withdrawal notice, their repayment — is
-the worker's whole job under FR-07 and FR-08, and it moves money. **Deciding** —
-admitting a member, granting a loan, declaring a default — is the admin's, and it
-does not. The worker and admin dashboards render the same screens; what a worker
-does not see is the deciding.
-
-An **admin account is created directly in the database**, never through the
-application. `/api/v1/admin/workers` accepts no `role` field on create or update,
-and the Workers screen offers no Admin option: otherwise anyone holding an admin
-session could mint a permanent one, recorded in `audit_logs` as ordinary staff
-administration.
-
-`SUPER_ADMIN` exists in the schema and is treated as ADMIN everywhere.
+Processing moves money (FR-07, FR-08) and is a worker's job; deciding is an admin's. Both dashboards render the same screens; a worker does not see the deciding. **Admin accounts are created directly in the database** — `/api/v1/admin/workers` accepts no `role`. `SUPER_ADMIN` is treated as ADMIN.
 
 ## Core lifecycle: Request → Process → Confirm
 
@@ -48,7 +31,7 @@ Member REQUEST  →  Worker PROCESS (money physically moves)  →  Member CONFIR
                                      ↘ amount wrong → Member DISPUTE → Admin corrects
 ```
 
-This three-step handshake replaces OTP. Statuses map to `TransactionStatus`: `PENDING → PROCESSED → CONFIRMED`, with `DISPUTED` / `REJECTED` / `REVERSED` as exits. Unconfirmed for 48h → flag for admin review (policy; not yet automated).
+Replaces OTP. Statuses: `PENDING → PROCESSED → CONFIRMED`, exits `DISPUTED`/`REJECTED`/`REVERSED`. Unconfirmed for 48 h → flag for admin review (policy; not yet automated). Withdrawals are the exception (below).
 
 ## Money rules
 
@@ -56,192 +39,58 @@ This three-step handshake replaces OTP. Statuses map to `TransactionStatus`: `PE
 |---|---|---|
 | Minimum deposit for loan eligibility | ৳8,000 | `loan.minDepositForLoan` |
 | Personal loan cap | 5 × current deposit | `loan.maxLoanMultiplier` |
-| Max installment months | 24 | `loan.maxInstallmentMonths` |
-| Withdrawal while loan active | blocked | `loan.allowActiveLoanWithdrawal` |
+| Max instalment months | 24 | `loan.maxInstallmentMonths` |
+| Withdrawal while a loan is active | blocked | `loan.allowActiveLoanWithdrawal` |
+| Guarantor required above | ৳20,000 | `loan.guarantorThresholdAmount` |
 | Interest / markup / late fee | **zero, always** | not configurable |
-| Office expenses, at registration and at a loan application | **৳500 flat, non-refundable, never added to the loan** ([ADR-045](decisions.md)) | not configurable; paid in cash, not recorded |
+| Office expenses at registration and at a loan application | **৳500 flat, non-refundable, never added to the loan** ([ADR-045](decisions.md)) | not configurable; paid in cash, not recorded |
 | Withdrawal notice **asked for** (not enforced) | 90 days | `loan.noticePeriodDays` (`0` = say nothing) |
 | Missed payments before a loan may be defaulted | 3 | `loan.missedPaymentsForDefault` |
 
-Two further caps are specified but **not implemented** (see [tasks.md](tasks.md)):
-- Fairness cap: 2 × (total pool ÷ active members)
-- Solvency cap: total available lending funds
+Specified but **not implemented** ([tasks.md](tasks.md)): fairness cap 2 × (pool ÷ active members); solvency cap = available lending funds. Effective max loan = min(all caps).
 
-Effective max loan = min(all applicable caps).
+**Loan lifecycle**: `PENDING_GUARANTOR → PENDING_APPROVAL → ACTIVE → COMPLETED`, terminals `DEFAULTED`/`REJECTED`/`SETTLED`. Above the threshold a guarantor approves from their own dashboard before admin review; a guarantor cannot withdraw their base deposit while the guarantee is live.
 
-### Loan lifecycle
+**Withdrawals (FR-08)**: a member asks a field worker and staff pay at the desk — no self-service request, no notice period ([ADR-030](decisions.md)); `AddMemberWithdrawal` writes a `CONFIRMED` posting. `loan.noticePeriodDays` is only what the foundation *asks*, shown on the savings screen and FAQ. Refused: a suspended member, an uncovered balance, a member guaranteeing another's active loan (FR-09), or one with their own active loan unless `loan.allowActiveLoanWithdrawal`. An outstanding `PENDING` withdrawal (pre-ADR-030) is settled — rewritten to the amount paid — never duplicated; so **every total over `transactions` filters on status** ([ADR-016](decisions.md)).
 
-`PENDING_GUARANTOR → PENDING_APPROVAL → ACTIVE → COMPLETED`, with `DEFAULTED` / `REJECTED` / `SETTLED` as terminals. A guarantor is required above an admin-set threshold; the guarantor approves from their own dashboard before admin review. A guarantor cannot withdraw their base deposit while the guarantee is live.
+**Adding to a running loan (top-up)**: an active borrower is refused a second loan, but staff may add principal to the existing one (same loan number and history). `principalAmount` and `remainingAmount` rise together; `totalInstallments` stays, so the remaining instalments rise and the end date holds. The ceiling is measured on the **total** owed. No interest, no markup.
 
-### Withdrawals (FR-08)
+**Default settlement waterfall**: only after `loan.missedPaymentsForDefault` missed instalments (counted from `installmentStartDate` against `paidInstallments`; an unscheduled loan cannot be defaulted). The borrower is notified, then recovery runs in order and is logged: (1) borrower's savings, (2) guarantor's savings (proportional), (3) donation pool (written off as bad debt). Residual debt stays on the loan.
 
-**A member asks a field worker, and staff pay at the desk.** There is no
-self-service withdrawal request and no notice period ([ADR-030](decisions.md));
-`AddMemberWithdrawal` writes a `CONFIRMED` posting when the money is handed over.
-
-`loan.noticePeriodDays` is how much warning the foundation **asks** for. It is
-published on the member's savings screen and in the FAQ answer, and it gates
-nothing — a worker may pay whenever the member asks. Set it to `0` to say
-nothing.
-
-What still refuses a payout: a suspended member, a balance that does not cover
-it, a member guaranteeing somebody else's active loan (FR-09), and a member with
-an active loan of their own unless `loan.allowActiveLoanWithdrawal` is on.
-
-**A member may still have an outstanding `PENDING` withdrawal** — rows filed
-before ADR-030, and any left from the removed member request flow. Paying one
-settles *that row*, with the amount rewritten to what was actually paid; it never
-writes a second row beside it. So a `PENDING` withdrawal is still an intention
-and a `CONFIRMED` one is still a payment, and **any total over `transactions`
-must filter on status** — see [ADR-016](decisions.md).
-
-### Adding to a loan that is already running
-
-A member with an active loan is refused a second one. Staff may instead **add
-principal to the existing loan** — the same emergency, the same loan number, the
-same repayment history.
-
-The added amount raises `principalAmount` and `remainingAmount` together, so the
-loan never claims to owe more than was lent. `totalInstallments` does not change:
-the outstanding balance is re-spread over the payments that are *left*, so the
-schedule keeps its end date and each remaining instalment goes up. Zero interest,
-no markup — the amount added and the amount owed are the same money.
-
-The borrowing ceiling is measured against the **total** owed afterwards, not
-against the increment; otherwise five small top-ups would do what one large loan
-is refused.
-
-### Default settlement waterfall
-
-A loan may only be marked defaulted once the borrower has missed at least
-`loan.missedPaymentsForDefault` scheduled instalments — counted from
-`installmentStartDate` against `paidInstallments`, so a loan that was never put
-on a schedule can never be defaulted. On admin marking a loan defaulted, the
-borrower is notified and recovery runs in strict order and is logged:
-
-1. Borrower's own savings balance
-2. Guarantor's savings balance (proportional)
-3. Donation pool (written off as bad debt)
-
-Residual debt stays on the loan.
-
-### Donations
-
-Non-refundable and never withdrawable. Intended fund buckets — Operating, Lending Pool, Zakat/Sadaqah — are specified but **not yet modelled**; donations currently post as `TransactionType.DONATION` with no category.
+**Donations**: non-refundable, never withdrawable. Fund buckets (Operating, Lending Pool, Zakat/Sadaqah) are specified but **not yet modelled** — untyped `DONATION`.
 
 ## Registration data
 
-Collected on the public form, queued for admin approval, credentials emailed on approval, password change forced on first login.
+Collected on the public form, queued for admin approval, the account number issued at approval, a forced password change at first login.
 
 | Section | Fields |
 |---|---|
-| Identity | গ্রাহক আই.ডি member ID (auto, `ACC-KH-33001`…), ফরম নং form no. |
-| Personal | নাম name EN/BN, পিতার নাম father, মাতার নাম mother, mobile `01XXXXXXXXX`, email (optional), এন.আই.ডি NID (10/17 digits), gender, blood group, profession, DOB, marital status, সন্তানের সংখ্যা children count |
-| Addresses | Permanent + present: বাড়ী নং house, রোড নং road, গ্রাম village, ইউনিয়ন union, থানা police station, জেলা district, country (default বাংলাদেশ) |
-| Nominee | নমিনীর নাম name, সম্পর্ক relationship, NID, phone, photo |
+| Identity | ফরম নং application no. (`APP-2026-000001`, at submission); গ্রাহক আই.ডি account no. (`ACC-KH-33001`, at approval) |
+| Personal | নাম name EN/BN, পিতার নাম father, মাতার নাম mother, mobile `01XXXXXXXXX`, email (optional), এন.আই.ডি NID (10/17 digits), gender, blood group, profession, DOB, marital status, সন্তানের সংখ্যা children |
+| Addresses | permanent + present: বাড়ী নং house, রোড নং road, গ্রাম village, ইউনিয়ন union, থানা police station, জেলা district, country (default বাংলাদেশ) |
+| Nominee | নমিনীর নাম name, সম্পর্ক relationship, NID, phone |
 | Documents | passport photo, NID front/back, nominee photo → Cloudinary |
 
-Under-18 applicants supply parents' NIDs instead of their own.
+Minimum age: `membership.minimumAgeYears` (default 18), enforced by the API as well as the form.
 
-### How long that data is kept, and what removes it
+### Retention (owner decision, 2026-08-25; [ADR-033](decisions.md), [ADR-038](decisions.md))
 
-Owner decision, 2026-08-25. The foundation holds NID numbers, photographs, home
-addresses and both parents' names for everyone who has ever *applied*, whether
-or not they were admitted. Three rules govern how long.
-
-**1. An approved member is anonymised, never deleted.** A member with any posting
-against their account cannot be removed: the ledger is summed hourly against the
-stored balances (`reconcile_repository.go`), and a posting whose owner has
-vanished makes that sum permanently wrong. Erasure therefore strips the person
-and keeps the money: NID number, photograph, addresses, nominee, parents' names,
-date of birth, blood group and profession are cleared; email and phone are
-tombstoned; `accountNo`, the account and every `Transaction` and `Loan` row stay
-exactly as they were. A member with *no* postings at all — an approval nobody
-ever used — is deleted outright, and the cascade takes the rest. Which of the two
-happens is decided by counting references, not by asking the operator: the
-database refuses the delete anyway (`ON DELETE RESTRICT` from `transactions` and
-`loans`), so the count is what turns a constraint violation into an answer.
-
-**2. A rejected applicant is told why, may apply again, and loses their identity
-data after one year.** The rejection, its reason code and its `audit_logs` row
-are kept permanently — a refusal is a decision the foundation may have to
-justify. The applicant is **emailed** the outcome with the reason, from a list
-the admin picks from and may add free text to (owner's ruling, 2026-08-26); a
-rejection with no reason is refused by the API.
-
-They may apply again with the same email, phone and NID. Uniqueness covers only
-**live** rows, so a rejected application reserves nothing — which is also what
-makes the email possible. Until 2026-08-26 rejection *overwrote* the applicant's
-contact details on the spot to free the unique constraint, so nobody could be
-told anything, and the entry point's most common bad outcome was silence.
-
-The identity documents are not part of the justification a year later, so NID
-number, addresses, parents' names, date of birth, blood group, profession,
-photograph, the free-text rejection note **and the contact details** are cleared
-by a scheduled sweep 365 days after rejection. The reason *code* and the date
-survive, because they are the decision rather than the person.
-
-**Minimum age.** An applicant must be at least `membership.minimumAgeYears` old
-— a Settings value, defaulting to 18, the age of majority in Bangladesh and the
-ordinary threshold for a binding contract. Enforced by the API as well as the
-form.
-
-**3. A member may ask to be erased; an admin decides.** The request goes through
-the existing support thread — there is no self-service button, because erasure
-while a loan or a guarantee is outstanding has consequences for other members.
-An ADMIN, never a worker, approves it, and the approval is audit-logged by
-account number.
-
-What the audit row may contain is part of the policy rather than an
-implementation detail: `audit_logs` is append-only, so anything written there
-survives the erasure. The row names the account number, the approving admin and
-the reason. It never names what was erased.
-
-### Retention is tiered, and the tier depends on what the record is
-
-Four tiers ([ADR-038](decisions.md)), because one clock cannot be right for both
-a ledger posting and a sign-in:
+1. **An approved member is anonymised, never deleted** if they have any posting (a vanished owner makes the reconciliation permanently wrong): NID, photo, addresses, nominee, parents' names, DOB, blood group and profession cleared; email and phone tombstoned; `accountNo`, the account, transactions and loans unchanged. With no postings they are deleted outright. Which happens is **counted**, not chosen (`ON DELETE RESTRICT` backs it).
+2. **A rejected applicant is told why** (an emailed reason from the admin's list, plus optional text — a rejection without a reason is refused), **may reapply** with the same details (uniqueness covers live rows only), and **loses identity data after `security.rejectedRetentionDays`** (365): NID, addresses, parents' names, DOB, blood group, profession, photo, the free-text note and contact details. The decision, reason code and date are kept.
+3. **A member may ask to be erased; an admin decides** (via the support thread; never a worker, because outstanding loans and guarantees affect others). The audit row names the account number, the admin and the reason — never what was erased.
 
 | Tier | What | Kept |
 |---|---|---|
-| Permanent | Every posting, loan and balance; every audit row about money, about a decision concerning a person, and about data being destroyed | For ever |
-| Long | Security history — password changes, resets, lockouts; profile edits | 730 days |
-| Short | Operational noise — sign-ins, sign-outs, verification codes, reset requests for identifiers that are not members | 180 days |
-| Immediate | A **refused applicant's identity photographs** | Deleted at the decision |
+| Permanent | every posting, loan and balance; audit rows about money, decisions about a person, and data destruction | forever |
+| Long | security history (password changes, resets, lockouts), profile edits | 730 days |
+| Short | sign-ins/outs, verification codes, reset requests for non-members | 180 days |
+| Immediate | a **refused applicant's identity photographs** | deleted at the decision |
 
-The last row is the one that changed a real exposure. A rejected application's
-identity *text* — NID number, parents' names, date of birth, addresses — expires
-on `security.rejectedRetentionDays`, and until 2026-08-27 the **scans** of the
-national identity card expired on nothing at all: they sat on a public Cloudinary
-URL indefinitely, for somebody the foundation had declined to admit. Nothing that
-justifies keeping anything after a refusal — explaining the decision, recognising
-a re-applicant, answering a complaint — needs the photograph, and it is the
-single most damaging item this platform holds. So it goes first, not last.
-
-The erasure records themselves are permanent, and circularly so: they are the
-proof that the policy was applied, and a rule that expired them would be a
-retention policy destroying the evidence of its own compliance.
-
-**All three rules are published.** `/privacy` describes them to the person they
-apply to, in both languages — including the part that is a limit rather than a
-right: a member with postings is anonymised, not deleted, and the page says so
-and says why. It also names the three processors that hold member data
-(Cloudinary for the photographs and the NID image, Brevo for email, Neon for the
-database) and quotes `security.rejectedRetentionDays` rather than a number typed
-into a sentence.
-
-Until 2026-08-26 it said none of this. It promised deletion — which the platform
-deliberately does not do — described "microfinance services", and never
-mentioned that a scan of every applicant's national ID sits in a third-party
-account. The wording lives in `messages/{en,bn}.json` under `legal.privacy.*`,
-which is what puts it inside the census that reads member-facing prose for
-promises the code does not keep; that census exists because the Terms of Service
-once promised administrative fees in both languages with every other guard
-green.
+Erasure records are permanent — they prove the policy was applied. **All of it is published** on `/privacy` in both languages (wording in `messages/{en,bn}.json` under `legal.privacy.*`, inside the fee-promise census), including that members with postings are anonymised rather than deleted, the three processors (Cloudinary, Brevo, Neon), and the live `security.rejectedRetentionDays`.
 
 ### Passbook (সঞ্চয় ও ঋণ পাস বই)
 
-The printed member passbook maps to `Account` + `Transaction`: each row carries date, receipt no. (রশিদ নম্বর), deposit/withdrawal amount, and running savings/loan balance — which is why every `Transaction` stores `savingsAfter` / `loanAfter` snapshots. Receipt PDFs are generated in `apps/web/lib/documents/receipt-generator.ts`.
+Maps to `Account` + `Transaction`: date, receipt no. (রশিদ নম্বর), amount, running savings/loan balance — hence the `savingsAfter`/`loanAfter` snapshots. Receipt PDFs: `apps/web/lib/documents/`.
 
 ## Requirements register (FR-01…FR-25)
 
@@ -277,12 +126,11 @@ Stable IDs, kept for traceability. Live status lives in [tasks.md](tasks.md).
 
 ## Quality bars
 
-- RBAC enforced server-side on every protected route; client checks are cosmetic.
-- Every financial mutation is atomic (single DB transaction) and appends an audit row.
-- Full EN/BN parity on all user-facing strings.
-- Audit entries are never updated or deleted — corrections append new entries.
-- Targets: page load < 3s, API p95 < 500ms, 99.5% availability.
+- RBAC server-side on every protected route; client checks are cosmetic.
+- Every financial mutation is atomic and appends an audit row; audit entries are never updated or deleted.
+- Full EN/BN parity on user-facing strings.
+- Targets: page load < 3 s, API p95 < 500 ms, 99.5% availability.
 
 ## Out of scope (Phase 1)
 
-Mobile app, eKYC/NID OCR (Porichoy), payment gateway settlement (bKash/SSLCommerz), SMS notifications, load/stress testing.
+Mobile app, eKYC/NID OCR (Porichoy), payment-gateway settlement (bKash/SSLCommerz), SMS, load/stress testing.

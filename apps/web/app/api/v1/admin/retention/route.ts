@@ -16,46 +16,15 @@ import { fileApplicationDocuments, purgeApplicationDocuments } from '@/lib/appli
 import { routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 /**
- * The half of the retention policy that has to reach Cloudinary.
- *
- * The Go API sweeps a rejected application's identity **text** on its own daily
- * loop (`retention_repository.go`, FR-23). It cannot touch the **images**,
- * because the image host is configured in this app and in one place — the same
- * split as the member erasure, and for the same reason.
- *
- * Two callers, on purpose:
- *
- *   1. **The approvals screen**, immediately after an admin refuses an
- *      application, with `{ userId }`. That is when the scans stop having a
- *      purpose, and waiting a day to delete a national identity card because a
- *      cron runs at midnight is a day of exposure bought for nothing.
- *   2. **A scheduled sweep**, with no body, authenticated by `CRON_SECRET`.
- *      This is what makes (1) safe to be a browser-initiated call: a closed
- *      tab, a dropped connection or a Cloudinary outage costs a delay, not the
- *      deletion. Anything (1) missed is found here.
- *
- * A sweep that finds nothing is the expected outcome on most days, and reports
- * `{ purged: 0 }` rather than staying silent — a retention job whose healthy
- * output is indistinguishable from a broken one is not evidence of anything.
+ * The Cloudinary half of retention (ADR-038). Two callers: the approvals
+ * screen right after a refusal (POST {userId}), and the nightly Vercel Cron
+ * (GET, CRON_SECRET) as the backstop. An empty sweep reports `{ purged: 0 }`.
  */
 
 /**
- * Delete the audit rows whose tier has expired.
- *
- * **Most rows are never deleted.** Everything about money, about a decision made
- * concerning a person, and about data being destroyed is `permanent` — the last
- * of those circularly so, since those rows are the evidence that the policy was
- * followed (ADR-038). What expires is operational noise: sign-ins, sign-outs,
- * verification codes, reset requests for identifiers that are not members.
- *
- * The tier lives beside the action in `lib/audit-actions.ts`, not here, because
- * "may this be deleted" is a property of what happened rather than of the job
- * that deletes it. This function only applies the clock.
- *
- * `audit_logs` refuses `DELETE` at the database level (DATA-08). The opt-in is
- * `SET LOCAL`, so it is scoped to this transaction and this connection and
- * cannot leak to a neighbouring pooled one — and it has to be written on
- * purpose, which is what distinguishes a policy from an accident.
+ * Delete audit rows whose tier has expired (most are permanent, ADR-038; the
+ * tier lives in lib/audit-actions.ts). audit_logs refuses DELETE; the opt-in is
+ * SET LOCAL, scoped to this transaction.
  */
 async function expireAuditRows(): Promise<{ deleted: number; byTier: Record<string, number> }> {
   const tiers = Object.keys(AUDIT_RETENTION_DAYS) as Array<Exclude<AuditRetention, 'permanent'>>;
@@ -96,18 +65,9 @@ async function refusedApplicationsWithDocuments(limit: number) {
 }
 
 /**
- * Admitted members whose documents are still filed under their application.
- *
- * The approvals screen files them into `people/ACC-KH-33001` the moment an
- * approval succeeds, and that call is the one that normally does it. This is the
- * backstop for the request that never happened: an admin whose browser was
- * closed between the approval and the follow-up, a network that dropped, a
- * Cloudinary that was briefly unavailable. Without it, the recovery would be a
- * person noticing — and nobody browses an asset tree.
- *
- * Matched on the URL rather than on a flag, because the URL is the fact. A row
- * whose `url` still names `/applications/` is a document that is still there,
- * whatever any column claims, and a row that has moved cannot match by accident.
+ * Admitted members whose documents are still under applications/ — backstop
+ * for an approval whose refile call never arrived. Matched on the URL, which
+ * is the fact.
  */
 async function admittedMembersWithUnfiledDocuments(limit: number) {
   return prisma.user.findMany({
@@ -122,36 +82,21 @@ async function admittedMembersWithUnfiledDocuments(limit: number) {
 
 function cronAuthorised(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  // No secret configured means no unauthenticated caller is ever accepted. The
-  // alternative — treating an unset variable as "no check" — turns a missing
-  // environment variable into an open erasure endpoint.
+  // No secret configured means nobody is accepted.
   if (!secret) return false;
   const header = req.headers.get('authorization') ?? '';
   return header === `Bearer ${secret}`;
 }
 
 /**
- * The scheduled sweep, which Vercel invokes with a **GET**.
- *
- * Vercel Cron sends `GET` and attaches `Authorization: Bearer $CRON_SECRET`
- * itself; there is no way to make it send a POST. Writing this as POST-only —
- * which it was for about ten minutes — is a cron job that returns 405 every
- * night and a retention policy that has never once run, with nothing on any
- * screen to say so.
- *
- * It takes no parameters. Everything an admin can steer goes through POST.
+ * The nightly sweep. Vercel Cron only sends GET (with Bearer CRON_SECRET); a
+ * POST-only route would 405 every night. Takes no parameters.
  */
 export async function GET(req: Request) {
   if (cronAuthorised(req)) return runSweep(req, null);
 
-  // Not the scheduler. Answer the way every other guarded route does — 401 for
-  // a caller with no usable session, 403 for one who has a session and still may
-  // not be here — so this endpoint is not the single exception the contract
-  // suite has to be told about.
-  //
-  // **No role reaches this, including a super admin.** Everything an admin may
-  // steer is on POST, which audits who did it; a GET that also answered a token
-  // would be a second way to expire the audit log with no name attached.
+  // Not the scheduler: 401/403 like every guarded route. NO role reaches GET —
+  // admin actions go through POST, which is audited.
   try {
     await requireActiveAuth(req);
   } catch (error) {
@@ -170,8 +115,7 @@ export async function POST(req: Request) {
     const userId = typeof body?.userId === 'string' ? body.userId.trim() : '';
 
     if (cronAuthorised(req)) {
-      // The scheduled caller sweeps; it may not target one person. Naming a row
-      // is an admin's act and belongs to an admin's audit trail.
+      // The scheduler may not target one person.
       if (userId) {
         return NextResponse.json(
           { ok: false, error: 'The scheduled sweep does not take a userId' },
@@ -199,12 +143,7 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * The work, once the caller has been established.
- *
- * `caller` is `null` for the scheduled pass and carries the admin's id — and,
- * optionally, the one application they are refusing — otherwise.
- */
+/** The work; `caller` is null for the scheduled pass. */
 async function runSweep(
   req: Request,
   caller: { actorId: string; userId: string } | null,
@@ -214,9 +153,7 @@ async function runSweep(
   try {
     const targets = userId
       ? await prisma.user.findMany({
-          // Filtered, not trusted. An admin passing a *member's* id here would
-          // otherwise delete a live member's identity documents through a route
-          // whose whole subject is refused applications.
+          // Filtered: never a live member's documents.
           where: { id: userId, ...rejectedApplicationFilter },
           select: { id: true, accountNo: true, formNumber: true },
         })
@@ -235,13 +172,8 @@ async function runSweep(
       purged += 1;
       assetsDeleted += result.assets;
 
-      // One row per application, not one per sweep. `audit_logs` is append-only
-      // (DATA-08), so this outlives everything it describes — which is the point:
-      // it must be possible to show that the foundation deleted somebody's
-      // national identity card, and when, long after nothing else remembers they
-      // applied.
-      //
-      // It names the application number and the counts, and nothing it erased.
+      // One audit row per application — the proof a national ID was deleted.
+      // Names the application number and counts only.
       await createAuditLog({
         action: 'APPLICATION_DOCUMENTS_ERASED',
         entityType: 'USER',
@@ -259,10 +191,7 @@ async function runSweep(
       });
     }
 
-    // Also only on the scheduled pass, and for the same reason: this is the
-    // policy catching up, not something an admin asked for. See
-    // `admittedMembersWithUnfiledDocuments` — the approvals screen does this
-    // itself, and this exists for the time it could not.
+    // Scheduled pass only: the refile backstop.
     let filed = 0;
     if (!userId) {
       for (const member of await admittedMembersWithUnfiledDocuments(50)) {
@@ -271,9 +200,7 @@ async function runSweep(
       }
     }
 
-    // Only on the scheduled pass. Expiring audit rows is the policy running, not
-    // something an admin does to one application, and doing it inside a
-    // per-rejection call would make the two indistinguishable in the trail.
+    // Scheduled pass only: audit expiry is the policy running.
     let auditExpired = 0;
     if (!userId) {
       const expiry = await expireAuditRows();

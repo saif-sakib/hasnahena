@@ -1,23 +1,6 @@
-// WO-77 (SEC-12) — `GET /api/v1/settings` answers according to who is asking.
-//
-// The endpoint is unauthenticated on purpose: the marketing pages and the login
-// screen read branding from it before anyone signs in. WO-64 already stopped it
-// returning `SELECT *`. What was left is that the declared set it *does* return
-// included the whole loan policy, to anybody who asked.
-//
-// Four tiers, and this file is the only thing that checks the boundaries hold:
-//
-//   anonymous   branding and organisation details
-//   member      + the loan policy governing their own money
-//   worker      + the content keys, because Content & Media edits them
-//   admin       everything, because they are the screen that edits it
-//
-// Needs a database — the handler reads `system_config`, and deciding the tier
-// reads the caller's row. Skips cleanly without one.
-//
-//   scripts/test-stack.sh up
-//   eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// WO-77 (SEC-12) — GET /api/v1/settings answers by caller tier: anonymous,
+// member (+ loan policy), worker (+ content keys), admin (everything).
+// Needs a database.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
@@ -36,15 +19,7 @@ import { CONTENT_CONFIG_KEYS } from '@/lib/system-config';
 
 const describeWithDb = hasTestDatabase() ? describe : describe.skip;
 
-/**
- * One key from each tier, chosen for what it would mean to get it wrong.
- *
- * `org.name` is on the letterhead of every generated document and on the login
- * page, so an anonymous caller losing it breaks the public site.
- * `loan.maxLoanMultiplier` is the number SEC-12 is about.
- * `support.chatRetentionDays` is an operational policy no member-facing screen
- * reads, so nothing but the admin form should ever see it.
- */
+/** One key per tier, chosen for what getting it wrong would mean. */
 const PUBLIC_KEY = 'org.name';
 const MEMBER_KEY = 'loan.maxLoanMultiplier';
 const ADMIN_KEY = 'support.chatRetentionDays';
@@ -58,16 +33,7 @@ async function get(token?: string): Promise<Record<string, string>> {
 
 const SEEDED_KEYS = [PUBLIC_KEY, MEMBER_KEY, ADMIN_KEY, ...CONTENT_CONFIG_KEYS];
 
-/**
- * A value this key can legally hold.
- *
- * Not a detail. Seeding every key with the string `wo77-fixture` put it in
- * `branding.logo` and the six other image keys, and `next/image` throws
- * "Failed to construct 'URL': Invalid URL" on a src that is not one — so every
- * public page answered **500** for the rest of the run. This suite only checks
- * *which* keys come back, so the value was beneath notice right up until it
- * took the whole marketing site down in the browser suite that ran next.
- */
+/** A legal value per key — a non-URL in an image key once 500'd every public page. */
 function fixtureValue(key: string): string {
   return /logo|favicon|image/i.test(key) ? 'https://example.com/fixture.png' : 'wo77-fixture';
 }
@@ -78,9 +44,7 @@ describeWithDb('GET /api/v1/settings serves one tier per caller', () => {
 
   beforeAll(async () => {
     await seedRoleUsers();
-    // Seeded here rather than relying on `pnpm db:seed`: this suite shares a
-    // database with the Go integration tests, which truncate between tests, so
-    // a row another suite left behind is not something to depend on.
+    // Seeded here (other suites truncate).
     const db = testPrisma();
     const existing = await db.systemConfig.findMany({
       where: { key: { in: SEEDED_KEYS } },
@@ -94,10 +58,7 @@ describeWithDb('GET /api/v1/settings serves one tier per caller', () => {
   });
 
   afterAll(async () => {
-    // `system_config` is global — a key cannot be namespaced to one suite the
-    // way testing.md's fixture contract asks — so this suite puts back what it
-    // found instead. Leaving its rows behind is how it took the marketing pages
-    // down for the browser run that shared the database.
+    // system_config is global: restore what was found.
     const db = testPrisma();
     if (createdKeys.length > 0) {
       await db.systemConfig.deleteMany({ where: { key: { in: createdKeys } } });
@@ -127,14 +88,7 @@ describeWithDb('GET /api/v1/settings serves one tier per caller', () => {
   });
 
   it('gives a worker every content key but no money settings', async () => {
-    // Every key, not a sample. Content & Media is a worker's screen and it
-    // renders a controlled input per key; one the worker is not handed shows
-    // blank and is then saved back blank over whatever an admin had set.
-    //
-    // Today every content key happens to be public as well, so a sampled
-    // assertion here would pass without testing anything. Adding a content key
-    // that is not on a public page — an internal caption, a draft heading — is
-    // exactly when this must fail.
+    // EVERY content key — a missing one would be saved back blank.
     const body = await get(tokenFor('WORKER'));
     for (const key of CONTENT_CONFIG_KEYS) {
       expect(body[key], `a worker edits ${key} on Content & Media and must be able to read it`)
@@ -166,9 +120,7 @@ describeWithDb('GET /api/v1/settings serves one tier per caller', () => {
   });
 
   it('never returns a key outside the declared allow-list, to anyone', async () => {
-    // The WO-64 property, re-asserted from the other side of the split: a tier
-    // is a subset, and a bug that widened one past SYSTEM_CONFIG_KEYS would be
-    // the `SELECT *` regression wearing a new name.
+    // Every tier is a subset of SYSTEM_CONFIG_KEYS (WO-64).
     const db = testPrisma();
     await db.systemConfig.upsert({
       where: { key: 'wo77.undeclared.secret' },

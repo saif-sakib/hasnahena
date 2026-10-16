@@ -5,45 +5,18 @@ import { useEffect, useRef, useState } from 'react';
 import { apiPost } from '@/lib/api';
 
 /**
- * A live server-sent-events connection to the support stream.
- *
- * WO-74. The dashboard shell polled `/support/threads` every 7 seconds and the
- * open thread's messages alongside it — about 26 requests a minute per open
- * tab, forever, for data that changes a few times an hour. At twenty concurrent
- * members that is ~500 requests/minute against a free Render instance and a
- * free Neon compute.
- *
- * The replacement already existed and had never been used: `GET
- * /v1/dashboard/support/stream` is a live authenticated SSE endpoint, with a
- * ticket endpoint beside it because `EventSource` cannot set an `Authorization`
- * header. `EventSource` appeared nowhere in this app.
- *
- * What the stream does and does not carry
- * ---------------------------------------
- * It is per-thread and it carries one signal: "the message count for this
- * thread changed". It does not carry the messages themselves, and it does not
- * carry the thread *list*. So this hook reports an event and the caller
- * refetches — which is the right shape anyway, because the refetch is the thing
- * that applies the caller's own authorisation.
- *
- * Everything the stream cannot cover keeps a slow poll. That is not a
- * concession, it is the design: an SSE connection that silently dies leaves a
- * chat that looks fine and never updates again, and a 60-second backstop turns
- * that into a delay instead of a defect.
+ * A live SSE connection to the support stream (WO-74), replacing a 7-second
+ * poll. The stream only signals "this thread's count changed"; the caller
+ * refetches (which applies authorisation). Callers keep a slow backstop poll,
+ * since a silently dead stream would otherwise never update again.
  */
 
 /** Tickets are single-use and expire in 60 s, so a reconnect fetches a new one. */
 const TICKET_PATH = '/v1/dashboard/support/stream/ticket';
 
 /**
- * Give up after this many consecutive failures to open a stream and let the
- * caller's polling carry the feature.
- *
- * Two, per WO-74. One failure is a dropped connection, which is normal and
- * worth retrying; two in a row means something structural — a proxy that does
- * not pass through SSE, a corporate middlebox buffering the response — and
- * retrying forever would then be a reconnect loop that costs *more* than the
- * polling it replaced.
+ * Give up after two consecutive failures to open (WO-74): that means something
+ * structural, and retrying would cost more than the poll.
  */
 const MAX_CONSECUTIVE_FAILURES = 2;
 
@@ -51,29 +24,13 @@ const MAX_CONSECUTIVE_FAILURES = 2;
 const RECONNECT_DELAY_MS = 2_000;
 
 export type ServerEventsState = {
-  /**
-   * True while a stream is open.
-   *
-   * The only thing this hook reports, and it is deliberately the only thing: a
-   * caller uses it to decide whether its backstop poll is load-bearing. Updates
-   * are delivered by the `onUpdate` callback rather than by a counter the
-   * caller watches, so there is nothing else to hand back — and "the stream gave
-   * up after two failures" is already visible here as a `connected` that stops
-   * coming true.
-   */
+  /** True while a stream is open — tells the caller whether its poll is the backstop. */
   connected: boolean;
 };
 
 /**
- * Everything this hook knows, tagged with the subscription it belongs to.
- *
- * Tagged with a `key` rather than held as a bare flag, and that is not
- * tidiness. Resetting it when the thread changes would mean writing state
- * synchronously in the effect body — `react-hooks/set-state-in-effect`, the rule
- * WO-27 spent an order clearing from this codebase, and the cascading render it
- * warns about is real now that the React compiler is on. Tagging the state with
- * its subscription key means a stale value is *derived* away instead of written
- * away: it simply stops matching, and the reset costs no render.
+ * Status tagged with its subscription key, so a stale value is derived away
+ * rather than reset with setState in an effect (WO-27).
  */
 type StreamStatus = {
   key: string | null;
@@ -83,12 +40,8 @@ type StreamStatus = {
 const IDLE: StreamStatus = { key: null, connected: false };
 
 /**
- * Subscribe to one support thread's change signal.
- *
- * Pass `threadId: null`, or `enabled: false`, to hold no connection — closing
- * the popup, signing out, or backgrounding the tab all end the stream rather
- * than leaving it open. That matters on the server too: RUN-02 ends streams
- * first at shutdown precisely because open streams eat the drain window.
+ * Subscribe to one thread's change signal. A null threadId or enabled=false
+ * holds no connection.
  */
 export function useServerEvents(
   threadId: string | null,
@@ -100,30 +53,17 @@ export function useServerEvents(
   const key = enabled && threadId ? threadId : null;
 
   /**
-   * The caller's refetch, called from the stream's own event listener.
-   *
-   * A callback rather than a counter the caller watches in an effect, and the reason is
-   * the rule `react-hooks/set-state-in-effect` states in its own message:
-   * subscribing to an external system means calling setState *in a callback
-   * when the external state changes*, not writing state during a render pass
-   * that observed a counter. The effect version compiled fine and added a
-   * warning, because the React compiler follows the call graph into the
-   * callee — the same finding WO-27 records elsewhere in this file.
-   *
-   * Held in a ref so that a caller passing an inline arrow does not reopen the
-   * stream on every render. Reconnecting a chat once per keystroke is a
-   * plausible accident and an expensive one.
+   * The caller's refetch, called from the stream's listener (setState in a
+   * callback, not in an effect). In a ref so an inline arrow does not reopen
+   * the stream every render.
    */
   const onUpdateRef = useRef(onUpdate);
-  // In an effect, not during render: the React compiler refuses a ref write in
-  // the render pass, and it is right to — a render can be thrown away and
-  // re-run, so a ref written there is not reliably the value that shipped.
+  // Ref written in an effect — the compiler refuses ref writes during render.
   useEffect(() => {
     onUpdateRef.current = onUpdate;
   }, [onUpdate]);
 
-  // Failures are counted across reconnect attempts, so they live in a ref: in
-  // state they would re-run the effect and reset the count it accumulates.
+  // Failures persist across reconnects, so a ref (state would reset the effect).
   const failuresRef = useRef(0);
 
   useEffect(() => {
@@ -146,8 +86,7 @@ export function useServerEvents(
       if (cancelled) return;
       failuresRef.current += 1;
       if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
-        // Stop trying. The caller's poll is the feature from here on, and a
-        // `connected` that never becomes true is how it knows.
+        // Stop; the caller's poll carries the feature.
         setStatus({ key, connected: false });
         return;
       }
@@ -162,9 +101,7 @@ export function useServerEvents(
 
       let ticket = '';
       try {
-        // A fresh ticket every time. They are single-use and 60 s, so a
-        // reconnect that reused the last one would fail authentication and
-        // look exactly like a server that has gone away.
+        // A fresh single-use, 60s ticket every time.
         const issued = await apiPost<{ ticket: string }>(TICKET_PATH, {});
         ticket = issued?.ticket ?? '';
       } catch {
@@ -177,11 +114,7 @@ export function useServerEvents(
         return;
       }
 
-      // Same-origin through the Next proxy, which is what `lib/api.ts` does for
-      // everything under /v1/dashboard/support — EventSource cannot send an
-      // Authorization header, hence the ticket in the query string. A full
-      // access token there would end up in access logs; the Go handler refuses
-      // one for exactly that reason.
+      // Same-origin via the Next proxy; a ticket, never the access token, in the URL.
       const url =
         `/api/v1/dashboard/support/stream` +
         `?threadId=${encodeURIComponent(key)}&ticket=${encodeURIComponent(ticket)}`;
@@ -197,8 +130,7 @@ export function useServerEvents(
 
       es.addEventListener('update', () => {
         if (cancelled) return;
-        // The event carries no payload worth reading — it says "something
-        // changed". The caller refetches, which is what applies authorisation.
+        // No payload worth reading; the caller refetches.
         setStatus({ key, connected: true });
         onUpdateRef.current?.(key);
       });
@@ -220,9 +152,7 @@ export function useServerEvents(
     };
   }, [key]);
 
-  // Derived, never reset by an effect: a status left over from the previous
-  // thread does not match the current key and reads as "not connected", which
-  // is the truth — its EventSource was closed by the cleanup above.
+  // Derived: a status from a previous thread does not match and reads as disconnected.
   const current = status.key === key ? status : IDLE;
   return { connected: Boolean(key) && current.connected };
 }

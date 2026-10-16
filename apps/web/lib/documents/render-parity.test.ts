@@ -11,16 +11,8 @@ import {
 } from './index';
 import { visibleText } from './builders.test';
 
-// TEST-24 — the HTML and PDF renderers cannot drift.
-//
-// Two renderers, one document. A member prints from the browser; the office
-// downloads the PDF; at a counter, months later, the two are compared. If a
-// figure appears on one and not the other, neither is evidence of anything.
-//
-// Asserted structurally rather than by pixel: the question is not "do these
-// look the same" — they deliberately do not, one is a web page and one is A4 —
-// but "does every fact in the model reach both outputs". A screenshot diff
-// would answer neither and break on every font update.
+// TEST-24 — every fact in the model reaches both the HTML and the PDF output
+// (structural, not pixel).
 
 // ---------------------------------------------------------------------------
 // Text extraction
@@ -43,14 +35,7 @@ function textFromHTML(html: string): string {
     .trim();
 }
 
-/**
- * Everything the PDF actually draws.
- *
- * jsPDF keeps each page as an array of raw content-stream operators, and drawn
- * text is `(escaped) Tj`. Reading those is more honest than spying on the
- * `text()` calls: it is what ends up in the file, so a string passed to a
- * drawing call that never made it onto a page cannot pass this.
- */
+/** Everything the PDF actually draws, read from the content-stream `Tj` operators. */
 function textFromPDF(pdf: { internal: { pages: string[][] } }): string {
   const chunks: string[] = [];
   for (const page of pdf.internal.pages) {
@@ -70,18 +55,8 @@ function textFromPDF(pdf: { internal: { pages: string[][] } }): string {
 }
 
 /**
- * The form both outputs are compared in.
- *
- * Two documented, deliberate differences are normalised away, and nothing else:
- *
- *  - **Case.** Titles, section headings, tile labels and column headers are
- *    drawn uppercase by the PDF and set `text-transform: uppercase` by the HTML
- *    — the same five places in each. Identical on the page, different in the
- *    source, so the comparison is case-insensitive.
- *  - **Typographic punctuation.** `toPdfSafe` transliterates it to Latin-1
- *    because the PDF fonts cannot draw it. The HTML keeps the real characters.
- *
- * Everything else that differs is drift, which is the point of the test.
+ * The comparison form. Normalises only the two deliberate differences: case
+ * (PDF uppercases headings) and typographic punctuation (toPdfSafe).
  */
 const normalise = (text: string): string =>
   text
@@ -184,9 +159,7 @@ describe.each(DOCUMENTS)('%s renders the same content to both outputs', (_name, 
   });
 
   it('the two outputs agree on every amount printed', async () => {
-    // The narrowest thing worth pinning. A label that differs between the two
-    // is a cosmetic bug; a *figure* that differs is a document that cannot be
-    // reconciled against its own copy.
+    // A figure that differs between the copies is the defect that matters.
     const model = build();
     const amounts = (text: string) =>
       [...text.matchAll(/bdt\s[\d,]+/g)].map((m) => m[0].replace(/\s+/g, ' ')).sort();

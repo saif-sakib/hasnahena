@@ -3,15 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getLoanRepaymentPresets, formatCurrency } from './utils';
 
-// WO-56. Rule 1: money is whole taka, no paisa.
-//
-// The presets fill a text input the member then submits, so a fractional preset
-// is a figure the platform cannot post: the call sites round again on submit,
-// which means the amount recorded is not the amount the member was shown. A
-// ৳4,567 installment offered `1141.75` weekly and posted `1142`.
-//
-// `formatCurrency` truncates for display, which is why nobody saw this — the
-// presets bypass it.
+// WO-56 / rule 1: repayment presets are whole taka, or the posted amount
+// differs from the one shown.
 
 const AMOUNTS = [0, 1, 3, 4, 5, 7, 99, 100, 101, 1000, 4567, 12345, 999_999, 1_234_567];
 
@@ -67,19 +60,8 @@ describe('getLoanRepaymentPresets', () => {
   });
 });
 
-// Rule 1, enumerated rather than listed.
-//
-// Every screen that posts a money `amount` must get it from `parseWholeTaka`,
-// which refuses paisa instead of rounding them. The list this replaced named
-// three files by hand and asserted they contained `Math.round(` — which is the
-// *old* rule, and which passed happily while two of the three screens rounded
-// 1500.75 into 1501 and told the worker it had worked.
-//
-// This walks the source instead, so a new screen that posts an amount fails
-// here until it goes through the same parser. `components/dashboard/
-// money-actions.tsx` is the one implementation of the four staff actions; the
-// member's own request forms are separate because they post a *request*, not a
-// posting.
+// Rule 1, enumerated: every screen posting a money `amount` must use
+// parseWholeTaka (which refuses paisa rather than rounding).
 describe('every screen that posts an amount parses whole taka', () => {
   const WEB = resolve(process.cwd());
 

@@ -67,10 +67,7 @@ export function ResetPasswordForm() {
     };
 
     validateToken();
-    // `t` rather than `locale`: the copy is what this effect actually reads, and
-    // next-intl returns one memoised `t` per namespace per locale — so the
-    // dependency is stable *and* honest, where `locale` was a stand-in for it
-    // that the exhaustive-deps rule could not verify.
+    // `t` (stable per namespace and locale) rather than `locale`.
   }, [token, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -25,26 +25,18 @@ type SettingImageType =
 
 /** Revalidate all settings-related paths */
 function revalidateSettingsPaths() {
-  // WO-73: every public page reads branding through the cached
-  // `getPublicSettings()`, so a new logo is invisible until this tag is busted.
-  // updateTag, not revalidateTag: this runs in a Server Action, where the
-  // admin who just uploaded the image is the very next reader of the page.
+  // Public pages read branding through the cached getPublicSettings (WO-73).
+  // updateTag (not revalidateTag): the uploader is the very next reader.
   updateTag(SYSTEM_CONFIG_TAG);
   revalidatePath('/');
   revalidatePath('/[locale]');
-  // The brand images moved to Content & Media when Settings stopped being two
-  // screens in one, and both staff dashboards render that screen.
   revalidatePath('/[locale]/dashboard/admin/content');
   revalidatePath('/[locale]/dashboard/worker/content');
 }
 
 /**
- * Upload settings image server action.
- *
- * Staff, not admins. These are the brand and hero images on Content & Media,
- * which a worker edits — see the note on that screen. The money and policy rows
- * are a different list and a different screen, and `PUT /api/v1/settings`
- * refuses a worker who names one.
+ * Upload a settings image. Staff, not admins — brand images are on Content &
+ * Media, which workers edit.
  */
 export async function uploadSettingsImageAction(
   imageType: SettingImageType,
@@ -77,13 +69,7 @@ export async function uploadSettingsImageAction(
       return { success: false, error: 'No file provided' };
     }
 
-    // Validate file using shared utilities.
-    //
-    // The browser has already compressed to the matching preset in
-    // IMAGE_PRESETS, so anything still over these limits is a file
-    // `compressImageFile` declined to touch. Kept as a server-side check
-    // regardless: a Server Action is a public endpoint and cannot trust that its
-    // own form ran.
+    // Server-side check regardless of client compression: a Server Action is public.
     const maxSizeMB = imageType.includes('favicon')
       ? UPLOAD_SIZE_LIMITS.favicon
       : UPLOAD_SIZE_LIMITS.default;
@@ -119,18 +105,9 @@ export async function uploadSettingsImageAction(
       },
     });
 
-    // Delete the old image — but only when it is genuinely a different asset.
-    //
-    // Since WO-97 a settings image is uploaded to a *fixed* public id derived
-    // from its key, with `overwrite`, so replacing one is an overwrite and there
-    // is nothing left behind to remove. Without this guard the delete below
-    // would name the id we have just written and destroy the new image seconds
-    // after storing its URL — a setting pointing at a 404, with the upload
-    // reported as successful.
-    //
-    // The comparison is still worth making rather than dropping the delete
-    // entirely: rows written before that change hold URLs with random ids, and
-    // those assets do need removing the first time each one is replaced.
+    // Delete the old image only if it is a DIFFERENT asset: since WO-97 the id is
+    // fixed and overwritten, so deleting it would destroy the new image. Older
+    // rows still hold random ids.
     if (existingSetting?.value) {
       const oldPublicId = extractPublicId(existingSetting.value);
       if (oldPublicId && oldPublicId !== uploadResult.publicId) {
@@ -155,9 +132,7 @@ export async function uploadSettingsImageAction(
   }
 }
 
-/**
- * Delete settings image
- */
+/** Delete a settings image. */
 export async function deleteSettingsImageAction(
   imageType: SettingImageType,
   authTokenFromClient?: string
@@ -191,14 +166,7 @@ export async function deleteSettingsImageAction(
       return { success: false, error: 'Setting not found' };
     }
 
-    // Blank the value; do not delete the row.
-    //
-    // "No image" and "no such setting" are different states, and only one of
-    // them is true here. Deleting the row also disagreed with the other way this
-    // value gets cleared: pressing Save on Content & Media posts `''` for a
-    // cleared field, which upserts the row back — so Remove and Save left the
-    // database in two different shapes for one outcome. Blank is the shape the
-    // seed writes for an unset image and the shape every reader already handles.
+    // Blank the value, keep the row — the same shape Save writes for a cleared field.
     await prisma.systemConfig.update({
       where: { key: imageType },
       data: { value: '' },

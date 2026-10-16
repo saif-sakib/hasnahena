@@ -27,21 +27,8 @@ import { useDashboardRole } from '@/components/dashboard/role';
 import { MoneyActionDialog } from '@/components/dashboard/money-actions';
 
 /**
- * Loans — one screen for both staff dashboards.
- *
- * The admin's version listed every loan and could not take an instalment; the
- * worker's could take an instalment and showed a different set of columns, a
- * different status vocabulary (it collapsed the four PENDING_* labels into one
- * "Pending") and its own `dueThisWeek` arithmetic — which multiplied by
- * `7 * 24 * 60 * 600` and so counted a window of ten minutes.
- *
- * One component, the union of both. As with the deposits screen the *scope* of
- * the list still depends on who is asking, because the queries differ, so the
- * endpoint is chosen here and the two payload shapes are normalised into one.
- *
- * Zero interest, zero fees (rule 3): nothing on this screen adds to what a
- * borrower owes. `remainingAmount` comes from the API and the arithmetic here is
- * subtraction and counting.
+ * Loans for both staff dashboards; the endpoint differs by role and both
+ * payloads are normalised. Nothing here adds to what a borrower owes (rule 3).
  */
 
 type LoanStatus =
@@ -59,16 +46,7 @@ interface Loan {
   id: string;
   memberUserId: string;
   memberName: string;
-  /**
-   * The **English** name, for the document.
-   *
-   * `memberName` above is what the screen shows, and both payloads prefer the
-   * Bengali one where it exists. Generated documents are English only
-   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
-   * glyph the standard fonts cannot encode — so feeding a Bengali name to
-   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
-   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
-   */
+  /** The English name, for documents (English only, ADR-012). */
   memberNameEn: string;
   accountNo: string;
   memberPhone: string;
@@ -86,20 +64,7 @@ interface Loan {
   disbursedDate?: string;
   /** How many due instalments are unpaid. From the API — see `isOverdue`. */
   missedInstallments: number;
-  /**
-   * Decided by the API, not here.
-   *
-   * It used to be `status === 'ACTIVE' && nextDueDate < now`, which sounds
-   * right and was wrong twice over, because the two endpoints behind this one
-   * component did not agree on what `nextDueDate` meant: `/worker/loans` sent
-   * the date the schedule *started*, so every active loan was overdue, and
-   * `/admin/loans` sent no date at all, so none was. The same four loans read
-   * "4 overdue" in one dashboard and "0 overdue" in the other.
-   *
-   * Both now come from `money.MissedInstallments` in the Go API, which is the
-   * same arithmetic that decides whether a loan may be defaulted. A second
-   * implementation in the browser is how those diverge again.
-   */
+  /** Decided by the API (money.MissedInstallments) — never re-derived here. */
   isOverdue: boolean;
 }
 
@@ -179,9 +144,7 @@ export default function LoansScreen() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  // Which loan the shared instalment dialog is open on. The form, the whole-taka
-  // rule, the presets and the refusal messages all live in MoneyActionDialog —
-  // this screen had its own copy, which rounded 1500.75 to 1501 and posted it.
+  // The loan the shared instalment dialog (MoneyActionDialog) is open on.
   const [payingLoan, setPayingLoan] = useState<Loan | null>(null);
   /** Adding principal to a loan that is already running (ADR-030). */
   const [toppingUpLoan, setToppingUpLoan] = useState<Loan | null>(null);
@@ -212,10 +175,7 @@ export default function LoansScreen() {
   const defaultedLoans = loans.filter((l) => l.status === 'DEFAULTED').length;
   const recoveryRate =
     totalDisbursed > 0 ? ((totalRecovered / totalDisbursed) * 100).toFixed(1) : '0';
-  // Inside a memo because the clock is impure: read once per data change rather
-  // than twice per loan per render. The version this replaced added
-  // `7 * 24 * 60 * 600` milliseconds — ten minutes — so it counted almost
-  // nothing and looked like a quiet week.
+  // Clock read once per data change.
   const dueThisWeek = useMemo(() => {
     const now = new Date().getTime();
     return loans.filter((l) => {
@@ -583,9 +543,7 @@ export default function LoansScreen() {
         onCompleted={loadLoans}
       />
 
-      {/* Add to a running loan. Same dialog, same rules — a second form here
-          is how the deposit and instalment forms drifted apart before they
-          were merged (see money-actions.tsx). */}
+      {/* Top-up: the same shared dialog. */}
       <MoneyActionDialog
         action="LOAN_TOPUP"
         open={toppingUpLoan !== null}

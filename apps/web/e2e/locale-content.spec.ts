@@ -4,59 +4,20 @@ import { hasDatabase, seedAccounts, disconnect } from './fixtures/accounts';
 import { loginAs, PAGES, waitForContent } from './fixtures/session';
 
 /**
- * The English site is in English, and the language toggle goes somewhere real.
- *
- * Both halves are here because both were broken by the same event and neither
- * was visible to any check over the source.
- *
- * Bengali was the default locale until WO-94. While it was, a string written
- * straight into a component in Bengali looked correct on every page anyone
- * opened — so four hardcoded Bengali figures sat on the home page above English
- * captions the moment English became the default, and the parity census in
- * `messages.test.ts` could not see them because they were never in a message
- * file to be compared. The only place that defect is observable is the rendered
- * page, which is why this is an e2e spec and not a unit test.
- *
- * The toggle is the same shape of problem. `pathname.replace(localePath(locale),
- * …)` reads as if it swaps the locale segment; for English `localePath('en')` is
- * `/`, so it replaced the first slash of `/dashboard/admin` and produced
- * `/bndashboard/admin` — a 404 reachable from every staff screen. It typechecks,
- * it renders, and only a click reveals it.
+ * The English site is in English (hardcoded component copy is only visible on
+ * the rendered page) and the language toggle goes somewhere real (string
+ * surgery once produced /bndashboard/admin).
  */
 
-/**
- * Bengali letters and Bengali-Assamese digits — the block, minus one character.
- *
- * `৳` is U+09F3, inside the Bengali block, and it is the **taka sign**: what a
- * Bangladeshi reads a price in whichever language the sentence is written in.
- * `৳25 Lakh+` is correct English here, and the hero's figures count up through
- * intermediate values (`৳12 Lakh+`) that are not settings values and so cannot
- * be stripped like one. Every Bengali *letter* and every Bengali *digit* is
- * still refused, which is what this spec was written for: `১২৫+` under an
- * English caption was the original defect.
- */
+/** Bengali letters and digits — minus ৳ (U+09F3), the taka sign, correct in English too. */
 const BENGALI = /[\u0980-\u09F2\u09F4-\u09FF]/;
 
-/**
- * Text that is legitimately Bengali on an English page.
- *
- * Only the language toggle: it names the language it switches *to*, in that
- * language, which is what makes it findable by a reader who cannot read the
- * page they are on. Anything else appearing here would be the defect.
- */
+/** Legitimately Bengali on an English page: only the language toggle. */
 const ALLOWED_ON_ENGLISH = ['বাংলা'];
 
 /**
- * Every value an admin can type into Settings, so this spec never fails on one.
- *
- * A cooperative in Jashore will legitimately have Bengali in its own settings —
- * `org.name` *is* Bengali — and a test that goes red because someone edited a
- * database row is a test that gets deleted rather than read. What is being
- * enforced here is narrower and entirely the code's responsibility: **copy
- * written into a component** must come from `messages/en.json` on an English
- * page. Where a setting genuinely needs both scripts it gets a pair, the way
- * `org.name`/`org.nameEn` and `org.address`/`org.addressEn` do; that pairing is
- * asserted in the unit suite, where a database is not required.
+ * Every admin-typed settings value, stripped first: this enforces COMPONENT
+ * copy, not database content (pairs are checked in the unit suite).
  */
 async function settingsValues(page: Page): Promise<string[]> {
   const response = await page.request.get('/api/v1/settings');
@@ -68,15 +29,8 @@ async function settingsValues(page: Page): Promise<string[]> {
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => value.trim());
 
-  // An empty answer is a **broken rig**, not a page with no settings, and the
-  // two used to be indistinguishable here: with nothing to strip, this spec
-  // silently becomes a check on database content and reports the foundation's
-  // own Bengali as copy hardcoded in a component. It happened — a Go suite
-  // truncated `system_config` out from under a browser run, and the failure
-  // named `৳25 Lakh+`, a settings value, as a defect in the source.
-  //
-  // Say which it is. A public page always has settings behind it; if it does
-  // not, every assertion below is measuring the wrong thing.
+  // No settings means a broken rig (e.g. truncated by a Go suite), not a page
+  // without settings — fail loudly rather than measure the wrong thing.
   expect(
     values.length,
     'GET /api/v1/settings returned nothing, so there is no admin-typed text to ' +
@@ -131,13 +85,7 @@ test.describe('the language toggle', () => {
     await page.waitForURL('**/bn/faq');
     expect(new URL(page.url()).pathname).toBe('/bn/faq');
 
-    // And back. A toggle that only works one way strands a reader who switched
-    // by accident — and under `as-needed` the two directions are genuinely
-    // different operations: one adds a segment, the other removes one.
-    // `exact`, and it matters: Playwright matches an accessible name by
-    // substring by default, and the logo's alt text is "Hasnahena Foundation" —
-    // which contains "en". Without it this clicked the logo and asserted its way
-    // to a passing test that never touched the language button.
+    // And back. `exact`: the logo's alt "Hasnahena Foundation" contains "en".
     await page.getByRole('link', { name: 'EN', exact: true }).first().click();
     await page.waitForURL((url) => url.pathname === '/faq');
     expect(new URL(page.url()).pathname).toBe('/faq');

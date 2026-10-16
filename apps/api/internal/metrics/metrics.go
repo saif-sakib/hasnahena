@@ -1,17 +1,6 @@
-// Package metrics exposes the API's Prometheus instrumentation.
-//
-// Two kinds of metric live here and they answer different questions.
-//
-// Technical metrics — request rate, latency, status codes, pool saturation —
-// answer "is the process healthy". They are cheap, recorded inline, and mostly
-// tell you about a problem you could also have guessed at from the logs.
-//
-// Business metrics answer "is the *cooperative* healthy", and those are the
-// ones worth waking up for. A transaction that has sat unconfirmed for three
-// days is not an error: nothing failed, no status code was non-2xx, and no
-// exception was thrown. A member is simply waiting on money and nobody knows.
-// That is invisible to every technical signal here, which is precisely why
-// OBS-02 exists.
+// Package metrics exposes Prometheus instrumentation: technical metrics
+// (requests, latency, pool) and business metrics (OBS-02) such as postings
+// stuck unconfirmed — a member waiting on money raises no error anywhere.
 package metrics
 
 import (
@@ -26,11 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-// Registry is this service's collector registry.
-//
-// A private registry rather than prometheus.DefaultRegisterer: it keeps the
-// exposition to metrics this code actually declares, and makes a duplicate
-// registration a startup panic in tests rather than a silent global collision.
+// Registry is private, so a duplicate registration panics in tests.
 var Registry = prometheus.NewRegistry()
 
 var (
@@ -39,9 +24,7 @@ var (
 			Name: "hasnahena_http_requests_total",
 			Help: "HTTP requests by method, route template and status class.",
 		},
-		// `route` is the chi route *pattern*, never the raw path. The raw path
-		// contains member and loan IDs, and a label per member is both a
-		// cardinality explosion and a privacy leak into a metrics endpoint.
+		// The route PATTERN, never the raw path (IDs = cardinality and privacy).
 		[]string{"method", "route", "status"},
 	)
 
@@ -49,9 +32,7 @@ var (
 		prometheus.HistogramOpts{
 			Name: "hasnahena_http_request_duration_seconds",
 			Help: "HTTP request latency by method and route template.",
-			// Tuned for this service: a money posting is several round trips to
-			// Neon, so the interesting range is 50ms–2s, not the default's
-			// sub-10ms buckets.
+			// A posting is several Neon round trips: 50ms–2s is the interesting range.
 			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10},
 		},
 		[]string{"method", "route"},
@@ -62,12 +43,8 @@ var (
 		Help: "Requests currently being served.",
 	})
 
-	// Ledger reconciliation — WO-82. Set by the reconciliation loop, not by a
-	// scrape: the pass is a handful of full-table aggregates and running it on
-	// every Prometheus scrape would be a self-inflicted load test.
-	//
-	// `check` is the invariant that disagreed — a fixed vocabulary from
-	// repositories.AllChecks, so an alert can name the one that fired.
+	// Ledger reconciliation (WO-82), set by the reconciliation loop. `check`
+	// is from repositories.AllChecks.
 	ledgerDriftRows = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "hasnahena_ledger_drift_rows",
@@ -82,9 +59,7 @@ var (
 		},
 		[]string{"check"},
 	)
-	// The one to alert on when it *stops* moving. A drift gauge reading zero is
-	// indistinguishable from a job that has not run since the last deploy, and
-	// the second is the more likely failure.
+	// Alert when this stops moving: zero drift also looks like a job that never ran.
 	ledgerLastReconciled = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "hasnahena_ledger_reconciled_timestamp_seconds",
 		Help: "Unix time of the last reconciliation pass that completed without an error.",
@@ -94,8 +69,7 @@ var (
 		Help: "Reconciliation passes that could not complete.",
 	})
 
-	// Business gauges. Refreshed on a ticker rather than computed per scrape —
-	// see refreshLoop.
+	// Business gauges, refreshed lazily — see businessRefresher.
 	unconfirmedOver48h = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "hasnahena_transactions_unconfirmed_over_48h",
 		Help: "Postings awaiting member confirmation for more than 48 hours.",
@@ -123,8 +97,7 @@ var (
 		Name: "hasnahena_business_metrics_refresh_failures_total",
 		Help: "Failed refreshes of the business gauges. Non-zero means the gauges are stale.",
 	})
-	// Without this, a refresh loop that quietly dies leaves every business gauge
-	// frozen at its last good value — which looks exactly like a calm system.
+	// Detects a refresher that died and froze the gauges.
 	businessLastRefresh = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "hasnahena_business_metrics_last_refresh_timestamp_seconds",
 		Help: "Unix time of the last successful business-gauge refresh.",
@@ -150,12 +123,10 @@ func Register(pool *pgxpool.Pool) {
 	})
 }
 
-// ObserveRequest records one finished request. Called from the logging
-// middleware, which already computes all three values.
+// ObserveRequest records one finished request (from the logging middleware).
 func ObserveRequest(method, route string, status int, duration time.Duration) {
 	if route == "" {
-		// An unmatched path — 404s, scanners, probes. Bucketing them together
-		// keeps a bot sweeping for /wp-admin from minting a label per URL.
+		// 404s and scanners share one label.
 		route = "unmatched"
 	}
 	httpRequests.WithLabelValues(method, route, strconv.Itoa(status)).Inc()
@@ -166,11 +137,7 @@ func ObserveRequest(method, route string, status int, duration time.Duration) {
 func IncInFlight() { httpInFlight.Inc() }
 func DecInFlight() { httpInFlight.Dec() }
 
-// poolCollector reports pgxpool saturation at scrape time.
-//
-// Implemented as a Collector rather than gauges on a ticker because
-// pgxpool.Stat() is an in-memory read with no database round trip, so there is
-// nothing to amortise — and a value read at scrape time cannot be stale.
+// poolCollector reports pgxpool saturation at scrape time (in-memory read).
 type poolCollector struct {
 	pool *pgxpool.Pool
 
@@ -222,31 +189,9 @@ type businessSnapshot struct {
 	PostedToday        map[string]int64
 }
 
-// businessRefresher recomputes the business gauges, at most once per `minGap`.
-//
-// **Lazy, with a floor** — and both halves matter.
-//
-// It used to be a ticker at one minute. The original reasoning was sound as far
-// as it went: these are five aggregate queries over `transactions` and `loans`,
-// Prometheus scrape intervals are set by whoever runs the scraper, and tying
-// database load to a stranger's configuration is how a monitoring system becomes
-// the outage. What that reasoning missed is that the alternative it chose ties
-// database load to *nothing at all* — it runs at full rate whether anybody is
-// scraping or not. This deployment is scraped **twice a day** by
-// `.github/workflows/monitor.yml`, so a one-minute ticker was issuing roughly
-// 43,000 aggregate queries a month to answer 60 questions, and — far more
-// expensive — was on its own enough to stop a scale-to-zero database from ever
-// suspending.
-//
-// Refreshing on scrape restores the connection between load and demand. The
-// floor is what keeps the original argument's teeth: however often a scraper
-// asks, the database is touched at most once per `minGap`, so a misconfigured
-// Prometheus gets cached numbers rather than a hammered ledger.
-//
-// The gauges are also refreshed **once at startup**, because an empty /metrics
-// immediately after a deploy looks like a broken exporter rather than a cold
-// one — and `hasnahena_business_metrics_last_refresh_timestamp_seconds` is what
-// tells a reader whether what they are looking at is live.
+// businessRefresher recomputes the business gauges lazily on scrape, at most
+// once per minGap (a floor). A ticker would keep a scale-to-zero database
+// awake for a twice-daily scrape. Also refreshed once at startup.
 type businessRefresher struct {
 	pool   *pgxpool.Pool
 	minGap time.Duration
@@ -260,9 +205,7 @@ var business struct {
 	r  *businessRefresher
 }
 
-// RefreshBusinessIfStale recomputes the business gauges when they are older than
-// the configured floor. Called by the /metrics handler, before the exposition is
-// written — see handler.go.
+// RefreshBusinessIfStale is called by the /metrics handler before writing.
 func RefreshBusinessIfStale(ctx context.Context) {
 	business.mu.Lock()
 	r := business.r
@@ -276,8 +219,7 @@ func RefreshBusinessIfStale(ctx context.Context) {
 		r.mu.Unlock()
 		return
 	}
-	// Stamped before the queries run, not after: two scrapes arriving together
-	// must not both decide the numbers are stale and both go to the database.
+	// Stamped before querying so two concurrent scrapes don't both refresh.
 	r.last = time.Now()
 	r.mu.Unlock()
 
@@ -288,12 +230,8 @@ func (r *businessRefresher) refresh(ctx context.Context) {
 	refreshBusinessSnapshot(ctx, r.pool)
 }
 
-// StartBusinessRefresh registers the pool the gauges are computed from and
-// populates them once, immediately.
-//
-// `interval` is the **floor** between refreshes, not a tick. The ctx is kept for
-// the startup pass only; every later refresh is driven by a scrape and uses the
-// request's own context.
+// StartBusinessRefresh registers the pool and populates the gauges once.
+// interval is the floor between refreshes, not a tick.
 func StartBusinessRefresh(ctx context.Context, pool *pgxpool.Pool, interval time.Duration) {
 	if pool == nil {
 		return
@@ -347,9 +285,7 @@ func refreshBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) {
 func readBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) (businessSnapshot, error) {
 	snap := businessSnapshot{PostedToday: map[string]int64{}}
 
-	// PROCESSED means a worker has posted it and the member has not yet
-	// confirmed — the middle state of Request → Process → Confirm. Anything
-	// sitting there for two days is the queue this metric exists to surface.
+	// PROCESSED = posted by a worker, awaiting member confirmation.
 	err := pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (
@@ -392,12 +328,8 @@ func readBusinessSnapshot(ctx context.Context, pool *pgxpool.Pool) (businessSnap
 	return snap, rows.Err()
 }
 
-// SetLedgerDrift publishes the result of one reconciliation pass.
-//
-// `checks` must be every check that ran, not only the ones that found
-// something. A gauge that is only ever set when it is non-zero keeps its last
-// non-zero value forever, so the alert that fired on Tuesday is still firing on
-// Friday after the drift was corrected — and an operator learns to ignore it.
+// SetLedgerDrift publishes one pass. `checks` must be every check that ran,
+// or a corrected drift keeps alerting.
 func SetLedgerDrift(rows, taka map[string]int64, checks []string) {
 	for _, check := range checks {
 		ledgerDriftRows.WithLabelValues(check).Set(float64(rows[check]))
@@ -406,7 +338,5 @@ func SetLedgerDrift(rows, taka map[string]int64, checks []string) {
 	ledgerLastReconciled.SetToCurrentTime()
 }
 
-// ObserveLedgerReconcileFailure records a pass that could not complete. The
-// drift gauges are deliberately left untouched: a failed pass knows nothing, and
-// writing zeroes would report a clean ledger it never managed to read.
+// ObserveLedgerReconcileFailure: drift gauges are left alone — a failed pass knows nothing.
 func ObserveLedgerReconcileFailure() { ledgerReconcileFailures.Inc() }

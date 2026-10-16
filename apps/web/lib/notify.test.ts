@@ -4,17 +4,8 @@ import { join, resolve } from 'node:path';
 import { formatTaka, formatMoney } from './notify';
 import { formatCurrency } from './utils';
 
-// WO-58 / LEDGER-07, the TypeScript half.
-//
-// Three Next routes rendered notification amounts with a bare
-// `toLocaleString()`, which uses the *server's* default locale — `en-US` on
-// Vercel. The same figure could therefore be grouped one way in a notification
-// and another way on the dashboard the member read it from.
-//
-// The Go builders in `apps/api/internal/notify` render the same amounts for the
-// same members. **These two implementations must agree**, and nothing but a
-// test can hold them together across two languages, so the expected strings
-// below are duplicated from `messages_test.go` on purpose.
+// WO-58: Next notification amounts must match the Go builders; expected
+// strings are duplicated from messages_test.go on purpose.
 
 describe('notification amount formatting', () => {
   it('renders whole taka with the dashboard grouping', () => {

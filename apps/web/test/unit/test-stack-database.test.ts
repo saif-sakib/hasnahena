@@ -3,28 +3,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * The browser suite and the API must be on the **same** database.
- *
- * They were not, and the way they came apart is worth keeping.
- * `scripts/test-stack.sh --serve` starts the Go API and `next dev` with
- * `DATABASE_URL` pointing at the throwaway Postgres on 55433. The API obeyed.
- * Next did not: `@next/env` re-applies `apps/web/.env` over `process.env` when
- * it loads, so the inherited value lost to a file on disk, and the web half of
- * every browser run read the developer's **Neon dev** database — including
- * `e2e/public-content.spec.ts`, which PUTs settings through a Next route and was
- * therefore *writing* to it.
- *
- * Nothing could see it. `/proc/<pid>/environ` showed the right URL; the pages
- * rendered; the specs passed. It was found by noticing that a home page served
- * by the test stack showed ten members and four gallery photographs from a
- * database that had one member and none. And CI is immune, because CI has no
- * `.env` — which is exactly what lets a trap like this live for months in the
- * only place it matters, a developer's machine, while every shared signal stays
- * green.
- *
- * The fix is to hand the value over a name no `.env` in this repo defines, so
- * there is nothing for `@next/env` to override it with. Both halves of that are
- * checked here, because either one alone is silently useless.
+ * The browser suite and the API must use the SAME database: @next/env re-applies
+ * apps/web/.env over an inherited DATABASE_URL, so the web half once used the
+ * developer's own database. TEST_DATABASE_URL (defined in no .env) fixes it.
  */
 
 const ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..', '..', '..');
@@ -62,9 +43,7 @@ describe('the test stack and the web app agree on which database is under test',
   });
 
   it('and never in production, whatever the host environment holds', () => {
-    // A stray TEST_DATABASE_URL in Render's or Vercel's environment must not be
-    // able to repoint a live deployment at somebody's scratch database. The gate
-    // is explicit rather than implied by "nothing sets it in production".
+    // Never honoured in production.
     const source = read('apps/web/lib/prisma.ts');
 
     expect(source).toMatch(/NODE_ENV\s*===\s*'production'\)\s*return undefined/);

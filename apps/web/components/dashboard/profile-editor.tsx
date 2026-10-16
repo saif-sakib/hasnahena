@@ -81,14 +81,8 @@ export function ProfileEditor({ role }: ProfileEditorProps) {
   );
   const setEditData = (next: Partial<ProfileData>) => setEdits(next);
 
-  // Derived, not stored. A forced password change is a fact about the URL and
-  // localStorage, so it is read rather than copied into state by an effect —
-  // which is what the old code did, and which could not un-say it once the
-  // query parameter went away.
-  //
-  // localStorage goes through useLocalStorageValue rather than being read
-  // inline: this component is server-rendered for the initial HTML, where there
-  // is no localStorage, and a direct read there is a hydration mismatch.
+  // Derived (URL + localStorage via useLocalStorageValue), never copied into
+  // state by an effect.
   const forcedFlag = useLocalStorageValue('hn_force_password_change');
   const [passwordChanged, setPasswordChanged] = useState(false);
   const forcePasswordChange =

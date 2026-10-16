@@ -4,22 +4,8 @@ import { hasDatabase, seedAccounts, disconnect } from './fixtures/accounts';
 import { loginAs, PAGES, waitForContent } from './fixtures/session';
 
 /**
- * TEST-30 — accessibility, checked by hand rather than by an audit library.
- *
- * No `@axe-core/playwright`: adding a dependency to run a generic audit would
- * produce a long list of advisory findings, most of which nobody will action,
- * and none of which is specific to a cooperative whose members are filling in
- * financial forms on a cheap Android in bright sunlight. These four checks are.
- *
- *  1. **Every control has a name.** An input a screen reader announces as
- *     "edit text" is unusable, and it is also the thing most likely to break
- *     silently when a label is moved.
- *  2. **Focus is visible.** Keyboard and switch users cannot use a form whose
- *     focus ring has been removed by a reset.
- *  3. **Errors are announced.** A red border is invisible to a screen reader
- *     and to anyone who cannot distinguish red — the message needs a live region.
- *  4. **A form can be completed without a mouse.** Tab must reach every control
- *     in an order that matches the visual one.
+ * TEST-30 — four hand-written checks (no audit library): every control has a
+ * name, focus is visible, errors are announced, and a form completes by keyboard.
  */
 
 /** Controls with no accessible name, described well enough to fix. */
@@ -33,16 +19,9 @@ async function unlabelledControls(page: Page): Promise<string[]> {
     for (const el of Array.from(controls)) {
       const style = getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') continue;
-      // `next dev` injects a <nextjs-portal> dev-tools overlay that is absent
-      // from a production build. It has already cost this project one wasted
-      // debugging session by matching a "Next" button locator, so it is
-      // excluded explicitly rather than incidentally.
+      // next dev's <nextjs-portal> overlay is absent in production.
       if (el.closest('nextjs-portal')) continue;
-      // Radix's Select renders a native <select aria-hidden tabindex="-1">
-      // alongside its own trigger, purely so a plain form submit carries the
-      // value. It is deliberately outside the accessibility tree, and flagging
-      // it would be a false positive — the kind that teaches people to stop
-      // reading this suite.
+      // Radix's hidden native <select> is outside the a11y tree by design.
       if (el.getAttribute('aria-hidden') === 'true' || el.closest('[aria-hidden="true"]')) continue;
       if (el.getAttribute('tabindex') === '-1') continue;
 
@@ -131,22 +110,14 @@ test.describe('keyboard and focus', () => {
     await page.goto('/login');
     await waitForContent(page);
 
-    // Tab until focus lands in the identifier field, then type through the form.
-    // A form where Tab skips a required input cannot be filled without a mouse.
-    // Start from the field itself rather than tabbing to it: `next dev`'s
-    // overlay sits in the tab order and is not present in production, so
-    // counting Tab presses would measure the dev server.
+    // Start at the field (next dev's overlay sits in the tab order).
     await page.locator('#identifier').focus();
     const reachedIdentifier = await page.evaluate(() => document.activeElement?.id === 'identifier');
     expect(reachedIdentifier, 'the identifier field cannot take focus').toBe(true);
 
     await page.keyboard.type('01966600001');
 
-    // Tab must *reach* the password field and the submit button, in that order.
-    // Not adjacency: "Forgot password?" sits on the same row as the Password
-    // label, so it is visually between the two fields and correctly tabbed
-    // between them too. Asserting strict adjacency would have demanded a worse
-    // layout to satisfy a test.
+    // Tab REACHES password then submit, in order — not strict adjacency.
     const order: string[] = [];
     for (let i = 0; i < 8; i += 1) {
       await page.keyboard.press('Tab');
@@ -194,9 +165,7 @@ test.describe('error announcement', () => {
   test.use({ viewport: devices['Pixel 7'].viewport });
 
   test('a blocked registration announces the reason in a live region', async ({ page }) => {
-    // The registration bug that started all of this was an error that existed
-    // and could not be seen. A screen-reader user has the same problem for a
-    // different reason: a message rendered as ordinary text is never announced.
+    // Errors must be in a live region to be announced.
     await page.goto('/register');
     await waitForContent(page);
 

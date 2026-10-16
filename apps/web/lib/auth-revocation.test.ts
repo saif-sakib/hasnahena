@@ -1,14 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 
-// TEST-09 / SEC-11. The Next handlers verified a token's signature and expiry
-// and stopped there, so a token kept working after logout, after a password
-// change and after an admin revoked the user — on every Next endpoint,
-// including the one that sets loan policy.
-//
-// These tests pin the two mechanisms against the Go implementation they have to
-// agree with (`internal/services/security_service.go`). If the two ever
-// disagree, a token is dead on one surface and live on the other.
+// TEST-09 / SEC-11: the Next handlers' revocation checks, pinned against
+// internal/services/security_service.go.
 
 const findFirst = vi.fn();
 vi.mock('@/lib/prisma', () => ({

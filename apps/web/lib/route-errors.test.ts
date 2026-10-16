@@ -4,11 +4,8 @@ import { z } from 'zod';
 import { readJsonBody, routeErrorStatus, routeErrorMessage, uniqueConflictLabel, BadRequestError } from './route-errors';
 import { AuthError } from './auth';
 
-// TEST-18. Every Next route used to end `catch { return 500 }`, so a truncated
-// body from a phone that lost signal mid-POST and an expired session both came
-// back as "the server is broken". These tests pin the classification that fixed
-// it — in the fast suite, because it is pure logic and the route tests that
-// depend on it need a database.
+// TEST-18 — the caught-error classification: a bad body or expired session is
+// not a 500.
 
 const request = (body: string) =>
   new Request('http://localhost/api/x', {
@@ -154,11 +151,7 @@ describe('uniqueConflictLabel — WO-90', () => {
   });
 
   it('names the field behind an index Prisma cannot model', () => {
-    // `users_email_lower_key` is WO-90's functional unique index on
-    // lower(email). Prisma has no field to map it to, so it reports the
-    // constraint name — and that is exactly the case-insensitive collision this
-    // work order added, so it is the one that must not fall through to "That
-    // value is already in use".
+    // WO-90's lower(email) index is reported by constraint name.
     expect(uniqueConflictLabel(p2002('users_email_lower_key'))).toBe('email address');
     expect(uniqueConflictLabel(p2002(['users_phone_key']))).toBe('phone number');
   });

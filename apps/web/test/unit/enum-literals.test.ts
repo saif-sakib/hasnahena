@@ -3,22 +3,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 /**
- * WO-71. Every enum label the Go SQL names must exist in `schema.prisma`.
- *
- * The Go API writes raw SQL against a schema Prisma owns, so a label that is
- * removed on one side and still named on the other is a runtime error in a
- * query — never a compile error, and never something `go vet` or `tsc` can see.
- *
- * That is not hypothetical. Collapsing the legacy `LoanStatus` values missed
- * three occurrences, because the ones that were found read
- * `IN ('APPROVED','ACTIVE')` and the ones that were missed read
- * `IN ('APPROVED', 'ACTIVE')` — one space. The member dashboard query was among
- * them, and it swallowed its own error into four zeros, so every member saw
- * "Current Balance: BDT 0" with a 200 response and nothing to retry.
- *
- * A grep finds what you thought to grep for. This re-derives both sides from
- * source: the labels from `schema.prisma`, the usages from the Go files, and
- * fails on any name in the second that is absent from the first.
+ * WO-71: every enum label the Go SQL names must exist in schema.prisma — a
+ * stale label is a runtime query error no compiler sees (it once rendered every
+ * member's balance as 0). Both sides re-derived from source.
  */
 
 const HERE = new URL('.', import.meta.url).pathname;
@@ -58,13 +45,7 @@ function goFiles(): string[] {
   return out;
 }
 
-/**
- * Go source with comments removed.
- *
- * A detector must search code, not prose — the comment explaining why
- * `'APPROVED'` was removed contains the word, and a check that fires on its own
- * documentation teaches people to delete the documentation.
- */
+/** Go source with comments removed (search code, not prose). */
 function stripGoComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 }
@@ -79,18 +60,9 @@ describe('the Go SQL only names enum labels that exist', () => {
   });
 
   /**
-   * The precise shape that breaks: a comparison list that mixes a label the
-   * enum still has with one it does not.
-   *
-   * `IN ('APPROVED', 'ACTIVE')` is unambiguous — `ACTIVE` proves the column is a
-   * LoanStatus, and `APPROVED` exists in no enum in the schema, so it can only
-   * be a stale label. Postgres rejects the whole query at runtime.
-   *
-   * Deliberately narrow. An earlier version flagged every ALL_CAPS literal near
-   * an enum label and reported `'EXCELLENT'`, `'GOOD'` and `'TRANSACTION'` — a
-   * repayment-quality rating and an audit entity type, neither of them enums. A
-   * check that cries wolf is one people stop reading, and this codebase has paid
-   * for that lesson once already.
+   * A comparison list must belong to a single enum: `IN ('APPROVED','ACTIVE')`
+   * mixes RequestStatus and LoanStatus, which no column can be. Narrow on
+   * purpose — a broader version cried wolf.
    */
   it('every comparison list belongs to a single enum', () => {
     // `IN ( 'A', 'B' )`, across newlines, as the SQL is formatted.
@@ -103,22 +75,13 @@ describe('the Go SQL only names enum labels that exist', () => {
         const members = [...m[1].matchAll(/'([A-Za-z0-9_]+)'/g)].map((x) => x[1]);
         if (members.length < 2) continue;
 
-        // Only judge lists that are demonstrably about an enum: every member has
-        // to be a label of *some* enum. A list of audit actions or SQL keywords
-        // is not our business, and an earlier version that guessed reported
-        // 'EXCELLENT', 'GOOD' and 'TRANSACTION' — a repayment rating and an
-        // audit entity. A check that cries wolf is one people stop reading.
+        // Only lists whose every member is SOME enum's label.
         const enumsFor = (label: string) =>
           [...ENUMS.entries()].filter(([, labels]) => labels.has(label)).map(([name]) => name);
         const perMember = members.map((label) => ({ label, enums: enumsFor(label) }));
         if (perMember.some((x) => x.enums.length === 0)) continue;
 
-        // The real check. `IN ('APPROVED', 'ACTIVE')` looks fine label by label —
-        // APPROVED is a RequestStatus and ACTIVE is a LoanStatus — and is still
-        // nonsense, because no single column can be both. That is exactly the
-        // shape WO-71 left behind in three places, and Postgres rejects the whole
-        // query at runtime: no compiler sees it, and a handler that swallows the
-        // error renders the failure as a zero balance.
+        // No single enum contains them all → the query is nonsense.
         const shared = perMember
           .map((x) => new Set(x.enums))
           .reduce((a, b) => new Set([...a].filter((e) => b.has(e))));

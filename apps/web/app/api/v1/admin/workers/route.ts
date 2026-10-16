@@ -16,11 +16,7 @@ import {
   formatStaffNo,
 } from '@/lib/account-no';
 
-/**
- * WO-72. Staff rows always come back with their branch joined, so no caller has
- * to remember to ask for it and no response can carry a branch id the client
- * then has to resolve on its own.
- */
+/** Staff rows always come back with their branch joined (WO-72). */
 const STAFF_SELECT = {
   id: true,
   nameEn: true,
@@ -39,14 +35,7 @@ function toBranchSummary(branch: BranchSummary): BranchSummary {
   return branch ?? null;
 }
 
-/**
- * Resolves the submitted branch id, refusing one that does not exist.
- *
- * `null` and `undefined` both mean "no branch", which is legitimate — an admin
- * account is not assigned to an office. What is never legitimate is an id that
- * names nothing: the previous free-text column accepted anything, which is how
- * a typo became a branch that existed on exactly one row.
- */
+/** Resolve the submitted branch id; null/undefined = no branch, unknown = refused. */
 async function resolveBranch(branchId: string | null | undefined): Promise<
   { ok: true; id: string | null } | { ok: false; message: string }
 > {
@@ -59,27 +48,14 @@ async function resolveBranch(branchId: string | null | undefined): Promise<
 }
 
 /**
- * Creating staff means creating a **worker**.
- *
- * `role` is not a field here, and that is the point rather than an omission. An
- * admin account is made directly in the database: a web form that mints one
- * turns "whoever holds an admin session right now" into "whoever can hold one
- * forever", and it records that escalation in `audit_logs` as routine staff
- * administration. The screen offers no Admin option either
- * (`dashboard/admin/workers`), so the UI and the API say the same thing.
- *
- * The schema used to accept `z.enum(['WORKER', 'ADMIN'])` on both create and
- * update, so a compromised or careless admin session could promote any account —
- * including a member's — in one request.
+ * Creating staff means creating a WORKER. `role` is deliberately not a field:
+ * admin accounts are made directly in the database, never by a web form.
  */
 const createStaffSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
-  // WO-72. Was a free string written straight into `users.assignedBranch`, so a
-  // typo created a branch that existed on exactly one row and renaming an office
-  // left every worker pointing at the old name. It is now a Branch id, validated
-  // against the table before the write.
+  // A Branch id, validated against the table (WO-72).
   assignedBranchId: z.string().trim().min(1).nullish(),
   locale: z.enum(['en', 'bn']).optional().default('en'),
 });
@@ -89,10 +65,7 @@ const updateStaffSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(2),
   phone: z.string().regex(/^01\d{9}$/, 'Invalid Bangladeshi phone number'),
-  // WO-72. Was a free string written straight into `users.assignedBranch`, so a
-  // typo created a branch that existed on exactly one row and renaming an office
-  // left every worker pointing at the old name. It is now a Branch id, validated
-  // against the table before the write.
+  // A Branch id, validated against the table (WO-72).
   assignedBranchId: z.string().trim().min(1).nullish(),
 });
 
@@ -131,24 +104,9 @@ export async function POST(req: Request) {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPhone = phone.trim();
 
-    // WO-90. Named rather than "email/phone": an admin told that one of two
-    // values is taken, without being told which, has to guess. Both are looked
-    // at, because both can be taken at once and the second attempt should not
-    // be the first time they hear about the second one.
-    //
-    // `liveIdentityFilter` is load-bearing and was missing until 2026-08-26. A
-    // **rejected application** owns nothing — that is the whole point of scoping
-    // uniqueness to live rows (owner's ruling) — so a person whose membership
-    // application was refused and who is then hired as a field worker must be
-    // able to use their own email and phone. Without it, this told the admin
-    // "that email address is already in use" and named a row the database would
-    // have accepted the insert against: `users_email_live_key` and
-    // `users_phone_live_key` both exclude rejected applications, so the check
-    // was stricter than the constraint it exists to anticipate.
-    //
-    // `mode: 'insensitive'` for the same reason: the index is on
-    // `lower("email")`, and an exact comparison would let `Foo@bar.com` past a
-    // check that the constraint then rejects with a raw P2002.
+    // Name which value is taken (WO-90). liveIdentityFilter: a rejected
+    // applicant hired as staff may reuse their email/phone. Case-insensitive,
+    // matching the lower(email) index.
     const existing = await prisma.user.findFirst({
       where: {
         OR: [
@@ -177,21 +135,8 @@ export async function POST(req: Request) {
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // `STF-0001`, allocated the way a member's number is: under an advisory
-    // lock, from the highest already issued, inside the transaction that creates
-    // the row.
-    //
-    // It used to be `STF-<base36 millisecond>-<6 hex>`. That was unique — which
-    // was the whole requirement, because a millisecond alone is not: two admins
-    // adding staff in the same moment produced the same `accountNo`, `accountNo`
-    // is `@unique`, and the second create raised P2002 on a column neither
-    // caller had sent, so the 409 told them to change an email and phone that
-    // were both fine. Randomness solved that and bought a number nobody can read
-    // aloud, sort, or recognise — and which is now also the name of the folder
-    // holding that person's photograph on the image host.
-    //
-    // The lock gives the same guarantee without the cost. It is taken inside the
-    // transaction, so it is released by the commit or the rollback.
+    // STF-0001, allocated under an advisory lock inside the transaction (see
+    // lib/account-no.ts).
     const created = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(STAFF_NO_ADVISORY_LOCK_SQL);
       const [{ next_seq: nextSeq }] =
@@ -200,10 +145,7 @@ export async function POST(req: Request) {
       const staffNo = formatStaffNo(Number(nextSeq));
       return tx.user.create({
         data: {
-          // The id **is** the account number ([ADR-043](../../../../../../docs/decisions.md)).
-          // There is no `@default(cuid())` to fall back on, on purpose: a writer
-          // that forgets fails on a NOT NULL primary key rather than quietly
-          // inventing an opaque one.
+          // The id IS the account number (ADR-043); no cuid default to fall back on.
           id: staffNo,
           accountNo: staffNo,
           email: normalizedEmail,
@@ -220,10 +162,7 @@ export async function POST(req: Request) {
       });
     });
 
-    // The marker whose existence is `mustChangePassword`. Hashed and scoped
-    // like every other row of this table (WO-86) — the secret is never
-    // presented, but a row keyed on something guessable is a row somebody can
-    // plant.
+    // The first-login marker (existence = mustChangePassword), hashed and scoped (WO-86).
     await prisma.passwordResetToken.create({
       data: {
         scope: RESET_SCOPE_FIRST_LOGIN,
@@ -293,8 +232,6 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    // routeErrorStatus first: an expired session and a malformed body both
-    // used to land here and be reported as a 500 (TEST-16, TEST-18).
     const status = routeErrorStatus(error);
     if (status) {
       return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to create staff account') }, { status });
@@ -335,8 +272,7 @@ export async function PUT(req: Request) {
       select: { nameEn: true, phone: true, role: true, assignedBranchId: true },
     });
 
-    // This screen manages workers. An admin row is listed there but carries no
-    // actions, so reaching this with one means a request the UI does not make.
+    // Admin rows have no actions on this screen.
     if (!oldUser) {
       return NextResponse.json({ ok: false, error: 'Worker not found' }, { status: 404 });
     }
@@ -347,8 +283,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Same rule as create: a rejected application holds no phone number, so
-    // giving a worker a number that only a refused applicant "has" is allowed.
+    // A rejected applicant's phone is free to reuse.
     const existingPhone = await prisma.user.findFirst({
       where: {
         phone: normalizedPhone,
@@ -396,8 +331,6 @@ export async function PUT(req: Request) {
       },
     });
   } catch (error) {
-    // routeErrorStatus first: an expired session and a malformed body both
-    // used to land here and be reported as a 500 (TEST-16, TEST-18).
     const status = routeErrorStatus(error);
     if (status) {
       return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to update staff account') }, { status });
@@ -441,13 +374,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: 'Only worker accounts can be updated here' }, { status: 400 });
     }
 
-    // WO-91. Deactivating a worker and ending their sessions are one fact, so
-    // they are one transaction. `status` is read at **login** and nowhere else:
-    // neither backend re-reads it per request, by design — that would be a
-    // second user lookup on every call — so the revocation marker is the *only*
-    // thing that takes a deactivated worker's staff token away. Without it a
-    // dismissed worker went on posting deposits and processing withdrawals
-    // until their token expired, up to a day later.
+    // WO-91: deactivation and session revocation are one transaction — status
+    // is read only at login, so the marker is what ends a dismissed worker's token.
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.user.update({
         where: { id },
@@ -486,8 +414,6 @@ export async function PATCH(req: Request) {
       },
     });
   } catch (error) {
-    // routeErrorStatus first: an expired session and a malformed body both
-    // used to land here and be reported as a 500 (TEST-16, TEST-18).
     const status = routeErrorStatus(error);
     if (status) {
       return NextResponse.json({ ok: false, error: routeErrorMessage(error, 'Failed to update staff status') }, { status });
@@ -545,9 +471,7 @@ export async function DELETE(req: Request) {
 
     // If historical references exist, archive (INACTIVE) instead of hard delete.
     if (referenceCount > 0) {
-      // The branch that runs for any worker who has ever processed a
-      // transaction — which is every real worker — and the one that used to
-      // stop a step short: it set INACTIVE and left the token alive (WO-91).
+      // Any worker who ever processed a transaction is archived, with sessions revoked.
       const archived = await prisma.$transaction(async (tx) => {
         const row = await tx.user.update({
           where: { id },
@@ -593,10 +517,7 @@ export async function DELETE(req: Request) {
 
     await prisma.$transaction(async (tx) => {
       if (existing.email || existing.phone) {
-        // Reset tokens are keyed by contact details rather than by user id, so
-        // the cascade below cannot reach them. Leaving them would let a
-        // first-login link for a deleted account be redeemed against whoever is
-        // given that phone number next.
+        // Keyed by contact, so no cascade reaches them.
         await tx.passwordResetToken.deleteMany({
           where: {
             OR: [
@@ -606,10 +527,7 @@ export async function DELETE(req: Request) {
           },
         });
       }
-      // Notifications are NOT deleted here any more. `targetUserId` is a real
-      // foreign key with `onDelete: Cascade` since WO-92, and two mechanisms
-      // for one rule is how they drift — this hand-written one was the only
-      // deletion path that had it, which is exactly the problem.
+      // Notifications cascade via targetUserId (WO-92).
       await revokeAllTokens(tx, id, 'admin_revoke');
       await tx.user.delete({ where: { id } });
     });

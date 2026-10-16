@@ -1,38 +1,8 @@
 /**
- * Why an application was turned down.
- *
- * The owner's ruling, 2026-08-26: the applicant is emailed, and the admin
- * **picks** a reason from a list rather than composing one, with free text
- * available when they want it. A list is the important half. Before this, the
- * approvals screen posted `reason: ''` — hardcoded, with no control to change
- * it — so FR-05's "approve/reject with reason" was never met on the reject
- * side, and the only record of a rejection was an audit row whose `details`
- * column was the empty string.
- *
- * Picking beats typing here for three reasons that are specific to this
- * foundation rather than general UI taste:
- *
- *   1. **It gets sent to a neighbour.** Jashore is one town and the admin knows
- *      the applicant. A preset sentence the foundation has agreed on is easier
- *      to send, and easier to defend, than one person's wording.
- *   2. **It has to be Bengali.** The applicant reads Bengali; the admin may be
- *      working in either language. A code chosen in one language renders in the
- *      applicant's, which free text cannot do.
- *   3. **It survives the retention sweep.** ADR-033 clears a rejected
- *      applicant's identity data after `security.rejectedRetentionDays`, and
- *      free text an admin typed may name them. The *code* is the decision and
- *      is kept for ever; the note is cleared with the rest.
- *
- * `OTHER` requires the note, because a rejection whose stated reason is "other"
- * and nothing else tells the applicant nothing at all.
- *
- * ---
- *
- * **The Go API holds the same list**, in `rejectionReasonSentence` in
- * `internal/services/email_service.go`, because that is where the email is
- * built. `apps/web/test/unit/rejection-reasons.test.ts` reads both files and
- * fails when the codes drift: a code this file offers that Go does not know
- * renders as a blank reason in the one message the applicant receives.
+ * Why an application was turned down: the admin picks a code (FR-05), with an
+ * optional note. A code renders in the applicant's language and survives the
+ * retention sweep, unlike the note (ADR-033). OTHER requires the note. The Go
+ * twin is rejectionReasonSentence in email_service.go (rejection-reasons.test.ts).
  */
 
 export const REJECTION_REASON_CODES = [
@@ -56,13 +26,7 @@ export const REJECTION_NOTE_MAX_LENGTH = 400;
 
 type Labels = { en: string; bn: string };
 
-/**
- * What the admin sees in the picker.
- *
- * Deliberately phrased as the reason itself rather than as an instruction, so
- * the same words make sense in the list, on the rejected application's row, and
- * quoted back in the email.
- */
+/** Picker labels, phrased as the reason itself so they read the same everywhere. */
 export const REJECTION_REASON_LABELS: Record<RejectionReasonCode, Labels> = {
   INCOMPLETE_DOCUMENTS: {
     en: 'Required documents were missing',

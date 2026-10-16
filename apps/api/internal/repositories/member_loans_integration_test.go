@@ -7,19 +7,8 @@ import (
 	"testing"
 )
 
-// A member holding a loan must be told they hold it.
-//
-// `GetMemberLoans` selected thirteen columns into twelve scan destinations —
-// `l.id` appeared twice, once cast to text and once bare — and the loop skipped
-// any row whose scan failed. Every row's scan failed, so every borrower on the
-// platform saw "No active loan" above an empty history, on a screen that
-// rendered perfectly. It was found by filming it, not by a test, because
-// nothing here asserted that a seeded loan comes back out.
-//
-// The scan error is returned now rather than skipped, which means a future
-// column-list change fails loudly. This test is the other half: it fails if the
-// row stops coming back for any reason at all, including one nobody has thought
-// of.
+// A member holding a loan is shown it (a Scan/column mismatch once hid every
+// loan behind an empty state).
 func TestMemberLoansReturnsTheBorrowersActiveLoan(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -46,9 +35,7 @@ func TestMemberLoansReturnsTheBorrowersActiveLoan(t *testing.T) {
 		t.Errorf("activeLoan id = %v, want %v", got, loanID)
 	}
 
-	// Each of these came from a column in the same SELECT, so a mismatch that
-	// shifts the column list shows up here as a wrong value rather than as an
-	// absence.
+	// Values from the same SELECT, so a shifted column list shows as wrong data.
 	if got, want := active["totalInstallments"], 12; got != want {
 		t.Errorf("totalInstallments = %v, want %v", got, want)
 	}
@@ -65,10 +52,7 @@ func TestMemberLoansReturnsTheBorrowersActiveLoan(t *testing.T) {
 	}
 }
 
-// A member with no loan gets an empty answer, not an error.
-//
-// The counterpart to the test above: now that a scan failure is returned rather
-// than swallowed, "no rows" must still be an ordinary, successful, empty result.
+// A member with no loan gets an empty result, not an error.
 func TestMemberLoansIsEmptyForAMemberWithNoLoan(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

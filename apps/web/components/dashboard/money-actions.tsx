@@ -22,46 +22,11 @@ import { fetchSettings } from '@/lib/settings-client';
 import { formatCurrency, getLoanRepaymentPresets, parseWholeTaka } from '@/lib/utils';
 
 /**
- * The four ways staff move a member's money — in one place.
- *
- * ## Why
- *
- * Each of them existed twice. A deposit could be recorded from the member's
- * page and from the Deposits & Withdrawals screen; a loan instalment from the
- * member's page and from the Loans screen. Two implementations of one action,
- * and they had already drifted apart in ways that matter:
- *
- *  - the member page parses whole taka and **refuses** 1500.75 (rule 1); the
- *    list screens ran `Math.round(Number.parseFloat(...))`, so the same typed
- *    amount silently posted 1501 and reported success. That exact bug was found
- *    and fixed once already — on one of the two copies.
- *  - the member page refuses a withdrawal with no matured notice behind it
- *    (FR-08) because it can see the notices; the deposits screen checked the
- *    balance only, so the worker submitted, waited, and got a 409 from the API
- *    with no idea a notice was the thing missing.
- *  - the member page caps an instalment at what is left owing and offers
- *    weekly/monthly/full presets; the loans screen offered neither.
- *
- * Whichever copy you happened to use decided which rules you got. So there is
- * one now, and every screen opens it.
- *
- * ## Shape
- *
- * The dialog owns the *rules*, so it needs the facts they are about — the
- * balance, the matured notices, the loan eligibility, what is left on each
- * loan. All of that is on `/v1/dashboard/worker/members/{id}`, so the dialog
- * fetches it rather than making each caller pass a different subset. SWR keys
- * on the path, so opening this from the member's own page costs no request: the
- * page has already loaded it.
- *
- * A caller that has no member yet (the Deposits screen's "Deposit" button) omits
- * `memberUserId` and gets a member picker as the first step.
- *
- * ## Zero interest, zero fees (rule 3)
- *
- * Nothing here adds to what a borrower owes. A loan application posts the
- * principal and a number of instalments; the instalment amount is the API's
- * arithmetic, and every figure below is a subtraction.
+ * The ONE form for the four ways staff move a member's money (deposit,
+ * withdrawal, instalment, loan application/top-up) — every screen opens it, so
+ * the rules cannot drift between copies. It fetches the member detail its rules
+ * need (SWR, so free from the member's own page); without memberUserId it
+ * starts with a member picker. Nothing here adds to what a borrower owes (rule 3).
  */
 
 export type MoneyAction =
@@ -227,19 +192,14 @@ export function MoneyActionDialog({
     return payableLoans.find((l) => l.id === wanted) ?? payableLoans[0] ?? null;
   }, [payableLoans, pickedLoanId, loanId]);
 
-  // Outstanding requests are no longer a precondition of anything (ADR-030) —
-  // they are a note to the worker at the desk: this member already asked for
-  // ৳5,000, so settle that rather than pay it twice. The API consumes the
-  // largest one a payout covers.
+  // Outstanding requests gate nothing (ADR-030); shown so a worker settles one
+  // rather than paying twice.
   const largestPendingWithdrawal = useMemo(
     () => (member?.pendingWithdrawals ?? []).reduce((max, n) => Math.max(max, n.amount), 0),
     [member],
   );
 
-  // What the instalment becomes if this top-up is posted. The same arithmetic
-  // as money.TopUpPlan in the Go API — deliberately, so the figure shown before
-  // submitting is the figure the API writes. It is a preview only: the API's
-  // answer is the one that counts, and it recomputes from the row it locks.
+  // Preview of money.TopUpPlan; the API recomputes and its answer counts.
   const topUpInstalment = useMemo(() => {
     if (action !== 'LOAN_TOPUP' || !selectedLoan) return null;
     const added = parseWholeTaka(amount);
@@ -269,13 +229,8 @@ export function MoneyActionDialog({
     : 'Enter a whole-taka amount, with no paisa';
 
   /**
-   * Every client-side rule, in one function, returning the first reason this
-   * cannot be submitted.
-   *
-   * The API refuses all of these too and its answer is the one that counts —
-   * these exist so a worker is not made to submit a form to be told a fact the
-   * screen already had. Nothing here is a *substitute* for the server check:
-   * the notice maturity date and the loan eligibility both come from the API.
+   * The first reason this cannot be submitted. The API checks all of these too;
+   * these only spare the worker a pointless round trip.
    */
   const validate = (value: number): string | null => {
     if (!member) return bn ? 'সদস্যের তথ্য পাওয়া যায়নি' : 'Member details not loaded';
@@ -284,11 +239,7 @@ export function MoneyActionDialog({
       if (value > member.currentDeposit) {
         return bn ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient balance';
       }
-      // No notice check (ADR-030). This used to refuse unless a matured notice
-      // covered the amount, which was the single most common outcome of the
-      // screen. Staff pay when the member asks; the balance is the only
-      // client-side rule left, and the API still refuses a suspended member or
-      // one whose savings are locked by a guarantee.
+      // No notice check (ADR-030); the API still refuses suspended or guarantee-locked savings.
     }
 
     if (action === 'LOAN_PAYMENT') {
@@ -302,9 +253,7 @@ export function MoneyActionDialog({
 
     if (action === 'LOAN_TOPUP') {
       if (!selectedLoan) return bn ? 'কোনো সক্রিয় ঋণ নেই' : 'This member has no active loan';
-      // The ceiling is against what they will owe in TOTAL, which is the same
-      // arithmetic the API does. Checking the increment alone would let five
-      // small top-ups do what one large loan is refused.
+      // Ceiling against the TOTAL owed, as the API checks.
       const wouldOwe = selectedLoan.remainingAmount + value;
       if (wouldOwe > member.loanEligibility.maxLoanAmount) {
         return bn
@@ -370,11 +319,7 @@ export function MoneyActionDialog({
           installments: Number.parseInt(installments, 10),
         });
       }
-      // The member's balance, notices and loans all just changed, and so did
-      // the balance the picker shows. Invalidating here rather than leaving it
-      // to each caller is the same reason the rules live here: three callers
-      // meant three chances to forget one, and a stale balance on a money
-      // screen is indistinguishable from a posting that did not happen.
+      // Invalidate here, once, so no caller can leave a stale balance on screen.
       await Promise.all([
         globalMutate(`/v1/dashboard/worker/members/${targetId}`),
         globalMutate('/v1/dashboard/worker/members'),
@@ -382,9 +327,7 @@ export function MoneyActionDialog({
       await onCompleted?.();
       close();
     } catch (e: any) {
-      // The API's own words. It refuses for reasons this screen cannot know —
-      // a suspended member, a guarantor obligation, a notice that has not
-      // matured — and each of those is an answer, not a fault (rule 2b).
+      // The API's own reason (rule 2b).
       setError(e?.message || (bn ? 'অনুরোধ ব্যর্থ হয়েছে' : 'Request failed'));
     } finally {
       setIsSubmitting(false);
@@ -508,9 +451,7 @@ export function MoneyActionDialog({
                   </span>
                 </div>
               )}
-              {/* What actually changes for the borrower: the schedule keeps its
-                  end date, so the instalment goes up. Shown before submitting
-                  rather than discovered at the next collection. */}
+              {/* The new instalment, shown before submitting (the end date stays). */}
               {action === 'LOAN_TOPUP' && selectedLoan && topUpInstalment !== null && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">{bn ? 'নতুন কিস্তি' : 'New instalment'}</span>
@@ -522,9 +463,7 @@ export function MoneyActionDialog({
               )}
             </div>
 
-            {/* LOAN_APPLICATION only. `eligible` is false whenever the member
-                already holds a loan, which is the precondition of a top-up — so
-                showing it there would warn about the thing being done. */}
+            {/* LOAN_APPLICATION only — a top-up borrower always holds a loan. */}
             {action === 'LOAN_APPLICATION' && !member.loanEligibility.eligible && (
               <p className="flex items-start gap-2 px-3 py-2 text-sm text-amber-800 bg-amber-50 border border-amber-200">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />

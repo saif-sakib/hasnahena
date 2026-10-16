@@ -1,51 +1,14 @@
 /**
- * Reconcile the Cloudinary account with the database, and repair the drift.
+ * Reconcile the Cloudinary asset tree with the database and repair the drift.
  *
  *   node scripts/cloudinary-reconcile.mjs             # dry run: prints the plan
  *   node scripts/cloudinary-reconcile.mjs --confirm   # applies it
  *
- * Why this exists
- * ---------------
- * The asset tree is the only description of this foundation's files that
- * survives leaving Cloudinary ([ADR-040](../../../docs/decisions.md)), and on
- * 2026-09-02 it had drifted from the database in three separate ways at once:
- *
- * **1. Moved assets that never moved.** This account is in *dynamic folder*
- * mode, where `public_id` (the URL) and `asset_folder` (the folder a person
- * sees in the Media Library) are independent. `uploader.rename` — which is what
- * `fileApplicationDocuments` uses to file an admitted member's documents under
- * `people/ACC-KH-33001` — changes only the first. Every member admitted before
- * the fix therefore had four documents *served* from their own folder and still
- * *filed* under their application. `lib/cloudinary.ts` now sets both; this
- * repairs the ones already renamed.
- *
- * **2. Test pixels in the foundation's account.** `e2e/entry-path.spec.ts`
- * submits real registration forms, and its four uploads are a 70-byte 1×1
- * transparent PNG. The database half of the test rig is disposable; the image
- * host has no disposable half, so every local run of the browser suite left
- * four pixels named `nid-front`, `nid-back`, `member-photo` and `signature` in
- * whichever application folder the sequence handed out — including, after the
- * counter was restored on 2026-09-01, the folders of four admitted members,
- * where they sat *beside* the real documents under the same names.
- *
- * **3. Folders naming applications that do not exist.** A registration whose
- * uploads fail is rolled back asset by asset, which leaves the folder; an
- * approval empties a folder it could not then delete (see 1). Both are fixed at
- * source, and this clears what they left.
- *
- * What it will and will not delete
- * --------------------------------
- * An asset is **kept** if any URL stored anywhere in the database contains its
- * public id — `documents.url`, `users.avatarUrl`, `gallery_items.imageUrl` and
- * every `system_config` value, read as one haystack. That test is deliberately
- * cruder than parsing the URL: it has no second implementation of
- * `extractPublicId` to drift from the real one, and every way it can be wrong
- * keeps a file that might matter rather than deleting one.
- *
- * It will not delete anything under `people/`, ever — that is a live member's
- * folder and an unreferenced file in it is a question for a human, not for a
- * script. Deletions are confined to `applications/`, and reported in full
- * before any of them happen.
+ * Repairs `asset_folder` for renamed assets (dynamic folder mode, ADR-040),
+ * deletes unreferenced assets and dead folders under `applications/` only, and
+ * reports anything unreferenced under people/, gallery/ or settings/ for a
+ * human. An asset is KEPT if any stored URL anywhere contains its public id —
+ * crude on purpose, so every error keeps a file rather than deleting one.
  */
 
 import { v2 as cloudinary } from 'cloudinary';
@@ -125,13 +88,7 @@ async function listFolders(path = ROOT) {
   return out;
 }
 
-/**
- * Every URL the database holds, as one list of strings.
- *
- * Read wholesale rather than column by column so that a *new* place to store an
- * image URL is covered the day it is added: `system_config` alone holds the
- * logo, the favicon, the dashboard logo, the hero image and each partner.
- */
+/** Every URL the database holds, read wholesale so a new URL column is covered. */
 async function storedUrls(prisma) {
   const [documents, users, gallery, config] = await Promise.all([
     prisma.document.findMany({ select: { url: true } }),
@@ -148,16 +105,8 @@ async function storedUrls(prisma) {
 }
 
 /**
- * The application folders that are still an application's own.
- *
- * **Only the pending ones.** An admitted member's documents have been filed
- * under `people/<accountNo>` and their application folder is meant to have been
- * removed at that moment — `fileApplicationDocuments` ends with exactly that
- * call, and it silently failed every time because in dynamic folder mode the
- * folder it was trying to remove still contained the assets it had just
- * "moved". A refused applicant's folder is deleted at the decision
- * ([ADR-038](../../../docs/decisions.md)). So a folder belongs to somebody only
- * while the application is undecided; anything else is a leftover.
+ * Application folders still owned by an UNDECIDED application — an admitted
+ * member's documents are in people/, a refused one's are deleted.
  */
 async function pendingApplicationFolders(prisma) {
   const users = await prisma.user.findMany({
@@ -177,12 +126,7 @@ function displayNameOf(publicId) {
   return publicId.slice(publicId.lastIndexOf('/') + 1);
 }
 
-/**
- * What is wrong, and what to do about it.
- *
- * Pure: it reads the two inventories and returns a plan. Nothing here talks to
- * Cloudinary, which is what makes the plan printable before it is applied.
- */
+/** Pure: the two inventories in, a printable plan out. */
 export function planRepairs({ assets, folders, urls, pendingFolders }) {
   const referenced = (publicId) => urls.some((url) => url.includes(publicId));
 
@@ -206,17 +150,12 @@ export function planRepairs({ assets, folders, urls, pendingFolders }) {
       continue;
     }
 
-    // `people/`, `gallery/`, `settings/` — reported, never deleted here. An
-    // unreferenced file in a member's own folder is a question about that
-    // member, and answering it by deleting is the one move that cannot be
-    // undone.
+    // Outside applications/: reported, never deleted.
     unreferencedElsewhere.push(asset);
   }
 
-  // A folder goes when nothing will be left in it and it is not the folder of
-  // an application still waiting for a decision. `people/` folders are never removed: a member with no avatar
-  // has no folder entry at all (nothing was ever *uploaded* there, only renamed
-  // in), and that is a gap to fill rather than a folder to delete.
+  // A folder goes when it will be empty and is not a pending application's.
+  // people/ folders are never removed.
   const doomed = new Set(orphans.map((a) => a.publicId));
   const survivorsByFolder = new Map();
   for (const asset of assets) {
@@ -232,11 +171,7 @@ export function planRepairs({ assets, folders, urls, pendingFolders }) {
       !pendingFolders.has(folder),
   );
 
-  // The other half of the dynamic-folder repair: a member whose documents were
-  // renamed in and who has never uploaded an avatar has assets at
-  // `people/ACC-KH-33003/...` and no folder entry, so the Media Library shows
-  // no folder for them at all. Creating it costs nothing and makes the tree
-  // match the account.
+  // Create missing people/ folder entries (renamed-in assets have none).
   const present = new Set(folders);
   const createFolders = [
     ...new Set(
@@ -306,11 +241,7 @@ async function main() {
 
   console.log('\napplying...');
 
-  // Each step reports its own failure and carries on. A run that stops halfway
-  // through because one asset would not move leaves the account in a third
-  // state that neither the plan nor this script has a name for; finishing and
-  // saying what did not work leaves it re-runnable, which is the property that
-  // matters for something you point at a live account.
+  // Each step reports its own failure and carries on, so the run stays re-runnable.
   for (const asset of plan.rehome) {
     try {
       await cloudinary.api.update(asset.publicId, {

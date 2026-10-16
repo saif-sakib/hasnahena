@@ -1,16 +1,11 @@
 # Guardrails
 
-The suites and CI checks here **enumerate rather than list**, and fail the build
-when the code grows something they do not know about. That is deliberate — a
-list a human maintains goes stale the day it is written.
-
-[CLAUDE.md](../CLAUDE.md) carries the same 94 triggers compressed to *what fails*.
-**This file is why.** Every row below keeps the full account of the defect that
-put it there, because the reasoning is what stops the idea coming back. When a
-guard fires and the one-line version is not enough, the row is here under the
-same trigger.
-
-Where a new test goes, and what is deliberately uncovered: [testing.md](testing.md).
+The suites and CI checks **enumerate rather than list**: they fail the build when
+the code grows something they do not know about. Each row is a trigger, the check
+that fires, and the defect that put it there — the reasoning is what stops the
+idea coming back, so read the row before arguing a guard is wrong. This is the
+only copy of the map ([CLAUDE.md](../CLAUDE.md) points here). Where a new test
+goes, and what is deliberately uncovered: [testing.md](testing.md).
 
 | Add this | And this fails until you act |
 |---|---|
@@ -102,6 +97,7 @@ Where a new test goes, and what is deliberately uncovered: [testing.md](testing.
 | a **submit handler for anything that must happen once** | `apps/web/e2e/forms.spec.ts` — guard it with a **ref, checked before the first `await`**. `disabled={isSubmitting}` is React state and the button is not disabled in the DOM until the next render, so two taps inside that window both pass; on login each mints a session and the two race to write the token. Test it with two `requestSubmit()` calls in one tick, which bypasses `disabled` entirely — a timing-based test passed in isolation and failed only in the full suite, twice, and was written off as flaky |
 | **SQL inside a Go string** | `apps/api/internal/repositories/sql_schema_census_test.go` — `TestEverySQLLiteralMatchesTheSchema` parses every source, pulls each raw-string statement out and asks Postgres to `PREPARE` it. Nothing else can see it: a dropped column in a string passes `go build`, `go vet`, `pnpm typecheck`, `pnpm db:migrate:check` and every other test, and surfaces as a member reading "Failed to load member details". Three did, after ADR-044 dropped four `id` columns — one of them on the leg that confirms a loan instalment |
 | **a script under `apps/web/scripts/`** | `apps/web/test/unit/script-safety.test.ts` — end it with `runAsScript(import.meta.url, main)`, never a bare `main()`. A module that works on load cannot be safely imported, and importing is what tools, editors and checking loops do: a loop written to confirm four scripts still parsed executed `db-clear-preserve-core.mjs` and deleted every member from the production database. Destructive ones also need `requireConfirmation` and `refuseRemoteTarget` from `scripts/lib/guard.mjs` |
+| an **entrance animation on a public page** | `apps/web/e2e/scroll-reveal.spec.ts` — asserts the NEGATIVE: elements below the fold are actually hidden before you scroll to them. The reveal shipped twice doing nothing (written as `animation-timeline: view()` inside `@supports`, which older Safari skipped entirely), and a feature that degrades to nothing looks identical to not having built it. The hidden state is scoped to `[data-reveal-js]`, set only by `components/ui/scroll-reveal.tsx`, so no JavaScript or reduced motion means a finished page |
 | **an overlay, modal or lightbox** | `apps/web/e2e/gallery-lightbox.spec.ts` — render it through a portal into `document.body` and assert a hit test lands inside it. `fixed inset-0 z-50` spans the viewport only while no ancestor opens a stacking context: the gallery lightbox was correct on `/gallery` and clipped on the home page, where the grid sits in `relative z-10` and the `fixed z-50` header painted straight over it. Check the page that wraps it, not only the page that works |
 | an **upload, or a spec that causes one** | `apps/web/test/unit/script-safety.test.ts` and the guard in `uploadImage` — the test rig has a disposable **database** and no disposable **image host**. `e2e/entry-path.spec.ts` reads Cloudinary credentials out of `apps/web/.env` so it can run locally, and those name the foundation's own cloud: every local browser run left four 70-byte 1×1 pixels called `nid-front`, `nid-back`, `member-photo` and `signature` in it. `TEST_DATABASE_URL` set without `ALLOW_TEST_IMAGE_UPLOADS=yes` now refuses the upload outright |
 | a **move of a stored asset** | `moveAsset`, never `uploader.rename` on its own. This account is in **dynamic folder mode**: `public_id` is the URL and `asset_folder` is the folder a human opens, and a rename moves only the first — so every admitted member's documents were served from `people/ACC-KH-33001` and still filed under `applications/APP-2026-000001`, which also made `deleteEmptyFolder` a no-op for ever. `scripts/cloudinary-reconcile.mjs` finds the drift; `test/unit/cloudinary-reconcile.test.ts` pins what it will and will not delete |

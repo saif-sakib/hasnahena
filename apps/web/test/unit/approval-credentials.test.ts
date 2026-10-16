@@ -3,32 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * Admitting a member hands out a **number**, never a password.
- *
- * Approving a registration generates a temporary password, hashes it, emails it
- * if there is an address, and forgets it. For a while it also came back in the
- * response and was printed on the approvals screen, on the reasoning that most
- * members of this cooperative have no email address (ADR-036) so the screen was
- * the only delivery there was.
- *
- * That reasoning is right about the problem and wrong about the place. An
- * account number is a name — it is read aloud at the counter for the rest of a
- * membership, and the admin who just allocated it is the only person who can
- * see it. A password is a key. Putting a working key for a brand-new account on
- * a queue screen in a shared office, in a response body, at a moment when its
- * owner is usually not in the room, is a different act from showing a number.
- *
- * The member with no email is served deliberately instead:
- * `POST /api/v1/admin/members/{id}/reset-password` — the staff-assisted reset
- * (ADR-036) — which an admin runs from that member's own page, revokes every
- * session in the same transaction, and shows the password once on a screen that
- * is about one person.
- *
- * Both halves are asserted, in both directions, because either one alone
- * silently stops being true: a handler that returns it again with no screen to
- * show it is a secret in a response nobody reads, and a screen reaching for a
- * field the handler no longer sends renders an empty box under a heading that
- * says "Temporary password".
+ * Admission hands out a NUMBER, never a password: the handler must not return
+ * it and the approvals screen must not render it. Members without email get one
+ * via the staff-assisted reset (ADR-036, ADR-042).
  */
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 const API_ROOT = resolve(WEB_ROOT, '..', 'api');

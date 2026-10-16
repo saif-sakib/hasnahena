@@ -12,25 +12,15 @@ import (
 	appmw "hasnahena/apps/api/internal/middleware"
 )
 
-// WO-60. The rate limiter is the only thing standing between one client and as
-// many money-moving requests as it cares to send. chi's RealIP overwrote
-// r.RemoteAddr with the leftmost X-Forwarded-For entry — which the caller
-// writes — so at the default TRUSTED_PROXIES=0 the limiter keyed on a value the
-// caller chose, and varying one header per request meant a fresh bucket every
-// time. The limit was never reached, so nothing looked wrong.
-//
-// This drives the real middleware stack, because the defect was in its
-// composition rather than in any one function: `clientIP` was already correct
-// and already tested. RealIP destroyed its input three middlewares earlier.
+// WO-60: the real middleware stack must not let a caller pick its rate-limit
+// bucket via X-Forwarded-For (chi's RealIP did, at TRUSTED_PROXIES=0).
 
 func stackedRouter(t *testing.T, trustedProxies, requests int) chi.Router {
 	t.Helper()
 	return stackedRouterWithIdentity(t, trustedProxies, requests, nil)
 }
 
-// stackedRouterWithIdentity is the same stack with a token verifier mounted, so
-// a test can exercise the WO-78 path where the limiter keys on the member
-// rather than on the address.
+// stackedRouterWithIdentity mounts a token verifier (the WO-78 path).
 func stackedRouterWithIdentity(
 	t *testing.T,
 	trustedProxies, requests int,
@@ -102,10 +92,7 @@ func TestVaryingForwardedForCannotMintAFreshQuota(t *testing.T) {
 }
 
 func TestTheThrottleAndTheAccessLogNameTheSameCaller(t *testing.T) {
-	// With a proxy in front, the trusted entry is the rightmost one. Two real
-	// members behind that proxy must get their own buckets, or one member
-	// exhausting the quota locks out everyone — the opposite failure, and just
-	// as bad.
+	// Behind a proxy, two members get their own buckets (rightmost entry).
 	router := stackedRouter(t, 1, 2)
 
 	for i := 0; i < 3; i++ {
@@ -121,9 +108,7 @@ func TestTheThrottleAndTheAccessLogNameTheSameCaller(t *testing.T) {
 	}
 }
 
-// The middleware stack must not carry chi's RealIP again. It is a one-line
-// import away, it looks like a sensible thing to add behind a proxy, and its
-// effect — a spoofable r.RemoteAddr — is invisible until someone is abusing it.
+// chi's RealIP must not be mounted again.
 func TestRealIPIsNotMounted(t *testing.T) {
 	router := stackedRouter(t, 0, 1000)
 
@@ -147,10 +132,7 @@ func TestRealIPIsNotMounted(t *testing.T) {
 // WO-78 / RUN-09 — the limiter keys on the member, not on the proxy
 // ---------------------------------------------------------------------------
 
-// verifierAcceptingPrefix stands in for AuthService.ParseAccessToken: a token
-// shaped "valid:<userID>" verifies and names that member, anything else does
-// not. The real verifier checks an HMAC signature and an expiry; what matters to
-// these tests is only the *shape* of its answer — yes-and-who, or no.
+// verifierAcceptingPrefix: "valid:<userID>" verifies; anything else does not.
 func verifierAcceptingPrefix(t *testing.T) appmw.TokenVerifier {
 	t.Helper()
 	return func(token string) (string, bool) {
@@ -162,12 +144,8 @@ func verifierAcceptingPrefix(t *testing.T) appmw.TokenVerifier {
 	}
 }
 
-// The defect ADR-021 left open. Everything reaching this process through the
-// Next support proxy arrives from Vercel's address, so before WO-78 every
-// member's support traffic shared one bucket and enough of them together could
-// lock the rest out. Forwarding a header cannot fix it — TRUSTED_PROXIES is one
-// global number and no value is right for both the proxied and the direct path
-// — so the limiter keys on the member instead.
+// Members behind the Next support proxy (one Vercel address) get separate
+// buckets (WO-78, ADR-021).
 func TestTwoMembersBehindOneProxyGetSeparateBuckets(t *testing.T) {
 	const quota = 2
 	router := stackedRouterWithIdentity(t, 1, quota, verifierAcceptingPrefix(t))
@@ -192,9 +170,7 @@ func TestTwoMembersBehindOneProxyGetSeparateBuckets(t *testing.T) {
 	}
 }
 
-// The reason the identity has to be *verified* before the limiter reads it. If
-// an unverified token were enough, this loop would mint a fresh bucket per
-// request and never be throttled — the WO-60 defect with a different header.
+// Unverified tokens must not mint fresh buckets.
 func TestGarbageTokensFromOneAddressShareOneBucket(t *testing.T) {
 	const quota = 5
 	router := stackedRouterWithIdentity(t, 0, quota, verifierAcceptingPrefix(t))
@@ -215,9 +191,7 @@ func TestGarbageTokensFromOneAddressShareOneBucket(t *testing.T) {
 	}
 }
 
-// A member and a stranger from the same address are different callers, and the
-// stranger must not be able to spend the member's quota — nor the member the
-// stranger's.
+// A member and a stranger on one address do not share a bucket.
 func TestAnAuthenticatedCallerDoesNotShareTheAddressBucket(t *testing.T) {
 	const quota = 2
 	router := stackedRouterWithIdentity(t, 0, quota, verifierAcceptingPrefix(t))
@@ -237,9 +211,7 @@ func TestAnAuthenticatedCallerDoesNotShareTheAddressBucket(t *testing.T) {
 	}
 }
 
-// With no verifier wired, the stack must behave exactly as it did before WO-78.
-// This is what keeps every existing middleware test meaningful: they build the
-// stack without one.
+// With no verifier, everything is keyed on the address.
 func TestWithoutAVerifierEverythingIsKeyedOnTheAddress(t *testing.T) {
 	const quota = 2
 	router := stackedRouterWithIdentity(t, 0, quota, nil)

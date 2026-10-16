@@ -1,36 +1,9 @@
 import * as React from 'react';
 
 /**
- * The heading at the top of a marketing section.
- *
- * WHY IT IS A COMPONENT. The home page had this block written out seven times —
- * `<div className="reveal text-center mb-12">`, an `h2` at four breakpoints, an
- * optional badge, an optional `text-muted-foreground` paragraph — and they had
- * already drifted: two carried a badge, one had no subtitle, and the type
- * scales agreed only because nobody had touched them separately yet.
- *
- * THE ORNAMENT IS ONE STROKE UNDER THE TITLE, and it took three tries to get
- * there. It was a leaf mark above the title AND a rule–leaf–rule divider below
- * it, which the owner refused — "I didn't like the style you added at the
- * header's top and bottom" — so both went, along with the `surface-seam`
- * hairline at each section's top edge. What replaced them comes from a
- * reference the owner supplied: a single hand-drawn underline, thicker in the
- * middle, bowed like something brushed under a word. Nothing above the title
- * any more, and one thing below it rather than three.
- *
- * The stroke is sized from the TITLE, not from the section: the `h2` sits in an
- * `inline-block` so the wrapper shrinks to the text, and the underline is
- * absolutely positioned across that. A fixed width would be short under
- * "Your Donation Can Change a Life" and comically wide under "Contact" — and
- * Bengali sets wider than English at the same point size, so any constant here
- * would be wrong in one language by construction.
- *
- * It carries its own `reveal`, so a caller cannot add a heading and forget to
- * animate it.
- *
- * No copy lives here. Every string is passed in, already translated, so this
- * stays invisible to the translation census by construction — see
- * `apps/web/test/unit/messages.test.ts`.
+ * A marketing section heading: optional badge, title, subtitle, and one
+ * brushed underline sized to the TITLE (inline-block), since Bengali sets
+ * wider. Carries its own `reveal`. No copy lives here — strings are passed in.
  */
 export function SectionHeading({
   title,
@@ -51,17 +24,7 @@ export function SectionHeading({
 
   return (
     <div className={['reveal text-center', className ?? 'mb-12'].join(' ')}>
-      {/*
-        The badge gets a BLOCK wrapper of its own, and that is load-bearing.
-
-        It is an `inline-flex` box, and the title below it is now inside an
-        `inline-block` (so the underline can measure the text). Two inline-level
-        boxes share a line — so the book icon jumped up beside "In Light of
-        Quran", hard against the "I" with no gap, and the underline ran beneath
-        the icon as well as the words. Reported as "the book icon is not
-        correctly fit there", and it was a side effect of adding the underline
-        rather than anything about the badge.
-      */}
+      {/* The badge gets its own block wrapper, or it shares a line with the inline-block title. */}
       {icon && (
         <div className="mb-4 flex justify-center">
           <div
@@ -93,26 +56,9 @@ export function SectionHeading({
 }
 
 /**
- * The brushed underline.
- *
- * A FILLED path rather than a stroked one, because the whole character of it is
- * that it is thick in the middle and tapers to nothing at both ends, and a
- * stroke has one width everywhere. The shape is two curves that start and end
- * at the same two points: the outward one bows down, the return one bows down
- * slightly less, and the gap between them IS the thickness. At the tips the gap
- * closes to zero, which is the taper.
- *
- * `preserveAspectRatio="none"` so it stretches to whatever the title measures.
- * That is safe here and would not be for the leaf: this shape is nearly
- * horizontal, so stretching it changes its length and almost nothing else,
- * whereas a leaf stretched to 4x reads as a smear.
- *
- * The viewBox is 240x10 and the box it renders into is 12px tall, so the
- * vertical scale is slightly OVER 1 and the stroke keeps its weight. The first
- * version used a 14-unit-tall viewBox in a 10px box — a 0.7x vertical squash
- * that turned a 3-unit stroke into two pixels of hairline. With
- * `preserveAspectRatio="none"` the viewBox's height is not a canvas, it is a
- * divisor.
+ * The brushed underline: a FILLED path (two curves, the gap is the thickness,
+ * closing to a taper), stretched with preserveAspectRatio="none". The viewBox
+ * height must stay ≤ the box height, or the stroke squashes to a hairline.
  */
 function Underline({ className }: { className?: string }) {
   return (

@@ -10,9 +10,7 @@ import { TransactionStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
   reason: z.string().min(3),
-  // A member cannot claim the correct amount was negative: money moves in one
-  // direction and the sign is the transaction type. Without this the dispute
-  // records a figure no correction could ever post.
+  // Positive: the sign is the transaction type.
   correctAmount: z.number().positive().optional(),
 });
 
@@ -21,9 +19,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const auth = await requireActiveAuth(req);
 
-    // Authorization before validation, so a caller who may not use this
-    // endpoint gets 403 rather than a 400 listing the fields it wants
-    // (TEST-16).
+    // Authorization before validation (TEST-16).
     const member = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true },
@@ -55,9 +51,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    // A dispute is the first step of a correction, and a correction has to be
-    // traceable end to end. Without this the trail jumps from the wrong posting
-    // straight to the reversal, with nothing recording who objected or why.
+    // A dispute is the first step of a correction; audit who objected and why.
     await createAuditLog({
       action: 'TRANSACTION_DISPUTED',
       entityType: 'TRANSACTION',
@@ -69,12 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : `Disputed: ${payload.reason.trim()}`,
     });
 
-    // Serialised, never the raw row: `NextResponse.json` calls
-    // `JSON.stringify`, which throws on the BigInt columns — and by this point
-    // the dispute is already recorded. The throw was caught below and answered
-    // 500, so a member objecting to a posting was told the platform had failed
-    // to hear them while it had, in fact, frozen the transaction and written
-    // the audit row (WO-57).
+    // Serialised — raw BigInt columns would throw after the dispute was recorded (WO-57).
     return NextResponse.json({ ok: true, data: serializeTransaction(updated) }, { status: 200 });
   } catch (err: any) {
     if (err instanceof z.ZodError) {

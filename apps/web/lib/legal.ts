@@ -1,63 +1,16 @@
 /**
- * When the two legal pages last changed.
- *
- * Both pages printed `Last updated: March 2026` as a literal inside the page,
- * in both languages, and neither was March. The Terms' loan clause had been
- * rewritten twice since — once to delete the promise of administrative fees,
- * once to deny a late fee outright (T-05) — and the line kept saying March. A
- * date on a legal document is a claim about the document, and a stale one is
- * worse than none: it tells a member the version they read last year is the
- * version in front of them.
- *
- * The dates live here, next to nothing else, so that changing the wording and
- * changing the date are one edit in one place. `legal.test.ts` refuses a date
- * that is not a real ISO date or is in the future.
- *
- * **The wording is in `messages/{en,bn}.json` under `legal.*`**, not in the
- * pages. That is rule 5, and on these two pages it is more than housekeeping:
- * the Terms of Service told every member in both languages that loans "are
- * interest-free but may include administrative fees", and it survived a CHECK
- * constraint, `applicationFee = BigInt(0)` and a source-wide search for
- * "markup", because a string inside a component is invisible to every guard
- * this repository has. `messages.test.ts` reads the message files.
+ * When the two legal pages last changed — move the date with the wording.
+ * legal.test.ts refuses a non-ISO or future date. The wording is in
+ * messages/{en,bn}.json under `legal.*`, inside the fee-promise census.
  */
 
-/**
- * Rewritten 2026-08-26 (T-10) to describe what the platform actually does.
- *
- * Revised 2026-08-27 for the tiered retention policy ([ADR-038](../../../docs/decisions.md)):
- * a refused applicant's photographs are now deleted at the decision rather than
- * kept indefinitely, and the periods the audit trail is kept for are stated. Both
- * are commitments a reader can hold the foundation to, so the date moves with
- * them — a policy whose wording changes under an unchanged date is one nobody can
- * tell has changed.
- */
+/** Last revised for tiered retention (ADR-038). */
 export const PRIVACY_LAST_UPDATED = '2026-08-27';
 
-/**
- * 2026-09-28. The owner's ruling on office expenses (ADR-045): ৳500,
- * non-refundable, at registration and at a loan application. `responsibilities`
- * and `loans` now say so in both languages, and `responsibilities` names the
- * intention — the pleasure of Allah — that the foundation's own wording opens with.
- *
- * 2026-09-02. `terms.sections.records` was added: the foundation's physical
- * books are the authoritative record and prevail over anything this website
- * shows. Members agree to it at registration, so it has to be readable on the
- * page that agreement links to — and a clause a member is asked to accept
- * appearing under an older revision date is a change nobody can tell happened.
- *
- * Before that, 2026-08-26 (T-10) restated the whole document and moved it into
- * the message files; the loan clause last changed on 2026-08-25, when the
- * foundation ruled out a late fee.
- */
+/** Last revised for the ৳500 office-expense ruling (ADR-045). */
 export const TERMS_LAST_UPDATED = '2026-09-28';
 
-/**
- * A revision date in the reader's language.
- *
- * `toLocaleDateString('bn-BD')` is what the gallery already uses for a posting
- * date, so the two agree about numerals and month names.
- */
+/** A revision date in the reader's language (bn-BD, as the gallery uses). */
 export function formatLegalDate(iso: string, locale: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
     year: 'numeric',

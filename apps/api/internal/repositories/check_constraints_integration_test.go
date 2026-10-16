@@ -8,24 +8,10 @@ import (
 	"testing"
 )
 
-// WO-69. The database refuses states the application must never produce.
-//
-// Until this migration there was not one CHECK constraint in the schema. Every
-// money invariant lived only in application code, in two backends that write the
-// same tables — so the guarantee was "every current code path is careful",
-// which is a statement about today's code rather than about the data.
-//
-// Each case below writes raw SQL, deliberately bypassing every repository
-// method, because what is under test is the *database*. A test that went through
-// the repositories would prove the repositories are careful, which was never in
-// doubt and is not what a constraint is for.
-//
-// All of these were confirmed to succeed — i.e. the illegal row was accepted —
-// before the migration existed.
+// WO-69 — the database refuses states the application must never produce.
+// Raw SQL on purpose: the database is under test, not the repositories.
 
-// executeRawExpectingViolation runs a statement that must be rejected, and
-// checks the rejection names the constraint rather than merely being an error.
-// A NOT NULL failure or a typo would otherwise read as a pass.
+// executeRawExpectingViolation requires the rejection to name the constraint.
 func executeRawExpectingViolation(t *testing.T, constraint, sql string, args ...interface{}) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), sql, args...)
@@ -42,11 +28,7 @@ func TestDatabaseRefusesNegativeBalances(t *testing.T) {
 
 	userID := seedMember(t, "chk_bal", "CHK-BAL-1", 1000)
 
-	// A relative write is the correct pattern (ADR-015). The point here is that
-	// even a correct-looking relative write cannot take the balance below zero:
-	// the lost update that drove loanBalance to -5000 was measured, not
-	// hypothetical, and the code fix is guarded by a census that a new writer
-	// could still be added around.
+	// Even a relative write cannot take a balance below zero.
 	executeRawExpectingViolation(t, "accounts_savings_non_negative",
 		`UPDATE accounts SET "savingsBalance" = "savingsBalance" - $1 WHERE "userId" = $2`,
 		int64(5000), userID)
@@ -94,13 +76,7 @@ func TestDatabaseRefusesImpossibleLoans(t *testing.T) {
 		insert, "LOAN-2026-900003", int64(10000), int64(0), 10, int64(1000), 11, userID)
 }
 
-// Rule 3, at the layer that cannot be bypassed.
-//
-// `applicationFee` was already pinned in both directions by tests: the schema
-// must keep `@default(0)`, and the one place that writes it must write zero.
-// This adds no new policy — it moves the guarantee from "a test would catch it"
-// to "the write fails", which is the right place for a Shariah constraint in a
-// database two services write to.
+// Rule 3 at the layer that cannot be bypassed: a non-zero fee fails the write.
 func TestDatabaseRefusesALoanFee(t *testing.T) {
 	newTestRepo(t)
 
@@ -115,9 +91,7 @@ func TestDatabaseRefusesALoanFee(t *testing.T) {
 		int64(1), userID)
 }
 
-// The constraints must not reject anything the application legitimately does.
-// A constraint that blocks a real path is worse than none, because it will be
-// dropped in a hurry rather than understood.
+// The constraints accept everything the application legitimately does.
 func TestTheConstraintsAcceptLegitimateRows(t *testing.T) {
 	newTestRepo(t)
 	ctx := context.Background()

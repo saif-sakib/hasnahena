@@ -4,22 +4,9 @@ import { hasDatabase, seedAccounts, disconnect } from './fixtures/accounts';
 import { loginAs, PAGES, waitForContent, horizontalOverflow } from './fixtures/session';
 
 /**
- * TEST-29 — every page, on a phone and a desktop, in English and Bengali.
- *
- * Bengali is materially longer than English for the same words — "Withdrawal"
- * is "টাকা উত্তোলন" — and its glyphs are taller, so a row that fits in `en`
- * can overflow in `bn` on a 360 px screen. Nobody notices, because nobody
- * develops in Bengali. This is the sweep that would.
- *
- * The assertions are the ones a member would notice, in order of severity:
- *
- *  1. the page renders at all (no error boundary, no blank body)
- *  2. nothing forces sideways scrolling
- *  3. no untranslated message key is showing
- *  4. no text is clipped out of its container
- *
- * Every failure names the page, the locale and the viewport, because "a test
- * failed" for a 76-cell matrix is not a bug report.
+ * TEST-29 — every page, phone and desktop, English and Bengali (the wider
+ * script): renders, no sideways scroll, no untranslated key, nothing clipped.
+ * Failures name the page, locale and viewport.
  */
 
 const VIEWPORTS = [
@@ -31,29 +18,14 @@ const VIEWPORTS = [
 
 const LOCALES = ['en', 'bn'] as const;
 
-/**
- * The public URL for a locale — WO-95 / [ADR-034](../../../docs/decisions.md).
- * English has no prefix, Bengali does. Written out here rather than imported
- * from `lib/locale-path.ts` because a Playwright spec is the one place that
- * should be describing the URLs a *visitor* types, not sharing the application's
- * idea of them.
- */
+/** The public URL a visitor types (English unprefixed, ADR-034) — written out, not imported. */
 const url = (locale: string, path: string) => {
   const prefix = locale === 'en' ? '' : `/${locale}`;
-  // No trailing slash on the home page of a locale: Next 308s `/bn/` to `/bn`,
-  // so building one would have this suite navigating through a redirect on the
-  // two most-visited URLs it covers.
+  // No trailing slash (Next 308s `/bn/`).
   return path ? `${prefix}/${path}` : prefix || '/';
 };
 
-/**
- * A message key that reached the screen instead of its translation.
- *
- * next-intl renders the key itself when a lookup misses, so `dashboard.member.title`
- * appears as body text. Matching that shape is how a missing key becomes visible
- * without diffing two JSON files — and the JSON files already agree (283 keys
- * each), so what this catches is a *component* asking for a key nobody defined.
- */
+/** A message key rendered instead of its translation. */
 const LOOKS_LIKE_A_KEY = /\b[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*){2,}\b/;
 
 /** Text that is legitimately dotted and must not be mistaken for a key. */
@@ -77,13 +49,7 @@ async function untranslatedKeys(page: import('@playwright/test').Page): Promise<
   return [...found];
 }
 
-/**
- * Elements whose content is wider than they are and clipped by `overflow:hidden`.
- *
- * Scrollable containers are excluded — a table that scrolls sideways inside its
- * own box is correct, and the page-level check above already catches the case
- * where the *document* scrolls.
- */
+/** Elements clipped by overflow:hidden (scroll containers excluded). */
 async function clippedElements(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(() => {
     const bad: string[] = [];
@@ -91,11 +57,7 @@ async function clippedElements(page: import('@playwright/test').Page): Promise<s
       const style = getComputedStyle(el);
       if (style.overflowX !== 'hidden' && style.overflow !== 'hidden') continue;
       if (style.display === 'none' || style.visibility === 'hidden') continue;
-      // Screen-reader-only text is a 1x1 clipping box **by construction** —
-      // that is how `sr-only` hides it from the eye while leaving it in the
-      // accessibility tree. Reporting it as clipped text is reporting the
-      // technique. The hero's counting figures put four of these on the home
-      // page, which is when this detector first met one on a public page.
+      // sr-only text is clipped by construction.
       if (style.clip === 'rect(0px, 0px, 0px, 0px)' || el.classList.contains('sr-only')) continue;
       // Ignore decorative boxes with no text of their own.
       const ownText = Array.from(el.childNodes)
@@ -113,22 +75,8 @@ async function clippedElements(page: import('@playwright/test').Page): Promise<s
 }
 
 /**
- * The logo fits inside the header it is in — T-10.
- *
- * `components/ui/logo.tsx` computed a width from its `size` prop and handed it
- * to `next/image`, and then set `h-auto w-auto` in the className, which
- * overrides both. A replaced element sized `auto`/`auto` renders at its
- * intrinsic dimensions, so **every call site got the same picture**: `sm` and
- * `md` both measured 192 × 108 inside a 64 px header. At 412 px the leaf spilled
- * over the hero and covered the tagline badge; the privacy page's own header
- * grew to 141 px because it had no fixed height to spill out of.
- *
- * Nothing caught it. The page does not scroll sideways, no text is clipped, and
- * an oversized image is not a missing translation — the three things the matrix
- * above looks for. This is the assertion that would have.
- *
- * Measured rather than screenshotted on purpose: the failure is a number, and a
- * number names itself in the report.
+ * The logo fits its header — measured, with a ceiling (it once rendered at its
+ * intrinsic 192×108 in a 64px header) and a floor.
  */
 for (const viewport of VIEWPORTS) {
   test.describe(`the logo fits its header · ${viewport.name}`, () => {
@@ -140,9 +88,7 @@ for (const viewport of VIEWPORTS) {
         await waitForContent(page);
 
         const measured = await page.evaluate(() => {
-          // The lockup, wherever it is. On the marketing pages it sits in the
-          // site header; the auth pages put it inside the card instead, so
-          // `header` is null there and only the width bound applies.
+          // On auth pages the logo is in the card (no header): width bound only.
           const logo = document.querySelector<HTMLImageElement>('img[src*="logo"]');
           if (!logo) return null;
           const header = logo.closest('header');
@@ -163,21 +109,14 @@ for (const viewport of VIEWPORTS) {
           ).toBeLessThanOrEqual(measured!.header);
         }
 
-        // **And a floor**, which is the other half of the same story. The first
-        // fix for the overflow shrank the lockup to 40 px, and at that size the
-        // two lines of Bengali tagline beneath হাসনাহেনা are about eight pixels
-        // each — unreadable on the cheap Android in sunlight this site is built
-        // for. A number is the only way to state "legible"; 36 px is below every
-        // size the header actually uses, including the shrunk-on-scroll one.
+        // A floor: below ~36px the Bengali tagline is unreadable.
         expect(
           measured!.logo,
           `the logo is only ${measured!.logo}px tall on ${url('en', path)} — the wordmark ` +
             'and its tagline cannot be read at that size',
         ).toBeGreaterThanOrEqual(36);
 
-        // An uploaded `branding.logo` of an unexpected shape must not push the
-        // language switcher off a 412 px screen either. This is the bound that
-        // applies on the auth pages, where the lockup is inside the card.
+        // An oddly shaped uploaded logo must not push the language switcher off.
         expect(
           measured!.width,
           `the logo is ${measured!.width}px wide on a ${viewport.size.width}px screen`,
@@ -216,22 +155,8 @@ for (const viewport of VIEWPORTS) {
 }
 
 /**
- * The home page's content column must line up with the rest of the site — and
- * must be in the *same* place in both languages.
- *
- * The hero section is `flex items-center`, which centres it vertically and
- * silently makes its `container-wide` a **flex item**. A flex item with no
- * width shrinks to fit its contents, so `max-w-7xl` and the auto margins never
- * applied: the hero's width was whatever its own text measured. The headline
- * started at a different x from the logo above it and from every section below
- * it, and it **moved with the language**, because Bengali is the wider script.
- * It moved again whenever the copy or the figures changed length.
- *
- * Nothing over the source could see this. There is no overflow — the page does
- * not scroll sideways — no text is clipped, and each language looks
- * self-consistent until you put the two side by side. So it is measured, in a
- * browser, at a width where the hero is two columns, in both languages, against
- * a fixed part of the page.
+ * The hero's content column lines up with the rest of the page, in both
+ * languages (as a flex item it once shrank to its text).
  */
 test.describe('the hero is aligned with the rest of the page', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -244,9 +169,7 @@ test.describe('the hero is aligned with the rest of the page', () => {
       const edges = await page.evaluate(() => {
         const left = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().left) : null);
         const right = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().right) : null);
-        // The hero's own content column, and a section further down that
-        // renders from the same `container-wide`. These are the two boxes that
-        // must agree; the logo is the human-legible way of saying so.
+        // The hero's container vs one further down.
         const hero = document.querySelector('main section:first-of-type .container-wide');
         const below = document.querySelector('#about .container-wide');
         return {
@@ -286,10 +209,7 @@ test.describe('the hero is aligned with the rest of the page', () => {
       await page.goto(url(locale, ''));
       await waitForContent(page);
       return page.evaluate(() => {
-        // The container's box, not the headline's. A glyph's own left side
-        // bearing differs between scripts — Bengali starts a pixel earlier
-        // inside the same box — and that is typography, not layout. What must
-        // not vary is the box.
+        // The container box, not the glyph (scripts differ in side bearing).
         const c = document
           .querySelector('main section:first-of-type .container-wide')
           ?.getBoundingClientRect();
@@ -322,9 +242,7 @@ test.describe('dashboard pages · phone · bn', () => {
     await disconnect();
   });
 
-  // Bengali on a phone is the hardest combination and the one every member
-  // actually uses, so it gets the dashboard sweep. English on desktop is the
-  // combination the pages were written in and is exercised by every other spec.
+  // Dashboards: Bengali on a phone, the combination members actually use.
   for (const role of ['MEMBER', 'WORKER', 'ADMIN'] as const) {
     for (const path of PAGES[role]) {
       test(`${role} · /bn/${path} fits a 412px screen`, async ({ page }) => {

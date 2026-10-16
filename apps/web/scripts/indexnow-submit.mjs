@@ -1,42 +1,13 @@
 #!/usr/bin/env node
 /**
- * Tell Bing the sitemap changed, without waiting for it to notice.
+ * Tell Bing (and other IndexNow readers) the sitemap changed. The key is not a
+ * secret: IndexNow verifies it via the served file public/<key>.txt.
  *
- * Why this exists at all
- * ----------------------
- * Google finds a small site through Search Console: the sitemap is submitted,
- * the property is verified, and `docs/go-live.md` already says to resubmit after
- * a URL change. Bing has no equivalent that happens by itself. It crawls a new
- * domain with no inbound links slowly enough — months, not weeks — that "the
- * site is not in Bing" and "the site ranks badly in Bing" look identical from
- * the outside, and neither is fixed by editing another meta tag.
- *
- * IndexNow is the mechanism Bing publishes for exactly this: POST the URLs that
- * changed, and the crawler is told rather than left to discover. It is also read
- * by Yandex, Seznam and Naver, and — since 2024 — by Cloudflare's crawler hints,
- * which this site sits behind.
- *
- * The key is not a secret
- * -----------------------
- * IndexNow authenticates by asking the *site* to prove the key: the file at
- * `public/<key>.txt` must be reachable at `https://<host>/<key>.txt` and contain
- * the key. That is the whole scheme. Publishing the key in the repository is
- * therefore not a leak — the file it names is served to anybody who asks — and
- * keeping it in the filename is what stops the key and the file drifting apart,
- * which is the one failure this protocol has (a mismatch is a 403 that says
- * nothing else).
- *
- * Usage
- * -----
  *   node scripts/indexnow-submit.mjs                  # every URL in the sitemap
  *   node scripts/indexnow-submit.mjs /faq /bn/faq     # only these paths
  *   node scripts/indexnow-submit.mjs --dry-run        # print, submit nothing
  *
- * The host comes from NEXT_PUBLIC_SITE_URL, so this submits whatever the build
- * calls canonical rather than a second hardcoded copy of the domain. Submitting
- * the wrong host is not a small mistake: IndexNow rejects a URL whose host is
- * not the one that serves the key file, and www and the apex are different hosts
- * to it exactly as they are to a crawler.
+ * The host is NEXT_PUBLIC_SITE_URL (www and apex are different hosts).
  */
 
 import { readdirSync } from 'node:fs';
@@ -46,11 +17,7 @@ import { dirname, join } from 'node:path';
 import { loadEnv } from './lib/env.mjs';
 import { runAsScript } from './lib/guard.mjs';
 
-// Plain `node`, so nothing has loaded .env — the same reason the four database
-// scripts in this directory call this. Without it, this refused to run for want
-// of a variable sitting in `apps/web/.env` beside the one `pnpm db:seed` reads.
-// A real environment variable still wins, so a one-off submission to a
-// different host stays `NEXT_PUBLIC_SITE_URL=... pnpm seo:indexnow`.
+// Plain node: load .env ourselves; a real env var still wins.
 loadEnv('NEXT_PUBLIC_SITE_URL');
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -85,14 +52,7 @@ function indexNowKey() {
   return keys[0].replace(/\.txt$/, '');
 }
 
-/**
- * The URL list, read from the deployed sitemap rather than from
- * `publicPagePaths`.
- *
- * The sitemap is generated from that list and from `locales`, so reading it back
- * over HTTP checks the deploy actually happened before announcing it: submitting
- * a URL that 404s is how a site teaches a crawler to stop believing its hints.
- */
+/** URLs from the DEPLOYED sitemap, which also proves the deploy happened. */
 async function urlsFromSitemap(origin) {
   const response = await fetch(`${origin}/sitemap.xml`, {
     headers: { 'user-agent': 'hasnahena-indexnow-submit' },
@@ -147,9 +107,7 @@ async function main() {
     body: JSON.stringify({ host, key, keyLocation: `${origin}/${key}.txt`, urlList }),
   });
 
-  // 200 and 202 both mean accepted; 202 is "key not validated yet", which is
-  // normal on a first submission and resolves itself once the fetcher reads the
-  // file. Anything else is worth the exit code.
+  // 202 = key not validated yet, normal on a first submission.
   if (response.status !== 200 && response.status !== 202) {
     throw new Error(`IndexNow returned ${response.status}: ${await response.text()}`);
   }

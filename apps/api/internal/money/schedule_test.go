@@ -18,9 +18,7 @@ func TestInstallmentsDue(t *testing.T) {
 		total int
 		want  int
 	}{
-		// The first instalment is due one month after the schedule starts.
-		// Counting from day zero would put every loan an instalment behind on
-		// the day it was disbursed.
+		// The first instalment is due one month after the start.
 		{"on the start date", start, 12, 0},
 		{"the day before the first is due", date(2026, time.February, 14), 12, 0},
 		{"the day the first is due", date(2026, time.February, 15), 12, 1},
@@ -42,10 +40,8 @@ func TestInstallmentsDue(t *testing.T) {
 	}
 }
 
-// A schedule starting on the 31st must stay pinned to month ends rather than
-// drifting a day earlier every short month, which is what 30-day arithmetic
-// does. Go's AddDate normalises 31 February to 3 March, so the due date moves
-// later — never earlier — which is the conservative direction for a borrower.
+// A schedule starting on the 31st follows month ends; AddDate normalisation
+// moves a date later, never earlier.
 func TestInstallmentsDueAtMonthEnd(t *testing.T) {
 	start := date(2026, time.January, 31)
 
@@ -117,9 +113,7 @@ func TestIsDefaultable(t *testing.T) {
 	}
 }
 
-// The whole point of the policy: a borrower who is behind but within the
-// threshold cannot be defaulted, and the one who crosses it can. Written as a
-// scenario because the two halves are what an admin actually experiences.
+// Within the threshold a borrower cannot be defaulted; past it they can.
 func TestABorrowerBecomesDefaultableOnlyAtTheThreshold(t *testing.T) {
 	start := date(2026, time.January, 10)
 	const total, paid, threshold = 12, 0, 3
@@ -147,10 +141,7 @@ func TestNextDueDate(t *testing.T) {
 		want   time.Time
 		wantOK bool
 	}{
-		// Nothing paid: the first instalment, one month after the start. This is
-		// the case the bug turned on — three queries answered it with the start
-		// date itself, which is always in the past on an active loan, so every
-		// borrower rendered as overdue on the worker's screen.
+		// Nothing paid: one month after the start, never the start itself.
 		{"nothing paid", 12, 0, date(2026, time.February, 15), true},
 		{"one paid", 12, 1, date(2026, time.March, 15), true},
 		{"eleven paid", 12, 11, date(2027, time.January, 15), true},
@@ -178,11 +169,7 @@ func TestNextDueDate(t *testing.T) {
 	}
 }
 
-// The two must agree, because one decides what a screen shows and the other
-// decides whether a loan may be defaulted. "Overdue" on the loan list is
-// `MissedInstallments > 0`; it has to mean the same thing as "the next due date
-// has passed", or the badge and the default waterfall disagree about the same
-// borrower.
+// "Overdue" on the list and the default rule must agree.
 func TestNextDueDateAgreesWithMissedInstallments(t *testing.T) {
 	start := date(2026, time.January, 15)
 	const total = 12

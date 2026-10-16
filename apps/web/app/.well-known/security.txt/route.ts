@@ -2,21 +2,9 @@ import { siteOrigin } from '@/lib/seo';
 import { getPublicSettings } from '@/lib/system-config';
 
 /**
- * RFC 9116 vulnerability disclosure contact, at `/.well-known/security.txt`.
- *
- * Why a route handler rather than a file in `public/`: RFC 9116 makes `Expires`
- * mandatory and says a file past it should be treated as invalid. A static
- * file's expiry is a date somebody has to remember to move, and nothing here
- * would fail when they didn't — the exact shape of promise this project keeps
- * finding broken silently. Generated, it renews itself and cannot go stale.
- *
- * The contact is `org.email`, the same address the footer and `/contact` show,
- * because a disclosure address nobody reads is worse than none: it converts a
- * researcher who would have found another way into one who reasonably concludes
- * they reported it. The fallback matches the Go mailer's own default sender.
- *
- * Not locale-prefixed, and it must not be — `proxy.ts` skips any path
- * containing a dot, so this is reached directly in both languages.
+ * RFC 9116 disclosure contact. Generated so the mandatory `Expires` renews
+ * itself. Contact is org.email, the address the site shows. Not
+ * locale-prefixed (proxy.ts skips dotted paths).
  */
 
 /** Long enough not to churn caches, short enough to prove the site is tended. */

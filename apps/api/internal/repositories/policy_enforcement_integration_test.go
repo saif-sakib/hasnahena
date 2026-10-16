@@ -1,22 +1,7 @@
 //go:build integration
 
-// Withdrawal policy, and the default threshold.
-//
-// `loan.missedPaymentsForDefault` was one of two admin settings that were
-// editable and read by nothing until 2026-08-18 — a control reporting a policy
-// the system did not apply. Its tests assert the rule in BOTH directions,
-// refused below the threshold and allowed at it, because a rule that only ever
-// refuses is indistinguishable from a broken feature and one that only ever
-// allows is indistinguishable from no rule.
-//
-// The other was `loan.noticePeriodMonths`, which became FR-08's notice period
-// and has since been removed entirely (ADR-030). What is left here in its place
-// asserts that no gate remains — see the section below for why that is worth a
-// test at all.
-//
-//	scripts/test-stack.sh up
-//	eval "$(scripts/test-stack.sh env)"
-//	cd apps/api && go test ./internal/repositories/ -tags=integration -count=1
+// Withdrawal policy after ADR-030 (no notice gate) and the default threshold
+// (loan.missedPaymentsForDefault), asserted in both directions.
 package repositories
 
 import (
@@ -27,20 +12,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Withdrawals after ADR-030 — no notice, no notice period
+// Withdrawals after ADR-030 — absence of a refusal is what stops the gate
+// coming back; settlement still writes one posting per withdrawal.
 // ---------------------------------------------------------------------------
-//
-// FR-08 used to make a member's withdrawal *request* a binding notice and gate
-// both payout paths on it maturing. The owner removed that rule: staff take the
-// request in person and pay at the desk, and `loan.noticePeriodDays` is the
-// courtesy period the foundation publishes rather than a gate in this code.
-//
-// These tests are what stops it coming back. Two of them assert the absence of
-// a refusal, which is the only way to pin a rule that has been deleted — and
-// the settlement tests below them assert what did NOT change: one posting per
-// withdrawal, and the ledger summing to what left the account.
 
-// The headline behaviour. Before ADR-030 this was ErrNoWithdrawalNotice.
 func TestWithdrawalWithNoRequestBehindItIsPaid(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -75,9 +50,7 @@ func TestWithdrawalWithNoRequestBehindItIsPaid(t *testing.T) {
 	}
 }
 
-// A payout that is not settling anything must not be held up by a stale
-// request either — including one filed minutes ago, which under the old rule
-// was the most-refused case of all.
+// A payout is not held up by a fresh request either.
 func TestAFreshRequestIsPaidImmediately(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -137,9 +110,7 @@ func TestASettledRequestBecomesThePostingRatherThanASecondRow(t *testing.T) {
 	}
 }
 
-// A request covers any amount up to what it asked for. Above that it is a
-// different withdrawal, which used to be a refusal and is now simply its own
-// row — the request is left outstanding for the money it still represents.
+// A payout above the request is its own row; the request stays outstanding.
 func TestAPayoutAboveTheRequestWritesItsOwnRow(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -165,10 +136,7 @@ func TestAPayoutAboveTheRequestWritesItsOwnRow(t *testing.T) {
 	}
 }
 
-// Settling for less than was asked must record what was PAID, not what was
-// asked. Leaving the announced figure would debit 6,000 and tell the ledger
-// 10,000 — a passbook that cannot be reconciled against the balance beside it,
-// which is the ADR-015 class of defect in a new place.
+// Settling for less records what was PAID (ADR-015).
 func TestASettledRequestRecordsWhatWasPaid(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -328,9 +296,7 @@ func TestALoanCannotBeDefaultedBelowTheMissedPaymentThreshold(t *testing.T) {
 		t.Fatalf("default at two missed payments: err = %v, want ErrLoanNotYetDefaultable", err)
 	}
 
-	// Nothing was taken. This is the assertion that matters: the waterfall
-	// drains the borrower's savings and then the guarantor's, and a default
-	// that should not have happened is not reversible by editing a row.
+	// Nothing was taken — a wrongful default is not reversible.
 	if got := savingsOf(t, borrower); got != 20000 {
 		t.Errorf("borrower savings = %d after a refused default, want 20000", got)
 	}
@@ -398,9 +364,7 @@ func TestRaisingTheThresholdProtectsALoanThatWasDefaultable(t *testing.T) {
 	}
 }
 
-// A loan that was approved but never put on a schedule has nothing overdue, so
-// it cannot be defaulted. Before the threshold existed it could be, on the day
-// it was created.
+// A loan never put on a schedule cannot be defaulted.
 func TestALoanWithNoScheduleCannotBeDefaulted(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -451,9 +415,7 @@ func TestPaidInstalmentsCountAgainstTheMissedTotal(t *testing.T) {
 	}
 }
 
-// The borrower must be told. A default takes their savings and then their
-// guarantor's, and a balance that changed with no message behind it is the
-// worst way to learn.
+// The borrower is notified of a default.
 func TestDefaultNotifiesTheBorrower(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

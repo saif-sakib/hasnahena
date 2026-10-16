@@ -8,30 +8,11 @@ import {
 } from '@/lib/rejected-application';
 
 /**
- * One definition of "rejected application", spelled out in three places.
- *
- * It decides who owns an email address, a phone number and an NID. A live
- * member owns theirs exclusively; a rejected applicant owns nothing, which is
- * what lets them apply again with the same details (owner's ruling,
- * 2026-08-26).
- *
- * The three consumers, none of which would notice the others changing:
- *
- *   1. **The migration** — three partial unique indexes whose predicate is this
- *      condition. This is the one that actually enforces it.
- *   2. **This module** — Prisma queries in the Next app.
- *   3. **`RejectedApplicationSQL`** in the Go API — the login lookup.
- *
- * Getting them out of step is not a cosmetic problem in either direction:
- *
- *   - **An index predicate narrower than the query's** lets two live rows hold
- *     one email — two accounts, two savings balances, one person, which is
- *     exactly the duplicate WO-90 moved into the database to prevent.
- *   - **Wider**, and a genuine applicant is told their own email is taken by a
- *     row the application cannot see, with no way to find out why.
- *   - **A Go lookup that forgets it entirely** authenticates against a rejected
- *     row whose password hash nothing can match, so a real member's correct
- *     password is refused — and `LIMIT 1` makes which row wins arbitrary.
+ * One definition of "rejected application", in three places that must agree:
+ * the migration's partial unique indexes, lib/rejected-application.ts, and
+ * RejectedApplicationSQL in the Go API. Narrower index → duplicate live
+ * accounts; wider → a genuine applicant told their email is taken; a Go lookup
+ * without it → a real member's correct password refused.
  */
 
 const REPO = resolve(process.cwd(), '..', '..');
@@ -43,15 +24,7 @@ const MIGRATIONS_DIR = 'apps/web/prisma/migrations';
 /** Collapse whitespace so formatting differences are not reported as drift. */
 const normalise = (sql: string) => sql.replace(/\s+/g, ' ').trim();
 
-/**
- * Source with comments removed.
- *
- * A test that forbids a string has to search code, not prose — the first run of
- * the sweep check below failed on **its own explanation** of what the old
- * predicate was, which is the trap `requirements.test.ts` names: a detector that
- * fires on its own rule being written down trains people to delete the
- * documentation.
- */
+/** Source with comments removed (search code, not prose). */
 const codeOf = (source: string) =>
   source
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -76,11 +49,7 @@ describe('the rejected-application predicate', () => {
   const expected = normalise(REJECTED_APPLICATION_SQL);
 
   it('is a predicate with all four conjuncts, not a status check', () => {
-    // `status = 'INACTIVE'` alone also matches a **deactivated member**, who has
-    // a real password hash and an approvedAt and must keep their identifiers
-    // reserved — freeing those hands the next person given that phone number
-    // somebody else's account history. An **erased** member (FR-23) keeps
-    // approvedAt too. All four conjuncts are load-bearing.
+    // All four conjuncts matter: INACTIVE alone matches deactivated and erased members.
     expect(expected).toContain("role = 'MEMBER'");
     expect(expected).toContain("status = 'INACTIVE'");
     expect(expected).toContain('"approvedAt" IS NULL');
@@ -127,10 +96,7 @@ describe('the rejected-application predicate', () => {
       expect(sql, `${index} is not created by any migration`).toContain(index);
     }
 
-    // Each one's WHERE clause has to contain the predicate. The SQL spells it
-    // without the `role = 'MEMBER' AND ` prefix ordering being significant, so
-    // compare on the four conjuncts rather than the whole string — the index
-    // predicates are wrapped in `NOT (...)` and combined with other conditions.
+    // Compare on the conjuncts; index predicates wrap them in NOT (...).
     const occurrences = sql.split(expected).length - 1;
     expect(
       occurrences,
@@ -141,18 +107,8 @@ describe('the rejected-application predicate', () => {
   });
 
   it('is what the retention sweep selects on, not a leftover of the scramble', () => {
-    // This one nearly shipped broken. `retention_repository.go` identified a
-    // rejected application by `u.phone LIKE 'rejected-%'` — matching the
-    // tombstone that rejection used to write over the applicant's number. When
-    // the scramble was removed, that predicate matched **nothing, ever again**,
-    // and the sweep would have gone on running, reporting success, and retaining
-    // every rejected applicant's NID and addresses for ever.
-    //
-    // Nothing about it looks wrong from outside: the job runs on schedule, the
-    // query is valid, the count is zero — which is also what a correct sweep
-    // reports on a quiet week. The only defence is that all three questions —
-    // who may re-apply, who owns an email, whose data expires — are answered by
-    // one predicate.
+    // The retention sweep must use the same predicate (an old tombstone match
+    // would have silently swept nothing, forever).
     const sweep = codeOf(read('apps/api/internal/repositories/retention_repository.go'));
     expect(
       sweep,
@@ -167,19 +123,8 @@ describe('the rejected-application predicate', () => {
   });
 
   it('is applied by every lookup that filters on a contact detail', () => {
-    // **This is the assertion that was missing, and the defect it now names was
-    // live.** Creating a field worker looked up `OR: [{ email }, { phone }]`
-    // with no `liveIdentityFilter`, so a person whose membership application had
-    // been refused could not be hired: the screen answered "that email address
-    // is already in use" and named a row the database would happily have
-    // accepted the insert against — `users_email_live_key` excludes rejected
-    // applications, so the application-level check was stricter than the
-    // constraint it exists to anticipate.
-    //
-    // The rule was written down in CLAUDE.md and in `product.md`, and written
-    // down is not enforced. Uniqueness scoped to live rows is only true if
-    // **every** reader agrees, and there is no reason a future lookup would
-    // remember. So this enumerates them.
+    // EVERY lookup by email/phone/NID in app/ and lib/ must carry
+    // liveIdentityFilter (a missing one once stopped a refused applicant being hired).
     const roots = ['apps/web/app', 'apps/web/lib'];
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -192,11 +137,7 @@ describe('the rejected-application predicate', () => {
     };
     for (const root of roots) walk(root);
 
-    /**
-     * A `prisma.user.find*({ … })` call whose `where` mentions a contact
-     * detail. Matched on the whole call expression by brace balance rather than
-     * by a line regex, because these are always written across several lines.
-     */
+    /** A prisma.user.find* call whose `where` mentions a contact detail (brace-balanced). */
     const offenders: string[] = [];
     for (const rel of files) {
       const source = codeOf(read(rel));
@@ -213,17 +154,12 @@ describe('the rejected-application predicate', () => {
           }
         }
         const call = source.slice(start, end + 1);
-        // Only the calls that select a user *by* a contact detail. A query that
-        // merely returns the column — `select: { email: true }` — is not a
-        // lookup, so the mention has to be on the left of a colon inside
-        // `where`, which in practice means it appears before `select:`.
+        // Only lookups BY a contact detail — the part before `select:`.
         const whereHalf = call.split(/\bselect\s*:/)[0];
         const looksUpContact = /\b(email|phone|nidNumber)\s*:/.test(whereHalf);
         if (!looksUpContact) continue;
         if (call.includes('liveIdentityFilter') || call.includes('rejectedApplicationFilter')) continue;
-        // `where: { id: … }` is a lookup by primary key that happens to mention
-        // a contact detail in a nested update or a comparison; it selects one
-        // known row and cannot match the wrong person.
+        // A lookup by primary key cannot match the wrong person.
         if (/\bwhere\s*:\s*\{\s*id\s*:/.test(call)) continue;
         offenders.push(`${rel}: ${call.replace(/\s+/g, ' ').slice(0, 110)}`);
       }
@@ -254,15 +190,7 @@ describe('the rejected-application predicate', () => {
   });
 
   it('never lets the old scramble come back', () => {
-    // Rejection used to overwrite the applicant's contact details so the
-    // unique constraint would let them reapply:
-    //
-    //     email = CONCAT('rejected+', id, '@hasnahena.local')
-    //
-    // It freed the constraint by destroying the only way to tell the applicant
-    // they had been rejected — in the same statement that decided it. The
-    // partial indexes replace it. Re-introducing either half puts the entry
-    // path back where it was, and neither would fail any other test.
+    // The old contact-scrambling at rejection must not come back.
     const sources = [
       codeOf(read('apps/web/app/api/v1/registrations/route.ts')),
       codeOf(read('apps/api/internal/repositories/admin_repository.go')),

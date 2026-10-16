@@ -1,191 +1,97 @@
 # API Reference
 
-Two surfaces. Routing ownership and the reason for the split are in [architecture.md](architecture.md).
+Two surfaces; who owns what is in [architecture.md](architecture.md).
 
 ## Go API — base `NEXT_PUBLIC_API_URL` (local `http://localhost:8081`)
 
-Auth: `Authorization: Bearer <jwt>` on everything except `/v1/health`, `/v1/ready` and `/v1/auth/*`.
-
-Envelope:
-
-```jsonc
-{ "success": true,  "data": { … } }
-{ "success": false, "error": { "message": "…" } }
-```
-
-Status codes: 200 ok · 400 validation · 401 missing/invalid/blacklisted token ·
-403 wrong role · 404 · 409 conflict · 429 rate-limited · 500.
-
-Authorization is checked **before** body validation everywhere, so a caller with
-the wrong role gets a 403 rather than a 400 listing the fields it wanted.
-
-The authoritative list is `apps/api/cmd/server/main.go` — one file, read it when
-in doubt. It is also enumerated: `routes_integration_test.go` walks the router
-with `chi.Walk` and fails the build on any route with no contract row, or any row
-with no route.
+Auth: `Authorization: Bearer <jwt>` on everything except `/v1/health`, `/v1/ready` and `/v1/auth/*`. Envelope `{ "success": true, "data": {…} }` / `{ "success": false, "error": { "code": "…", "message": "…" } }`. Status: 200 · 400 validation · 401 missing/invalid/revoked token · 403 wrong role · 404 · 409 conflict · 429 rate-limited · 500. Authorization is checked **before** body validation. The authoritative list is `apps/api/cmd/server/main.go`; `routes_integration_test.go` walks it with `chi.Walk` and fails on a route without a contract row.
 
 ### Health & auth
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/v1/health` | liveness. Returns `status` and `emailConfigured`, touches nothing else |
-| GET | `/v1/ready` | readiness. Pings the database (2 s budget); 503 `DB_UNAVAILABLE` if unreachable |
-| POST | `/v1/auth/login` | `{identifier, password}` — identifier is email **or** phone |
+| GET | `/v1/health` | liveness; `status` + `emailConfigured`, touches nothing |
+| GET | `/v1/ready` | readiness; pings the DB (2 s), 503 `DB_UNAVAILABLE` |
+| POST | `/v1/auth/login` | `{identifier, password}` — email **or** phone |
 | POST | `/v1/auth/logout` | blacklists the presented token |
 | POST | `/v1/auth/forgot-password` | **always 200, always the same body** |
 | GET·POST | `/v1/auth/reset-password` | validate token · set new password |
 
-`forgot-password` does not tell an unauthenticated caller who is a member
-([ADR-032](decisions.md)). A member, a suspended member, a member with no email
-address and a phone number nobody here has all get the same `200` and the same
-message; what actually happened is in the logs and in `audit_logs`. The only
-other answers are `429` (throttled per identifier and per address) and `503
-EMAIL_NOT_CONFIGURED`, which is decided before any lookup and is therefore true
-of every caller alike. **Do not add a branch here that depends on what the lookup
-found.**
-
-`POST /v1/auth/reset-password` spends the link, writes the password, retires the
-first-login marker and **revokes every session the account has open**, in one
-transaction ([ADR-031](decisions.md)). A link is single-use: a second submission
-answers `400 AUTH_INVALID_TOKEN`, which is also the answer for unknown and
-expired, because which of the three it was is a fact about the account.
-
-`login` answers `401 AUTH_INVALID_CREDENTIALS` identically for a wrong password,
-an unknown identifier and a suspended member's wrong password — and pays the same
-bcrypt cost for all three. `403 AUTH_USER_INACTIVE` is reached only *after* the
-password verifies. `429 AUTH_RATE_LIMITED` comes from two buckets: the identifier
-alone (flat 30 s per 5 failures) and the identifier+address pair (30 s → 2 m →
-10 m → 1 h).
+**No auth endpoint discloses membership** ([ADR-032](decisions.md)). `forgot-password` gives everyone the same 200 (what happened goes to logs and `audit_logs`); its only other answers are `429` (per identifier and per address) and `503 EMAIL_NOT_CONFIGURED`, decided before any lookup — **never add a branch that depends on the lookup**. `login` answers `401 AUTH_INVALID_CREDENTIALS` identically (same bcrypt cost) for wrong password, unknown identifier and suspended account; `403 AUTH_USER_INACTIVE` only after the password verifies; `429 AUTH_RATE_LIMITED` from two buckets — identifier (flat 30 s per 5 failures) and identifier+address (30 s → 2 m → 10 m → 1 h). `reset-password` spends the link, writes the password, retires the first-login marker and revokes every session in one transaction ([ADR-031](decisions.md)); unknown, expired and reused links all answer `400 AUTH_INVALID_TOKEN`.
 
 ### Shared (any signed-in role)
 
-`GET /v1/dashboard/user` · `GET|PATCH /v1/dashboard/notifications` · `PUT /v1/dashboard/password`
-Password change with email code: `POST /v1/dashboard/password/change/{request-code,verify-code,confirm}`
-Support chat: `GET|PUT /v1/dashboard/support/config` · `GET /v1/dashboard/support/threads` · `GET|POST /v1/dashboard/support/messages` · `POST /v1/dashboard/support/threads/processed` · `GET /v1/dashboard/support/stream` (SSE) · `POST /v1/dashboard/support/stream/ticket`
+`GET /v1/dashboard/user` · `GET|PATCH /v1/dashboard/notifications` · `PUT /v1/dashboard/password` · `POST /v1/dashboard/password/change/{request-code,verify-code,confirm}` · support: `GET|PUT /v1/dashboard/support/config`, `GET /v1/dashboard/support/threads`, `GET|POST /v1/dashboard/support/messages`, `POST /v1/dashboard/support/threads/processed`, `GET /v1/dashboard/support/stream` (SSE), `POST /v1/dashboard/support/stream/ticket`.
 
-The SSE stream takes an `Authorization` header when the caller can set one. A browser `EventSource` cannot, so it first calls the ticket endpoint (authenticated normally) and passes the returned value as `?ticket=`. Tickets last 60 s, are good only for this stream, and are not access tokens — fetch a fresh one before every connect, including reconnects. `?access_token=` is **not** accepted anywhere.
+SSE: an `Authorization` header when possible; a browser `EventSource` first fetches a ticket (60 s, single-purpose, not an access token — fetch a fresh one per connect) and passes `?ticket=`. `?access_token=` is never accepted.
 
 ### Member
 
-| Method | Path |
-|---|---|
-| GET | `/v1/dashboard/member` |
-| GET | `/v1/dashboard/member/{deposits,transactions,loans,profile}` |
-| POST | `/v1/dashboard/member/requests/deposit` |
-| POST | `/v1/dashboard/member/requests/loan-repayment` |
-| POST | `/v1/dashboard/member/requests/withdrawal` |
-
-`POST /requests/withdrawal` **no longer exists** ([ADR-030](decisions.md)). It
-was the member's notice of withdrawal: it filed a `PENDING` withdrawal, answered
-with the date it became payable, and neither payout path could move money before
-then. A member asks a field worker now, and staff post the withdrawal from
-`POST /worker/members/{memberUserId}/withdrawal`.
-
-`loan.noticePeriodDays` is how much warning the foundation asks for. It is served
-in the public settings tier and rendered by the member's savings screen and the
-FAQ; no endpoint enforces it.
+`GET /v1/dashboard/member` · `GET /v1/dashboard/member/{deposits,transactions,loans,profile}` · `POST /v1/dashboard/member/requests/deposit` · `POST /v1/dashboard/member/requests/loan-repayment`. There is **no** member withdrawal request ([ADR-030](decisions.md)); `loan.noticePeriodDays` is served in the public settings tier and enforced by nothing.
 
 ### Worker
 
 | Method | Path |
 |---|---|
-| GET | `/v1/dashboard/worker` |
-| GET | `/v1/dashboard/worker/{members,requests,loans,transactions,profile}` |
-| GET | `/v1/dashboard/worker/members/{memberUserId}` |
+| GET | `/v1/dashboard/worker` · `/worker/{members,requests,loans,transactions,profile}` · `/worker/members/{memberUserId}` |
 | POST | `/v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal,loan,loan-payment}` |
-| POST | `/v1/dashboard/worker/members/{memberUserId}/loan-topup` — adds principal to a **running** loan |
+| POST | `/v1/dashboard/worker/members/{memberUserId}/loan-topup` — `{ loanId, amount, notes }` |
 | PUT | `/v1/dashboard/worker/profile` |
 
-`loan-topup` takes `{ loanId, amount, notes }`. It raises the loan's principal
-and remaining amount together and re-spreads the balance over the instalments
-that are **left**, so the end date holds and each remaining payment goes up
-([ADR-030](decisions.md)). Zero interest, zero fees — the amount added and the
-amount owed are the same money.
+`withdrawal` needs no request; it settles an outstanding `PENDING` one (rewritten to the amount paid) or writes its own `CONFIRMED` row. `loan-topup` raises principal and remaining together and re-spreads over the remaining instalments (end date holds; no interest or fee). Refusals: `LOAN_NOT_FOUND`, `LOAN_NOT_ACTIVE` (409), `TOPUP_EXCEEDS_LIMIT` (409, message carries the ceiling and figures), `MEMBER_NOT_FOUND`, `MEMBER_NOT_ACTIVE`.
 
-Its refusals are sentinels, so each has its own code: `LOAN_NOT_FOUND`,
-`LOAN_NOT_ACTIVE` (409 — a completed or defaulted loan needs a new application),
-`TOPUP_EXCEEDS_LIMIT` (409, and the message carries the ceiling, the savings it
-derives from, and what the member would owe), plus `MEMBER_NOT_FOUND` and
-`MEMBER_NOT_ACTIVE`.
-
-`withdrawal` needs no request behind it and waits out no notice period. It
-settles an outstanding `PENDING` withdrawal when the member has one — rewriting
-its amount to what was actually paid — and writes its own `CONFIRMED` row when
-they do not.
-
-### Staff — `WORKER`, `ADMIN`, `SUPER_ADMIN`
-
-Under `/admin/` for historical URL reasons; a field worker's daily work. The
-worker and admin dashboards render the *same* screens, so these are the reads and
-the processing actions both of them make.
+### Staff — `WORKER`, `ADMIN`, `SUPER_ADMIN` (under `/admin/` for historical reasons)
 
 | Method | Path |
 |---|---|
-| GET | `/v1/dashboard/admin/approvals` — registrations omitted for a `WORKER` |
-| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` — processes any pending posting (FR-07). Approving a withdrawal marks it `PROCESSED` and moves no money; the debit happens when a worker pays it |
+| GET | `/v1/dashboard/admin/approvals` — registrations omitted for a worker |
+| POST | `/v1/dashboard/admin/approvals/withdrawal` · `/withdrawal/reject` — process a pending posting (FR-07); approving a withdrawal marks it `PROCESSED`, the debit happens when a worker pays |
 | GET | `/v1/dashboard/admin/{members,loans,deposits}` |
 | GET | `/v1/dashboard/admin/reports/monthly?year=&month=` · `reports/yearly?year=` · `reports/loans` |
-| GET · POST | `/v1/dashboard/admin/donations` |
+| GET·POST | `/v1/dashboard/admin/donations` |
 
-### Admin — `ADMIN`, `SUPER_ADMIN`
-
-Deciding, rather than processing: approving a registration or a loan, starting a
-settlement, administering staff, reading the audit trail.
+### Admin — `ADMIN`, `SUPER_ADMIN` (deciding, not processing)
 
 | Method | Path |
 |---|---|
-| GET | `/v1/dashboard/admin` — carries `recentActivity`, the audit trail |
-| GET | `/v1/dashboard/admin/{workers,profile}` |
-| POST | `/v1/dashboard/admin/members/status` |
-| POST | `/v1/dashboard/admin/workers/welcome-email` |
-| POST | `/v1/dashboard/admin/approvals/registration` — takes an optional `branchId`, the office the admin is admitting them to ([ADR-042](decisions.md)); a closed or unknown one is a **400**, not a 500. Answers `accountNo`, which the approval has just allocated, and **not** a temporary password — a member with no email is given one from `/api/v1/admin/members/{id}/reset-password` instead · `/registration/reject` — reject takes `reasonCode` (from `lib/rejection-reasons.ts`) plus an optional `reasonNote`, and **refuses without one**; both answer `emailDelivered` / `deliveryError`, because the decision is committed either way and an admin whose mail did not go out has to telephone instead |
+| GET | `/v1/dashboard/admin` — carries `recentActivity` (audit) |
+| GET | `/v1/dashboard/admin/{workers,profile}` · `/admin/loans/detail?id=` |
+| POST | `/v1/dashboard/admin/members/status` · `/admin/workers/welcome-email` |
+| POST | `/v1/dashboard/admin/approvals/registration` — optional `branchId` (unknown/closed = 400); answers `accountNo`, **never a password** ([ADR-042](decisions.md)) · `/registration/reject` — requires `reasonCode` (`lib/rejection-reasons.ts`) + optional `reasonNote`. Both answer `emailDelivered`/`deliveryError` (committed either way — the admin phones if mail failed) |
 | POST | `/v1/dashboard/admin/approvals/loan` · `/loan/reject` |
-| GET | `/v1/dashboard/admin/loans/detail?id=` |
-| POST | `/v1/dashboard/admin/loans/default` — triggers the settlement waterfall |
+| POST | `/v1/dashboard/admin/loans/default` — runs the settlement waterfall |
 | PUT | `/v1/dashboard/admin/profile` |
 
 ## Next.js route handlers — same origin, `/api/v1/*`
 
-Legacy shape: bare JSON, no `success` envelope ([ADR-005](decisions.md)). Auth via `lib/server-auth.ts` using the shared `JWT_SECRET`.
+Bare JSON, no envelope ([ADR-005](decisions.md)); auth via `lib/server-auth.ts` (shared `JWT_SECRET`, revocation checked). Every route has a caller — grep `/api/v1/...` across `app/`, `components/`, `lib/`, `hooks/`, `e2e/` before changing one. No balance writes here ([ADR-001](decisions.md)).
 
-Fourteen handlers. The "called by" column is the audited answer, not an
-intention — grep every `/api/v1/...` literal in `app/`, `components/`, `lib/`,
-`hooks/` and `e2e/` if you change it. Every route now has one: `admin/audit-logs`
-was the exception for a long time, complete data with no reader, which is what
-made it possible for the endpoint to ship without selecting `details`.
-
-| Methods | Path | Purpose | Called by |
+| Methods | Path | Purpose · notes | Called by |
 |---|---|---|---|
-| GET·POST | `/api/v1/registrations` | public registration submit + availability check | register page. **Both throttled**: the GET at 20/10 min (SEC-08), the POST at 5/15 min per address — it writes a user row, uploads four images and takes a global advisory lock |
-| POST | `/api/v1/auth/login` | legacy login path, kept for older clients | login page |
-| GET·PUT | `/api/v1/settings` | `system_config` read / upsert | login, member loans, admin settings/members, `lib/documents/org-settings.ts`. **GET takes no token and answers anyway, in four tiers** — public / member / worker (+`CONTENT_CONFIG_KEYS`) / admin ([ADR-024 is the CSP one; see ADR-021's neighbours and `lib/system-config.ts`](decisions.md)). **PUT is gated by key, not only by role**: an admin writes anything declared, a worker writes `CONTENT_CONFIG_KEYS` and is refused 403 for anything else, all-or-nothing per request. The browser must call GET through `lib/settings-client.ts`, which attaches the token; a bare `fetch` silently gets the public subset |
-| GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | admin gallery + settings |
-| POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker account CRUD | admin workers |
-| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes amount | member transactions |
-| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to the Go support endpoints — an **allow-list** of `config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, method by method; anything else is 404 here and never reaches Go. Mutations are limited to 60/min per member address, because the Go limiter sees Vercel's ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
-| POST | `/api/v1/loans/applications` | member loan application | `components/dashboard/loan-application-form.tsx` |
-| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/rejects | `components/dashboard/guarantor-requests.tsx` |
-| GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branch CRUD — offices staff are assigned to. `DELETE` **deactivates** rather than deletes when staff are assigned, because `assignedBranch` is `SetNull` and deleting would silently unassign them ([WO-72](changelog.md)) | admin branches page, worker branch picker |
-| GET | `/api/v1/admin/audit-logs` | **FR-24.** The audit trail. Filters: `q` (free text — matched against `details`, the action, and the *ids* of any member, loan or transaction whose account number, application number, name, loan number or receipt number contains it), `category`, `severity`, `action`, `from`, `to`, `includeNoise`, `page`, `limit` (max 100, default 20). Answers `pagination.hasMore` from one extra row rather than a `COUNT(*)` — the screen loads the most recent entries and appends more on request, and a total that only grows was worth a full scan per keystroke to nobody. Resolves each row's `entityId` into a readable **subject** and its `userId` into an **actor**, batched per entity type rather than per row. Hides the `noise` actions — sign-ins and the like — unless `includeNoise=true` or the caller named an action or category. The vocabulary, the colours and the retention tier all come from `lib/audit-actions.ts` | admin audit screen |
-| GET·POST | `/api/v1/admin/retention` | **FR-25 / [ADR-038](decisions.md).** The Cloudinary half of the retention policy. **POST** is admins-only: with `{ userId }` it erases one refused application's identity photographs — the approvals screen calls it the instant a rejection is committed — and with `{}` it sweeps every refused application *and* removes audit rows past their tier. **GET** is the scheduler's, authenticated by `CRON_SECRET` and reachable by **no signed-in role**, including a super admin; an unset `CRON_SECRET` accepts nobody rather than everybody. Deletes **by folder prefix**, because `documents` records what was recorded and Cloudinary holds what was stored | admin approvals screen; Vercel Cron, nightly (`apps/web/vercel.json`) |
-| POST | `/api/v1/admin/members/{id}/refile-documents` | **[ADR-040](decisions.md).** Move an admitted member's four registration documents from `applications/APP-2026-000001` into `people/ACC-KH-33001`, beside their avatar, rewriting `documents.url` per row as each asset lands. Admins only, members only, **409** on an application that has not been approved. Idempotent: a row already filed there is counted and skipped. A Cloudinary rename, so an NID scan is never re-encoded. Separate from the approval so a third-party image host cannot fail a database transaction; the nightly sweep files anything this call missed | admin approvals screen, straight after an approval; `GET /api/v1/admin/retention` nightly |
-| POST | `/api/v1/admin/members/{id}/erase` | **FR-23 / [ADR-033](decisions.md).** Erase a member: **anonymise** if they have any posting (identity columns cleared, contact tombstoned, documents / addresses / nominee and their Cloudinary assets deleted — `accountNo`, the account and every `Transaction` and `Loan` untouched), **delete** outright if they have none. The route counts references and decides; the caller does not choose. Refuses **409** while a loan or a guarantee is unsettled, **400** unless the caller echoes the member's own `accountNo`. Writes the revoke-all marker in the same transaction, and an audit row naming the account number, the counts and the admin's reason — never what it erased. Here rather than in Go because it must delete the Cloudinary assets; the *rejected-applicant* half of FR-23 is a Go background sweep instead | admin member detail screen |
-
-**Five handlers were removed** once it was clear none had a caller: two that
-mutated balances from Next (against [ADR-001](decisions.md)), one of which also
-wrote a display name into `processedBy` — a foreign key to `users.id`, so every
-call 500'd — and three superseded by the Go routes of the same name. If you are
-about to add a balance write here, the answer is Go.
+| GET·POST | `/api/v1/registrations` | availability check · submit. Throttled: GET 20/10 min (SEC-08), POST 5/15 min per address | register page |
+| POST | `/api/v1/auth/login` | legacy login proxy to Go | login page |
+| GET·PUT | `/api/v1/settings` | `system_config`. GET needs no token and answers in tiers — public / member / worker (+content keys) / admin. PUT is gated **by key**: admins write any declared key, workers only `CONTENT_CONFIG_KEYS` (403 otherwise, all-or-nothing). Browser reads go through `lib/settings-client.ts` | login, settings screens, member loans, `lib/documents/org-settings.ts` |
+| GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | Content & Media |
+| POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker accounts (no `role` field) | admin workers |
+| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes an amount | member transactions |
+| GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to Go support — **allow-list** (`config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, per method); mutations 60/min per member address ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
+| POST | `/api/v1/loans/applications` | member loan application | `loan-application-form.tsx` |
+| POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/declines | `guarantor-requests.tsx` |
+| GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branches; DELETE deactivates when anyone is attached | admin branches, approval branch picker |
+| GET | `/api/v1/admin/audit-logs` | **FR-24.** Filters `q` (details, action, and ids resolved from account/application/loan/receipt numbers and names), `category`, `severity`, `action`, `from`, `to`, `includeNoise`, `page`, `limit` (≤100, default 20). Numbered pages with a **bounded** count (ceiling 2,000 → `100+`). Resolves subjects and actors per entity type; hides noise unless asked | admin audit screen |
+| GET·POST | `/api/v1/admin/retention` | **FR-25, [ADR-038](decisions.md).** POST (admins): `{ userId }` erases one refused application's photos; `{}` sweeps all and expires audit rows. GET: the nightly Vercel Cron, `CRON_SECRET` only — no signed-in role. Deletes by folder prefix | approvals screen; Vercel Cron |
+| POST | `/api/v1/admin/members/{id}/refile-documents` | **[ADR-040](decisions.md).** Move an admitted member's documents into `people/<accountNo>`; idempotent, 409 if not approved | approvals screen; the nightly sweep |
+| POST | `/api/v1/admin/members/{id}/reset-password` | **[ADR-036](decisions.md).** Staff-assisted reset for members (no email path); account number echoed back; revokes every session in the same transaction; password shown once | member detail screen |
+| POST | `/api/v1/admin/members/{id}/erase` | **FR-23, [ADR-033](decisions.md).** Anonymise (any posting) or delete (none) — counted, not chosen; 409 with an unsettled loan or guarantee; 400 unless the `accountNo` is echoed; revoke-all in the same transaction; deletes the Cloudinary assets | member detail screen |
 
 ## Adding an endpoint
 
-Changes a balance → Go: route in `main.go`, HTTP shape in `dashboard_handler.go`, SQL + rules in the matching `internal/repositories/*_repository.go`, wrapped in a transaction, with an `audit_logs` append. Otherwise a Next route handler is fine. Either way, document it here in the same commit.
+Changes a balance → Go (route in `main.go`, handler in `dashboard_handler.go`, SQL in the matching repository, one transaction with an `audit_logs` row). Otherwise a Next route handler. Document it here in the same commit.
 
 ## Smoke test
 
 ```bash
 curl -s localhost:8081/v1/health
-curl -s -X POST localhost:8081/v1/auth/login \
-  -H 'Content-Type: application/json' \
+curl -s -X POST localhost:8081/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"identifier":"admin@hasnahena.local","password":"<admin-password>"}'
 ```

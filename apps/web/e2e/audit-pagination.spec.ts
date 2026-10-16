@@ -10,20 +10,8 @@ import {
 } from "./fixtures/accounts";
 
 /**
- * Numbered pages on the audit trail — the owner's request, 2026-09-02:
- * "I want for many data like this 1 2 3...10 like this to make a big jump".
- *
- * Prev/Next reached page 7 in seven presses. The obstacle was that numbered
- * pages need a total, and this route was deliberately built without a
- * `COUNT(*)` — it scanned every matching row on every keystroke of the search
- * box, against a database that bills for being awake (ADR-035), to render the
- * word "of". The count is bounded now: it stops at a ceiling, so it is O(cap)
- * rather than O(table) and cannot grow back into that scan however long the
- * trail gets — and the trail only grows, because `audit_logs` is append-only.
- *
- * This asserts the part that is not visible in the route: that the numbers are
- * really there, that pressing one *moves* rather than appending, and that the
- * jump lands where it says.
+ * Numbered pages on the audit trail (bounded count, ADR-035): the numbers are
+ * there, a press MOVES rather than appends, and a jump lands where it says.
  */
 
 const MARKER = "e2e-pagination-fixture";
@@ -38,18 +26,8 @@ test.describe("the audit trail pages", () => {
     assertDisposableDatabase();
 
     /*
-     * Clear this fixture's own rows first, then re-seed.
-     *
-     * Two runs otherwise **interleave**: each seeds 45 rows ending at `now`, so
-     * a second run minutes later lands its timestamps in among the first run's,
-     * and "row 041 is on page 3" stops being true for reasons that have nothing
-     * to do with the pager. A test whose fixture depends on how long ago it last
-     * ran is a test that fails on a Monday.
-     *
-     * `audit_logs` refuses DELETE unless a transaction opts in (DATA-08); that
-     * hatch exists for resetting a test environment, which is exactly this, and
-     * `SET LOCAL` scopes the permission to this transaction and this connection
-     * so it cannot leak to a neighbouring pooled query.
+     * Clear this fixture's own rows first (runs would otherwise interleave),
+     * opting in to audit deletes via SET LOCAL (DATA-08).
      */
     await db().$transaction(async (tx) => {
       await tx.$executeRawUnsafe(

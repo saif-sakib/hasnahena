@@ -20,18 +20,9 @@ import { useDashboardRole } from "@/components/dashboard/role";
 import { localePath } from "@/lib/locale-path";
 
 /**
- * The staff overview — one screen for both dashboards.
- *
- * It carries no navigation of its own. It used to duplicate the sidebar as a
- * grid of "Action Center" cards below `lg`, on the reasoning that the sidebar is
- * a drawer on a phone — but the drawer is one tap behind the hamburger in
- * `dashboard-layout.tsx`, so the cards were a second copy of the same list
- * pushing the numbers below the fold. The queue banner above stays: it is not a
- * link list, it is the one thing a member of staff needs to know on arrival.
- *
- * The numbers differ by role because the endpoints do. `/dashboard/admin` is the
- * whole foundation; `/dashboard/worker` is what this worker did today. Both are
- * read through the same normaliser so the tiles below do not care which arrived.
+ * The staff overview for both dashboards: the queue banner and the numbers
+ * (admin = the foundation, worker = their day), via one normaliser. No
+ * navigation of its own — the sidebar is the navigation.
  */
 
 interface StatCardProps {
@@ -43,9 +34,7 @@ interface StatCardProps {
   alert?: boolean;
 }
 
-// Module scope, not the component body: declared inside, React saw a new
-// component *type* on every render and remounted all four cards whenever any
-// state changed, throwing away the transitions mid-flight.
+// Module scope, or every render remounts the cards.
 const StatCard = ({
   title,
   value,
@@ -323,13 +312,7 @@ export default function OverviewScreen() {
         )}
       </div>
 
-      {/* **Not the audit trail** — see `dashboard/admin/audit` for that.
-          This is a `UNION` over `users`, `loans` and `transactions` that
-          *reconstructs* the last few events from current state, so it can only
-          show things that left a row behind: never a sign-in, a password reset,
-          a member erasure, a branch closure, a lockout or a ledger drift. It is
-          a summary on the way past, and the link at the bottom goes to the
-          record. Admin only, because it is the whole foundation's activity. */}
+      {/* Recent activity — NOT the audit trail: a reconstruction from current state. Admin only. */}
       {isAdmin && (
         <div className="bg-white border border-neutral-200/60 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-6 py-4 border-b border-neutral-100/80">
@@ -377,9 +360,7 @@ export default function OverviewScreen() {
               </div>
             )}
           </div>
-          {/* The way from the summary to the record. Without it the audit log is
-              a sidebar entry an admin has to already know exists, and this card
-              looks like the whole story. */}
+          {/* The link from the summary to the real record. */}
           <Link
             href={`${basePath}/audit`}
             className="flex items-center justify-between px-6 py-3.5 border-t border-neutral-100/80 text-sm font-medium text-neutral-600 hover:bg-neutral-50/50 transition-colors"

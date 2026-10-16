@@ -27,8 +27,7 @@ type DashboardHandler struct {
 	emailService    *services.EmailService
 	userRepo        *repositories.UserRepository
 
-	// Closed when the process starts shutting down, so open SSE streams end at
-	// once instead of eating the whole drain window. See BeginShutdown.
+	// Closed on shutdown so SSE streams end at once. See BeginShutdown.
 	shutdown     chan struct{}
 	shutdownOnce sync.Once
 }
@@ -48,24 +47,14 @@ func NewDashboardHandler(authService *services.AuthService, securityService *ser
 	}
 }
 
-// BeginShutdown ends every open SSE stream.
-//
-// http.Server.Shutdown waits for connections to go idle, and an SSE connection
-// by design never does — without this a deploy would sit out the full drain
-// timeout and then cut the streams anyway. It deliberately does not touch
-// ordinary requests: those are allowed to finish, which is the whole point of
-// a graceful shutdown on a service that moves money (RUN-02).
+// BeginShutdown ends every open SSE stream, which would otherwise never go
+// idle and eat the drain window. Ordinary requests still finish (RUN-02).
 func (h *DashboardHandler) BeginShutdown() {
 	h.shutdownOnce.Do(func() { close(h.shutdown) })
 }
 
-// generateFirstLoginSecret is the value behind the first-login marker.
-//
-// It carries no "first-login-" prefix any more: the purpose is a `scope` column
-// and the secret itself is stored hashed (WO-86). Nothing ever presents this
-// value — the marker's *existence* is what `mustChangePassword` reads — but it
-// is generated from crypto/rand all the same, because a row keyed on something
-// guessable is a row somebody can plant.
+// generateFirstLoginSecret backs the first-login marker. Only the marker's
+// existence matters, but it is random so the row cannot be planted (WO-86).
 func generateFirstLoginSecret() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
@@ -74,18 +63,14 @@ func generateFirstLoginSecret() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// tempPasswordAlphabet omits I, l, 1, O and 0 — a temporary password is read
-// aloud down a phone line when email delivery fails, and those five are the
-// pairs that get misheard.
+// tempPasswordAlphabet omits I, l, 1, O and 0 — passwords get read aloud.
 const tempPasswordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
 
 func generateTempPassword() (string, error) {
 	return utils.RandomString(12, tempPasswordAlphabet)
 }
 
-// generateNumericCode issues the password-change verification code. Uniform per
-// digit: see utils.RandomString for why `%10` over a random byte was not
-// (WO-65).
+// generateNumericCode issues the password-change code, uniform per digit (WO-65).
 func generateNumericCode(length int) (string, error) {
 	if length <= 0 {
 		return "", errors.New("invalid code length")
@@ -298,13 +283,6 @@ func (h *DashboardHandler) MemberCreateDepositRequest(w http.ResponseWriter, r *
 	})
 }
 
-// A member used to file their own withdrawal notice here — POST
-// /member/requests/withdrawal, which started the FR-08 clock. The route and its
-// repository method are gone (ADR-030): a member asks a field worker, and staff
-// pay at the desk. `loan.noticePeriodDays` is what the foundation asks for
-// rather than what this code enforces, and it is published on the member's
-// savings screen and in the FAQ.
-
 func (h *DashboardHandler) MemberCreateLoanRepaymentRequest(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "MEMBER")
 	if !ok {
@@ -468,10 +446,7 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Validate the request before reporting on the mail service. The other
-	// order answered 503 "Email service is not configured" to a caller who had
-	// sent an empty body — true, but not the thing they needed to hear, and it
-	// hid every request defect behind an environment one (TEST-18).
+	// Validate the request before reporting a missing mail service (TEST-18).
 	if h.emailService == nil || !h.emailService.IsConfigured() {
 		utils.Error(w, http.StatusServiceUnavailable, "EMAIL_NOT_CONFIGURED", "Email service is not configured. Set BREVO_API_KEY and EMAIL_FROM on backend deployment")
 		return
@@ -488,11 +463,8 @@ func (h *DashboardHandler) SendWorkerWelcomeEmail(w http.ResponseWriter, r *http
 	})
 }
 
-// authFromRequest resolves the caller from the Authorization header, and only
-// from there — an access token is never accepted in the query string, because
-// query strings leak into proxy logs, CDN logs and Referer headers (SEC-05).
-// EventSource cannot set headers, so the SSE stream uses a short-lived
-// single-purpose ticket instead; see streamAuthFromRequest.
+// authFromRequest resolves the caller from the Authorization header only —
+// never the query string, which leaks into logs (SEC-05). SSE uses a ticket.
 func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error) {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authHeader == "" || !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
@@ -500,8 +472,7 @@ func (h *DashboardHandler) authFromRequest(r *http.Request) (*authContext, error
 	}
 
 	tokenString := strings.TrimSpace(authHeader[7:])
-	// ValidateToken, not ParseAccessToken: this is the choke point where a
-	// logged-out or password-changed token has to stop being accepted (SEC-01).
+	// ValidateToken (not Parse): revoked tokens must stop here (SEC-01).
 	claims, err := h.authService.ValidateToken(r.Context(), tokenString)
 	if err != nil {
 		return nil, err
@@ -544,8 +515,7 @@ func (h *DashboardHandler) verifyActiveRole(ctx context.Context, userID string, 
 		return nil, errors.New("role mismatch")
 	}
 
-	// Every authenticated route funnels through here, so this is the one place
-	// that has to tell the access log who the caller is (RUN-04).
+	// Tells the access log who the caller is (RUN-04).
 	appmw.SetRequestUserID(ctx, userID)
 
 	return &authContext{
@@ -588,10 +558,7 @@ func (h *DashboardHandler) requireRoles(w http.ResponseWriter, r *http.Request, 
 	return auth, true
 }
 
-// RequireRoles is the router-level form of requireRoles. Mounting a route group
-// behind it means a handler is protected by where it is mounted rather than by
-// the author remembering to add a check (SEC-02). Handlers keep their own
-// requireRoles call as defence in depth.
+// RequireRoles is the router-level form of requireRoles (SEC-02).
 func (h *DashboardHandler) RequireRoles(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -625,11 +592,7 @@ func (h *DashboardHandler) UpdateMemberStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	var req struct {
-		// The member's row id, not their account number: UpdateUserStatus
-		// matches on `users.id`. It has been called `memberUserId` on the wire
-		// since before the account-number rename, and stays that way — no
-		// screen in this repository calls this endpoint, so a wire rename
-		// would only break whatever does.
+		// users.id, not the account number; wire name kept for compatibility.
 		MemberID string `json:"memberId"`
 		Status   string `json:"status"`
 		Reason   string `json:"reason"`
@@ -681,9 +644,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		UserID string `json:"userId"`
 		Notes  string `json:"notes"`
 		Locale string `json:"locale"`
-		// The office the admin is admitting them to. Optional — a foundation
-		// that has not set its branches up yet must still be able to admit
-		// members, and "no office yet" is a state the member list already shows.
+		// Optional: a foundation without branches must still admit members.
 		BranchID string `json:"branchId"`
 	}
 	if err := utils.ParseJSON(r, &req); err != nil {
@@ -719,17 +680,11 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// The account number comes back from the approval rather than from
-	// `candidate`, which was read before it existed: an application has no
-	// account number, and admitting the member is what allocates one. Reading it
-	// from the earlier snapshot would put an empty string into the approval email
-	// — the one message that tells a member the number they will be asked for
-	// every time they walk into the office.
+	// The account number is allocated by the approval, so it comes from here,
+	// not from `candidate`.
 	accountNo, err := h.userRepo.ApproveRegistration(r.Context(), req.UserID, userID, req.Notes, string(passwordHashBytes), firstLoginToken, req.BranchID)
 	if err != nil {
-		// An office that does not exist or has been closed is the admin picking
-		// from a stale list, not a fault (rule 2b). Reported as such, so the
-		// screen can say which half of the request was wrong.
+		// A stale branch pick is an answer, not a fault (rule 2b).
 		if errors.Is(err, repositories.ErrBranchNotAssignable) {
 			utils.Error(w, http.StatusBadRequest, "BRANCH_NOT_AVAILABLE", "That office is not available. Refresh and choose another.")
 			return
@@ -739,12 +694,7 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// The applicant's own language, falling back to the admin's only for
-	// applications filed before it was recorded. `req.Locale` is the *admin's*
-	// dashboard locale, and using it alone meant a Bengali applicant approved by
-	// an English-speaking admin received the single most important email the
-	// foundation sends — the one carrying their temporary password — in a
-	// language they may not read.
+	// The applicant's language; the admin's req.Locale only as a fallback.
 	emailLocale := strings.TrimSpace(candidate.PreferredLocale)
 	if emailLocale == "" {
 		emailLocale = req.Locale
@@ -768,26 +718,9 @@ func (h *DashboardHandler) ApproveRegistration(w http.ResponseWriter, r *http.Re
 		"message":        "Registration approved successfully",
 		"emailDelivered": emailDelivered,
 		"deliveryError":  deliveryError,
-		// **The temporary password is deliberately not here.** It is generated,
-		// hashed, emailed if there is an address, and then forgotten.
-		//
-		// It used to be returned and displayed on the approvals screen, on the
-		// reasoning that most members of this cooperative have no email address
-		// (ADR-036) so the screen was the only delivery. That put a working
-		// credential for a brand-new account onto a shared office screen at the
-		// moment an admin is looking at a queue, in a response body that every
-		// proxy and browser cache between here and there can hold — for an
-		// account whose owner is usually not in the room.
-		//
-		// The member with no email gets one on purpose instead, from
-		// `POST /api/v1/admin/members/{id}/reset-password` — the staff-assisted
-		// reset (ADR-036), which an admin runs from that member's own page when
-		// they are actually there to be told. Same secret, issued deliberately,
-		// on a screen that is about one person.
-		//
-		// `accountNo` stays: it is not a credential, it is the member's name at
-		// the counter for the rest of their membership, this is the moment it is
-		// allocated, and nothing else shows it to the admin who just admitted them.
+		// The temporary password is deliberately NOT returned: a credential on
+		// a shared office screen. Members without email get one through the
+		// staff-assisted reset (ADR-036).
 		"accountNo": accountNo,
 	})
 }
@@ -814,11 +747,7 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// A reason is now required, and it has to be one of the codes the admin's
-	// picker offers. The screen used to post `reason: ''` — hardcoded, with no
-	// control to change it — so FR-05's "reject with reason" was never met: the
-	// audit row's details column was the empty string and nobody, including the
-	// applicant, could ever learn why.
+	// A reason code from the admin's picker is required (FR-05).
 	reasonCode := strings.ToUpper(strings.TrimSpace(req.ReasonCode))
 	if !isRejectionReasonCode(reasonCode) {
 		utils.Error(w, http.StatusBadRequest, "INVALID_REJECTION_REASON",
@@ -832,8 +761,6 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 			fmt.Sprintf("The note must be %d characters or fewer", rejectionNoteMaxLength))
 		return
 	}
-	// "Other" carries no sentence of its own, so a rejection reading only
-	// "other reason" would tell the applicant nothing at all.
 	if reasonCode == rejectionReasonOther && reasonNote == "" {
 		utils.Error(w, http.StatusBadRequest, "REJECTION_NOTE_REQUIRED",
 			"Describe the reason when choosing Other")
@@ -842,9 +769,7 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 
 	applicant, err := h.userRepo.RejectRegistration(r.Context(), req.UserID, userID, reasonCode, reasonNote)
 	if err != nil {
-		// errors.Is against a sentinel, not strings.Contains over the message
-		// (rule 2b). An application somebody else has already decided is an
-		// answer, not a fault.
+		// Already decided by someone else: an answer, not a fault (rule 2b).
 		if errors.Is(err, repositories.ErrRegistrationNotPending) {
 			utils.Error(w, http.StatusConflict, "REGISTRATION_NOT_PENDING",
 				"This application is no longer pending — it may already have been decided")
@@ -855,17 +780,13 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// The applicant's own language, falling back to the admin's only for
-	// applications filed before it was recorded. The approval mail had the same
-	// defect: a Bengali applicant approved by an admin working in English was
-	// sent their temporary password in English.
+	// The applicant's language; the admin's only as a fallback.
 	locale := strings.TrimSpace(applicant.Locale)
 	if locale == "" {
 		locale = req.Locale
 	}
 
-	// Delivery is reported, never fatal. The rejection is committed; an admin
-	// whose email did not go out needs to know they must telephone instead.
+	// Delivery is reported, never fatal — the admin must phone instead.
 	emailDelivered := false
 	deliveryError := ""
 	switch {
@@ -891,10 +812,8 @@ func (h *DashboardHandler) RejectRegistration(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// The rejection reason vocabulary, matching apps/web/lib/rejection-reasons.ts.
-// `rejection-reasons.test.ts` reads both files and fails when they drift: a code
-// the admin's picker offers that this list rejects is a 400 on a button that
-// looks like it should work.
+// Rejection reason codes; must match apps/web/lib/rejection-reasons.ts
+// (rejection-reasons.test.ts).
 const rejectionReasonOther = "OTHER"
 
 const rejectionNoteMaxLength = 400
@@ -1080,9 +999,7 @@ func (h *DashboardHandler) AdminDeposits(w http.ResponseWriter, r *http.Request)
 
 	filters := map[string]interface{}{
 		"type": r.URL.Query().Get("type"),
-		// "all" widens the answer from savings movements to every posting type,
-		// which is what the transactions screen shows. Anything else keeps the
-		// DEPOSIT/WITHDRAWAL default.
+		// "all" widens savings movements to every posting type.
 		"types":  r.URL.Query().Get("types"),
 		"search": r.URL.Query().Get("search"),
 		"page":   r.URL.Query().Get("page"),
@@ -1164,10 +1081,7 @@ func (h *DashboardHandler) MarkLoanDefaulted(w http.ResponseWriter, r *http.Requ
 		case errors.Is(err, repositories.ErrLoanNotFound):
 			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "No loan with that id")
 		case errors.Is(err, repositories.ErrLoanNotDefaultable):
-			// 409, not 400: the request was well-formed, the loan is simply not
-			// in a state where defaulting it means anything. Most often this is
-			// a second click on a loan already defaulted — which used to re-run
-			// the recovery waterfall and take the money twice.
+			// 409: usually a second click; re-running the waterfall took money twice.
 			utils.Error(w, http.StatusConflict, "LOAN_NOT_DEFAULTABLE", err.Error())
 		default:
 			slog.Error("mark loan defaulted failed", "loanId", req.LoanID, "error", err)
@@ -1222,9 +1136,7 @@ func (h *DashboardHandler) RecordDonation(w http.ResponseWriter, r *http.Request
 	receiptNumber, err := h.userRepo.RecordDonation(r.Context(), auth.UserID, req.Amount, strings.TrimSpace(req.DonorName), strings.TrimSpace(req.Notes))
 	if err != nil {
 		if errors.Is(err, repositories.ErrDonationPoolMissing) {
-			// A deployment fault, not the caller's. 503 and the actual cause,
-			// because "Failed to record donation" gave whoever was standing at
-			// the counter nothing to do next.
+			// A deployment fault, not the caller's.
 			utils.Error(w, http.StatusServiceUnavailable, "DONATION_POOL_MISSING", err.Error())
 			return
 		}
@@ -1333,9 +1245,7 @@ func (h *DashboardHandler) UpdateProfile(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.userRepo.UpdateProfile(r.Context(), auth.UserID, req); err != nil {
-		// A phone or email already on another account is the caller's mistake
-		// and is fixable by them; answering 500 told them the server was
-		// broken and gave them nothing to correct (TEST-15).
+		// Fixable by the caller, so not a 500 (TEST-15).
 		if errors.Is(err, repositories.ErrDuplicateContact) {
 			utils.Error(w, http.StatusConflict, "CONTACT_ALREADY_IN_USE",
 				"That phone number or email address is already registered to another account")
@@ -1380,25 +1290,13 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Invalidate all user tokens (force re-login on all devices).
-	//
-	// Checked, but not fatal: the password has already changed by this point, so
-	// answering an error would tell the member their change failed when it did
-	// not. What a silent failure *does* mean is that a session on another device
-	// — including one an attacker holds, which is the usual reason to change a
-	// password — stays valid. That has to be visible in the logs.
+	// Revoke every session. Logged, not fatal: the password has already changed.
 	if err := h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change"); err != nil {
 		slog.Error("password changed but existing sessions were not revoked", "userId", auth.UserID, "error", err)
 	}
 
-	// Create audit log
-	// The address the whole process agrees on, not the leftmost header entry —
-	// which the caller writes, and which is stored here as evidence (WO-60).
 	userIP := appmw.RequestClientIP(r)
-	// Checked: an audit row that silently fails to write is a rule-6 problem —
-	// the log is the only record that this account's password was changed, and
-	// by whom. The write cannot be undone here (the password has changed), so it
-	// is logged loudly rather than returned.
+	// Audit write failure is logged loudly rather than returned (rule 6).
 	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE",
 		EntityType: "USER",
@@ -1472,9 +1370,7 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		return
 	}
 
-	// The user id is the scope, not part of the secret. Six digits hashed on
-	// their own would collide across members under the (scope, tokenHash)
-	// unique index the moment two of them were sent the same code.
+	// The user id is the scope, so equal codes cannot collide across members.
 	scope := repositories.PasswordChangeScope(auth.UserID)
 	if err := h.userRepo.DeleteResetTokensByScope(r.Context(), scope); err != nil {
 		utils.Error(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to prepare verification code")
@@ -1500,13 +1396,8 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 		return
 	}
 
-	// The address the whole process agrees on, not the leftmost header entry —
-	// which the caller writes, and which is stored here as evidence (WO-60).
 	userIP := appmw.RequestClientIP(r)
-	// Checked: an audit row that silently fails to write is a rule-6 problem —
-	// the log is the only record that this account's password was changed, and
-	// by whom. The write cannot be undone here (the password has changed), so it
-	// is logged loudly rather than returned.
+	// Audit write failure is logged loudly rather than returned (rule 6).
 	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE_CODE_SENT",
 		EntityType: "USER",
@@ -1624,25 +1515,13 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	}
 	_ = h.userRepo.DeleteResetTokensByScope(r.Context(), scope)
 
-	// Invalidate all user tokens (force re-login on all devices).
-	//
-	// Checked, but not fatal: the password has already changed by this point, so
-	// answering an error would tell the member their change failed when it did
-	// not. What a silent failure *does* mean is that a session on another device
-	// — including one an attacker holds, which is the usual reason to change a
-	// password — stays valid. That has to be visible in the logs.
+	// Revoke every session. Logged, not fatal: the password has already changed.
 	if err := h.authService.InvalidateAllUserTokens(r.Context(), auth.UserID, "password_change"); err != nil {
 		slog.Error("password changed but existing sessions were not revoked", "userId", auth.UserID, "error", err)
 	}
 
-	// Create audit log
-	// The address the whole process agrees on, not the leftmost header entry —
-	// which the caller writes, and which is stored here as evidence (WO-60).
 	userIP := appmw.RequestClientIP(r)
-	// Checked: an audit row that silently fails to write is a rule-6 problem —
-	// the log is the only record that this account's password was changed, and
-	// by whom. The write cannot be undone here (the password has changed), so it
-	// is logged loudly rather than returned.
+	// Audit write failure is logged loudly rather than returned (rule 6).
 	if err := h.securityService.CreateAuditLog(r.Context(), services.AuditLogEntry{
 		Action:     "PASSWORD_CHANGE",
 		EntityType: "USER",
@@ -1787,29 +1666,15 @@ func (h *DashboardHandler) SupportMarkProcessed(w http.ResponseWriter, r *http.R
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Support thread marked processed"})
 }
 
-// sseTicketTTL is how long an issued stream ticket stays usable. Short enough
-// that a ticket captured from a log or Referer header is already dead, long
-// enough for the browser to open the EventSource it was issued for.
+// sseTicketTTL: dead by the time a leaked ticket is found, long enough to connect.
 const sseTicketTTL = 60 * time.Second
 
-// supportStreamHeartbeat is how often an idle stream writes a comment line so
-// that everything between this process and the member can tell it is alive.
-//
-// Twenty seconds is chosen against the shortest idle timeout on the path rather
-// than against any preference of ours: Render's proxy and most middleboxes cut
-// an idle connection somewhere between 30 and 120 seconds, and a heartbeat is
-// only useful strictly under the smallest of them. It is not a poll — nothing
-// is read, nothing is queried, and EventSource discards the line.
+// supportStreamHeartbeat must stay under the shortest proxy idle timeout on
+// the path (Render cuts at 30–120s). A comment line; no query.
 const supportStreamHeartbeat = 20 * time.Second
 
-// SupportStreamTicket issues a single-purpose credential for the SSE stream.
-//
-// EventSource cannot send an Authorization header, so the stream needs a
-// credential that survives being in the URL. This is that credential: it is
-// good for one purpose, for sseTicketTTL, and it is not an access token — a
-// leaked ticket cannot be replayed against any other endpoint (SEC-05).
-// Clients fetch a fresh ticket immediately before each connect, including
-// reconnects.
+// SupportStreamTicket issues a short-lived, single-purpose SSE credential —
+// EventSource cannot send headers, and a ticket is useless elsewhere (SEC-05).
 func (h *DashboardHandler) SupportStreamTicket(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireAuthenticated(w, r)
 	if !ok {
@@ -1842,10 +1707,8 @@ func hashSSETicket(ticket string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// streamAuthFromRequest authenticates an SSE connection: an Authorization
-// header when the caller can set one (the Next proxy can), otherwise a stream
-// ticket from the query string. A full access token in the query string is
-// never accepted.
+// streamAuthFromRequest: Authorization header, else a stream ticket. Never a
+// full access token in the query string.
 func (h *DashboardHandler) streamAuthFromRequest(w http.ResponseWriter, r *http.Request) (*authContext, bool) {
 	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
 		return h.requireAuthenticated(w, r)
@@ -1889,10 +1752,7 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// The server sets a WriteTimeout for every other route; this one has to opt
-	// out of it or the stream would be cut mid-conversation. An error here just
-	// means the deadline stays, which degrades to a periodically dropped stream
-	// rather than a broken one, so it is not worth failing the request over.
+	// Opt out of the server's WriteTimeout; failure only means periodic drops.
 	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
 		slog.Warn("support stream could not clear its write deadline", "error", err)
 	}
@@ -1905,18 +1765,8 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	// A stream that says nothing looks dead to everything between here and the
-	// member. This one only writes when the message count *changes*, so a quiet
-	// conversation transmits nothing at all after the first event — and an
-	// intermediary that has not seen a byte for its idle timeout closes the
-	// connection. Which is how a normal chat became `failed to pipe response` in
-	// the web app's error tracker, once per drop, for a connection the browser
-	// then reconnected.
-	//
-	// A comment line is the SSE-native way to say "still here": EventSource
-	// ignores it, so it costs the client nothing, and unlike the poll above it
-	// touches no database — the idle cost of this process is a line item
-	// ([ADR-035](../../../../docs/decisions.md)).
+	// Heartbeat: the stream only writes on change, and a silent connection is
+	// closed by intermediaries (`failed to pipe response`). Touches no DB (ADR-035).
 	heartbeat := time.NewTicker(supportStreamHeartbeat)
 	defer heartbeat.Stop()
 
@@ -1945,9 +1795,7 @@ func (h *DashboardHandler) SupportStream(w http.ResponseWriter, r *http.Request)
 		case <-h.shutdown:
 			return
 		case <-heartbeat.C:
-			// The write error is read here and nowhere else in this handler,
-			// deliberately: it is the cheapest notice that the far end is gone
-			// on a stream whose only other write is conditional.
+			// The only place a gone client is noticed on this stream.
 			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
 				return
 			}
@@ -2021,19 +1869,6 @@ func (h *DashboardHandler) WorkerProfile(w http.ResponseWriter, r *http.Request)
 
 	utils.Success(w, http.StatusOK, data)
 }
-
-// ProcessDeposit and ProcessWithdrawal were removed 2026-08-17 (WO-41), along
-// with POST /v1/dashboard/worker/{deposit,withdrawal}.
-//
-// ProcessDeposit duplicated WorkerAddDeposit without the audit row or the
-// sequential receipt number. ProcessWithdrawal was worse: it parsed the request
-// and then answered `{"message":"Withdrawal processed successfully"}` having
-// moved nothing and recorded nothing — a handler that reports success for work
-// it never did is the failure mode a reconciliation job exists to catch.
-//
-// Neither had a client. The worker UI posts to
-// /v1/dashboard/worker/members/{memberUserId}/{deposit,withdrawal}, which is
-// WorkerAddDeposit / WorkerAddWithdrawal below.
 
 // WorkerMemberDetail returns detailed information about a specific member
 func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Request) {
@@ -2145,11 +1980,7 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 
 	receipt, err := h.userRepo.AddMemberWithdrawal(r.Context(), memberUserId, auth.UserID, req.Amount, req.Notes)
 	if err != nil {
-		// Matched on sentinels, in a switch, so the order cannot silently
-		// decide the answer. The substring version that used to be here tested
-		// "active loan" before "guarantor", and "is guarantor for active loan"
-		// contains "active loan" — so a guarantor was told they had a loan of
-		// their own.
+		// Sentinels in a switch, so match order cannot pick the wrong answer.
 		switch {
 		case errors.Is(err, repositories.ErrMemberNotFound):
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
@@ -2163,10 +1994,6 @@ func (h *DashboardHandler) WorkerAddWithdrawal(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, repositories.ErrActiveLoanBlocksWithdrawal):
 			utils.Error(w, http.StatusBadRequest, "WITHDRAWAL_BLOCKED",
 				"This member has an active loan. Enable loan.allowActiveLoanWithdrawal in settings to permit it")
-		// The two FR-08 refusals that used to live here — no notice on file, and
-		// a notice not yet matured — are gone with the gate itself (ADR-030).
-		// The refusals that remain are all about the member's own position:
-		// suspended, overdrawn, or holding savings locked by a guarantee.
 		default:
 			slog.Error("add member withdrawal failed", "memberUserId", memberUserId, "error", err)
 			utils.Error(w, http.StatusInternalServerError, "WITHDRAWAL_FAILED", "Failed to process withdrawal")
@@ -2258,13 +2085,8 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// WorkerAddLoanTopUp adds principal to a loan that is already running.
-//
-// Staff-initiated, like a disbursement and unlike a repayment request: the
-// money is handed over at the desk, so there is nothing for the member to
-// confirm afterwards. The refusals are all sentinels — a finished loan and a
-// member at their borrowing ceiling are answers, not faults (rule 2b), and the
-// ceiling message carries the two figures the member will ask about.
+// WorkerAddLoanTopUp adds principal to a running loan. Staff-initiated, so no
+// member confirmation; refusals are sentinels (rule 2b).
 func (h *DashboardHandler) WorkerAddLoanTopUp(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireRoles(w, r, "WORKER", "ADMIN", "SUPER_ADMIN")
 	if !ok {
@@ -2313,9 +2135,7 @@ func (h *DashboardHandler) WorkerAddLoanTopUp(w http.ResponseWriter, r *http.Req
 			utils.Error(w, http.StatusConflict, "LOAN_NOT_ACTIVE",
 				"Only an active loan can be increased. A completed or defaulted loan needs a new application")
 		case errors.Is(err, repositories.ErrTopUpExceedsLimit):
-			// err.Error() carries the ceiling, the savings it is derived from
-			// and what the member would owe. Discarding it would leave staff
-			// with "not allowed" and no number to act on.
+			// The message carries the ceiling figures staff need.
 			utils.Error(w, http.StatusConflict, "TOPUP_EXCEEDS_LIMIT", err.Error())
 		default:
 			slog.Error("loan top-up failed", "memberUserId", memberUserId, "loanId", req.LoanId, "error", err)
@@ -2378,9 +2198,7 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "This loan is not active")
 			return
 		}
-		// errors.Is, not a substring: this now also arrives when two payments
-		// race and the second loses, where the message is the same but the
-		// cause is a concurrent posting rather than a mistyped amount.
+		// Also fires when two payments race and the second loses.
 		if errors.Is(err, repositories.ErrRepaymentExceedsBalance) || strings.Contains(err.Error(), "exceeds remaining") {
 			utils.Error(w, http.StatusConflict, "EXCEEDS_REMAINING", "Payment amount exceeds the remaining loan balance")
 			return

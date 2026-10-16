@@ -1,31 +1,7 @@
 //go:build integration
 
-// The HTTP answers a withdrawal gives.
-//
-// This file was written for a defect reported as "admin member withdrawal is
-// not working". It was working, in the sense that it refused correctly — what
-// it did not do was say so. `WorkerAddWithdrawal` classified the repository's
-// errors by `strings.Contains` over the message, and the two FR-08 refusals
-// matched no branch at all, so both arrived as:
-//
-//	500  WITHDRAWAL_FAILED  "Failed to process withdrawal"
-//
-// The single most common outcome of that screen was indistinguishable from the
-// server having crashed. The substring matching also mis-ordered two branches it
-// did match: "is guarantor for active loan" contains "active loan", and the
-// active-loan case was tested first, so a guarantor was told they had a loan of
-// their own.
-//
-// ADR-030 has since deleted the two FR-08 refusals themselves: a payout needs
-// no notice and waits out no period. So the cases here changed shape — what
-// used to be "the refusal must be a 409 and not a 500" is now "there must be no
-// refusal at all" — but the reason the file exists did not. These assertions are
-// about status codes and error codes rather than prose, because those are what
-// the browser branches on, and the translation from an error to an answer is
-// where the defect lived.
-//
-// Every identifier is namespaced `wd*`: the Go suites truncate between tests and
-// a fixture that collides with another file's passes or fails on package order.
+// The HTTP answers a withdrawal gives — status and error codes, which the
+// browser branches on (rule 2b, ADR-030). Identifiers are namespaced `wd*`.
 package main
 
 import (
@@ -53,11 +29,7 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 	ctx := context.Background()
 
 	const memberID = "wd-member"
-	// 019111 is this file's phone namespace. The number used to be 01955500001,
-	// which is what `apps/web/test/routes` seeds `nextroute-member` with — so
-	// this fixture failed on users_phone_key whenever the route suite had run
-	// first against the same database, and passed whenever it had not. Every
-	// unique column in a shared-database suite has to be namespaced to it.
+	// 019111 is this file's phone namespace.
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO users (id, phone, email, "passwordHash", role, status,
 		                   "accountNo", "nameEn", "fatherName", "motherName",
@@ -93,11 +65,8 @@ func newWithdrawalFixture(t *testing.T, savings int64) withdrawalFixture {
 	}
 }
 
-// fileWithdrawalRequest inserts an outstanding PENDING withdrawal, backdated by
-// monthsAgo. Under FR-08 this was the member's notice and its age decided
-// whether a payout was allowed; it decides nothing now (ADR-030) and is here
-// only so a case can exercise the settlement path, or show that a request filed
-// today is paid today.
+// fileWithdrawalRequest inserts an outstanding PENDING withdrawal, backdated.
+// It gates nothing (ADR-030); it exercises the settlement path.
 func fileWithdrawalRequest(t *testing.T, memberID string, amount int64, monthsAgo int) string {
 	t.Helper()
 	var id string
@@ -161,7 +130,7 @@ func withdrawalURL(memberID string) string {
 // ADR-030 — the two refusals that used to be 500s, and are now not refusals
 // ---------------------------------------------------------------------------
 
-// Was: 409 WITHDRAWAL_NOTICE_REQUIRED. Before that: 500.
+// No request on file: paid (ADR-030).
 func TestWithdrawalWithNoRequestOnFileIsPaid(t *testing.T) {
 	fixture := newWithdrawalFixture(t, 20000)
 
@@ -231,10 +200,7 @@ func TestAnOldRequestIsSettledRatherThanDuplicated(t *testing.T) {
 	}
 }
 
-// An overdraw is still a refusal, and still not a 500. This is the case that
-// proves the switch below the deleted branches still classifies rather than
-// falling through — with the FR-08 arms removed, an untested `default` would
-// swallow every remaining answer.
+// An overdraw is refused with a 4xx, not a 500.
 func TestAWithdrawalOverTheBalanceIsRefusedNotFailed(t *testing.T) {
 	fixture := newWithdrawalFixture(t, 20000)
 
@@ -282,10 +248,7 @@ func TestAGuarantorIsToldTheyAreAGuarantor(t *testing.T) {
 	if status != http.StatusBadRequest || code != "WITHDRAWAL_BLOCKED" {
 		t.Fatalf("status = %d, code = %q, want 400 WITHDRAWAL_BLOCKED (%q)", status, code, message)
 	}
-	// The substring version answered "Cannot withdraw while having an active
-	// loan" here, because "is guarantor for active loan" contains "active loan".
-	// This member has no loan of their own; being told they do sends them to
-	// look for one.
+	// A guarantor must not be told they have a loan of their own.
 	if !containsAll(message, "guarantee") {
 		t.Errorf("message = %q; a guarantor must be told they are a guarantor, not that they have a loan", message)
 	}

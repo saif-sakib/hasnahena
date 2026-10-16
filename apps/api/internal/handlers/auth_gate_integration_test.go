@@ -1,21 +1,7 @@
 //go:build integration
 
-// TEST-02 / TEST-08 — the HTTP authorization boundary.
-//
-// `internal/handlers` had 0% coverage: 61 methods, none exercised. This file is
-// both the first test of that package and the harness the rest of Phase 3 is
-// meant to build on — a real router, a real database, a real request, and a
-// token minted the same way the login endpoint mints one.
-//
-// The gate being tested is SEC-02's: a route group mounted behind
-// `RequireRoles` is protected by *where it lives*, so a new handler is covered
-// without its author remembering a check. That property is worth a test,
-// because the thing that breaks it is someone mounting a route in the wrong
-// group — which reads as a one-line diff and looks correct.
-//
-//	scripts/test-stack.sh up
-//	eval "$(scripts/test-stack.sh env)"
-//	cd apps/api && go test ./internal/handlers/... -tags=integration -count=1
+// TEST-02 / TEST-08 — the HTTP authorization boundary: a route group behind
+// RequireRoles is protected by where it is mounted (SEC-02).
 
 package handlers
 
@@ -157,11 +143,8 @@ func TestGateRejectsMissingAndMalformedCredentials(t *testing.T) {
 	h := newGate(t)
 	admin := seedUser(t, "ADMIN", "ACTIVE")
 
-	// A *valid* token presented without the scheme. Stronger than a hand-written
-	// token-shaped literal, because it proves the header is parsed rather than
-	// searched: this exact string authenticates when prefixed with "Bearer ".
-	// (It is also minted rather than pasted so no JWT-shaped literal sits in the
-	// source for a secret scanner to flag — see .gitleaks.toml.)
+	// A valid token without the "Bearer " scheme must fail (minted, not pasted,
+	// so no JWT literal trips gitleaks).
 	valid := mintToken(t, admin, "ADMIN", time.Now().Add(time.Hour))
 
 	cases := []struct {
@@ -251,10 +234,7 @@ func TestGateEnforcesRoleSeparation(t *testing.T) {
 }
 
 func TestGateRejectsAnEscalatedRoleClaim(t *testing.T) {
-	// A token is signed, so its claims cannot be edited — but it can be *issued*
-	// with a role the account no longer has, or the account can be demoted while
-	// a token is live. The gate re-reads the role from the database for exactly
-	// this reason; this test is what keeps that lookup from being "optimised" away.
+	// The gate re-reads the role from the database; keep it that way.
 	h := newGate(t)
 	member := seedUser(t, "MEMBER", "ACTIVE")
 

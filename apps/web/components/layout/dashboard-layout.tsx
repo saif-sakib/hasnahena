@@ -153,61 +153,25 @@ function clearAuthState() {
   window.dispatchEvent(new Event("auth-change"));
 }
 
-// A store that never emits. `isHydrated` is not really external state — the
-// only thing that matters is that React uses the server snapshot for the
-// hydration render and the client snapshot afterwards.
+// A store that never emits: server snapshot for hydration, client snapshot after.
 const subscribeToNothing = () => () => {};
 
 /**
- * How often the shell asks the server for something, in milliseconds.
- *
- * WO-74 raised all three from 20 s / 10 s / 7 s, and the 2026-08-27 cost pass
- * raised them again from 60 s. Named rather than inlined because the numbers are
- * the point of that order: at the original values they were about 26 requests a
- * minute per open tab, against a free Render instance and a free Neon compute,
- * for data that changes a few times an hour.
- *
- * `e2e/dashboard-traffic.spec.ts` counts the requests a real tab makes over a
- * minute and fails if these grow back.
+ * Shell poll intervals (WO-74, then the cost pass). Each poll wakes a billed
+ * database; e2e/dashboard-traffic.spec.ts fails if they grow back.
  */
 const NOTIFICATION_POLL_MS = 180_000;
 const SUPPORT_SIGNAL_POLL_MS = 180_000;
 /**
- * The backstop for what the SSE stream does not carry. Was 7 s, then 60 s.
- *
- * Three minutes, not one, since the 2026-08-27 cost pass. The database this
- * talks to **suspends when nothing is connected and bills for the time it is
- * awake**, so a poll is not merely a request — it is a wake, and a wake holds
- * the compute up for its whole idle timer whatever the query cost. Three
- * endpoints at sixty seconds meant a single staff tab left open on a desk kept
- * the database awake all day by itself, for data that changes a few times an
- * hour.
- *
- * All three already stop entirely while the tab is hidden (`usePageVisible`),
- * which is what makes this affordable: the cost is only paid by a tab somebody
- * is actually looking at. A worker waiting on a member's confirmation sees it
- * within three minutes rather than one, and the support popup has an SSE stream
- * in front of it for the case where latency genuinely matters.
+ * Backstop for what SSE does not carry. All polls stop while the tab is hidden
+ * (usePageVisible).
  */
 const SUPPORT_THREAD_POLL_MS = 180_000;
 
 /**
- * How often the sidebar re-checks whether the approvals queue is empty.
- *
- * A fourth endpoint on the same three-minute cadence as the others, and
- * deliberately the *same* number rather than a faster one of its own. A poll is
- * a database wake and a wake holds the compute up for its whole idle timer
- * whatever the query cost (ADR-035) — so a fourth request landing inside a wake
- * three others already caused costs very close to nothing, while a fourth
- * cadence would open wake windows of its own.
- *
- * Staff only: the key is null in a member's dashboard, which has no approvals
- * screen to link to.
- *
- * This is the *backstop*, not the mechanism. The dot going out when the last
- * item is cleared does not wait for it: the approvals screen fetches this same
- * path through the same SWR key, so its refresh after an approval updates this
- * subscription in the same tick.
+ * Approvals-queue dot, on the same cadence (one wake, not a new one; ADR-035).
+ * Staff only. The approvals screen shares the SWR key, so clearing the queue
+ * updates the dot at once.
  */
 const APPROVALS_BADGE_POLL_MS = 180_000;
 
@@ -231,10 +195,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     [],
   );
   const [supportInput, setSupportInput] = useState("");
-  // Derived: the popup is loading from the moment it opens until the first
-  // thread fetch settles. Setting a flag at the top of the polling effect was
-  // the WO-27 finding, and moving it inside the async loader would not have
-  // helped — the compiler follows the call graph into the callee.
+  // Derived: loading from open until the first thread fetch settles (WO-27).
   const [supportThreadsSettled, setSupportThreadsSettled] = useState(false);
   const [isSupportSending, setIsSupportSending] = useState(false);
   const [seenSupportThreadIds, setSeenSupportThreadIds] = useState<
@@ -258,58 +219,25 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
   >(null);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
-  // WO-74. This shell wraps every dashboard page, and it used to run three
-  // intervals — notifications at 20 s, support signals at 10 s, and threads
-  // plus the open thread's messages at 7 s — which is about 26 requests a
-  // minute per open tab, forever, whether or not anything had changed. One
-  // browser-suite run measured 288 requests to /notifications and 144 to
-  // /support/threads; that measurement was this code.
-  //
-  // Three things changed, in order of how much traffic each removes:
-  //
-  //   1. A backgrounded tab polls at zero. Most open tabs are not the focused
-  //      tab, so this alone is most of the saving, and it is a dozen lines.
-  //   2. The open thread's messages come off the SSE stream that already
-  //      existed and had never been used, so the 7 s loop is gone entirely.
-  //   3. What is left polls at 60 s, which is the right latency for data that
-  //      changes a few times an hour.
+  // WO-74: hidden tabs poll at zero, open-thread messages come from SSE, the
+  // rest polls slowly.
   const isPageVisible = usePageVisible();
 
-  // One SSE connection, for the thread that is actually open, and only while the
-  // popup is open and the tab is in front. Everything else — closed popup,
-  // background tab, no thread selected — holds no connection at all, which is
-  // what makes this cheaper than the loop it replaces rather than an extra cost
-  // on top of it.
-  //
-  // Nothing is shown when the stream cannot be opened: the backstop poll below
-  // already covers the thread, so there is nothing a member could do about it.
+  // One SSE connection, for the open thread, only while the popup is open and
+  // the tab visible. Failure is silent — the backstop poll covers it.
   const supportStream = useServerEvents(
     showSupportPopup ? activeSupportThreadId : null,
     isPageVisible,
     (threadId) => {
-      // The event says only "the count changed", so the refetch is what
-      // actually applies this caller's authorisation — the stream never carries
-      // a message body.
-      //
-      // Through a ref because `loadSupportMessages` is declared further down and
-      // this call site is above it. Passing the callback itself would also
-      // reopen the stream every time that useCallback's identity changed.
+      // Refetch (applies authorisation). Via a ref: the loader is declared below,
+      // and its identity must not reopen the stream.
       void loadSupportMessagesRef.current?.(threadId);
     },
   );
 
   /**
-   * How many items are waiting in the approvals queue, for the sidebar dot.
-   *
-   * The path is exactly the one `approvals-screen.tsx` and `overview-screen.tsx`
-   * use, so all three share one SWR cache entry: the shell adds no second
-   * request while a staff member is on either of those screens, and a mutation
-   * from one updates the other two without any of them knowing about each other.
-   *
-   * The key is held (null) while the tab is hidden, matching the guard-before-
-   * the-load rule the polls below follow: becoming hidden must not itself fire a
-   * request, and coming back to the front should load once immediately rather
-   * than wait out an interval.
+   * Approvals count for the sidebar dot — the same SWR key as the approvals and
+   * overview screens. Held (null) while hidden.
    */
   const { data: approvalsSummary } = useApi<ApprovalsBadgeSummary>(
     role !== "member" && isPageVisible ? "/v1/dashboard/admin/approvals" : null,
@@ -346,16 +274,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           strokeWidth={isActive ? 2.5 : 2}
         />
         {locale === "bn" ? item.bn : item.en}
-        {/*
-          The queue light. A dot rather than a number: what a member of staff
-          needs from the sidebar is "is there anything", and a count that is one
-          poll out of date is worse than no count, because it invites acting on
-          it. The number is on the screen it links to.
-
-          `aria-label` rather than a bare dot — a colour is not information to a
-          screen reader, and this is the only thing on the sidebar that changes
-          on its own.
-        */}
+        {/* A dot, not a count (a stale count invites acting on it); aria-label for screen readers. */}
         {item.name === "approvals" && pendingApprovals > 0 ? (
           <span
             className="relative ml-auto flex h-2 w-2 shrink-0"
@@ -424,11 +343,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     setTimeout(doScroll, 300);
   }, []);
 
-  // WO-27 — SWR owns the signed-in user. The session cache is consulted inside
-  // the fetcher rather than seeded into state, which matters here: the header
-  // renders `userInfo` ungated, so reading sessionStorage during render would
-  // make the server HTML and the first client render disagree. A fetcher runs
-  // after mount, so it cannot.
+  // SWR owns the signed-in user (WO-27); sessionStorage is read in the fetcher, never during render.
   const { data: userInfo, mutate: reloadUserInfo } = useSWR<UserInfo | null>(
     ["dashboard-user", role],
     async () => {
@@ -515,13 +430,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       }
     };
 
-    // The guard comes BEFORE the first load, not after it. Both orderings look
-    // right and only one is: with the load first, *becoming hidden* re-runs
-    // this effect and fires a request on the way out — which is how a
-    // suspended tab still managed two requests a minute, measured by
-    // e2e/dashboard-traffic.spec.ts. Guarding first means a hidden tab does
-    // nothing at all, and a tab coming back to the front loads once
-    // immediately rather than waiting out a full interval.
+    // Guard BEFORE the first load, or becoming hidden fires a request
+    // (e2e/dashboard-traffic.spec.ts).
     if (!isPageVisible) return;
     void loadNotifications();
     // Nothing about a notification needs 20-second latency.
@@ -611,12 +521,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     return () => document.removeEventListener("mousedown", onDown);
   }, [showNotifications, showSupportPopup]);
 
-  // No effect clearing pendingHref on arrival: every render site already asks
-  // `pendingHref === href && pathname !== href`, so the spinner disappears the
-  // moment the route matches. Clearing the state as well only restated that,
-  // one render later, by writing state from an effect.
-
-  // Timeout for pending navigation - clear if it takes too long
+  // Clear a pending navigation that takes too long.
   useEffect(() => {
     if (!pendingHref) return;
     const timeout = setTimeout(() => {
@@ -689,10 +594,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     [handleUnauthorizedError, scrollSupportToBottom],
   );
 
-  // The SSE subscription is declared above this and calls through the ref, so
-  // that a change in this callback's identity does not reopen the stream. The
-  // write is in an effect because the React compiler refuses a ref write during
-  // render.
+  // Ref written in an effect (the compiler refuses ref writes during render).
   useEffect(() => {
     loadSupportMessagesRef.current = loadSupportMessages;
   }, [loadSupportMessages]);
@@ -722,11 +624,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
     };
     if (!isPageVisible) return;
     void refreshThreads();
-    // 60 s, not 7 s, and it no longer refetches messages: the open thread's
-    // messages arrive on the SSE stream below. This is the backstop for what
-    // the stream does not carry — the thread *list*, which is per-caller and
-    // has no stream of its own — and for the case where the stream never
-    // opened at all.
+    // Backstop for the thread LIST (no stream) and for a stream that never opened.
     const timer = setInterval(() => {
       void refreshThreads();
       // Only when the stream is not carrying this thread. With it open this
@@ -931,14 +829,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
           {/* Logo Section - Compact */}
           <div className="flex items-center justify-between h-14 px-5 border-b border-[#E5E7EB]/60">
             <Link href={localePath(locale)} className="flex items-center gap-2">
-              {/*
-                `branding.dashboardLogo` when an admin has uploaded one, the
-                shipped lockup otherwise. A separate key from `branding.logo` on
-                purpose: the public header gives a logo 48-80px of height, this
-                sidebar strip gives it 36-40, and a lockup legible in the first
-                is often not in the second — see the note in components/ui/logo.tsx
-                about how small the Bengali tagline gets.
-              */}
+              {/* branding.dashboardLogo, separate from branding.logo: the sidebar strip is much shorter. */}
               <Logo size="sm" src={dashboardLogo || undefined} />
             </Link>
             <Button
@@ -1040,13 +931,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
               }
             >
               <Menu className="h-[18px] w-[18px]" strokeWidth={2} />
-              {/*
-                The same light on the hamburger. Below `lg` the sidebar is a
-                drawer, so a dot that lives only inside it is a dot a member of
-                staff sees after they have already gone looking — and this is an
-                Android-first platform, so that is the common case rather than
-                the edge one.
-              */}
+              {/* The same dot on the hamburger — below lg the sidebar is a drawer. */}
               {pendingApprovals > 0 ? (
                 <span
                   aria-hidden
@@ -1069,15 +954,7 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
 
           <div className="flex items-center gap-2">
             {/* Language Switcher */}
-            {/*
-              `switchLocalePath`, not a `pathname.replace`. The replace was
-              `pathname.replace(localePath(locale), …)`, and for English
-              `localePath('en')` is `/` — so it rewrote the *first slash* of
-              `/dashboard/admin` and sent the admin to `/bndashboard/admin`,
-              which 404s. String surgery on a path cannot express "swap the
-              locale segment" when one of the two locales has no segment at all;
-              only the function that owns the rule can.
-            */}
+            {/* switchLocalePath: string replacement cannot swap a segment English does not have. */}
             <Link href={switchLocalePath(pathname, otherLocale(locale))}>
               <Button
                 variant="ghost"
@@ -1235,9 +1112,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
                           {activeSupportThread?.memberName || ""}
                         </span>
                       )}
-                      {/* Both branches of the ternary that used to be here were
-                          character-for-character identical, so the condition
-                          decided nothing. Collapsed 2026-08-17 (TEST-30). */}
                       <Button
                         variant="ghost"
                         size="icon"

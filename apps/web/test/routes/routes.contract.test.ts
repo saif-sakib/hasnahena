@@ -1,17 +1,6 @@
-// TEST-16 — the access contract for all 21 Next route methods.
-//
-// The Go half of this lives in `apps/api/cmd/server/routes_integration_test.go`
-// and enumerates its routes by walking the router. Next has no router to walk:
-// a route *is* a file at a path, so the enumeration here is the import list
-// below, and `TestEveryRouteFileIsUnderContract` checks it against the
-// filesystem so a route added tomorrow cannot quietly escape the table.
-//
-// Needs a database, because `requireActiveAuth` reads `token_blacklist` (SEC-11)
-// and most handlers then read the user. Skips cleanly without one.
-//
-//   scripts/test-stack.sh up
-//   eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// TEST-16 — the access contract for every Next route method. The import list
+// is the enumeration; TestEveryRouteFileIsUnderContract checks it against the
+// filesystem. Needs a database (skips without one).
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readdirSync, statSync } from 'node:fs';
@@ -47,11 +36,7 @@ import * as dispute from '@/app/api/v1/member/transactions/[id]/dispute/route';
 import * as registrations from '@/app/api/v1/registrations/route';
 import * as settings from '@/app/api/v1/settings/route';
 
-// Route handlers vary in signature: some take `Request`, some `NextRequest`,
-// some a second argument for a dynamic segment. At runtime the harness supplies
-// a plain `Request` and, where the row declares one, the context object — which
-// is exactly what Next supplies. The double cast says that explicitly rather
-// than widening the handlers themselves to satisfy a test.
+// Handlers vary in signature; the harness passes a plain Request (+ context).
 type Handler = (req: Request, ctx?: unknown) => Promise<Response>;
 const asHandler = (fn: unknown) => fn as Handler;
 
@@ -93,9 +78,7 @@ const ROUTES: Array<{
     contract: { roles: ADMINS },
   },
   {
-    // WO-72. Branches became a managed entity when users.assignedBranch stopped
-    // being a free string. Admin-only throughout: a branch decides which office
-    // a worker belongs to, so it is staff configuration, not member data.
+    // Branches are staff configuration: admin-only (WO-72).
     name: 'GET /api/v1/admin/branches',
     file: 'v1/admin/branches',
     method: 'GET',
@@ -142,10 +125,7 @@ const ROUTES: Array<{
     },
   },
   {
-    // The staff-assisted reset, for the members who have no email and therefore
-    // no self-service path at all. It hands out a working password, so the
-    // contract that matters is the same one erasure has: a worker must not
-    // reach it.
+    // Hands out a working password: never a worker.
     name: 'POST /api/v1/admin/members/[id]/reset-password',
     file: 'v1/admin/members/[id]/reset-password',
     method: 'POST',
@@ -158,10 +138,7 @@ const ROUTES: Array<{
     },
   },
   {
-    // Filing an admitted member's identity documents under their account number.
-    // It moves NID scans around on the image host, so it draws the same line
-    // erasure does: a worker who can *see* an application must not be able to
-    // relocate what is in it.
+    // Moves NID scans: never a worker.
     name: 'POST /api/v1/admin/members/[id]/refile-documents',
     file: 'v1/admin/members/[id]/refile-documents',
     method: 'POST',
@@ -173,12 +150,7 @@ const ROUTES: Array<{
     },
   },
   {
-    // The Cloudinary half of the retention policy (ADR-038). It erases the
-    // identity documents of refused applications, so it is admins only for the
-    // same reason erasure is — with one extra caller, the scheduled sweep, which
-    // presents `CRON_SECRET` instead of a token. That path is not exercised here:
-    // this suite asserts what a *signed-in role* may do, and the sweep is not a
-    // role. Its own guard is that an unset `CRON_SECRET` accepts nobody.
+    // ADR-038 retention, admins only. The cron path (CRON_SECRET) is not a role.
     name: 'POST /api/v1/admin/retention',
     file: 'v1/admin/retention',
     method: 'POST',
@@ -187,11 +159,7 @@ const ROUTES: Array<{
     contract: { roles: ADMINS, body: {} },
   },
   {
-    // The scheduled half. Vercel Cron sends a GET and attaches
-    // `Authorization: Bearer $CRON_SECRET` itself, so this method exists for it
-    // alone — **no signed-in role may reach it**, including a super admin, which
-    // is what `roles: []` asserts. A cron endpoint that also answered an admin
-    // token would be a second, unaudited way to expire the audit log.
+    // Cron only — no signed-in role, including super admin (`roles: []`).
     name: 'GET /api/v1/admin/retention',
     file: 'v1/admin/retention',
     method: 'GET',
@@ -341,10 +309,7 @@ const ROUTES: Array<{
     contract: { public: true },
   },
   {
-    // Staff, not admins — but the *keys* decide, not only the role. A worker
-    // edits Content & Media, which posts `CONTENT_CONFIG_KEYS`; the money and
-    // policy rows stay an admin's. The row below covers the role gate; the
-    // key gate has its own test under "role separation".
+    // Staff — but the KEYS decide too (see "role separation").
     name: 'PUT /api/v1/settings',
     file: 'v1/settings',
     method: 'PUT',
@@ -352,10 +317,8 @@ const ROUTES: Array<{
     path: '/api/v1/settings',
     contract: { roles: STAFF, body: {} },
   },
-  // The support routes are a transparent proxy to the Go API, which does its
-  // own authorization. They are listed so the filesystem check passes and so
-  // the "never a 5xx" sweep covers them, but they get no role row: the answer
-  // is whatever Go says, and Go's own contract is TEST-15's job.
+  // Support routes proxy to Go, which authorises; listed for the filesystem and
+  // 5xx sweeps only.
   {
     name: 'GET /api/v1/dashboard/support/[...path] (proxy)',
     file: 'v1/dashboard/support/[...path]',
@@ -382,15 +345,7 @@ const ROUTES: Array<{
   },
 ];
 
-/**
- * Routes that forward to the Go API rather than answering themselves.
- *
- * They are excluded from the sweeps because the answer is Go's, not theirs, and
- * because reaching Go needs the API process running — which would make this
- * suite depend on `test-stack.sh up --serve` rather than on a database alone.
- * Their contracts are TEST-15's, over there. `POST /api/v1/auth/login` is one
- * of these: it hands the credentials to Go and relays the response.
- */
+/** Routes that forward to the Go API (their contract is TEST-15's); excluded from the sweeps. */
 const isProxy = (name: string) => name.includes('(proxy)') || name === 'POST /api/v1/auth/login';
 
 async function call(
@@ -475,16 +430,8 @@ describe.skipIf(skip)('TEST-16 — Next route access contract', () => {
       }
     }
 
-    // The settings PUT is the one route where the role is not the whole
-    // contract. Content & Media is a worker's screen and Settings is not, so
-    // the same endpoint takes a worker for one set of keys and refuses them for
-    // another. Without this, widening the role gate would silently hand a
-    // worker the loan multiplier and the bKash number.
-    //
-    // Two of these three probes are *accepted*, which means they write. This
-    // database is shared with the browser suite, so the rows are put back —
-    // seeding `branding.logo` with a value that was not a URL once made every
-    // public page answer 500 for the rest of a run.
+    // The settings PUT: a worker may write content keys only. Accepted probes
+    // write, so rows are restored (the database is shared with the browser suite).
     describe('the key decides too, not only the role', () => {
       const PROBE_KEYS = ['hero.tagline', 'donation.bkash'];
       let before: Array<{ key: string; value: string }> = [];

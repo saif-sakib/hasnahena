@@ -6,21 +6,11 @@ import (
 	"testing"
 )
 
-// TEST-21 — the Shariah invariant as a property, not a table.
-//
-// The existing table covers 132 hand-chosen combinations. That is a good table
-// and it would still miss the one principal-and-count pair nobody thought of.
-// These sweep the space instead, and they check the *invariant* rather than an
-// expected value: under Qard al-Hasan the borrower repays the principal and not
-// one taka more, so the only thing that has to hold is
+// TEST-21 — the Shariah invariant as a seeded property sweep:
 //
 //	perInstallment*(installments-1) + finalInstallment == principal
 //
-// for every input the system can produce. A schedule summing to one taka over
-// is riba, and one taka under is a loan that never closes.
-//
-// Seeded so a failure is reproducible: an unseeded property test that fails
-// once in CI and never again is worse than no test.
+// One taka over is riba; one under is a loan that never closes.
 const seed = 20260817
 
 func TestInstallmentPlanIsExactForEveryPlanTheSystemCanIssue(t *testing.T) {
@@ -52,22 +42,10 @@ func TestInstallmentPlanIsExactForEveryPlanTheSystemCanIssue(t *testing.T) {
 			t.Fatalf("principal=%d installments=%d: final %d is smaller than the regular %d",
 				principal, count, final, per)
 		}
-		// The adjustment is exactly `principal mod installments`, so it is
-		// bounded by the installment count and nothing else.
-		//
-		// This started as "the final payment is never more than twice a regular
-		// one", which is false and worth recording as false: 105,136 over 567
-		// gives 566 payments of 185 and a final of 426. The remainder is spread
-		// over nothing, so when the schedule is long relative to the principal
-		// it concentrates. No riba — the total is still exact — but the last
-		// payment is not the one on the member's card.
-		//
-		// Left as-is deliberately. Spreading the remainder a taka at a time over
-		// the first payments would even the schedule out, but it changes what
-		// `installmentAmount` means in the database and what the loan agreement
-		// prints, so it is a design decision rather than a fix. It only bites at
-		// counts no real loan uses: at 12 installments the final differs by at
-		// most 11 taka.
+		// The adjustment is `principal mod installments`, bounded by the count.
+		// On very long schedules the final payment concentrates (105,136/567 →
+		// final 426 vs 185); left as a design decision — at 12 instalments it
+		// differs by at most 11 taka.
 		if final-per > int64(count-1) {
 			t.Fatalf("principal=%d installments=%d: the adjustment %d exceeds the largest possible remainder %d",
 				principal, count, final-per, count-1)
@@ -119,9 +97,7 @@ func TestInstallmentPlanRefusesNonsense(t *testing.T) {
 	}
 }
 
-// TestWaterfallNeverOverRecovers is the other half of the invariant: recovery
-// takes what is owed or what exists, whichever is less, and never more of
-// either.
+// TestWaterfallNeverOverRecovers: min(owed, available), never more of either.
 func TestWaterfallNeverOverRecovers(t *testing.T) {
 	rng := rand.New(rand.NewSource(seed))
 
@@ -163,9 +139,7 @@ func TestWaterfallNeverOverRecovers(t *testing.T) {
 		if taken+remaining != outstanding {
 			t.Fatalf("recovered %d + remaining %d != outstanding %d", taken, remaining, outstanding)
 		}
-		// Earlier sources are exhausted before later ones are touched: the
-		// borrower's own savings before the guarantor's, the guarantor's before
-		// the pool. A guarantor must never pay for money the borrower had.
+		// Earlier sources are exhausted before later ones are touched.
 		for j := 1; j < len(deductions); j++ {
 			if deductions[j] > 0 && deductions[j-1] < sources[j-1] {
 				t.Fatalf("took %d from source %d while source %d still held %d of %d",

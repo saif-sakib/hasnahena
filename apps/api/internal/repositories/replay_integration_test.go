@@ -1,13 +1,7 @@
 //go:build integration
 
-// TEST-19 — replay and out-of-order lifecycle, plus TEST-12's BigInt
-// boundaries and the rest of TEST-13's waterfall table.
-//
-// Every test here answers one question: what happens the *second* time. A
-// financial system meets that question constantly — a double-tapped button on a
-// phone with one bar of signal, a retried request after a timeout, an admin
-// coming back to a screen they already actioned. The first call being correct
-// says nothing about the second.
+// TEST-19 — what happens the SECOND time (double taps, retries, revisits),
+// plus TEST-12's BigInt boundaries and TEST-13's waterfall table.
 package repositories
 
 import (
@@ -58,17 +52,8 @@ func seedLoanInStatus(t *testing.T, borrower, guarantor, status string, remainin
 // The headline: defaulting a loan twice used to recover twice
 // ---------------------------------------------------------------------------
 
-// TestMarkingDefaultedTwiceDoesNotRecoverTwice is the regression test for the
-// defect TEST-15 surfaced.
-//
-// MarkLoanDefaulted ran `UPDATE loans SET status='DEFAULTED' WHERE id = $1` and
-// then the recovery waterfall, without ever looking at the status it was
-// changing *from*. So a second call re-ran the waterfall against whatever the
-// borrower had saved in the meantime — and took it, for a debt already settled
-// against them. Two clicks on one button, and money left an account twice.
-//
-// Verified to fail against the pre-fix code: the second call returned nil and
-// the borrower's balance dropped from 4000 to 1000.
+// TestMarkingDefaultedTwiceDoesNotRecoverTwice: a second call must not re-run
+// the waterfall against savings deposited since.
 func TestMarkingDefaultedTwiceDoesNotRecoverTwice(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -104,9 +89,7 @@ func TestMarkingDefaultedRejectsAnUnknownLoan(t *testing.T) {
 	repo := newTestRepo(t)
 	admin := seedStaff(t, "a1", "ADMIN")
 
-	// Previously: UPDATE matched zero rows and reported no error, an audit row
-	// was written about a loan nobody has, and the failure surfaced further
-	// down as an opaque 500.
+	// An unknown id must fail cleanly, writing no audit row.
 	err := repo.MarkLoanDefaulted(context.Background(), "loan-that-does-not-exist", admin, "typo")
 	if !errors.Is(err, ErrLoanNotFound) {
 		t.Fatalf("want ErrLoanNotFound, got %v", err)
@@ -125,11 +108,7 @@ func TestMarkingDefaultedRejectsAnEmptyLoanID(t *testing.T) {
 	}
 }
 
-// TestOnlyALiveLoanCanBeDefaulted is the state machine, stated as a table.
-//
-// Defaulting a loan that was never disbursed recovers money against a debt that
-// was never lent; defaulting a completed one recovers against a debt already
-// repaid. Both used to succeed.
+// TestOnlyALiveLoanCanBeDefaulted: never-disbursed and completed loans refuse.
 func TestOnlyALiveLoanCanBeDefaulted(t *testing.T) {
 	cases := []struct {
 		status    string
@@ -177,11 +156,7 @@ func TestOnlyALiveLoanCanBeDefaulted(t *testing.T) {
 	}
 }
 
-// TestConcurrentDefaultsOnOneLoanRecoverOnce is the same defect under a race
-// rather than a retry: two admins on two devices, one loan.
-//
-// The FOR UPDATE on the loan row is what makes this safe — the second
-// transaction blocks until the first commits and then sees DEFAULTED.
+// TestConcurrentDefaultsOnOneLoanRecoverOnce: FOR UPDATE serialises two admins.
 func TestConcurrentDefaultsOnOneLoanRecoverOnce(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -223,8 +198,6 @@ func TestConcurrentDefaultsOnOneLoanRecoverOnce(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestWaterfallTable walks every combination of what the three sources hold.
-// The existing suite covered four of these; the ones it did not are where an
-// off-by-one in the ordering would hide.
 func TestWaterfallTable(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -350,10 +323,7 @@ func TestOneGuarantorTwoDefaults(t *testing.T) {
 // TEST-12 — BigInt boundaries
 // ---------------------------------------------------------------------------
 
-// TestAmountBoundariesAreRefusedOrHandled walks the edges of int64 through the
-// deposit path. Whole taka fit in int64 with room to spare (ADR-002 caps a
-// single posting at 10 crore), so the interesting question is not arithmetic
-// but whether the guards actually fire.
+// TestAmountBoundariesAreRefusedOrHandled: int64 edges through the deposit path.
 func TestAmountBoundariesAreRefusedOrHandled(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -401,9 +371,7 @@ func TestASecondDepositCannotOverflowTheBalance(t *testing.T) {
 	member := seedMember(t, "m1", "ACC-KH-46001", math.MaxInt64-10)
 	worker := seedStaff(t, "w1", "WORKER")
 
-	// 100 taka on top of a balance 10 short of MaxInt64. PostgreSQL bigint
-	// raises `bigint out of range` rather than wrapping, so this must be an
-	// error and the balance must be untouched — never a negative balance.
+	// bigint overflow must error and leave the balance untouched.
 	_, err := repo.AddMemberDeposit(ctx, member, worker, 100, "overflow")
 	if err == nil {
 		t.Fatalf("a deposit that overflows the balance was accepted")

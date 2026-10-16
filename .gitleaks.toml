@@ -1,14 +1,10 @@
 title = "Hasnahena secret scanning"
 
-# Start from gitleaks' full default ruleset and only subtract from it. Never
-# replace it — a hand-written ruleset is a list of the leaks you already thought
-# of, which is not the useful kind.
+# Extend gitleaks' full default ruleset; only subtract from it.
 [extend]
 useDefault = true
 
-# Allowlists are `[[allowlists]]`, not `[allowlist]`. The singular form is
-# deprecated in 8.28 and refuses to load *at all* if both forms appear, which
-# fails the job with "Failed to load config" rather than with a finding.
+# `[[allowlists]]`, not the deprecated `[allowlist]` (mixing them fails to load).
 
 [[allowlists]]
 description = "Documentation placeholders, which are not secrets"
@@ -18,55 +14,28 @@ description = "Documentation placeholders, which are not secrets"
 regexTarget = "line"
 
 regexes = [
-  # `JWT_SECRET=<same secret as Vercel>` and friends. The angle brackets are
-  # this repo's placeholder convention throughout docs/ and .env.*.example, and
-  # gitleaks' generic-api-key rule scores the prose inside them as high-entropy.
-  #
-  # This is narrow on purpose: a real leaked secret is a bare value, never one
-  # wrapped in angle brackets and containing spaces. Nothing that looks like an
-  # actual credential is allowlisted here.
+  # `=<placeholder prose>` — this repo's placeholder convention in docs and
+  # .env examples. A real secret is never wrapped in angle brackets.
   '''=\s*<[^>]+>''',
   # `…=…` inside a fenced example that points at localhost.
   '''postgresql://postgres:postgres@(localhost|127\.0\.0\.1)''',
 ]
 
 paths = [
-  # Deleted in a documentation cleanup but still reachable in history, where it
-  # trips the same placeholder pattern. Rewriting history to satisfy a false
-  # positive would be a far worse trade than an allowlist entry.
+  # Deleted doc, still in history; rewriting history would be worse.
   '''docs/DEPLOYMENT_FREE_HOSTING\.md''',
 ]
 
-# A JWT-shaped literal in a Go test, committed in 1c9b307. The source no longer
-# contains it — the case now mints a real token instead — but `gitleaks git`
-# scans every commit, so history keeps reporting it.
-#
-# Scoped to the exact source line — not to the file, the commit, or the JWT
-# shape. Any of those three would blind the scanner to a real credential pasted
-# into the same test tomorrow; this entry stops matching the moment the line
-# changes.
-#
-# Deliberately no `paths` alongside it. A global allowlist's `paths` skips the
-# whole file *before* the content is examined, even with `condition = "AND"` —
-# verified: adding the path made gitleaks miss a genuine random secret planted
-# in that file. So the regex carries the whole scope on its own, which it can,
-# being an exact line match.
+# A JWT-shaped literal in a Go test (commit 1c9b307), long since replaced by a
+# minted token. Scoped to the exact line — no `paths`: a global allowlist's
+# paths skip the whole file even with condition = "AND".
 [[allowlists]]
 description = "Fake JWT in auth_gate_integration_test.go: payload is {} and the signature is the word 'sig'"
 regexTarget = "line"
 regexes = ['''\{"token with no scheme", "eyJhbGciOiJIUzI1NiJ9\.e30\.sig"\},''']
 
-# A 64-character hex fixture in a Go test, committed in 0c08ca8. The source no
-# longer contains it — the case composes the value with `strings.Repeat` now,
-# for exactly this reason — but `gitleaks git` scans every commit, so history
-# keeps reporting it. Entropy 4.0, which is what a real key scores too; the
-# scanner is not wrong about the shape, only about what the value is.
-#
-# Scoped to the exact source line, like the entry above and for the same reason:
-# allowlisting the file, the commit, or "64 hex characters" would blind the
-# scanner to a genuine credential pasted into the same test tomorrow. This entry
-# stopped matching the working tree the moment the line changed, which is the
-# property that makes it safe to leave in place.
+# A 64-char hex test fixture (commit 0c08ca8), now composed with strings.Repeat.
+# Scoped to the exact line, like the entry above.
 [[allowlists]]
 description = "Hex fixture in auth_security_integration_test.go, replaced in the working tree by strings.Repeat"
 regexTarget = "line"

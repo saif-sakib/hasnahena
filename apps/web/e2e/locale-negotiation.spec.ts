@@ -1,32 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * `/` is an English page. It does not negotiate, and it does not redirect.
- *
- * WO-95. It used to do both: next-intl read `Accept-Language` and 307'd to
- * `/en` or `/bn`. Two things were wrong with that, and only the smaller one was
- * obvious.
- *
- * The obvious one was caching — the redirect was `cache-control: public` with no
- * `Vary`, so a shared cache could hand one visitor's language to the next.
- * Cloudflare sits in front of this site, which made that real. It was fixed with
- * a `Vary` header, and that fix is now **deleted**, because nothing negotiates
- * any more: a `Vary` that is not true splits the CDN cache on the busiest pages
- * the site has in exchange for nothing.
- *
- * The larger one was that a redirect at the root is what produced *"Duplicate,
- * Google chose different canonical than user"* on `/bn`, with a Google-selected
- * canonical of `https://hasnahenafoundation.com/`. Google merges a redirecting
- * root with whatever it lands on and keeps the shorter URL. Flipping the default
- * locale (WO-94) would have moved that report from `/bn` to `/en` and left the
- * cause in place; Google's own guidance is against automatic language redirects
- * for exactly this reason.
- *
- * This lives in the browser suite rather than a unit test because every
- * assertion is about what comes back over HTTP. `proxy.ts` runs as edge
- * middleware and Next can replace what it sets further down the response path —
- * which is the trap that let the un-Varied redirect ship in the first place, and
- * is written up under "Locale routing" in traps.md.
+ * WO-95: `/` is an English page — no negotiation, no redirect, and no Vary
+ * header (a root redirect made Google pick `/` as /bn's canonical). Over HTTP,
+ * because Next can replace what proxy.ts sets (traps.md § Locale routing).
  */
 test.describe('the root path is English, not a negotiation', () => {
   test('serves English at / whatever language the browser asks for', async ({ request }) => {
@@ -46,11 +23,7 @@ test.describe('the root path is English, not a negotiation', () => {
   });
 
   test('does not claim to vary on a header it no longer reads', async ({ request }) => {
-    // The reverse of the assertion this file used to make, and deliberately so.
-    // `localeDetection: false` means neither `Accept-Language` nor the
-    // `NEXT_LOCALE` cookie reaches the locale decision — the path prefix is the
-    // only input. Declaring a Vary anyway costs a cache entry per distinct
-    // header value, for a correctness property nothing needs.
+    // No Vary: the path prefix is the only input.
     const response = await request.get('/', {
       headers: { 'Accept-Language': 'bn-BD,bn;q=0.9' },
       maxRedirects: 0,
@@ -73,13 +46,8 @@ test.describe('the root path is English, not a negotiation', () => {
 });
 
 test.describe('the /en prefix is gone, permanently', () => {
-  // Every one of these is a URL that may already be indexed, bookmarked, or
-  // linked from somewhere this project does not control.
-  //
-  // `/login` and `/register` are in the list on purpose: they are session routes,
-  // which take a different branch through `withCsp`, and that branch re-issued
-  // the response and silently turned the 301 into a 307. A list of marketing
-  // pages alone would have passed.
+  // Possibly indexed or bookmarked URLs. /login and /register take the session
+  // branch through withCsp, which once turned the 301 into a 307.
   const paths = ['', '/about', '/faq', '/donate', '/gallery', '/login', '/register'];
 
   for (const path of paths) {
@@ -114,16 +82,7 @@ test.describe('the /en prefix is gone, permanently', () => {
 });
 
 test.describe('the pages point at their own URLs', () => {
-  /**
-   * Read as paths, not as whole URLs: the origin in the markup comes from
-   * `NEXT_PUBLIC_SITE_URL`, which the test stack does not set to the port it
-   * serves on. The origin is `lib/seo.ts`'s job and has its own tests; what this
-   * spec is about is the path each tag points at.
-   *
-   * `hrefLang`, capital L: that is what Next emits for `alternates.languages`,
-   * and matching the lowercase spelling from the HTML spec silently matches
-   * nothing.
-   */
+  /** Link paths (not origins). Next emits `hrefLang` with a capital L. */
   function linkPaths(body: string, rel: string): Record<string, string> {
     const out: Record<string, string> = {};
     for (const tag of body.match(new RegExp(`<link[^>]*rel="${rel}"[^>]*>`, 'g')) ?? []) {
@@ -160,9 +119,7 @@ test.describe('the pages point at their own URLs', () => {
 
   test('robots.txt disallows the private paths in both locales', async ({ request }) => {
     const body = await (await request.get('/robots.txt')).text();
-    // The list used to be written out per locale, so English losing its prefix
-    // would have left `/en/login` disallowed — a URL that 301s — and `/login`
-    // itself unlisted.
+    // Derived per locale.
     for (const path of ['/dashboard/']) {
       expect(body, `robots.txt does not disallow ${path}`).toContain(`Disallow: ${path}`);
       expect(body, `robots.txt does not disallow /bn${path}`).toContain(`Disallow: /bn${path}`);
@@ -174,12 +131,7 @@ test.describe('the pages point at their own URLs', () => {
   test('robots.txt does not disallow the auth pages, which carry noindex instead', async ({
     request,
   }) => {
-    // These were disallowed until 2026-09-02, together with the `noindex` they
-    // still carry — which is the combination that does not work. `Disallow`
-    // forbids *fetching*, so the crawler never reads the `noindex` it was sent
-    // to obey, and `/login` and `/register` are linked from the header of every
-    // public page: Bing followed them, was refused, and filed "Blocked by
-    // robots.txt" against a site trying to say the opposite.
+    // Auth pages are NOT disallowed: Disallow would stop crawlers reading their noindex.
     const body = await (await request.get('/robots.txt')).text();
     for (const path of ['/login', '/register', '/forgot-password', '/reset-password']) {
       expect(body, `robots.txt disallows ${path}, so its noindex is unreadable`).not.toContain(

@@ -13,20 +13,9 @@ import {
 } from '@/lib/audit-actions';
 
 /**
- * The audit catalogue against what the two backends actually write.
- *
- * This is the census that had been missing. `lib/audit.ts` carried a
- * hand-written union of action names, and by the time anything read the table it
- * described a system that does not exist: five of its seventeen entries — among
- * them `REGISTRATION_APPROVED`, `DEPOSIT_CONFIRMED` and `SETTINGS_UPDATED` — are
- * written by nothing, and every one of the twenty-two actions the Go API writes
- * was absent. Nothing failed, because the union only constrained the ten call
- * sites in the Next app.
- *
- * An uncatalogued action is a row on the admin's audit screen rendered as
- * `MARK_LOAN_DEFAULTED` with no colour and no Bengali; a catalogued action
- * nothing writes is a filter chip that always returns nothing. Both directions
- * fail here.
+ * The audit catalogue against what both backends actually write — fails on an
+ * uncatalogued action (unstyled on the screen) and on a catalogued action
+ * nothing writes (a dead filter chip).
  */
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 const REPO_ROOT = resolve(WEB_ROOT, '..', '..');
@@ -43,14 +32,8 @@ function walk(dir: string, extensions: string[]): string[] {
 }
 
 /**
- * Every action literal either backend writes into `audit_logs`.
- *
- * Four spellings, because there are four ways to write one of these rows and no
- * amount of wishing makes them one: raw SQL in a Go repository, the Go
- * `insertAuditLogTx` helper, the Go `SecurityService.CreateAuditLog` struct, and
- * `createAuditLog` in the Next app. A fifth spelling would be invisible to this,
- * which is why `writesAnAuditRow` below also fails on an `audit_logs` insert this
- * cannot read.
+ * Every action literal written to audit_logs, in all four spellings (raw Go SQL,
+ * insertAuditLogTx, SecurityService.CreateAuditLog, Next createAuditLog).
  */
 function actionsWrittenInSource(): Set<string> {
   const found = new Set<string>();
@@ -60,15 +43,8 @@ function actionsWrittenInSource(): Set<string> {
   );
   for (const file of goFiles) {
     const source = readFileSync(file, 'utf8');
-    // INSERT INTO audit_logs (action, ...) VALUES ('ACTION', ...
-    //
-    // The literal is the first value now: the key is a sequence the database
-    // owns (ADR-044), so no writer names an id, and this used to anchor on the
-    // `gen_random_uuid()::text` that every one of them passed. That anchor
-    // vanishing found ten catalogued-but-apparently-unwritten actions in one
-    // run, which is the census working — it cannot tell "nothing writes this"
-    // from "I can no longer see the writes", so it must be anchored on
-    // something the writers still have.
+    // INSERT INTO audit_logs (action, ...) VALUES ('ACTION', ... — anchored on
+    // what writers still have (the key is a DB sequence since ADR-044).
     for (const [, action] of source.matchAll(
       /INSERT INTO audit_logs[\s\S]{0,400}?VALUES \(\s*'([A-Z_]+)'/g,
     )) {
@@ -83,12 +59,7 @@ function actionsWrittenInSource(): Set<string> {
     }
   }
 
-  // **The migrations are a third writer.** Exactly one action is written by
-  // neither backend: `20260901120000_ids_are_the_numbers` appends a row saying
-  // it suspended the append-only trigger (ADR-044). Without this the census
-  // reports that action as catalogued-but-unwritten, which is the one thing it
-  // must not get wrong — a real dead chip and a real migration row look
-  // identical to a scan that only reads application source.
+  // Migrations are a third writer (20260901120000_ids_are_the_numbers).
   const migrationsDir = join(WEB_ROOT, 'prisma', 'migrations');
   for (const file of walk(migrationsDir, ['.sql'])) {
     const source = readFileSync(file, 'utf8');
@@ -162,14 +133,7 @@ describe('every catalogued action is fully described', () => {
 });
 
 describe('the retention tier of a row is a property of what happened', () => {
-  /**
-   * The rule that must not erode: **anything about money, about a decision made
-   * about a person, or about data being destroyed, is permanent.**
-   *
-   * The erasure rows are the subtle half. They are the proof that the foundation
-   * deleted somebody's national identity card, so a policy that expired them
-   * would be a retention policy destroying the evidence of its own compliance.
-   */
+  /** Money, decisions about a person and erasure are permanent — erasure rows prove compliance. */
   it('keeps money, lending, membership, staff and erasure for ever', () => {
     for (const name of AUDIT_ACTION_NAMES) {
       const spec = AUDIT_ACTIONS[name];
@@ -204,9 +168,7 @@ describe('the retention tier of a row is a property of what happened', () => {
 
 describe('the screen can render a row this build has never seen', () => {
   it('falls back to a readable label rather than vanishing', () => {
-    // A row written by a newer deploy, or by a branch. It must appear — an audit
-    // screen that silently drops rows it does not recognise is worse than no
-    // audit screen, because it looks complete.
+    // An unknown action must still appear.
     const spec = auditActionSpec('SOME_FUTURE_ACTION');
     expect(spec.category).toBe('system');
     expect(spec.en).toBe('Some future action');
@@ -221,9 +183,7 @@ describe('the screen can render a row this build has never seen', () => {
 
 describe('the noise list', () => {
   it('hides the high-volume routine actions and nothing else', () => {
-    // The screen's default view is "what would need explaining", and a member
-    // signing in is not that. But the list must stay small: hiding by default is
-    // a decision about what an admin sees when they arrive with no filters set.
+    // Noise is hidden by default; keep the list small.
     expect(NOISE_ACTIONS).toContain('LOGIN');
     expect(NOISE_ACTIONS).toContain('LOGOUT');
     expect(NOISE_ACTIONS).not.toContain('MEMBER_ERASED');

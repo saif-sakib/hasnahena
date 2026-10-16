@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
 #
-# Runs the checks that would otherwise only fail on Vercel or in CI.
+# The checks that would otherwise only fail on Vercel or in CI (branch
+# protection needs a paid plan on a private repo).
 #
-# Why this exists: branch protection — the thing that stops a broken commit
-# reaching `main` — needs a paid plan on a private repository. This hook buys
-# most of the same safety for nothing. It is not as strong (anyone can bypass it
-# with --no-verify, and it only runs on the machine that has it installed), but
-# for a one-maintainer project it catches the failure that actually happens:
-# something merged, pushed, and only discovered when the deploy went red.
-#
-# Install once:
-#     git config core.hooksPath .githooks
-#
-# Skip deliberately (docs-only change, mid-rebase, in a hurry):
-#     git push --no-verify
+#   git config core.hooksPath .githooks   # install once
+#   git push --no-verify                  # skip deliberately
 
 set -uo pipefail
 
+# GUI git clients (VS Code's Publish/Sync) do not read ~/.zshrc, so an
+# nvm-installed pnpm is not on PATH — load nvm rather than misreport it.
+if ! command -v pnpm >/dev/null 2>&1; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  for f in /usr/share/nvm/init-nvm.sh "$NVM_DIR/nvm.sh"; do
+    [ -s "$f" ] && . "$f" >/dev/null 2>&1 && break
+  done
+fi
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo
+  echo "  ✗ pre-push: pnpm is not on PATH for this git client."
+  echo "    Push from a terminal, or skip deliberately with:  git push --no-verify"
+  echo
+  exit 1
+fi
+
 # Nothing to check if only docs or config text changed. Keeps the common case fast.
-CHANGED="$(git diff --name-only @{u}..HEAD 2>/dev/null || git diff --name-only HEAD~1..HEAD 2>/dev/null || echo '')"
+# A new branch has no upstream yet, so compare it with origin/main.
+CHANGED="$(git diff --name-only @{u}..HEAD 2>/dev/null || git diff --name-only origin/main...HEAD 2>/dev/null || echo '')"
 if [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -qvE '^(docs/|README|CLAUDE\.md|\.env\..*example|.*\.md$)'; then
   echo "pre-push: documentation only — skipping build checks"
   exit 0
@@ -32,11 +40,7 @@ fail() {
   exit 1
 }
 
-# Vercel installs with a frozen lockfile and refuses to build if pnpm-lock.yaml
-# does not match package.json. That is exactly what happens after merging two
-# dependency PRs in a row: each rewrote the lockfile, and the merge of the two
-# re-resolves neither. Catching it here costs seconds; catching it on Vercel
-# costs a failed deploy and a confusing error.
+# Vercel installs frozen: the lockfile must match package.json.
 echo "pre-push: lockfile…"
 if ! pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1; then
   echo
@@ -49,9 +53,7 @@ fi
 echo "pre-push: typecheck…"
 pnpm typecheck >/dev/null 2>&1 || fail "pnpm typecheck"
 
-# The build is the slow one, and the only one that catches a broken PostCSS or
-# Tailwind config — the exact class of breakage a dependency bump introduces and
-# a typecheck sails straight past.
+# The build catches PostCSS/Tailwind breakage that typecheck misses.
 echo "pre-push: build…"
 BUILD_LOG="$(mktemp)"
 if ! DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/placeholder}" \
@@ -66,10 +68,7 @@ if command -v go >/dev/null 2>&1; then
   echo "pre-push: go build…"
   (cd apps/api && go build ./...) || fail "go build"
 
-  # vet, not just build. CI runs `go vet ./...` and fails on a non-zero exit,
-  # and vet reports things build does not — self-assignments, printf mismatches,
-  # lost struct tags. Skipping it here is how a red CI run gets discovered from
-  # an email instead of from this hook.
+  # vet, as CI does.
   echo "pre-push: go vet…"
   (cd apps/api && go vet ./...) || fail "go vet"
 else

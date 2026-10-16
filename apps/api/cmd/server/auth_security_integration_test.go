@@ -1,13 +1,8 @@
 //go:build integration
 
-// Block X — account security, over HTTP.
-//
-// These run through the real router, because every defect the block is about
-// lives in the seam between a handler and a service: which status code an
-// unauthenticated caller learns something from (WO-88), whether the token a
-// member still holds keeps working after they reset the password they lost
-// control of (WO-85), and which account a reset link actually resolves to
-// (WO-87). None of it is visible from a repository test.
+// Account security over HTTP, through the real router: forgot-password is not
+// an oracle (WO-88), a reset revokes sessions (WO-85), a reset touches one
+// account (WO-87), and the login lockout escalates (WO-89).
 package main
 
 import (
@@ -36,12 +31,8 @@ import (
 // harness
 // ---------------------------------------------------------------------------
 
-// securityRouter is testRouter with an email service that is *configured*.
-//
-// That distinction is the whole point for WO-88: with no email service every
-// identifier gets the same 503, so a test for "known and unknown answer alike"
-// would pass without the fix. The Brevo base URL points at a stub in-process, so
-// a "sent" email leaves nothing but a counter behind.
+// securityRouter is testRouter with a CONFIGURED email service (stubbed Brevo):
+// without one every identifier gets the same 503 and the oracle test is vacuous.
 func securityRouter(t *testing.T) (chi.Router, *int) {
 	t.Helper()
 
@@ -103,12 +94,8 @@ func call(t *testing.T, r chi.Router, method, path, remoteAddr, token string, bo
 	return rec
 }
 
-// seedAuthUser creates an account this file owns, with a real bcrypt hash.
-//
-// The phone numbers below are all 019777xxxxx, which is this file's namespace.
-// Suites share one database, so a unique column that is not namespaced to its
-// suite fails on whichever suite happens to run second — and passes locally,
-// where you probably ran only one.
+// seedAuthUser creates an account with a real bcrypt hash. Phones 019777xxxxx
+// are this file's namespace.
 func seedAuthUser(t *testing.T, id, email, phone, password, status string) string {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
@@ -150,12 +137,8 @@ func seedAuthUser(t *testing.T, id, email, phone, password, status string) strin
 	return id
 }
 
-// mintTokenIssuedAt backdates `iat`.
-//
-// Load-bearing, not cosmetic: the revocation check truncates the marker to whole
-// seconds so that first login — change the temporary password, sign in 200 ms
-// later — does not produce a token born revoked. A test that mints and revokes
-// inside the same second is testing that carve-out, not revocation.
+// mintTokenIssuedAt backdates iat: revocation compares whole seconds, so a
+// same-second mint would test the first-login carve-out instead.
 func mintTokenIssuedAt(t *testing.T, userID, role string, issuedAt time.Time) string {
 	t.Helper()
 	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
@@ -187,11 +170,7 @@ func issueResetLink(t *testing.T, secret, email, phone string) {
 	})
 }
 
-// answer is what a caller can actually learn from one response.
-//
-// `meta.timestamp` is dropped: it differs between two responses a second apart
-// and says nothing about anybody, and leaving it in makes an oracle test pass or
-// fail on how fast the machine is.
+// answer is what a caller learns from one response (meta.timestamp dropped).
 type answer struct {
 	status int
 	body   string
@@ -235,11 +214,7 @@ func auditCount(t *testing.T, action, entityID string) int {
 // WO-88 — forgot-password is not a membership oracle
 // ---------------------------------------------------------------------------
 
-// Red against the pre-WO-88 handler, which answered 404 AUTH_USER_NOT_FOUND for
-// a non-member, 400 AUTH_EMAIL_REQUIRED for a member with no email address, and
-// 200 for everyone else. Three different answers to "is this person a member?",
-// on an unauthenticated endpoint, for a cooperative where membership itself is
-// the sensitive fact.
+// Known, unknown and no-email identifiers must all get the same answer.
 func TestForgotPasswordAnswersIdenticallyWhoeverIsAskedAbout(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -304,9 +279,7 @@ func TestForgotPasswordRecordsTheAttemptsThatFindNothing(t *testing.T) {
 	}
 }
 
-// One address cycling through numbers is stopped. The number is the one
-// apps/web/app/api/v1/registrations/route.ts already settled on for the same
-// question.
+// One address cycling through identifiers is throttled.
 func TestForgotPasswordThrottlesOneAddressCyclingThroughIdentifiers(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -334,10 +307,7 @@ func TestForgotPasswordThrottlesOneAddressCyclingThroughIdentifiers(t *testing.T
 // WO-85 — a reset must end the sessions the member has lost control of
 // ---------------------------------------------------------------------------
 
-// Red against the pre-WO-85 code. ResetPassword ran UpdatePassword →
-// MarkResetTokenUsed → audit → return nil and never touched revocation, so the
-// attacker's token went on working against both backends for up to 24 hours —
-// on the one path a locked-out member can actually reach.
+// A reset must revoke every open session.
 func TestAPasswordResetEndsEverySessionTheAccountHasOpen(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -364,9 +334,7 @@ func TestAPasswordResetEndsEverySessionTheAccountHasOpen(t *testing.T) {
 	}
 }
 
-// The control. GREEN before WO-85 as well as after: the logged-in password
-// change has always revoked other sessions, and this test exists so that fixing
-// the reset path cannot quietly break the path that already worked.
+// The control: the logged-in change has always revoked other sessions.
 func TestALoggedInPasswordChangeEndsEverySession(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -391,12 +359,7 @@ func TestALoggedInPasswordChangeEndsEverySession(t *testing.T) {
 // WO-87 — one reset, one account
 // ---------------------------------------------------------------------------
 
-// Red against `UPDATE users SET "passwordHash" = $1 WHERE email = $2 OR phone =
-// $3`. A reset token carries the email *and* the phone recorded when it was
-// issued; when those have come to belong to two different rows — through a
-// rejection tombstone, an admin phone edit, or any contact change — that
-// statement set BOTH accounts to the requester's new password. The caller asked
-// to reset one account and silently reset a stranger's.
+// A token whose email and phone now belong to two rows resets only its owner.
 func TestAPasswordResetTouchesOnlyTheTokensOwner(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -431,9 +394,7 @@ func TestAPasswordResetTouchesOnlyTheTokensOwner(t *testing.T) {
 // WO-89 — the lockout escalates, and says so
 // ---------------------------------------------------------------------------
 
-// serveLockout is "time passed". The lockout is real, so a test that waited for
-// it would spend 30 seconds to reach the second step and 12 minutes to reach the
-// fourth; expiring the row's lockedUntil is the same state without the wait.
+// serveLockout expires lockedUntil — "time passed" without the wait.
 func serveLockout(t *testing.T, bucketID string) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(),
@@ -457,10 +418,7 @@ func lockoutRemaining(t *testing.T, bucketID string) time.Duration {
 	return time.Duration(*seconds * float64(time.Second))
 }
 
-// Red against the flat `RateLimitMaxAttempts = 5 / RateLimitLockout = 30s`: five
-// guesses, wait, five more, for ever, with no escalation, no alert and no audit
-// row. Against a temporary password that was never changed, or a member who
-// chose their phone number, that is enough.
+// The lockout escalates and leaves an audit row.
 func TestTheLoginLockoutEscalatesAndLeavesAnAuditRow(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -508,9 +466,8 @@ func TestTheLoginLockoutEscalatesAndLeavesAnAuditRow(t *testing.T) {
 	}
 }
 
-// The tension named in WO-89, pinned in both directions. Escalation must key on
-// the identifier *and* the address, or an attacker who knows a member's phone
-// number can hold them out of their own savings for an hour at a time.
+// Escalation keys on identifier+address, so an attacker elsewhere cannot lock
+// a member out for an hour.
 func TestAnAttackFromElsewhereCannotLockAMemberOutForAnHour(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -551,10 +508,7 @@ func TestAnAttackFromElsewhereCannotLockAMemberOutForAnHour(t *testing.T) {
 	}
 }
 
-// WO-89(b). ErrUserInactive tells an unauthenticated caller "this identifier is
-// a real account, currently suspended" — the WO-88 oracle on a different
-// endpoint. The check already sits after bcrypt.CompareHashAndPassword; this
-// pins the ordering, which is a one-line move away from being wrong.
+// WO-89(b): suspended + wrong password looks exactly like a wrong password.
 func TestASuspendedAccountIsIndistinguishableFromAWrongPassword(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")

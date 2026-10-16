@@ -1,15 +1,7 @@
 //go:build integration
 
-// WO-85, WO-86 and WO-87 at the layer that owns the SQL: what a password reset
-// writes, what it must not write, and what the table it writes to is allowed to
-// hold.
-//
-// The cross-account half of WO-87 — a token whose email is one member's and
-// whose phone is another's — cannot be reproduced here, because the statement
-// that made it possible is gone: this file's subject is scoped to `id` by
-// construction. It is reproduced through the HTTP route instead, in
-// cmd/server/auth_security_integration_test.go, which is the only layer that
-// still chooses *which* id.
+// WO-85/86/87 at the SQL layer: what a password reset writes. The cross-account
+// half of WO-87 lives in cmd/server/auth_security_integration_test.go.
 package repositories
 
 import (
@@ -64,23 +56,14 @@ func resetTokenIDFor(t *testing.T, repo *UserRepository, userID, secret string) 
 // WO-86 — the table is not a set of working credentials
 // ---------------------------------------------------------------------------
 
-// TestAResetSecretIsNeverStoredInPlaintext is red against the pre-WO-86 code:
-// `password_reset_tokens.token` held the secret from the email verbatim, so the
-// first assertion below found it in a column and the second found no hash at
-// all. Anything that could read one row — a backup, the Neon console, a support
-// screenshot, an injection anywhere in either backend — could take over the
-// account it belonged to.
+// TestAResetSecretIsNeverStoredInPlaintext (WO-86): only the hash is stored.
 func TestAResetSecretIsNeverStoredInPlaintext(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
 	user := seedMember(t, "wo86-owner", "ACC-KH-86001", 0)
 	email, phone := contactOf(t, user)
 
-	// Built rather than written out. A 64-character hex literal is a credential
-	// as far as any secret scanner is concerned — gitleaks' generic-api-key rule
-	// scored the old one at entropy 4.0 and failed the CI job — and "it is only a
-	// test fixture" is exactly what a real leak would also look like from the
-	// outside. Composing it keeps the literal short and the scanner useful.
+	// Composed, so secret scanners (gitleaks) don't flag a 64-char hex literal.
 	secret := strings.Repeat("0123456789abcdef", 4)
 
 	if err := repo.CreateResetToken(ctx, ResetScopeForgotPassword, secret, email, phone,
@@ -147,10 +130,7 @@ func TestAResetSecretIsNeverStoredInPlaintext(t *testing.T) {
 	}
 }
 
-// Two members can be sent the same six-digit change-password code at the same
-// moment. Before WO-86 the user id was part of the secret, so the rows differed
-// anyway; now it is the scope that keeps them apart, and this is the test that
-// says so.
+// Two members can hold the same six-digit code; the scope keeps them apart.
 func TestTwoMembersCanHoldTheSamePasswordChangeCode(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -176,11 +156,7 @@ func TestTwoMembersCanHoldTheSamePasswordChangeCode(t *testing.T) {
 // WO-85 and WO-87 — what a completed reset writes
 // ---------------------------------------------------------------------------
 
-// TestAResetRevokesEverySessionInTheSameTransaction is red against the pre-WO-85
-// code: ResetPassword wrote the password and never touched revocation, so a
-// member whose password had been stolen — the one case where evicting the other
-// sessions is the entire purpose — left the attacker signed in for up to 24
-// hours, against both backends, with no way to know it had not worked.
+// TestAResetRevokesEverySessionInTheSameTransaction (WO-85).
 func TestAResetRevokesEverySessionInTheSameTransaction(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -211,10 +187,7 @@ func TestAResetRevokesEverySessionInTheSameTransaction(t *testing.T) {
 	}
 }
 
-// The old statement was `WHERE email = $2 OR phone = $3` and never looked at how
-// many rows it touched. Zero rows returned nil, and the API answered "password
-// reset" to a member whose password had not changed — locked out of an account
-// they still owned, with a spent link and no error anywhere.
+// A reset that matches no user is an error, not a silent success (WO-87).
 func TestAResetThatMatchesNoUserIsAnError(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -232,9 +205,7 @@ func TestAResetThatMatchesNoUserIsAnError(t *testing.T) {
 	}
 }
 
-// One link, one password. The `AND "usedAt" IS NULL` is what makes that true
-// under concurrency rather than only in the happy path — two clicks on the same
-// email are the ordinary way to hit it.
+// One link, one password — `AND "usedAt" IS NULL` under concurrency.
 func TestAResetLinkIsSpentExactlyOnce(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -253,10 +224,7 @@ func TestAResetLinkIsSpentExactlyOnce(t *testing.T) {
 	}
 }
 
-// The first-login marker is what `mustChangePassword` reads. Issuing a reset
-// link used to destroy it — ForgotPassword deleted every row for the address —
-// so asking for a link and never clicking it silently switched off the forced
-// password change. It must survive the request and die with the reset.
+// The first-login marker survives a reset REQUEST and dies with the reset.
 func TestTheFirstLoginMarkerSurvivesARequestAndDiesWithTheReset(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

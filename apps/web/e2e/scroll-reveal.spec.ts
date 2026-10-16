@@ -1,40 +1,16 @@
 import { test, expect, devices, type Page } from '@playwright/test';
 
 /**
- * The section reveal on the home page actually reveals something.
- *
- * This spec exists because the reveal shipped **twice** doing nothing at all,
- * and was reported both times in the same words: "everything is loaded
- * previously and shown as static". It was written as a scroll-driven CSS
- * animation inside `@supports (animation-timeline: view())` — correct, elegant,
- * and on an engine without that feature (Safari before 26, Firefox before 144)
- * the entire block is skipped. The page renders in its finished state, which is
- * exactly what it looked like before the feature was added.
- *
- * Nothing over the source could see it. It typechecks, it lints, the CSS is in
- * the bundle, and the two fixes in between were both applied to a block that
- * was never running for the reader who filed the report. **A feature that
- * degrades to nothing degrades silently, and looks identical to not having
- * built it.** So the assertion that matters is the negative one: below-the-fold
- * elements must actually be HIDDEN before you scroll to them. Everything else
- * here is about not overcorrecting into content a reader cannot read.
- *
- * No database: the home page falls back to empty settings when Prisma cannot
- * reach one, so this runs against a bare `next dev`.
+ * The home page reveal actually reveals. It once shipped twice doing nothing
+ * (a CSS feature older Safari ignores), so the key assertion is the NEGATIVE:
+ * below-the-fold elements are hidden before you scroll. No database needed.
  */
 
 /** Every element the reveal system is responsible for. */
 const REVEALED =
   '.reveal, .reveal-left, .reveal-right, .reveal-soft, .reveal-row > *, .reveal-row-4 > *';
 
-/**
- * Open the home page and wait for it to have settled.
- *
- * Deliberately not `networkidle`: under `next dev` the HMR socket never goes
- * idle, and this spec's reduced-motion case timed out on it while the five
- * around it happened to win the race. Waiting for the last section to exist is
- * both faster and actually about this page.
- */
+/** Open the home page and wait for the last section (not networkidle — HMR never idles). */
 async function openHome(page: Page) {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
@@ -54,9 +30,7 @@ test.describe('home page section reveal', () => {
   test('is armed, and hides what has not been scrolled to yet', async ({ page }) => {
     await openHome(page);
 
-    // The attribute is set by `components/ui/scroll-reveal.tsx` and is the only
-    // thing that enables the hidden state. No attribute means no reveal — which
-    // is the failure this spec is named after.
+    // The attribute that enables the hidden state at all.
     await expect(page.locator('html')).toHaveAttribute('data-reveal-js', '');
 
     const values = await opacities(page);
@@ -67,18 +41,8 @@ test.describe('home page section reveal', () => {
     const waiting = values.filter((o) => o < 0.05).length;
     expect(waiting).toBeGreaterThan(15);
 
-    // And nothing may be fading OUT.
-    //
-    // The hiding rule deliberately carries no `transition`. When it did,
-    // applying the attribute to an already-painted page transitioned
-    // twenty-nine elements from 1 down to 0 — a visible blink at load, before
-    // anything had been revealed at all.
-    //
-    // Asserted as a DIRECTION rather than as "nothing is part-way", because
-    // part-way is also what a legitimate reveal looks like: on a short viewport
-    // the first row is already crossing the trigger line while this runs, and
-    // the strict form failed on ten elements sitting at 0.915 on their way up.
-    // Only a decrease is the bug.
+    // Nothing may fade OUT at load (a transition on the hiding rule blinked
+    // every element). Asserted as a direction — part-way can be a real reveal.
     const before = await opacities(page);
     await page.waitForTimeout(180);
     const after = await opacities(page);
@@ -139,15 +103,8 @@ test.describe('home page section reveal', () => {
     }
     await page.waitForTimeout(900);
 
-    // Measured on the arrival rule rather than caught mid-flight, which is a
-    // race on a fast machine. Three columns and four columns are two separate
-    // cycles: sharing the 3n one put card 4 back on card 1's delay, and a
-    // fourth card arriving with the first reads as a rendering fault.
-    //
-    // `animationDelay`, not `transitionDelay`: the reveal is an animation so
-    // that a card's own `transition-all` cannot hijack it. Two animations run
-    // per card (a short fade and a longer move), so the computed value is a
-    // list and the first entry is the one to read.
+    // Stagger read from animationDelay (first of two animations); 3- and
+    // 4-column grids are separate cycles.
     for (const [selector, expected] of [
       ['#features .reveal-row-4 > *', 4],
       ['#about .reveal-row > *', 3],
@@ -216,15 +173,8 @@ test.describe('home page section reveal', () => {
 });
 
 /**
- * Somebody who has asked their system for less motion gets a finished page,
- * not a hidden one — and no observer is constructed for them either.
- *
- * `page.emulateMedia` rather than `test.use({ reducedMotion })`: the fixture
- * form did not reach the page under this project's config, and the test still
- * passed its first assertion for the wrong reason. So the precondition is
- * asserted first — a spec that proves a negative has to prove that the
- * condition it is testing was actually in force, or it passes forever on a
- * browser that never heard the question.
+ * Reduced motion: a finished page and no observer. emulateMedia, and the
+ * precondition is asserted first — a negative needs its condition proven.
  */
 test('reduced motion: nothing is hidden and no observer is armed', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -239,12 +189,7 @@ test('reduced motion: nothing is hidden and no observer is armed', async ({ page
   expect((await opacities(page)).filter((o) => o < 1)).toHaveLength(0);
 });
 
-/**
- * And the property the whole design is built on: the hidden state is scoped to
- * an attribute only JavaScript sets, so a reader whose JavaScript never arrives
- * gets the page finished rather than blank. This is the check that stops
- * somebody "simplifying" the CSS by hiding things by default.
- */
+/** Without JavaScript the page is finished, never blank — hiding needs the JS-set attribute. */
 test.describe('without JavaScript', () => {
   test.use({ javaScriptEnabled: false });
 

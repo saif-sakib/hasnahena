@@ -11,16 +11,9 @@ import { formatCurrency } from '@/lib/utils';
 import { getAccessToken } from '@/lib/api';
 
 /**
- * FR-10's missing half. `POST /api/v1/loans/applications` has existed since the
- * beginning; until 2026-08-17 no page called it, so a member could not apply for
- * a loan at all and every loan in the system had been created by a worker.
- *
- * Two rules this form has to get right, because the server enforces them and a
- * form that disagrees with the server just produces confusing 422s:
- *
- *   - A guarantor is required only ABOVE `loan.guarantorThresholdAmount`.
- *   - The guarantor is nominated by member ID and confirmed by name, because
- *     members cannot browse each other (SEC-13).
+ * A member's own loan application (FR-10). Mirrors the server: a guarantor only
+ * above loan.guarantorThresholdAmount, nominated by account number and confirmed
+ * by name (members cannot browse each other, SEC-13).
  */
 
 interface Props {
@@ -62,9 +55,7 @@ export function LoanApplicationForm({
   const installmentCount = Number.parseInt(installments, 10);
   const hasInstallments = Number.isFinite(installmentCount) && installmentCount > 0;
 
-  // Mirrors the server's `amountBig > threshold`. Shown live so the guarantor
-  // field appears and disappears as the member types, rather than surprising
-  // them on submit.
+  // Mirrors the server check, live as the member types.
   const guarantorRequired = hasAmount && amountValue > guarantorThreshold;
 
   const estimatedInstallment =

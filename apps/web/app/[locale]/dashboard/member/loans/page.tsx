@@ -49,10 +49,7 @@ export default function LoansPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
   const router = useRouter();
-  // WO-27 — SWR, not an effect. See lib/use-api.ts. The settings endpoint is a
-  // Next route rather than the Go API, so it is fetched through the same group
-  // with a plain fetch; a failure there falls back to the defaults below rather
-  // than blanking the screen, which is what the old catch-and-null did.
+  // SWR (WO-27); a settings failure falls back to defaults.
   const {
     data: pageData,
     error: loadError,
@@ -71,10 +68,7 @@ export default function LoansPage() {
   >(['/v1/dashboard/member/loans', '/v1/dashboard/member/transactions']);
   useRedirectOnUnauthorized(loadError);
 
-  // fetchSettings, not a bare fetch: the loan policy below is only in the
-  // response when the request carries the member's token (WO-77). Without it
-  // every value here silently falls back to the defaults hardcoded in this
-  // component, and a member is shown a policy the foundation may have changed.
+  // fetchSettings attaches the token; without it the loan policy is absent (WO-77).
   const { data: settingsData } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
     () => fetchSettings(),
@@ -168,9 +162,7 @@ export default function LoansPage() {
       return;
     }
 
-    // Whole taka, or refuse it (rule 1). This used to parseFloat and then
-    // `Math.round` on the way out, so a member who typed 1500.75 requested 1501
-    // and was shown a confirmation for a figure they had not asked for.
+    // Whole taka, or refuse it (rule 1).
     const amountValue = parseWholeTaka(repaymentAmount);
     if (amountValue === null) {
       setSubmitError(
@@ -259,9 +251,7 @@ export default function LoansPage() {
         )}
       </div>
 
-      {/* Guarantee requests from other members. Above the member's own loans on
-          purpose: it is someone else waiting on them, and it commits their
-          savings. */}
+      {/* Guarantee requests first: someone is waiting on this member's savings. */}
       <GuarantorRequests requests={guarantorRequests} onResolved={refresh} />
 
       {showApplyForm && (

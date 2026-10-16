@@ -55,9 +55,7 @@ func TestInstallmentPlanRepaysPrincipalExactly(t *testing.T) {
 				if !InstallmentPlanIsExact(principal, count, per, final) {
 					t.Error("InstallmentPlanIsExact disagrees with the arithmetic above")
 				}
-				// The final installment absorbs the remainder, so it is never
-				// smaller than a regular one — a member is never surprised by a
-				// larger payment mid-schedule.
+				// The final installment is never smaller than a regular one.
 				if final < per {
 					t.Errorf("final installment %d is smaller than the regular %d", final, per)
 				}
@@ -253,9 +251,7 @@ func TestRemainingInstallmentsNeverReturnsLessThanOne(t *testing.T) {
 		// Every scheduled payment made, money still owed. The caller divides by
 		// this, so a zero would be a panic on a money path.
 		{12, 12, 1},
-		// Paid MORE often than the schedule — possible, because
-		// paidInstallments is incremented per payment and a borrower may pay
-		// weekly against a monthly schedule.
+		// Paid more often than the schedule.
 		{12, 20, 1},
 		{12, -3, 12},
 	}

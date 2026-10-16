@@ -1,11 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/**
- * Credentials come from the environment so that no real password lives in the
- * repo, and so this spec can point at whichever seeded database you are using.
- * Without them the spec skips rather than failing — a missing local seed is not
- * a regression.
- */
+/** Admin credentials from the environment; skips without them. */
 const ADMIN_IDENTIFIER = process.env.E2E_ADMIN_IDENTIFIER;
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
 

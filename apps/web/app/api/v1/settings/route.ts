@@ -29,27 +29,13 @@ export async function OPTIONS(request: NextRequest) {
   return NextResponse.json({}, { headers: corsHeaders(request) });
 }
 
-// Deliberately reachable without a token: the marketing pages, the login screen
-// and every generated document's letterhead read the organisation's name,
-// address and contact details from here before anyone has signed in.
-//
-// What a caller gets depends on who they are (WO-77 / SEC-12):
-//
-//   anonymous       PUBLIC_CONFIG_KEYS  — branding, org details, landing copy
-//   member          + the loan policy governing their own money
-//   worker          + CONTENT_CONFIG_KEYS, because Content & Media edits them
-//   admin           SYSTEM_CONFIG_KEYS  — everything, because they edit it
-//
-// It has not returned `SELECT *` since WO-64: before that it handed the entire
-// `system_config` table to anonymous callers, so the day someone added a key
-// holding an internal threshold, an integration id or a partner's contact
-// details it became public with no code change and nothing to notice (TEST-17).
-// Narrowing it to the declared keys fixed the wholesale leak; this fixes the
-// retail one, where a declared key is nonetheless nobody's business but staff's.
-//
-// A bad token is treated as no token rather than as a 401. This endpoint's whole
-// job is to answer a caller who has not signed in, and an expired session must
-// still render a login page with the right logo on it.
+// Reachable without a token (marketing pages, login, letterheads). The answer
+// depends on the caller (WO-77 / SEC-12):
+//   anonymous  PUBLIC_CONFIG_KEYS
+//   member     + their loan policy
+//   worker     + CONTENT_CONFIG_KEYS (Content & Media edits them)
+//   admin      SYSTEM_CONFIG_KEYS
+// Never `SELECT *` (WO-64). A bad token is treated as no token, not a 401.
 export async function GET(request: NextRequest) {
   try {
     const keys = await readableKeysFor(request);
@@ -75,11 +61,7 @@ async function readableKeysFor(request: NextRequest): Promise<string[]> {
   if (isAdmin(auth.user.role)) {
     return [...SYSTEM_CONFIG_KEYS];
   }
-  // A worker edits the public site on Content & Media, and a form cannot save
-  // back a value it was never handed — it would render the input empty and then
-  // post that emptiness over what an admin had set. Every content key happens to
-  // be public today, so this changes nothing yet; it is here so that adding a
-  // content key that is *not* on a public page does not quietly break the form.
+  // A worker's form must receive every content key it can save back.
   if (auth.user.role === UserRole.WORKER) {
     return [...new Set([...MEMBER_CONFIG_KEYS, ...CONTENT_CONFIG_KEYS])];
   }
@@ -91,18 +73,8 @@ function isAdmin(role: string): boolean {
 }
 
 /**
- * Who may write which keys.
- *
- * An admin writes anything declared. A worker writes `CONTENT_CONFIG_KEYS` and
- * nothing else — what the public pages *show*. The split is the same partition
- * the two screens are built from (lib/system-config.ts), so this is one rule
- * rather than a second opinion: Content & Media posts only content keys, and a
- * request that reaches here with a settings key in it did not come from that
- * screen.
- *
- * It is deliberately all-or-nothing. Saving the content keys out of a mixed body
- * and dropping the rest would report success for a request that was half
- * refused, which is the same lie the unknown-key check below exists to prevent.
+ * Keys a role may not write: an admin writes anything declared, a worker only
+ * CONTENT_CONFIG_KEYS. All-or-nothing — a half-applied save must not report success.
  */
 function unwritableKeysFor(role: string, keys: string[]): string[] {
   if (isAdmin(role)) return [];
@@ -127,14 +99,7 @@ export async function PUT(request: NextRequest) {
       return errorResponse(request, 'Invalid request', 'Body must be an object', 400);
     }
 
-    // This route used to upsert whatever key it was handed, so a typo created a
-    // brand-new row that looked like a real setting everywhere it was displayed
-    // while the code carried on reading the correctly-spelled key and its
-    // default. The admin saw "saved" and the behaviour never changed — silent in
-    // both directions, and permanent.
-    //
-    // Rejecting the whole request rather than filtering the bad keys out is
-    // deliberate: a partial save that reports success is the same class of lie.
+    // Unknown keys reject the whole request (a typo must not become a new row).
     const { unknown } = partitionConfigKeys(Object.keys(body));
     if (unknown.length > 0) {
       return errorResponse(
@@ -167,15 +132,8 @@ export async function PUT(request: NextRequest) {
 
     await prisma.$transaction(updates);
 
-    // The tag is what the public pages actually read through (WO-73): every one
-    // of them shares a single `getPublicSettings()` cache entry, so one bust
-    // reaches all ten rather than the four paths named below. The
-    // `revalidatePath` calls stay because they also drop each route's rendered
-    // HTML, which the tag alone would not for a page that read no settings.
-    // `{ expire: 0 }`, not `'max'`: an admin who saves and reloads must see what
-    // they saved. The `'max'` profile is stale-while-revalidate, which shows
-    // them the old value once and looks exactly like a save that did not work.
-    // The one-argument form does the same thing but is deprecated in Next 16.
+    // The tag reaches every public page (WO-73); revalidatePath drops rendered
+    // HTML. `{ expire: 0 }` so the admin sees the save at once ('max' is SWR).
     revalidateTag(SYSTEM_CONFIG_TAG, { expire: 0 });
     revalidatePath('/');
     revalidatePath('/[locale]');
@@ -186,8 +144,6 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true }, { headers: corsHeaders(request) });
   } catch (error) {
-    // A malformed body is the caller's fault, not the server's. This used to
-    // answer 500 "Failed to update settings" for a truncated request (TEST-18).
     const status = routeErrorStatus(error);
     const msg = error instanceof Error ? error.message : 'Unknown error';
     if (status) {

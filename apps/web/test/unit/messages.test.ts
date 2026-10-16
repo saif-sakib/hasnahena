@@ -2,23 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
-// TEST-39 / WO-51 — EN/BN message parity, pinned.
-//
-// **This is an enumerating suite. It is SUPPOSED to fail when you add a key to
-// one messages file and not the other.** That is not a broken test; it is the
-// test working. Add the key to both files — do not delete the assertion, and do
-// not paste the English string into `bn.json` to make it pass, because
-// assertion 3 below exists precisely to catch that.
-//
-// product.md states "Full EN/BN parity on all user-facing strings" as a quality
-// bar and nothing enforced it. The two files held 300 keys each and were fully
-// translated on the day this was written, which is the cheapest moment to pin
-// it: the check costs nothing to add now and a reconciliation later.
-//
-// The browser matrix (`e2e/matrix.spec.ts`) does catch an untranslated key, but
-// only on a page it happens to visit, in a locale it happens to render, and
-// only once the key has already reached a screen. This catches it at
-// `pnpm test:unit`, in under a second, with no database and no browser.
+// TEST-39 / WO-51 — EN/BN message parity. SUPPOSED to fail when a key is in one
+// file and not the other: add it to both (never paste English into bn.json —
+// assertion 3 catches that).
 
 const REPO = resolve(process.cwd(), '..', '..');
 const WEB_ROOT = join(REPO, 'apps', 'web');
@@ -42,20 +28,10 @@ function flatten(value: unknown, prefix = ''): Map<string, string> {
 const en = flatten(readMessages('en'));
 const bn = flatten(readMessages('bn'));
 
-/**
- * Keys whose two values are *correctly* byte-identical: brand names, currency
- * codes and other strings that are the same in both languages by design.
- *
- * Empty today — every one of the 300 keys differs between the files. Add a key
- * here only when the identical value is deliberate, and say why on the line.
- */
+/** Keys correctly identical in both languages (brand names…). Say why on the line. */
 const IDENTICAL_BY_DESIGN = new Set<string>([]);
 
-/**
- * Above this length, an identical value is a copy-paste rather than a word that
- * happens to be the same in both languages. "BDT" and "Hasnahena" are short;
- * a forgotten sentence is not.
- */
+/** Above this length an identical value is a copy-paste, not a shared word. */
 const COPY_PASTE_LENGTH = 25;
 
 /** `{amount}` — next-intl's ICU placeholders. */
@@ -127,26 +103,9 @@ describe('EN/BN message parity', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Zero interest and zero fees is a Shariah requirement, not a pricing choice
- * (CLAUDE.md rule 3). The code has been guarded for a long time: `applicationFee`
- * is `BigInt(0)` on every application, a CHECK constraint rejects a non-zero
- * one, `internal/money` computes no rate, and `requirements.test.ts` searches the
- * Go and TypeScript source for the word "markup".
- *
- * **None of that reads the prose.** The Terms of Service told every member, in
- * both languages, that loans "are interest-free but may include administrative
- * fees" — a promise the platform cannot keep and would violate its own rule to
- * keep. It survived every existing guard because it is a string in a page, and
- * it was found by a census written for something else entirely.
- *
- * So this reads the prose. It is deliberately a search for the *promise of a
- * charge* rather than for the word "fee": the copy has to be able to say "no
- * processing fee", which is the whole point.
- *
- * Since 2026-09-29 there is exactly one charge, and it is not open-ended: ৳500
- * for office expenses at registration and at a loan application, flat and
- * never added to a loan (ADR-045). The Terms state that sum; an unbounded
- * "fees may apply" is still what this census refuses.
+ * Rule 3 in the PROSE members read: no copy may promise a charge (a Terms line
+ * once said loans "may include administrative fees"). Searches for the promise,
+ * so "no processing fee" passes. The one charge is the flat ৳500 (ADR-045).
  */
 describe('no member-facing page promises a fee', () => {
   const PAGES = join(WEB_ROOT, 'app');
@@ -162,10 +121,7 @@ describe('no member-facing page promises a fee', () => {
     return out;
   }
 
-  /**
-   * Phrases that assert a charge exists. Each is the affirmative form — "may
-   * include a fee", "চার্জ প্রযোজ্য" — so a sentence denying one passes.
-   */
+  /** Affirmative charge phrases; a denial passes. */
   const PROMISES_A_CHARGE = [
     /may\s+include\s+[\w\s]*fee/i,
     /(?<!no\s)(?<!zero\s)(?:administrative|processing|service|application)\s+fees?\s+(?:apply|will|are\s+charged)/i,
@@ -175,16 +131,7 @@ describe('no member-facing page promises a fee', () => {
     /চার্জ\s+প্রযোজ্য/,
   ];
 
-  /**
-   * The pages **and the message files** — WO-96 made the second half necessary.
-   *
-   * This census used to walk `app/` alone, which was complete only because
-   * almost all the copy lived there. Moving 73 auth strings into
-   * `messages/{en,bn}.json` moved them out of its reach, and the remaining 827
-   * inline strings in the dashboard will move the same way. A rule-3 promise is
-   * exactly as dangerous in a message file as in a component; the difference is
-   * that a member reads it either way.
-   */
+  /** The pages AND the message files (copy moves there — WO-96). */
   function copySources(): string[] {
     return [
       ...pageFiles(PAGES),
@@ -214,17 +161,8 @@ describe('no member-facing page promises a fee', () => {
   });
 
   it('the terms state the rule positively in both languages', () => {
-    // The absence check above passes on copy that says nothing at all. This is
-    // the other half: the one page a member reads before borrowing has to say
-    // what the rule is.
-    //
-    // It reads `messages/{en,bn}.json`, not `terms/page.tsx`, because that is
-    // where the wording moved on 2026-08-26 (T-10) — the page is now a shell
-    // around `legal.terms.sections`. **This assertion following the copy is the
-    // point**, not an inconvenience: the fee promise that started this census
-    // survived every other guard precisely because it sat in a component, and a
-    // census left pointing at the old location would have gone green while
-    // reading nothing.
+    // The other half: the Terms must state the rule. Reads messages/, where the
+    // wording lives (T-10).
     const loans = {
       en: en.get('legal.terms.sections.loans.content'),
       bn: bn.get('legal.terms.sections.loans.content'),
@@ -235,9 +173,7 @@ describe('no member-facing page promises a fee', () => {
         'renamed, move this assertion with it rather than deleting it',
     ).toBeDefined();
     expect(loans.en).toMatch(/no\s+profit\s+rate/i);
-    // The one charge the foundation makes (ADR-045) is stated with the three
-    // properties that keep it from being riba: a flat sum, not refundable, and
-    // never added to what is owed. Drop any of them and it reads as a markup.
+    // The ৳500: flat, non-refundable, never added to what is owed (ADR-045).
     expect(loans.en).toMatch(/same whatever amount you borrow/i);
     expect(loans.en).toMatch(/not added to the loan/i);
     expect(loans.bn).toContain('ঋণের সাথে যোগ হয় না');
@@ -250,30 +186,8 @@ describe('no member-facing page promises a fee', () => {
 });
 
 /**
- * WO-96 — the auth pages stop hiding their copy from every check in this file.
- *
- * CLAUDE.md rule 5: *"UI copy lives in `apps/web/messages/{en,bn}.json` — both
- * files, never hardcoded in a component."* Counted 2026-08-24, the two worst
- * offenders were the login page (28 inline ternaries) and forgot-password (19);
- * the work order recorded `reset-password/page.tsx` as already correct and
- * offered it as the model, which it is — the copy was in
- * `reset-password-form.tsx` beside it, and there were 26 more. 73 strings on
- * three files, and **not one of them was reachable by anything above**: not the
- * parity census, not the placeholder check, not the fee-promise search.
- *
- * That is the reason this is a rule rather than a preference. The Terms of
- * Service told every member, in both languages, that loans "may include
- * administrative fees" — and survived a CHECK constraint, a source-wide search
- * for "markup", and `applicationFee = 0`, because a string in a page is
- * invisible to every guard this repository has. (The fee census above now reads
- * the message files too — moving a sentence into `messages/` is not a way
- * around it either.)
- *
- * The census is scoped to `(auth)/` deliberately. The same shape appears ~827
- * times across the dashboard, which is a separate and much larger piece of work
- * ([tasks.md](../../../../docs/tasks.md)); a census that failed on all of them
- * would be switched off within the day, and a census that is switched off is
- * worse than none.
+ * WO-96 / rule 5: the (auth) pages read their copy from the message files.
+ * Scoped to (auth)/ — the dashboard's inline strings are a separate task.
  */
 describe('the auth pages read their copy from the message files', () => {
   const AUTH_DIR = join(WEB_ROOT, 'app', '[locale]', '(auth)');
@@ -291,13 +205,7 @@ describe('the auth pages read their copy from the message files', () => {
     return out;
   }
 
-  /**
-   * A language toggle names the *other* language, in that language: `বাংলা` on
-   * the English page and `English` on the Bengali one. Translating those would
-   * render "English" to a reader who is looking for the way out of English.
-   * They are the one legitimate inline pair, and exempting them by their exact
-   * shape is narrower than exempting the file.
-   */
+  /** The language toggle names the other language in itself — the one allowed inline pair. */
   const LANGUAGE_TOGGLE = /locale === 'en' \? '(বাংলা|English|EN)' : '(বাংলা|English|EN)'/g;
 
   /** `locale === 'bn' ? 'x' : 'y'` — prose chosen in a component. */

@@ -1,20 +1,8 @@
 //go:build integration
 
-// TEST-15 — the access contract for every route the API exposes.
-//
-// 65 routes, previously zero tests. The table below is the specification: one
-// row per route saying who may reach it. The runner then proves, for every row:
-//
-//	no credential           -> 401
-//	a role not on the row   -> 403
-//	a role on the row       -> neither 401 nor 403
-//
-// The table is checked against the *router*, not against itself: chi.Walk
-// enumerates what is actually mounted, and a route with no row — or a row with
-// no route — fails the test. That is the property that matters. A missing role
-// check is a one-line diff that reads as correct, and the only reliable way to
-// notice one is to make "I added a route" and "I declared who may call it" the
-// same commit.
+// TEST-15 — the access contract for every route: no credential → 401, a role
+// not on the row → 403, a role on the row → neither. chi.Walk checks the table
+// against what is actually mounted, so a route without a row fails.
 //
 //	scripts/test-stack.sh up
 //	eval "$(scripts/test-stack.sh env)"
@@ -134,15 +122,11 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/support/threads":               anyRole,
 	"GET /v1/dashboard/support/messages":              anyRole,
 	"POST /v1/dashboard/support/messages":             anyRole,
-	// Anyone may open a thread; only staff may close one. The check is inside
-	// MarkSupportThreadProcessed rather than at the route, which is why this
-	// row is easy to get wrong and worth pinning.
+	// The staff check is inside the handler, so worth pinning.
 	"POST /v1/dashboard/support/threads/processed": staff,
 	"GET /v1/dashboard/support/stream":             anyRole,
 	"POST /v1/dashboard/support/stream/ticket":     anyRole,
-	// Same path as the GET above, but writing the retention policy is an
-	// admin act. The split lives inside the handler, which is exactly why it
-	// is worth a row of its own.
+	// Writing the retention policy is admin-only; the split is in the handler.
 	"PUT /v1/dashboard/support/config": adminOnly,
 
 	// A member's own money. Staff read member data through the worker and
@@ -154,40 +138,25 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/member/profile":                  member,
 	"POST /v1/dashboard/member/requests/deposit":        member,
 	"POST /v1/dashboard/member/requests/loan-repayment": member,
-	// POST /member/requests/withdrawal is deliberately absent (ADR-030). It was
-	// the member's own withdrawal notice, and both it and the notice period it
-	// started are gone: a member asks a field worker, and staff pay from
-	// /worker/members/{memberUserId}/withdrawal below.
-
-	// Field-worker surface. Admins are included: an admin covering a round
-	// needs the same screens.
+	// No member withdrawal request route (ADR-030).
+	// Field-worker surface; admins included.
 	"GET /v1/dashboard/worker":                                    staff,
 	"GET /v1/dashboard/worker/members":                            staff,
 	"GET /v1/dashboard/worker/members/{memberUserId}":             staff,
 	"POST /v1/dashboard/worker/members/{memberUserId}/deposit":    staff,
 	"POST /v1/dashboard/worker/members/{memberUserId}/withdrawal": staff,
 	"POST /v1/dashboard/worker/members/{memberUserId}/loan":       staff,
-	// Adding principal to a loan that is already running. Staff, not admin
-	// only: it is a disbursement at the desk, the same act as `/loan`, and the
-	// ceiling it is measured against is enforced in the repository rather than
-	// by who is allowed to ask.
+	// Staff: a desk disbursement; the ceiling is enforced in the repository.
 	"POST /v1/dashboard/worker/members/{memberUserId}/loan-topup":   staff,
 	"POST /v1/dashboard/worker/members/{memberUserId}/loan-payment": staff,
 	"GET /v1/dashboard/worker/requests":                             staff,
 	"GET /v1/dashboard/worker/loans":                                staff,
 	"GET /v1/dashboard/worker/transactions":                         staff,
 	"GET /v1/dashboard/worker/profile":                              staff,
-	// UpdateProfile only ever edits the caller's own row, so it asks for a
-	// session rather than a role — which left this PUT open to a MEMBER while
-	// the GET beside it was staff-only. Not an escalation, but a route whose
-	// two halves disagree about who it is for. Gated at the router since
-	// 2026-08-17 so the answer is visible in the route table (SEC-02).
+	// Own row only, but gated at the router (SEC-02).
 	"PUT /v1/dashboard/worker/profile": staff,
 
-	// Administration.
-	// The dashboard payload carries `recentActivity`, which is the audit
-	// trail — admin-only by product.md even though the counters beside it are
-	// not sensitive.
+	// Administration. The dashboard carries the audit trail — admin-only.
 	"GET /v1/dashboard/admin/":                               adminOnly,
 	"GET /v1/dashboard/admin/workers":                        adminOnly,
 	"POST /v1/dashboard/admin/workers/welcome-email":         adminOnly,
@@ -199,9 +168,7 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/admin/loans/detail":                   adminOnly,
 	"POST /v1/dashboard/admin/loans/default":                 adminOnly,
 	"GET /v1/dashboard/admin/profile":                        adminOnly,
-	// Same handler as the worker PUT above, but mounted inside the adminOnly
-	// group, so the middleware narrows it regardless of what the handler asks
-	// for. Mounting location wins — that is the point of SEC-02.
+	// Same handler as the worker PUT, narrowed by mounting location (SEC-02).
 	"PUT /v1/dashboard/admin/profile": adminOnly,
 
 	// Donations live under /admin for historical URL reasons but are recorded
@@ -209,12 +176,8 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/admin/donations":  staff,
 	"POST /v1/dashboard/admin/donations": staff,
 
-	// The approvals queue, and processing a pending posting. Approving a
-	// *registration* or a *loan* is an admin decision and stays above; moving
-	// money a member has already asked for is the worker's job (FR-07, FR-08),
-	// and these three handlers have asked for WORKER since they were written.
-	// Only the mounting said otherwise, which 403'd the worker approvals
-	// screen — the same component the admin opens.
+	// Queue and processing are a worker's job; approving registrations and
+	// loans stays admin-only above.
 	"GET /v1/dashboard/admin/approvals":                    staff,
 	"POST /v1/dashboard/admin/approvals/withdrawal":        staff,
 	"POST /v1/dashboard/admin/approvals/withdrawal/reject": staff,
@@ -224,11 +187,7 @@ var routeContract = map[string]access{
 	"GET /v1/dashboard/admin/reports/yearly":  staff,
 	"GET /v1/dashboard/admin/reports/loans":   staff,
 
-	// The three read-only lists the shared reports screen cross-foots.
-	// `/admin/members` is the same handler body as `/worker/members`, and
-	// `/worker/loans` already returns every loan, so those two hand a worker
-	// nothing they could not already fetch. The savings ledger is the real
-	// widening — read only; every write to it is gated elsewhere.
+	// Read-only lists for the shared reports screen.
 	"GET /v1/dashboard/admin/members":  staff,
 	"GET /v1/dashboard/admin/loans":    staff,
 	"GET /v1/dashboard/admin/deposits": staff,
@@ -269,14 +228,8 @@ func walkRoutes(t *testing.T, r chi.Router) []string {
 	return out
 }
 
-// ensureDonationPool recreates the donation pool account, which `pnpm db:seed`
-// creates in a real environment.
-//
-// This package cannot assume the seed survived: the repositories suite
-// truncates every table between tests, and `go test ./...` runs both against
-// the same database. Depending on a fixture another package happens to leave
-// behind is how a suite passes locally and fails in CI depending on the order
-// the packages ran in.
+// ensureDonationPool recreates the pool account: other suites truncate tables,
+// so never depend on a fixture another package left behind.
 func ensureDonationPool(ctx context.Context) {
 	// repositories.DonationFundUserID — the pool is found by its owner now that
 	// there is no account number (ADR-023).
@@ -309,15 +262,8 @@ func seedRoleUser(t *testing.T, role string) string {
 		return id
 	}
 	id := fmt.Sprintf("goroute-%s", strings.ToLower(role))
-	// Every unique column is namespaced to this suite. The Next contract suite
-	// seeds its own role users in the same database and both originally used
-	// `RT-<role>` as the account number, so whichever ran second failed on
-	// users_accountNo_key — a collision that only appears when the suites run in
-	// the same session, which is exactly when CI runs them.
-	//
-	// DO UPDATE, not DO NOTHING: the repositories suite truncates `users`
-	// between its tests, so a row seeded earlier in the run may be gone, and a
-	// row that survived may have been left INACTIVE.
+	// Unique columns are namespaced to this suite (the Next suite shares the
+	// database). DO UPDATE because another suite may have truncated or changed it.
 	_, err := testPool.Exec(context.Background(), `
 		INSERT INTO users (id, phone, email, "passwordHash", role, status,
 		                   "accountNo", "nameEn", "fatherName", "motherName",
@@ -383,9 +329,7 @@ func tokenFor(t *testing.T, role string) string {
 // authorization test — what matters is that the router matches the route.
 func concreteURL(pattern string) string {
 	url := strings.ReplaceAll(pattern, "{memberUserId}", "GORT-MEMBER")
-	// The SSE stream blocks until the client disconnects. Omitting threadId
-	// makes it answer 400 immediately, which is still "not 401 and not 403" —
-	// the only thing this test asks of it.
+	// Without threadId the SSE stream answers 400 at once instead of blocking.
 	return url
 }
 
@@ -417,9 +361,7 @@ func do(t *testing.T, r chi.Router, method, pattern, token string) *httptest.Res
 // TEST-15
 // ---------------------------------------------------------------------------
 
-// TestEveryRouteHasADeclaredContract is the guard that keeps the rest honest.
-// Without it, a route added tomorrow is simply not covered by anything below,
-// and the suite goes on reporting green.
+// TestEveryRouteHasADeclaredContract keeps the rest honest.
 func TestEveryRouteHasADeclaredContract(t *testing.T) {
 	r := testRouter(t)
 	mounted := walkRoutes(t, r)

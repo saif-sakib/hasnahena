@@ -1,12 +1,7 @@
 package repositories
 
-// Support chat, its retention policy, and the SSE tickets from SEC-05.
-//
-// These tables come from migrations only (WO-70). The bootstrap that used to
-// create them at boot was a second, subtly different definition of tables
-// schema.prisma already owned — "so a deploy that skipped the migration still
-// works" is the reasoning it carried, and the cost of that safety net was a
-// database whose shape depended on which definition happened to run first.
+// Support chat, its retention policy, and the SSE tickets (SEC-05). Tables
+// come from migrations only (WO-70).
 
 import (
 	"context"
@@ -95,44 +90,6 @@ func (r *UserRepository) SetSupportRetentionDays(ctx context.Context, days int) 
 	return tx.Commit(ctx)
 }
 
-// EnsureSupportSchema is retired (WO-70).
-//
-// It ran `CREATE TABLE IF NOT EXISTS` at every boot for `document_sequences`,
-// `support_threads`, `support_messages` and `sse_tickets` — all four of which
-// are also defined in schema.prisma and created by the 0_init migration. Two
-// definitions of the same tables, in two languages, with nothing checking that
-// they agree.
-//
-// They did not agree, and the differences were exactly the dangerous kind —
-// invisible on a database where the other definition happened to run first:
-//
-//   document_sequences."updatedAt"   migration: TIMESTAMP(3) NOT NULL, no default
-//                                    bootstrap: TIMESTAMP NOT NULL DEFAULT NOW()
-//
-// which is the divergence that once broke all four money flows at once, as a
-// generic 500, when a `db push` stripped the default the bootstrap had supplied
-// (see docs/data-model.md).
-//
-//   idx_support_messages_thread_created_desc
-//                                    migration: plain (threadId, createdAt DESC)
-//                                    bootstrap: the same, INCLUDE (message, senderUserId)
-//
-// Same index name plus IF NOT EXISTS means whichever ran first wins silently.
-// Migrations run first in every environment, so the covering variant has never
-// actually existed anywhere — it was a no-op that read like an optimisation.
-// Not reinstated: Prisma cannot express INCLUDE, so it would have to be
-// hand-written SQL that `prisma migrate diff` cannot see, and that category
-// already holds the audit_logs trigger and the CHECK constraints. A covering
-// index on the smallest hot path is not worth a third invisible object.
-//
-// Migrations are now the only definition. `pnpm db:migrate` runs in every
-// environment, and `pnpm db:migrate:check` fails the build when the database
-// and schema.prisma disagree — which is the guarantee this function was
-// pretending to provide.
-
-// CreateSSETicket stores a hashed stream ticket. Expired rows are swept on the
-// way in, so the table stays bounded without needing a scheduled job.
-
 // CreateSSETicket stores a hashed stream ticket. Expired rows are swept on the
 // way in, so the table stays bounded without needing a scheduled job.
 func (r *UserRepository) CreateSSETicket(ctx context.Context, ticketHash string, userID string, purpose string, expiresAt time.Time) error {
@@ -145,10 +102,6 @@ func (r *UserRepository) CreateSSETicket(ctx context.Context, ticketHash string,
 	`, ticketHash, userID, purpose, expiresAt)
 	return err
 }
-
-// ConsumeSSETicket resolves an unexpired ticket to its owner. The ticket is not
-// deleted: EventSource reconnects re-send the same URL, and the TTL is short
-// enough that reuse inside the window is not a meaningful widening.
 
 // ConsumeSSETicket resolves an unexpired ticket to its owner. The ticket is not
 // deleted: EventSource reconnects re-send the same URL, and the TTL is short

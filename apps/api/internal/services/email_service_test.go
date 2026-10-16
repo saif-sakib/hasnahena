@@ -8,20 +8,9 @@ import (
 	"testing"
 )
 
-// WO-52 — email_service.go was 488 lines with zero tests.
-//
-// It renders HTML with fmt.Sprintf and hand-rolled `html.EscapeString` calls,
-// and it builds two bodies — HTML and plain text — from the same inputs by
-// different paths. **Only one of those paths escapes.** That asymmetry is
-// correct (a text/plain body must not contain HTML entities, or a member called
-// O'Rahman reads "O&#39;Rahman"), but it is exactly the kind of correct-looking
-// asymmetry that silently inverts when someone refactors the two branches
-// together. These tests pin both directions.
-//
-// No mock SMTP server, by instruction and by preference: the build* methods are
-// pure, so the bodies are asserted directly and nothing reaches the network.
-// The four emails carry no money — the amounts live in the notifications table,
-// covered by internal/notify — so there is nothing here about taka.
+// WO-52 — the email bodies. HTML is escaped and plain text is NOT (or a member
+// called O'Rahman reads "O&#39;Rahman"); both directions are pinned. build* are
+// pure, so nothing reaches the network.
 
 func testEmailService() *EmailService {
 	return NewEmailService(EmailConfig{
@@ -32,9 +21,7 @@ func testEmailService() *EmailService {
 	})
 }
 
-// Names that have to survive the round trip. The Bengali one is not decoration:
-// most member names in this system are Bengali, and an escaper that mangles
-// them breaks the common case rather than the edge case.
+// Names that must survive the round trip, including Bengali.
 var hostileNames = []struct {
 	label string
 	name  string
@@ -48,9 +35,7 @@ var hostileNames = []struct {
 	{"bengali with markup", `রহিমা<img src=x onerror=alert(1)>`},
 }
 
-// assertEscapedInHTML is the core assertion: the raw string must NOT appear in
-// the HTML body, its escaped form MUST, and the raw string MUST appear in the
-// text body unescaped.
+// assertEscapedInHTML: raw absent and escaped present in HTML; raw in text.
 func assertEscapedInHTML(t *testing.T, label, raw, textBody, htmlBody string) {
 	t.Helper()
 
@@ -187,9 +172,7 @@ func TestPasswordChangeCodeEmailRequiresACode(t *testing.T) {
 	}
 }
 
-// An unknown locale must fall back to English rather than rendering a body with
-// no greeting. `normalizeLocale` is the only thing standing between a bad
-// Accept-Language and an empty email.
+// An unknown locale falls back to English.
 func TestUnknownLocaleFallsBackToEnglish(t *testing.T) {
 	s := testEmailService()
 	for _, locale := range []string{"", "fr", "EN-GB", "  ", "bn-BD"} {
@@ -241,9 +224,7 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// `/login`, not `/en/login`: English has no prefix since WO-95, and an email
-	// is the last place a link that 301s belongs — these outlive the deploy that
-	// wrote them and some clients resolve redirects before a person ever clicks.
+	// `/login`, not `/en/login` (ADR-034).
 	const want = "https://staging.example.test/login"
 	if !strings.Contains(textBody, want) {
 		t.Errorf("text body does not link to %s", want)
@@ -251,10 +232,7 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 	if !strings.Contains(htmlBody, want) {
 		t.Errorf("HTML body does not link to %s", want)
 	}
-	// The trailing slash on AppURL must not survive into a doubled one. This
-	// matters more than it did: `localeURL` concatenates rather than formatting
-	// with a separator, so a constructor that stopped trimming would produce
-	// `https://…//login` with nothing else complaining.
+	// AppURL's trailing slash must not double up.
 	if strings.Contains(htmlBody, "example.test//") {
 		t.Error("a trailing slash on APP_URL produced a doubled slash in the link")
 	}
@@ -274,19 +252,8 @@ func TestBodiesUseTheConfiguredAppURL(t *testing.T) {
 // WO-95 — the links in an email are the canonical URLs, not redirects
 // ---------------------------------------------------------------------------
 
-// English lost its URL prefix (ADR-034), so `https://…/en/login` is a URL the
-// web app answers with a 301. It still works; it is still the wrong thing to
-// put in an email.
-//
-// These links outlive the deploy that wrote them. A member is emailed a
-// password-reset link and may open it an hour later or forward it; approval
-// emails sit in an inbox for years. Some clients and corporate link scanners
-// resolve a redirect before a person ever clicks, and a chain is one more thing
-// that can break between here and the login form.
-//
-// The rule is implemented twice — here and in `apps/web/lib/locale-path.ts` —
-// because the two runtimes cannot share a module. This is the half that keeps
-// the Go side honest; `apps/web/test/unit/locale-routing.test.ts` is the other.
+// Email links are canonical (no 301). The Go half of the rule in
+// apps/web/lib/locale-path.ts; locale-routing.test.ts is the other.
 func TestEmailLinksUseTheCanonicalLocalePath(t *testing.T) {
 	const appURL = "https://example.test"
 
@@ -318,17 +285,10 @@ func TestNoEmailBuildsALocaleURLByHand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read email_service.go: %v", err)
 	}
-	// Comments stripped first. The doc comment on localeURL quotes the very
-	// expression this forbids, and a detector that fires on its own rule being
-	// written down teaches people to delete the explanation — the same lesson
-	// requirements.test.ts records about searching for the word "markup".
-	// The banned shape is the *format string*, not the argument list —
-	// `localeURL(s.appURL, locale, "/login")` legitimately passes both, so a
-	// check on `s.appURL, locale` would fail on the fix itself.
+	// Comments stripped first (localeURL's doc quotes the banned shape). The
+	// banned shape is the format string.
 	if bytes.Contains(withoutComments(source), []byte(`"%s/%s/`)) {
-		// Worded without a verb of its own: `go vet` reads a literal containing
-		// one as a format string this call forgot to pass arguments for, and it
-		// constant-folds a concatenation, so hiding it that way does not work.
+		// No verb in the literal, or go vet reads it as a format string.
 		t.Error("email_service.go builds a URL by interpolating the locale into a Sprintf " +
 			"path. English has no prefix (ADR-034), so that produces a link the web app " +
 			"answers with a 301. Use localeURL(s.appURL, locale, path).")
@@ -348,16 +308,7 @@ func withoutComments(source []byte) []byte {
 	return out.Bytes()
 }
 
-// ---------------------------------------------------------------------------
-// The rejection email (T-07, 2026-08-26)
-// ---------------------------------------------------------------------------
-//
-// Nothing sent this before. Rejecting an application wrote a status, scrambled
-// the applicant's email and phone so the unique constraint would let them
-// reapply, and stopped — so the applicant was never told, and after the scramble
-// could not be told. These tests hold the three properties that make the message
-// worth sending at all: it says why, it says it in the applicant's language, and
-// it cannot be turned into a way to inject markup into somebody's inbox.
+// The rejection email (T-07): says why, in the applicant's language, escaped.
 
 func TestRejectionEmailStatesTheReasonInBothLanguages(t *testing.T) {
 	s := testEmailService()
@@ -390,9 +341,7 @@ func TestRejectionEmailStatesTheReasonInBothLanguages(t *testing.T) {
 	}
 }
 
-// OTHER carries no sentence of its own, so the admin's note is the whole
-// reason. The handler refuses OTHER without one; this asserts the builder puts
-// the note in when it has one.
+// OTHER has no sentence; the admin's note is the reason.
 func TestRejectionEmailCarriesTheAdminsNote(t *testing.T) {
 	s := testEmailService()
 	const note = "Please resubmit with the back of the NID."
@@ -406,9 +355,7 @@ func TestRejectionEmailCarriesTheAdminsNote(t *testing.T) {
 		t.Error("the admin's note is missing from the email — with OTHER it is the only reason there is")
 	}
 
-	// A preset reason and a note are joined rather than one replacing the
-	// other: "documents were not readable" plus *which* document is two useful
-	// facts, and dropping either loses half the answer.
+	// Preset reason and note are joined.
 	_, bothText, _, err := s.buildMemberRejectionEmail(
 		"applicant@example.test", "Rahima", "UNCLEAR_DOCUMENTS", note, "en")
 	if err != nil {
@@ -431,9 +378,7 @@ func TestRejectionEmailEscapesEverythingInterpolated(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s/%s: %v", locale, c.label, err)
 			}
-			// The name and the note are both attacker-influenced: the name comes
-			// from the registration form and the note is typed by an admin who
-			// may have pasted it.
+			// Name and note are both attacker-influenced.
 			assertEscapedInHTML(t, locale+"/"+c.label, c.name, textBody, htmlBody)
 		}
 	}

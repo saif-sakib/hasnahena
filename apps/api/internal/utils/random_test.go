@@ -11,13 +11,8 @@ const (
 	digitAlphabet    = "0123456789"
 )
 
-// biasedString is the implementation WO-65 replaced, kept verbatim so the tests
-// below can show that the statistic separates it from the fixed one.
-//
-// Without it these would be uniformity tests that pass and prove nothing: a
-// chi-square that never sees a skewed sample is not evidence that it would
-// notice one. This is the "seen to fail against the pre-fix code" rule from
-// traps.md, wired into the suite instead of performed once by hand.
+// biasedString is the pre-WO-65 implementation, kept so the tests prove the
+// statistic actually detects the bias.
 func biasedString(n int, alphabet string) string {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
@@ -30,13 +25,8 @@ func biasedString(n int, alphabet string) string {
 	return string(out)
 }
 
-// chiSquare measures how far an observed distribution sits from uniform.
-//
-// Preferred to a per-symbol tolerance because the two biases here are wildly
-// different sizes — 21% for the 62-character alphabet, 1.6% for the digits —
-// and a tolerance loose enough not to flake on sampling noise would sail past
-// the digit case. Chi-square pools every symbol's deviation into one number
-// whose distribution under uniformity is known, so one threshold covers both.
+// chiSquare pools every symbol's deviation, so one threshold catches both the
+// 21% and the 1.6% bias.
 func chiSquare(counts map[rune]int, total int, symbols int) float64 {
 	expected := float64(total) / float64(symbols)
 	sum := 0.0
@@ -55,10 +45,7 @@ func tally(s string) map[rune]int {
 	return counts
 }
 
-// Under uniformity chi-square has mean = degrees of freedom and standard
-// deviation = sqrt(2*df), so these thresholds sit roughly 12 standard
-// deviations above the expected value: a false failure is not a realistic
-// event. The biased implementation lands far beyond them — see the assertions.
+// Thresholds ~12 standard deviations above the mean: no realistic false failure.
 const (
 	passwordSamples   = 200_000 // chars; biased ≈ 1318, uniform ≈ 61 ± 11
 	passwordThreshold = 200.0
@@ -151,9 +138,7 @@ func TestRandomStringRejectsImpossibleRequests(t *testing.T) {
 	}
 }
 
-// The rejection bound is 256 - (256 % size). Held in a byte it would wrap to 0
-// for a 256-symbol alphabet, rejecting every value and looping forever. This is
-// the test that would hang rather than fail, which is why the bound is an int.
+// A byte-typed bound would wrap to 0 at 256 symbols and loop forever.
 func TestRandomStringTerminatesWhenTheAlphabetFillsTheByteRange(t *testing.T) {
 	full := make([]byte, 256)
 	for i := range full {

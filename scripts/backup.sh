@@ -1,36 +1,18 @@
 #!/usr/bin/env bash
 #
-# Dumps the database to a single encrypted file.
+# Dumps the database to one encrypted file (custom format; restore with
+# scripts/restore-check.sh).
 #
 #   DIRECT_DATABASE_URL=postgresql://... BACKUP_PASSPHRASE=... scripts/backup.sh [outdir]
+#   → <outdir>/hasnahena-<UTC timestamp>.dump.gpg
 #
-# BACKUP_DATABASE_URL is accepted as the same thing, because that is the name
-# the GitHub secret has. One value, two names, and being handed the wrong one is
-# the expected mistake — the workflow maps `secrets.BACKUP_DATABASE_URL` onto
-# `DIRECT_DATABASE_URL`, so anyone copying the command out of the workflow and
-# running it locally has the other half of the pair in their hand.
-#
-# Two things about this script are deliberate and easy to get wrong:
-#
-#   1. It must use the DIRECT Neon endpoint, not the `-pooler` one. pg_dump
-#      issues session-level SET statements that PgBouncer's transaction pooling
-#      silently drops, and the dump either fails or — worse — succeeds oddly.
-#   2. The dump is encrypted before it touches any storage. It contains every
-#      member's name, phone, NID number and bcrypt hash. An unencrypted copy in
-#      a CI artifact store is a data breach waiting for someone to notice.
-#
-# Output: <outdir>/hasnahena-<UTC timestamp>.dump.gpg
-#
-# The dump is custom format (-Fc), so pg_restore can restore selectively and in
-# parallel. Restore it with scripts/restore-check.sh.
+# BACKUP_DATABASE_URL is accepted too (the GitHub secret's name). Uses the
+# DIRECT endpoint (pg_dump needs session state) and encrypts before anything
+# touches storage — the dump holds names, NIDs and password hashes.
 
 set -euo pipefail
 
-# Exports PG_DUMP as an absolute path to the NEWEST client on this machine.
-# /usr/bin/pg_dump is pg_wrapper on Debian and Ubuntu and answers with whatever
-# major postgresql-common calls the default, which is how this script once
-# reported "pg_dump version: 16.14" against a 17.11 server on a runner that had
-# a newer client installed. See scripts/lib/pg-client.sh.
+# The newest pg_dump by absolute path (see lib/pg-client.sh).
 . "$(dirname "${BASH_SOURCE[0]}")/lib/pg-client.sh"
 
 OUT_DIR="${1:-backups}"
@@ -48,11 +30,7 @@ if [[ -z "${BACKUP_PASSPHRASE:-}" ]]; then
   exit 1
 fi
 
-# Neon serves the same database on two hostnames: `-pooler` (PgBouncer, which
-# drops the session state pg_dump depends on) and the direct one. Being handed
-# the pooled URL is the expected mistake — it is the string in every dashboard
-# and every other env var — so derive the direct host rather than failing and
-# leaving the schedule with no backup at all.
+# Derive the direct host from a -pooler URL rather than fail the backup.
 if [[ "$DIRECT_DATABASE_URL" == *"-pooler"* ]]; then
   echo "backup: given a pooler endpoint; using the direct host instead" >&2
   DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL//-pooler/}"
@@ -63,10 +41,7 @@ if [[ -z "${PG_DUMP:-}" ]]; then
   exit 1
 fi
 
-# Checked before the dump so the log names the problem and the remedy, rather
-# than pg_dump's own "aborting because of server version mismatch" 40 minutes
-# into a nightly run. Neon upgrades Postgres on its own schedule, so this WILL
-# drift again; when it does, this is the line that says what to install.
+# Version check up front; Neon upgrades on its own schedule.
 pg_require_client_at_least "$PG_DUMP" "$DIRECT_DATABASE_URL"
 
 mkdir -p "$OUT_DIR"

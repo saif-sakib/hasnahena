@@ -8,9 +8,7 @@ type JwtPayload = {
   role?: string;
 };
 
-/**
- * Determines if we're in a secure context (HTTPS or localhost)
- */
+/** Secure context (HTTPS or localhost)? */
 function isSecureContext(): boolean {
   if (typeof window === 'undefined') return false;
   return window.location.protocol === 'https:' || 
@@ -18,9 +16,7 @@ function isSecureContext(): boolean {
          window.location.hostname === '127.0.0.1';
 }
 
-/**
- * Clears all client-side authentication state
- */
+/** Clear all client-side auth state. */
 export function clearClientAuthState(options?: { dispatchEvent?: boolean }) {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(TOKEN_KEY);
@@ -33,10 +29,7 @@ export function clearClientAuthState(options?: { dispatchEvent?: boolean }) {
   }
 }
 
-/**
- * Sets the authentication token in both localStorage and cookie
- * Note: Cookie is used for middleware auth checks, localStorage for client-side reads
- */
+/** Store the token in localStorage (client reads) and a cookie (proxy.ts gate). */
 export function setClientAuthToken(token: string, expiresInSeconds?: number) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(TOKEN_KEY, token);
@@ -50,10 +43,7 @@ export function setClientAuthToken(token: string, expiresInSeconds?: number) {
   window.dispatchEvent(new Event('auth-change'));
 }
 
-/**
- * Gets and validates the client token from localStorage
- * Returns null if token is missing, invalid, or expired
- */
+/** The stored token, or null if missing, invalid or expired. */
 export function getValidatedClientToken(): string | null {
   if (typeof window === 'undefined') return null;
   const token = localStorage.getItem(TOKEN_KEY);
@@ -74,9 +64,7 @@ export function getValidatedClientToken(): string | null {
   return token;
 }
 
-/**
- * Gets the user's role from the stored token
- */
+/** The role from the stored token. */
 export function getClientRoleFromToken(): string {
   const token = getValidatedClientToken();
   if (!token) return 'member';

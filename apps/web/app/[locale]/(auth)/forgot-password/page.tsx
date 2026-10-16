@@ -84,10 +84,7 @@ export default function ForgotPasswordPage() {
             <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
               <CheckCircle2 className="h-10 w-10 text-emerald-600" />
             </div>
-            {/* Deliberately conditional. The API answers identically whether or
-                not that email or phone belongs to a member (WO-88), and a screen
-                that says "sent!" hands back the fact the endpoint just stopped
-                disclosing. */}
+            {/* Conditional wording: the API answers identically for members and non-members (WO-88). */}
             <CardTitle className="text-2xl">
               {t('sentTitle')}
             </CardTitle>

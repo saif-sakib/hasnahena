@@ -9,23 +9,12 @@ import (
 )
 
 // WO-93 / FR-23 / ADR-033 — a rejected application keeps its decision and loses
-// its identity.
-//
-// Rejection tombstones the applicant's email and phone so they can re-apply and
-// keeps everything else forever: the NID number, both parents' names, the date
-// of birth, both addresses and the nominee. Nothing removed them, because
-// nothing existed that could.
-//
-// Every fixture here is namespaced `retention-*`: this package truncates
-// between tests, but the database is shared with the Next route suite and the
-// cmd/server suite, and a fixture that borrows a neighbour's phone number is a
-// test that passes or fails on package ordering.
+// its identity data. Fixtures are namespaced `retention-*`.
 
 const retentionNID = "1990123456789"
 
-// seedRejectedApplicant builds the exact row RejectRegistration leaves behind —
-// tombstoned contact, INACTIVE, MEMBER — with a full set of identity data and a
-// REJECT_REGISTRATION audit row `daysAgo` old.
+// seedRejectedApplicant builds the row RejectRegistration leaves, with full
+// identity data and a REJECT_REGISTRATION audit row daysAgo old.
 func seedRejectedApplicant(t *testing.T, id string, daysAgo int) string {
 	t.Helper()
 	ctx := context.Background()
@@ -170,11 +159,7 @@ func TestARejectedApplicationLosesItsIdentityAfterTheWindow(t *testing.T) {
 		t.Errorf("%d addresses and %d nominees survived the sweep", after.addresses, after.nominees)
 	}
 
-	// The contact details go WITH the rest of the identity data, at the deadline
-	// — not at the moment of rejection, which is where they used to be destroyed
-	// and is why nothing could tell the applicant they had been refused. The
-	// phone column is NOT NULL, so it is tombstoned; the tombstone must be
-	// unique, or a later applicant collides with it.
+	// Contact details go at the deadline; phone gets a unique tombstone.
 	if !strings.HasPrefix(after.phone, "expired-") {
 		t.Errorf("phone is %q — the applicant's real number survived the retention window", after.phone)
 	}
@@ -213,9 +198,7 @@ func TestTheSweepLeavesEveryAccountThatIsNotARejectedApplication(t *testing.T) {
 		t.Fatalf("backdate member: %v", err)
 	}
 
-	// A worker an admin deactivated years ago. Same INACTIVE status as a
-	// rejection; the role and the real password hash are what tell them apart,
-	// and a sweep that got this wrong would erase a staff record.
+	// A deactivated worker must not be swept.
 	worker := seedStaff(t, "retention-worker", "WORKER")
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE users SET status = 'INACTIVE', "nidNumber" = $2,
@@ -224,11 +207,7 @@ func TestTheSweepLeavesEveryAccountThatIsNotARejectedApplication(t *testing.T) {
 		t.Fatalf("deactivate worker: %v", err)
 	}
 
-	// And the one that is a single clause away from a rejected application: a
-	// member who WAS approved and was later deactivated. Same role, same status,
-	// and this foundation is still holding their savings. `approvedAt` and the
-	// real password hash are what separate them — which is exactly why the
-	// predicate carries all four conjuncts.
+	// Nor an approved-then-deactivated member — their savings are still held.
 	suspended := seedMember(t, "retention-suspended", "ACC-KH-40002", 12000)
 	if _, err := testPool.Exec(context.Background(), `
 		UPDATE users SET status = 'INACTIVE', "nidNumber" = $2, "approvedAt" = NOW() - make_interval(days => 900),
@@ -266,9 +245,7 @@ func TestTheRetentionAuditRowNamesNothingItErased(t *testing.T) {
 	}
 	details := rows[0]
 
-	// audit_logs is append-only (DATA-08), so anything named here outlives the
-	// erasure. An audit row carrying the NID number would be erasure that
-	// preserves what it erased (ADR-033).
+	// The audit row must not name what it erased (ADR-033).
 	for name, value := range map[string]string{
 		"the NID number":    retentionNID,
 		"the name":          before.nameEn,
@@ -281,10 +258,7 @@ func TestTheRetentionAuditRowNamesNothingItErased(t *testing.T) {
 			t.Errorf("the retention audit row names %s (%q): %q", name, value, details)
 		}
 	}
-	// The **application's** number. A rejected applicant has no account number —
-	// it is issued on admission and nowhere else (ADR-039) — so a sweep that
-	// looked for one would name an internal cuid on every row it wrote, and the
-	// audit trail of every erasure would be unreadable.
+	// Named by application number (no account number exists, ADR-039).
 	if !strings.Contains(details, "APP-2026-") {
 		t.Errorf("the retention audit row names neither the application number nor anything "+
 			"else an operator can act on: %q", details)
@@ -327,9 +301,7 @@ func TestABadRetentionValueFallsBackToTheDefaultRatherThanStopping(t *testing.T)
 		`, RejectedRetentionConfigKey, bad); err != nil {
 			t.Fatalf("set retention config to %q: %v", bad, err)
 		}
-		// Refusing to run would keep the data this exists to remove, silently
-		// and indefinitely. The safe direction to fail in is the documented
-		// default, not zero and not "never".
+		// A bad value falls back to the default rather than refusing to run.
 		if got := repo.GetRejectedRetentionDays(ctx); got != DefaultRejectedRetentionDays {
 			t.Errorf("value %q gave a window of %d days, want the %d-day default",
 				bad, got, DefaultRejectedRetentionDays)
@@ -347,9 +319,7 @@ func TestSweepingTwiceWritesOneAuditRow(t *testing.T) {
 		}
 	}
 
-	// A sweep that re-swept an already-clean row would write an audit row a day
-	// saying it erased something that was already gone, for the life of the
-	// deployment — which is how an append-only table becomes unreadable.
+	// A re-sweep of a clean row writes no audit row.
 	if rows := retentionAuditRows(t, id); len(rows) != 1 {
 		t.Fatalf("two passes wrote %d audit rows, want 1", len(rows))
 	}

@@ -1,11 +1,8 @@
 package repositories
 
 // Lending, end to end: request, approval, disbursement, repayment, default and
-// the guarantor recovery waterfall.
-//
-// ZERO INTEREST. Nothing here may compute a rate, a markup or a fee — that is a
-// Shariah violation, not a feature (CLAUDE.md rule 3). The arithmetic lives in
-// internal/money and is unit-tested; this file is the SQL around it.
+// the guarantor recovery waterfall. ZERO INTEREST (rule 3) — arithmetic lives
+// in internal/money; this file is the SQL around it.
 
 import (
 	"context"
@@ -22,18 +19,13 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
-// Sentinel errors so handlers can map a lending failure to the status code the
-// caller can act on. Before these, every one of them arrived as a generic 500,
-// which told an admin the server was broken when in fact they had clicked the
-// wrong loan (TEST-15, TEST-19).
+// Sentinel errors so handlers can answer 4xx, not 500 (rule 2b).
 var (
 	ErrLoanIDRequired     = errors.New("loanId is required")
 	ErrLoanNotFound       = errors.New("loan not found")
 	ErrLoanNotDefaultable = errors.New("loan is not in a state that can be defaulted")
-	// ErrLoanNotYetDefaultable means the loan is in a defaultable state but has
-	// not missed enough instalments under `loan.missedPaymentsForDefault`.
-	// Distinct from ErrLoanNotDefaultable because the answer to it is "wait",
-	// not "this loan never can be".
+	// ErrLoanNotYetDefaultable: not enough missed instalments yet — "wait",
+	// not "never".
 	ErrLoanNotYetDefaultable = errors.New("loan has not missed enough payments to be defaulted")
 )
 
@@ -44,8 +36,7 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 	}
 	defer tx.Rollback(ctx)
 
-	// `loanID` **is** the loan number (ADR-044), so there is nothing to read
-	// back: the value the caller passed in is what goes on the notification.
+	// loanID is the loan number (ADR-044).
 	loanNumber := loanID
 	var principalAmount int64
 	var borrowerID, loanStatus string
@@ -94,9 +85,6 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 		return err
 	}
 
-	// The posting that pays the loan out gets its own number. It used to have
-	// none at all — a line in the ledger for the largest single movement of
-	// money the foundation makes, with nothing on paper to match it against.
 	disbursementNo, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
 	if err != nil {
 		return err
@@ -137,10 +125,7 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 		return err
 	}
 
-	// The wording lives in internal/notify, which renders whole taka and is table
-	// tested (WO-52). Two defects have already come out of this one line: a /100
-	// that told a member their ৳50,000 loan was "BDT 500.00", and the %.2f that
-	// printed paisa in a ledger that has none.
+	// Wording lives in internal/notify (WO-52).
 	approvedTitle, approvedMessage := notify.LoanApproved(loanNumber, principalAmount)
 	if err := r.insertNotificationTx(
 		ctx,
@@ -293,8 +278,7 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		description = "Member-submitted bKash loan repayment request"
 	}
 
-	// The instalment receipt number is issued when the request is made, so the
-	// member has a reference for it from the start, and it is the row.
+	// The repayment receipt number is the row id, issued at request time.
 	requestID, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)
 	if err != nil {
 		return "", err
@@ -381,10 +365,7 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 			l."totalInstallments",
 			l."installmentAmount"::bigint,
 			l."paidInstallments",
-			-- The schedule's start, so the next due date and the arrears count
-			-- come from money.NextDueDate rather than from whichever column was
-			-- nearest to hand. This list used to return no due date at all, which
-			-- rendered as "0 overdue" on a screen the worker's copy of showed 4.
+			-- Schedule start, for money.NextDueDate.
 			COALESCE(l."installmentStartDate", l."disbursementDate"),
 			COALESCE(l."expectedEndDate", '0001-01-01'::timestamp),
 			COALESCE(l."completedAt", '0001-01-01'::timestamp),
@@ -464,9 +445,7 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		}
 
 		loan := map[string]interface{}{
-			// `id` is the loan number (ADR-044). There is no second field for it:
-			// two names for one string is what this replaced, and a client
-			// reading the wrong one of the two is how they drift.
+			// `id` is the loan number (ADR-044); there is no second field for it.
 			"id":                 id,
 			"status":             status,
 			"amount":             principalAmount,
@@ -519,8 +498,6 @@ func (r *UserRepository) GetAllLoans(ctx context.Context, filters map[string]int
 		if !completedAt.IsZero() && completedAt.Year() > 1 {
 			loan["completedAt"] = completedAt.Format(time.RFC3339)
 		}
-		// `missedPayments` was a literal 0 here, so the admin's loan list reported
-		// no arrears on any loan in the foundation.
 		attachLoanSchedule(loan, status, installmentStart, totalInstallments, paidInstallments)
 		loan["missedPayments"] = loan["missedInstallments"]
 
@@ -537,10 +514,7 @@ func (r *UserRepository) GetLoanStats(ctx context.Context) (map[string]interface
 			COALESCE(SUM(CASE WHEN status IN ` + disbursedLoanStatuses + ` THEN ("principalAmount" - "remainingAmount") ELSE 0 END)::bigint, 0) as total_recovered,
 			COALESCE(COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int, 0) as active_loans,
 			COALESCE(COUNT(CASE WHEN status = 'DEFAULTED' THEN 1 END)::int, 0) as defaulted_loans,
-			-- WO-71: was status = 'PENDING', the legacy label. Applications
-			-- create PENDING_GUARANTOR or PENDING_APPROVAL, so this counted
-			-- nothing and the admin dashboard reported zero pending loans no
-			-- matter how many were waiting.
+			-- Both pending labels (WO-71).
 			COALESCE(COUNT(CASE WHEN status IN ('PENDING_GUARANTOR', 'PENDING_APPROVAL') THEN 1 END)::int, 0) as pending_loans,
 			COALESCE(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int, 0) as completed_loans
 		FROM loans
@@ -695,22 +669,14 @@ func (r *UserRepository) GetLoanDetail(ctx context.Context, loanID string) (map[
 	return result, nil
 }
 
-// MarkLoanDefaulted writes the DEFAULTED status and runs the recovery waterfall
-// in ONE transaction.
-//
-// It used to commit the status change and then call ProcessWaterfallRecovery,
-// which opened a transaction of its own. When recovery failed — which it did for
-// every loan without a guarantor, see waterfallRecoveryTx — the loan was already
-// permanently defaulted with nothing recovered and no clean way to retry. A
-// default that was never settled is not a state this domain has a name for.
-// defaultableStatuses are the states a loan can be defaulted *from*. A loan
-// that was never disbursed has no money to recover, and one already settled has
-// nothing outstanding — in both cases marking it defaulted describes something
-// that did not happen.
+// defaultableStatuses are the states a loan can be defaulted from: never
+// disbursed or already settled means nothing to recover.
 var defaultableStatuses = map[string]bool{
 	"ACTIVE": true,
 }
 
+// MarkLoanDefaulted writes DEFAULTED and runs the recovery waterfall in ONE
+// transaction, so a failed recovery leaves the loan untouched.
 func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID, notes string) error {
 	if strings.TrimSpace(loanID) == "" {
 		return ErrLoanIDRequired
@@ -722,16 +688,8 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
 
-	// Lock the row and read its status *before* changing anything.
-	//
-	// This used to be a bare `UPDATE ... WHERE id = $1`, which affects zero rows
-	// and reports no error for a loan id that does not exist — so a typo wrote
-	// an audit row about a loan nobody has and then failed further down with an
-	// opaque 500. Worse, it did not look at the current status, so marking an
-	// already-DEFAULTED loan defaulted a second time re-ran the whole recovery
-	// waterfall: any savings the borrower or guarantor had deposited since the
-	// first default were taken again, for a debt that had already been settled
-	// against them. Two clicks on one button, and money left an account twice.
+	// Lock the row and check status first: a missing id must not write an
+	// audit row, and re-defaulting re-ran the waterfall and took money twice.
 	loanNumber := loanID
 	var currentStatus, borrowerID string
 	var totalInstallments, paidInstallments int
@@ -759,19 +717,8 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 		return fmt.Errorf("%w: loan is %s", ErrLoanNotDefaultable, currentStatus)
 	}
 
-	// `loan.missedPaymentsForDefault` is enforced HERE, and this is the only
-	// place a loan becomes DEFAULTED.
-	//
-	// Until 2026-08-18 the setting was editable in the admin UI and read by
-	// nothing: an admin could set "3 missed payments" and then default a loan
-	// that had missed none, while the screen said the policy was in force. A
-	// control that lies is worse than no control, and this one runs the
-	// settlement waterfall — it takes the borrower's savings, then their
-	// guarantor's.
-	//
-	// A loan with no installmentStartDate has never been put on a schedule, so
-	// nothing can be overdue on it and MissedInstallments returns 0. That
-	// correctly makes it undefaultable.
+	// `loan.missedPaymentsForDefault` is enforced HERE, the only place a loan
+	// becomes DEFAULTED. A loan with no installmentStartDate is undefaultable.
 	threshold := r.getMissedPaymentsForDefaultTx(ctx, tx)
 	var scheduleStart time.Time
 	if installmentStart != nil {
@@ -792,8 +739,7 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 		return err
 	}
 
-	// Create audit log. Checked: an unwritten audit row for a default is a
-	// rule-6 problem, and this Exec used to discard its error entirely.
+	// Audit write is checked (rule 6).
 	const auditQuery = `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES ('MARK_LOAN_DEFAULTED', 'LOAN', $1, $2, NOW(), $3)
@@ -802,9 +748,7 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 		return fmt.Errorf("failed to write audit log: %w", err)
 	}
 
-	// The borrower is told before the waterfall runs, in the same transaction:
-	// a default takes their savings and then their guarantor's, and finding
-	// that out from a balance rather than from a message is not acceptable.
+	// The borrower is notified in the same transaction, before the waterfall.
 	defaultedTitle, defaultedMessage := notify.LoanDefaulted(loanNumber, remainingAmount)
 	if err := r.insertNotificationTx(
 		ctx, tx, "SYSTEM_ALERT", defaultedTitle, defaultedMessage, &borrowerID, nil,
@@ -819,10 +763,8 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	return tx.Commit(ctx)
 }
 
-// ProcessWaterfallRecovery runs the waterfall on its own. MarkLoanDefaulted no
-// longer uses it — it shares its transaction via waterfallRecoveryTx — but the
-// standalone form stays for re-running recovery against a loan already marked
-// defaulted.
+// ProcessWaterfallRecovery runs the waterfall standalone, for re-running
+// recovery on a loan already defaulted.
 func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -841,17 +783,8 @@ func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID st
 // borrower's savings, then the guarantor's, then the donation pool, in that
 // order and never past what is owed.
 func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loanID string) error {
-	// Get loan details.
-	//
-	// "guarantorId" is nullable — a loan below the guarantor threshold has none —
-	// so it MUST be coalesced. Scanning NULL into a Go string fails, and because
-	// this is the first statement the whole waterfall aborted before step 1 for
-	// exactly those loans. The empty string is what the guarantor step below
-	// already tests for.
-	//
-	// FOR UPDATE: recovery reads a balance, decides what to take, and writes it
-	// back. Without the lock two concurrent defaults against one guarantor can
-	// both draw the same savings.
+	// guarantorId is nullable (small loans have none) and must be coalesced.
+	// FOR UPDATE so concurrent defaults cannot draw the same savings.
 	var remainingAmount int64
 	var borrowerID, guarantorID string
 	const loanQuery = `
@@ -874,9 +807,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		if err == nil && borrowerSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, borrowerSavings)
 
-			// Deduct from borrower. RETURNING gives the balance the ledger
-			// row will record, rather than a second SELECT that could read a
-			// different number (ADR-015).
+			// RETURNING gives the balance the ledger row records (ADR-015).
 			var newSavings int64
 			if err := tx.QueryRow(ctx, `
 				UPDATE accounts
@@ -884,22 +815,11 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 				WHERE "userId" = $2
 				RETURNING "savingsBalance"::bigint
 			`, deduction, borrowerID).Scan(&newSavings); err != nil {
-				// Not skipped silently. This UPDATE failing used to leave the
-				// step un-taken while the loan was still written down below,
-				// so the debt vanished with nothing drawn against it.
 				return fmt.Errorf("recover from borrower savings: %w", err)
 			}
 
-			// CONFIRMED, with both timestamps and the snapshot. The money moved
-			// in this transaction; a PENDING withdrawal is a member's *notice*
-			// that they intend to withdraw (FR-08, ADR-016), and writing one
-			// here made every status-filtered aggregate under-count a recovery
-			// that had already happened — including the reconciliation in
-			// reconcile_repository.go, which is what found it.
-			// A recovery is a withdrawal from the member's savings, so it gets a
-			// withdrawal receipt like any other. It used to get none: the one
-			// posting a member is most likely to query was the one with no
-			// number to quote.
+			// CONFIRMED: the money moved here; PENDING would vanish from every
+			// status-filtered aggregate (ADR-016). Gets a withdrawal receipt.
 			borrowerReceipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
 			if err != nil {
 				return err
@@ -929,8 +849,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		if err == nil && guarantorSavings > 0 {
 			deduction := money.RecoverFrom(amountToRecover, guarantorSavings)
 
-			// Deduct from guarantor. Same shape as the borrower step above,
-			// and the comments there apply here too.
+			// Same shape as the borrower step.
 			var newSavings int64
 			if err := tx.QueryRow(ctx, `
 				UPDATE accounts
@@ -965,9 +884,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 
 	// Step 3: Use donation pool
 	if amountToRecover > 0 {
-		// The pool is what has been donated MINUS what earlier defaults already
-		// drew from it. Summing donations alone let the same taka settle an
-		// unlimited number of defaults, because nothing ever depleted the pool.
+		// Pool = donations MINUS earlier draws, or one taka settles many defaults.
 		var donationBalance int64
 		if err := tx.QueryRow(ctx, `
 			SELECT COALESCE(SUM(
@@ -983,20 +900,8 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		if donationBalance > 0 {
 			deduction := money.RecoverFrom(amountToRecover, donationBalance)
 
-			// The row carries the borrower, which is what it always meant: the
-			// column that used to sit beside them here was `accountId`, it was
-			// NOT NULL, and this insert once omitted it — the row silently
-			// failed while the loan was still written down, so the debt vanished
-			// with no ledger entry behind it. There is one column now.
-			//
-			// The number comes from the ADJ series rather than FEE: the enum
-			// label says FEE and this platform charges none (rule 3), so the
-			// document a person could be handed must not say so either.
-			// CONFIRMED for the same reason as the two steps above: this row is
-			// what depletes the pool, and the depletion query below sums it
-			// without knowing that a status column exists. It moves no
-			// `savingsBalance` — the pool is a balance of donations minus draws
-			// — so it carries no `savingsAfter`.
+			// ADJ series, not FEE — the platform charges none (rule 3).
+			// CONFIRMED so the depletion query counts it; moves no savingsBalance.
 			poolReceipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesAdjustment)
 			if err != nil {
 				return err
@@ -1025,15 +930,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		return err
 	}
 
-	// And the account's loanBalance, by the same amount, in the same
-	// transaction.
-	//
-	// This was missing. The waterfall wrote the loan down and left
-	// `accounts."loanBalance"` at the pre-default figure, so after any recovery
-	// the member's dashboard showed a debt they no longer owed — permanently,
-	// because nothing else ever recomputes it. Relative, per rule 2a: an
-	// absolute write here would race the repayment path, which moves the same
-	// column.
+	// accounts.loanBalance moves by the same amount, relatively (rule 2a).
 	if recovered := remainingAmount - newRemaining; recovered > 0 {
 		if _, err := tx.Exec(ctx, `
 			UPDATE accounts
@@ -1044,9 +941,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 		}
 	}
 
-	// Create audit log. Checked, for the same reason as the one in
-	// MarkLoanDefaulted: this row is the only record of which savings were drawn
-	// to settle the debt, and it used to discard its error.
+	// Audit write is checked: the only record of which savings were drawn.
 	recoveryDetails := fmt.Sprintf("Waterfall recovery completed. Steps: %v. Remaining: %d", recoverySteps, newRemaining)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "createdAt", details)
@@ -1058,9 +953,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	return nil
 }
 
-// ==================== DONATION MANAGEMENT ====================
-
-// CreateMemberLoan creates a loan for a member (worker action)
+// CreateMemberLoan creates a loan for a member (worker action).
 func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
 	minDepositRequired, maxLoanMultiplier, maxInstallmentMonths := r.getLoanPolicy(ctx)
 	if installments < 1 || installments > maxInstallmentMonths {
@@ -1110,8 +1003,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	if err != nil {
 		return "", err
 	}
-	// The stored figure is the regular installment; the rounding remainder goes
-	// into the final one, which the loan agreement PDF prints. See money.InstallmentPlan.
+	// Regular instalment stored; the remainder goes in the final one (money.InstallmentPlan).
 	installmentAmount, _ := money.InstallmentPlan(amount, installments)
 
 	// The loan number IS the row (ADR-044), so there is nothing to read back.
@@ -1145,8 +1037,7 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	if strings.TrimSpace(description) == "" {
 		description = "ঋণ বিতরণ"
 	}
-	// `DSB-`, not the loan's own number. The posting and the loan are two
-	// documents and used to share one string.
+	// The posting gets a DSB- number of its own, distinct from the loan's.
 	disbursementNo, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
 	if err != nil {
 		return "", err
@@ -1204,51 +1095,19 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 	return loanNumber, nil
 }
 
-// Sentinels for the top-up path. Each is an ordinary answer rather than a
-// fault — a loan that has finished, a member whose savings no longer support
-// what they would owe — so the handler maps them to 4xx and names the reason
-// (rule 2b).
+// Sentinels for the top-up path (rule 2b).
 var (
-	// ErrLoanNotActive means the loan exists but is not ACTIVE, so there is no
-	// running schedule to add to. Adding to a COMPLETED or DEFAULTED loan would
-	// resurrect it silently.
+	// ErrLoanNotActive: adding to a COMPLETED/DEFAULTED loan would resurrect it.
 	ErrLoanNotActive = errors.New("loan is not active")
-	// ErrTopUpExceedsLimit means the member would end up owing more than
-	// `loan.maxLoanMultiplier` times their savings. The same ceiling a new loan
-	// is measured against, applied to the total rather than to the increment —
-	// otherwise a member could be walked past the cap in instalments.
+	// ErrTopUpExceedsLimit: the TOTAL owed would exceed loan.maxLoanMultiplier ×
+	// savings (measured on the total, not the increment).
 	ErrTopUpExceedsLimit = errors.New("top-up would exceed the member's borrowing limit")
 )
 
-// AddLoanTopUp adds principal to a loan that is already running (staff action).
-//
-// Why this exists. `CreateMemberLoan` refuses a member who already has an
-// active loan, which is the right rule for a *second* loan and the wrong answer
-// to "this family needs another 20,000 for the same emergency". Staff had no
-// way to say yes short of settling the loan and re-issuing it, which loses the
-// repayment history and the loan number the member has on paper.
-//
-// ## What changes on the loan
-//
-// `principalAmount` and `remainingAmount` both rise by the amount, so the
-// database's `loans_remaining_in_range` CHECK still holds and the loan never
-// claims to owe more than was lent. `totalInstallments` does NOT change: the
-// outstanding balance is re-spread over the payments that are left, so the end
-// date the member was given stands and each remaining instalment goes up
-// (money.TopUpPlan). `paidInstallments` is untouched — those payments happened.
-//
-// ## Zero interest, zero fees (rule 3)
-//
-// The amount added and the amount owed are the same money. There is no rate, no
-// markup, no arrangement fee, and `applicationFee` is not written here at all —
-// the database rejects a non-zero one anyway (loans_zero_fee).
-//
-// ## The ledger
-//
-// One CONFIRMED LOAN_DISBURSEMENT row, because that is what happened: money
-// left the fund and reached the borrower. It carries the loan's number, so a
-// statement shows the original disbursement and the top-up under the same
-// reference rather than as two unrelated loans.
+// AddLoanTopUp adds principal to a running loan (staff action), keeping its
+// number and history. principalAmount and remainingAmount both rise;
+// totalInstallments does not, so remaining instalments grow (money.TopUpPlan).
+// No rate or fee (rule 3). Writes one CONFIRMED LOAN_DISBURSEMENT row.
 func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, loanID string, amount int64, notes string) (string, error) {
 	if amount <= 0 {
 		return "", errors.New("amount must be positive")
@@ -1257,9 +1116,7 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 		return "", ErrLoanIDRequired
 	}
 
-	// Read from the pool BEFORE opening the transaction. ADR-017: a pool read
-	// taken while this method already holds a connection deadlocks under
-	// concurrency, and getLoanPolicy takes three of them.
+	// Pool read BEFORE the transaction (ADR-017).
 	_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 
 	tx, err := r.db.Begin(ctx)
@@ -1268,9 +1125,7 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
 
-	// The account is locked first and the loan second, in the same order every
-	// other money path takes them, so two concurrent top-ups queue instead of
-	// deadlocking against each other.
+	// Account then loan — the lock order every money path uses.
 	var memberStatus string
 	var savingsBalance int64
 	if err := tx.QueryRow(ctx, `
@@ -1309,9 +1164,6 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 		return "", fmt.Errorf("%w: loan %s is %s", ErrLoanNotActive, loanNumber, loanStatus)
 	}
 
-	// The cap is measured against what the member will owe *in total*, not
-	// against the increment. Checking the increment alone would let five
-	// 10,000-taka top-ups do what one 50,000-taka loan is refused.
 	newRemaining := remaining + amount
 	maxLoanAmount := money.MaxLoanAmount(savingsBalance, maxLoanMultiplier)
 	if newRemaining > maxLoanAmount {
@@ -1321,8 +1173,7 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 
 	installmentAmount, _ := money.TopUpPlan(newRemaining, totalInstallments, paidInstallments)
 
-	// Written relatively and RETURNING the result (ADR-015), so two top-ups
-	// landing together add up instead of one overwriting the other.
+	// Relative write with RETURNING (ADR-015).
 	var updatedPrincipal, updatedRemaining int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE loans
@@ -1334,8 +1185,6 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 		RETURNING "principalAmount"::bigint, "remainingAmount"::bigint
 	`, amount, installmentAmount, loanID).Scan(&updatedPrincipal, &updatedRemaining); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The loan stopped being ACTIVE between the lock and the write —
-			// only reachable if something else changed it in this window.
 			return "", ErrLoanNotActive
 		}
 		return "", err
@@ -1351,10 +1200,7 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 		return "", fmt.Errorf("failed to update account loan balance: %w", err)
 	}
 
-	// `DSB-`, not `LOAN-`. A top-up is a posting against an existing loan; it
-	// used to take a **loan number**, so the register of loans acquired a gap
-	// for every top-up ever made, and the number printed on the member's copy
-	// named a loan that does not exist.
+	// DSB-, not LOAN-: a top-up is a posting, not a new loan.
 	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDisbursement)
 	if err != nil {
 		return "", err
@@ -1407,12 +1253,7 @@ func (r *UserRepository) AddLoanTopUp(ctx context.Context, memberID, staffID, lo
 	return receipt, nil
 }
 
-// AddMemberLoanPayment records a loan payment for a member
-
-// AddMemberLoanPayment records a loan payment for a member
-// ErrRepaymentExceedsBalance means the payment is larger than what is still
-// owed. It is a sentinel because it is the outcome of a *race* as often as of a
-// mistake, and the two are indistinguishable to the caller.
+// ErrRepaymentExceedsBalance: overpayment, often the loser of a race.
 var ErrRepaymentExceedsBalance = errors.New("payment amount exceeds remaining balance")
 
 func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, processedByID, loanID string, amount int64, notes string) (string, error) {
@@ -1426,17 +1267,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after a successful commit is a no-op
 
-	// Every read that a write depends on happens inside the transaction now.
-	//
-	// This method used to read the member, the account and the loan from the
-	// pool *before* opening a transaction, check `amount > remainingAmount`
-	// against that stale read, and then write back an absolute
-	// `remainingAmount = remainingAmount - amount` computed in Go. That is
-	// LEDGER-01 exactly (ADR-015), in a method the 2026-08-17 pass did not
-	// reach: ten concurrent 1000-taka payments against a 5000-taka loan all
-	// passed the check, all committed, and left `accounts."loanBalance"` at
-	// -5000 with the loan's own remaining amount disagreeing with it. A member
-	// double-tapping a button on a bad connection paid twice for one debt.
+	// Every read a write depends on happens inside the transaction (ADR-015).
 	var userId, status string
 	if err := tx.QueryRow(ctx, `
 		SELECT u.id, u.status::text
@@ -1469,11 +1300,8 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		return "", err
 	}
 
-	// Relative, guarded, and RETURNING the result (ADR-015). The
-	// `"remainingAmount" >= $1` predicate is the overpayment check: it lives in
-	// the same statement as the write, so there is no window between deciding
-	// the payment fits and making it fit. Zero rows back means it no longer
-	// does — someone else's payment landed first.
+	// Relative write; `"remainingAmount" >= $1` is the overpayment check in
+	// the same statement. Zero rows means another payment landed first.
 	var newRemaining int64
 	err = tx.QueryRow(ctx, `
 		UPDATE loans
@@ -1496,9 +1324,7 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		loanUpdateStatus = "COMPLETED"
 	}
 
-	// The account's loanBalance moves by the same amount, in the same
-	// transaction, and RETURNING gives the value the receipt will carry —
-	// rather than a second SELECT that could read a different number.
+	// loanBalance moves by the same amount; RETURNING feeds the receipt.
 	var newLoanBalance int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE accounts

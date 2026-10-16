@@ -27,20 +27,9 @@ import { useDashboardRole } from '@/components/dashboard/role';
 import { MoneyActionDialog, type MoneyAction } from '@/components/dashboard/money-actions';
 
 /**
- * Deposits and withdrawals — one screen for both staff dashboards.
- *
- * It used to be two files. The admin's listed every posting in the foundation
- * and could not record one; the worker's could record one and listed only what
- * that worker had processed. Which meant the admin covering a round had no way
- * to take a deposit, and the two tables disagreed about which columns a posting
- * has.
- *
- * The union is what both roles get. What still differs is the *scope of the
- * list*, and deliberately: an admin reads the whole ledger through
- * `/admin/deposits`, a worker reads their own postings through
- * `/worker/transactions`. That is not a UI decision — the worker query filters
- * on `processedBy` — so the screen picks the endpoint and normalises the two
- * payload shapes into one row type.
+ * Deposits and withdrawals for both staff dashboards. The list's scope differs
+ * by role (admin: the whole ledger; worker: their own postings), so the
+ * endpoint is chosen here and both payloads are normalised.
  */
 
 type PostingStatus = 'PENDING' | 'PROCESSED' | 'CONFIRMED' | 'DISPUTED' | 'REJECTED' | string;
@@ -58,16 +47,7 @@ interface Posting {
   balanceAfter: number;
   memberId: string;
   memberName: string;
-  /**
-   * The **English** name, for the document.
-   *
-   * `memberName` above is what the screen shows, and both payloads prefer the
-   * Bengali one where it exists. Generated documents are English only
-   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
-   * glyph the standard fonts cannot encode — so feeding a Bengali name to
-   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
-   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
-   */
+  /** The English name, for documents (English only, ADR-012). */
   memberNameEn: string;
   memberPhone: string;
   accountNo: string;
@@ -137,12 +117,7 @@ export default function DepositsScreen() {
   const [selected, setSelected] = useState<Posting | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
-  // Which posting the shared dialog is open on, or null. The member picker, the
-  // whole-taka rule, the FR-08 matured-notice check and the API's refusal
-  // messages all live in MoneyActionDialog. This screen used to carry its own
-  // copy of the form: it accepted paisa and silently rounded them, and it knew
-  // nothing about withdrawal notices, so a worker submitted and waited to be
-  // told by the API that the member had not given notice.
+  // The posting the shared MoneyActionDialog is open on.
   const [formAction, setFormAction] = useState<MoneyAction | null>(null);
 
   const filtered = useMemo(
@@ -163,9 +138,7 @@ export default function DepositsScreen() {
     [postings, searchQuery, statusFilter, typeFilter],
   );
 
-  // Rule 6a: only a CONFIRMED posting moved money. A PENDING deposit is a
-  // request and a PENDING withdrawal is a notice; totalling them would report
-  // intentions as income.
+  // Rule 6a: only CONFIRMED moved money.
   const totalDeposits = postings
     .filter((p) => p.type === 'DEPOSIT' && p.status === 'CONFIRMED')
     .reduce((sum, p) => sum + p.amount, 0);
@@ -213,13 +186,7 @@ export default function DepositsScreen() {
           <h1 className="text-lg font-semibold text-gray-900">
             {locale === 'bn' ? 'জমা ও উত্তোলন' : 'Deposits & Withdrawals'}
           </h1>
-          {/*
-            The scope, stated. An admin reads the whole ledger and a worker reads
-            the postings they processed — deliberately, because the queries
-            differ — but with both dashboards rendering this one component, two
-            different totals under one heading read as a bug rather than as two
-            different questions.
-          */}
+          {/* The scope, stated — admin and worker totals answer different questions. */}
           <p className="text-sm text-gray-500">
             {filtered.length}{' '}
             {locale === 'bn' ? 'টি লেনদেন' : 'transactions'}

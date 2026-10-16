@@ -3,21 +3,9 @@ import { consumeRateLimit, callerAddress } from '@/lib/rate-limit';
 import { endStreamOnUpstreamFailure } from '@/lib/sse-stream';
 
 /**
- * The exact upstream surface this proxy is allowed to reach, path by path and
- * method by method. It mirrors the `dashboard.<Method>("/support/...")` lines in
- * `apps/api/cmd/server/main.go`; adding a support route there without adding it
- * here means the new route is simply not reachable through the proxy.
- *
- * An allow-list rather than sanitising, because sanitising this was the defect
- * (WO-64). The segments arrive already percent-decoded by Next, so `%2e%2e%2f`
- * is a literal `../` by the time any check could see it, and `fetch` normalises
- * the result away before the request leaves — which turned a proxy for
- * `/v1/dashboard/support/*` into a proxy for any path on the API base.
- *
- * That was never privilege escalation, and it is worth being accurate about
- * why: the Go API authorises every route itself and gates the `/admin` group at
- * the router, so a member's token is refused there whichever door it arrives
- * at. It was an unnecessary door, not an open safe.
+ * The upstream routes this proxy may reach, mirroring the /support lines in
+ * main.go (support-proxy-allowlist.test.ts). An allow-list, because segments
+ * arrive percent-decoded and fetch normalises `../` away (WO-64).
  */
 const UPSTREAM_ROUTES: Record<string, readonly string[]> = {
   config: ['GET', 'PUT'],
@@ -28,13 +16,7 @@ const UPSTREAM_ROUTES: Record<string, readonly string[]> = {
   'stream/ticket': ['POST'],
 };
 
-/**
- * Support mutations a single member may make per minute.
- *
- * Matched to the Go API's own default so a member who behaves sees no
- * difference. Reads are not counted, exactly as `rateLimitExempt` does not
- * count them over there.
- */
+/** Support mutations per member per minute, matching the Go default. Reads are not counted. */
 const SUPPORT_MUTATION_LIMIT = 60;
 const SUPPORT_MUTATION_WINDOW_SECONDS = 60;
 
@@ -45,8 +27,7 @@ function getApiBase() {
 /** The upstream path for this request, or null if it is not one we serve. */
 function resolveUpstreamPath(path: string[] | undefined, method: string): string | null {
   const parts = (path || []).filter(Boolean);
-  // Reject before joining: a segment containing a slash or a traversal is not a
-  // segment, whatever it decoded from.
+  // A segment with a slash or traversal is not a segment.
   if (parts.some((segment) => segment.includes('/') || segment === '.' || segment === '..')) {
     return null;
   }
@@ -69,14 +50,8 @@ async function forward(req: NextRequest, path: string[] | undefined) {
   const isStream = upstreamPath === 'stream';
   const isMutation = req.method !== 'GET' && req.method !== 'HEAD';
 
-  // Keyed on the member's address, here, because here is the only place it is
-  // known. The Go limiter sees Vercel's address for anything that comes through
-  // this proxy and cannot see past it: X-Forwarded-For is read from the trusted
-  // end, and forwarding an extra entry from this route would land at an index
-  // `TRUSTED_PROXIES` does not read. Raising that setting to compensate is not
-  // an option either — it is one global number, and it would then believe a
-  // spoofed entry on the traffic that reaches the API directly. So this half of
-  // the limiting belongs on this side of the hop. See ADR-021.
+  // Limited here, by the member's address: through this proxy the Go limiter
+  // only sees Vercel's address (ADR-021).
   if (isMutation) {
     const outcome = await consumeRateLimit('support', callerAddress(req), {
       limit: SUPPORT_MUTATION_LIMIT,
@@ -100,24 +75,18 @@ async function forward(req: NextRequest, path: string[] | undefined) {
     response = await fetch(targetUrl, {
       method: req.method,
       headers: {
-        // Deliberately no X-Forwarded-For: see the comment above. The upstream
-        // hop appends the address it sees, and that is the entry the Go API is
-        // configured to read.
+        // No X-Forwarded-For (ADR-021).
         ...(auth ? { Authorization: auth } : {}),
         ...(contentType ? { 'Content-Type': contentType } : {}),
       },
       body: isMutation ? await req.text() : undefined,
       cache: 'no-store',
-      // The member's disconnect has to reach the Go API. Without it an
-      // abandoned SSE connection stayed open upstream for as long as the
-      // process lived, and RUN-02 ends streams first at shutdown precisely
-      // because open streams eat the drain window.
+      // Forward the disconnect so the upstream SSE stream closes.
       signal: req.signal,
     });
   } catch (error) {
     if (req.signal.aborted) {
-      // The member is gone; nothing will read this. Answering rather than
-      // throwing keeps it out of the error log as a fault.
+      // The member is gone; 499, not an error.
       return new NextResponse(null, { status: 499 });
     }
     console.error('[support proxy] upstream request failed:', error);
@@ -128,11 +97,7 @@ async function forward(req: NextRequest, path: string[] | undefined) {
   }
 
   if (isStream) {
-    // Wrapped, not passed straight through: a stream that dies upstream — a
-    // redeploy, a proxy's idle timeout, a phone losing signal — would otherwise
-    // reach Next's piping as an error it reports as `failed to pipe response`,
-    // unhandled, for a connection the client is already reconnecting. See
-    // lib/sse-stream.ts.
+    // Wrapped so an upstream drop ends the stream cleanly (lib/sse-stream.ts).
     return new NextResponse(endStreamOnUpstreamFailure(response.body), {
       status: response.status,
       headers: {

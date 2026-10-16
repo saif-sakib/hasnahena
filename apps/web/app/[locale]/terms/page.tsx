@@ -11,13 +11,7 @@ import { StructuredData } from '@/components/seo/structured-data';
 import { LegalDocument } from '@/components/layout/legal-document';
 import { TERMS_LAST_UPDATED } from '@/lib/legal';
 
-/**
- * WO-73. This page's content changes when an admin edits a setting, which is to
- * say almost never — so it is prerendered and served from the edge instead of
- * opening a Neon connection on every visit. `revalidateTag('system-config')` in
- * the settings `PUT` is what makes an edit appear immediately; this interval is
- * only the backstop.
- */
+/** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };

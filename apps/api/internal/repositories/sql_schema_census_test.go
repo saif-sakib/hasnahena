@@ -15,29 +15,9 @@ import (
 	"testing"
 )
 
-// Every SQL literal in this service, checked against the schema it will run on.
-//
-// SQL that lives inside a Go string is invisible to the compiler, to `go vet`
-// and to `gofmt`. The only thing that can tell whether it still matches the
-// database is the database, and until this test the first thing to notice a
-// dropped column was a member seeing an error.
-//
-// That is not hypothetical. The migration that made every id its own document
-// number (ADR-044) dropped `accounts.id`, `documents.id`, `nominees.id` and
-// `addresses.id`, and three statements went on naming them:
-//
-//   - worker_repository.go  `SELECT d.id` — every member detail screen, for
-//     both workers and admins, answered "Failed to load member details"
-//   - admin_repository.go   `'id', d.id`  — the approvals queue
-//   - transaction_repository.go `UPDATE accounts … WHERE id = $2` — the leg
-//     that confirms a loan instalment, which is money
-//
-// The whole test suite was green: `pnpm typecheck`, `go build`, `go vet`,
-// `pnpm db:migrate:check`, 793 web unit tests, 528 route tests, every Go
-// integration package and 218 browser specs. None of them reads a string.
-//
-// PREPARE parses and plans a statement without executing it, so this validates
-// every table and column reference at no risk and at the speed of a plan.
+// Every SQL literal in this service, PREPAREd against the real schema. SQL in
+// a Go string is invisible to the compiler and to every other suite; ADR-044's
+// dropped id columns broke three statements while everything stayed green.
 func TestEverySQLLiteralMatchesTheSchema(t *testing.T) {
 	if testPool == nil {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -56,9 +36,8 @@ func TestEverySQLLiteralMatchesTheSchema(t *testing.T) {
 		name := fmt.Sprintf("census_%d", i)
 		_, err := testPool.Exec(ctx, "PREPARE "+name+" AS "+s.sql)
 		if err != nil {
-			// A statement Go assembles from fragments at runtime cannot be
-			// prepared as written, and an untyped placeholder is not a schema
-			// fault. Both are reported by message, so neither hides a real one.
+			// Runtime-assembled statements and untyped placeholders are not
+			// schema faults; both are matched by message.
 			msg := err.Error()
 			switch {
 			case strings.Contains(msg, "syntax error"),
@@ -89,18 +68,8 @@ type sqlLiteral struct {
 
 var sqlStart = regexp.MustCompile(`(?is)^\s*(--[^\n]*\n\s*)*(SELECT|INSERT|UPDATE|DELETE|WITH)\b`)
 
-// collectSQLLiterals parses the Go sources and returns the raw-string literals
-// that hold a whole SQL statement.
-//
-// It parses rather than greps for two reasons, both of which produced a false
-// failure in the first version: a backtick inside a doc comment is not code,
-// and a literal joined to another with `+` is half a statement — the half that
-// happens to end at `WHERE` cannot be prepared and says nothing about the
-// schema. Both are skipped here rather than filtered out of the results by
-// message, because filtering by message is how a real error gets skipped too.
-//
-// Test files are included: a fixture that writes a column which no longer
-// exists is a test that cannot fail honestly.
+// collectSQLLiterals parses (not greps) the Go sources for raw-string literals
+// holding a whole statement. Test files are included.
 func collectSQLLiterals(t *testing.T) []sqlLiteral {
 	t.Helper()
 
@@ -124,15 +93,8 @@ func collectSQLLiterals(t *testing.T) []sqlLiteral {
 		}
 		rel, _ := filepath.Rel(root, path)
 
-		// Two shapes are not statements this service runs.
-		//
-		// A literal joined to another with `+` is a fragment of something
-		// assembled at runtime; the half that ends at `WHERE` cannot be
-		// prepared and says nothing about the schema.
-		//
-		// A literal inside a composite literal is a table of examples feeding
-		// some other test's parser — `selectsEveryColumn` is checked against
-		// `SELECT id FROM t`, and `t` is fictional on purpose.
+		// Skipped: `+`-joined fragments, and literals inside composite
+		// literals (example tables for other tests, e.g. selectsEveryColumn).
 		skip := map[*ast.BasicLit]bool{}
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch node := n.(type) {

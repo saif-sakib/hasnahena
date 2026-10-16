@@ -1,77 +1,36 @@
 # Testing
 
-The standing guide: how the suites are split, where a new test goes, what the
-fixtures guarantee, and what is deliberately not covered.
-
-Nine phases (`TEST-01 … TEST-43`) built this and are all closed; what each found
-is one line per phase in [changelog.md](changelog.md). This file is what you need
-*before* writing a test, not the record of past ones.
-
----
+How the suites split, where a new test goes, what fixtures guarantee, and what is deliberately uncovered. The guard map (what fails when you add X) is [guardrails.md](guardrails.md); past test phases (TEST-01…43) are one line each in [changelog.md](changelog.md).
 
 ## The suites
 
 | Command | Needs | Covers |
 |---|---|---|
-| `pnpm test:unit` | nothing | pure TS: auth primitives, error classification, validation, formatting, ids, document numbers, the four document builders and both renderers, EN/BN message parity, the FR three-way check, the CSP policy builder and its route tiering, the SEO metadata and JSON-LD builders, and the source censuses — foreign-key index coverage, the settings keys pages read, **every form that posts a money `amount`** (found by walking `app/`, `components/` and `lib/` rather than by a hand-written list, which is how the previous version went on passing while two screens rounded paisa into the ledger), and the count of `dangerouslySetInnerHTML` that [ADR-024](decisions.md) rests on |
-| `pnpm test:go` | nothing | pure Go: money arithmetic (incl. 400k property iterations), utils, middleware, the email transport's timeout budget, chi-square uniformity of generated passwords and codes, the lockout escalation table, and the source census that every rate-limited action is a declared constant with a policy |
-| `pnpm test:integration` | Postgres | repositories against real SQL, real transactions, real concurrency; the database's own CHECK constraints; **the ledger reconciliation, with a drift planted for every invariant it claims to check**; the Go route contract and hostile-input sweeps. **CI runs this under `-race`** |
-| `pnpm test:routes` | Postgres | the Next route methods driven directly — no browser, no server. Plus success paths: a real dispute, a real registration with Cloudinary stubbed, the support proxy's allow-list and per-member limit |
-| `pnpm db:migrate:check` | Postgres | the migrated database still matches `schema.prisma`. CI runs it after `db:migrate` |
-| `pnpm test:e2e` | full stack | browser specs: journeys, forms, registration, the layout matrix (phone/desktop × en/bn), accessibility, **zero CSP violations across every page and both dashboards**, and **how many background requests one open dashboard tab makes in a minute** |
-| `node apps/web/scripts/assert-static-routes.mjs` | a completed `pnpm build` | that the marketing routes are still prerendered and no dashboard or auth route is. Reads `.next/prerender-manifest.json`; CI runs it right after the build |
-| `pnpm test:bundle` | a completed `pnpm build` | first-load JavaScript per route against `bundle-budget.json`, failing on >10% growth, an unrecorded route, or a recorded route the build no longer produces. Reads `.next/diagnostics/route-bundle-stats.json` — the bundler's own answer. Accept a real cost with `pnpm test:bundle:update` |
+| `pnpm test:unit` | nothing | pure TS (auth, validation, formatting, ids, documents and both renderers, CSP, SEO/JSON-LD) and the source **censuses** — FR three-way check, message parity, FK indexes, settings keys, every form posting a money `amount`, the single raw-HTML sink |
+| `pnpm test:go` | nothing | money arithmetic (incl. 400k property iterations), utils, middleware, email transport budget, chi-square uniformity of generated secrets, lockout escalation, the rate-limit action census |
+| `pnpm test:integration` | Postgres | repositories with real transactions and concurrency, CHECK constraints, the ledger reconciliation (a drift planted per invariant), the Go route contract, hostile input, every SQL literal PREPAREd. **CI runs it under `-race`** |
+| `pnpm test:routes` | Postgres | Next route methods driven directly (no browser or server), plus success paths: a real dispute, a registration with Cloudinary stubbed, the support proxy |
+| `pnpm db:migrate:check` | Postgres | the migrated DB still matches `schema.prisma` |
+| `pnpm test:e2e` | full stack | journeys, forms, registration, the phone/desktop × en/bn matrix, accessibility, **zero CSP violations**, background requests per dashboard tab |
+| `node apps/web/scripts/assert-static-routes.mjs` | a `pnpm build` | marketing routes prerendered; no dashboard/auth route is |
+| `pnpm test:bundle` | a `pnpm build` | first-load JS per route vs `bundle-budget.json` (>10%, unrecorded or vanished route fails; accept a real cost with `pnpm test:bundle:update`) |
 
-**Two things about the auth suites are worth knowing before you add to them.**
-`securityRouter` in `cmd/server/auth_security_integration_test.go` builds a
-router with a **configured** email service (Brevo stubbed in-process), because
-with no email service every identifier gets the same 503 and an oracle test
-passes without the fix. And every response comparison goes through `answerOf`,
-which drops `meta.timestamp` — otherwise "these two answers are identical" is a
-statement about the clock. Assertions about `audit_logs` count a **delta**: the
-append-only trigger means a test cannot delete its own rows
-([traps.md](traps.md)).
+The first two must stay fast enough to run on every save — nothing needing a database goes in them (hence `test:routes` is a separate vitest project).
 
-**The split is load-bearing.** The first two must stay fast enough to run on
-every save, so nothing needing a database belongs in them — which is why
-`test:routes` is a second vitest project rather than an addition to the first.
+Auth suites: `securityRouter` (`cmd/server/auth_security_integration_test.go`) has a **configured** stub email service (otherwise every identifier gets the same 503 and an oracle test passes without the fix), and `answerOf` drops `meta.timestamp` before comparing responses.
 
 ### Running the database-backed ones
 
 ```bash
-scripts/test-stack.sh up          # Postgres on :55433, migrated, seeded
+scripts/test-stack.sh up          # Postgres on :55433, migrated, seeded (up --serve adds both apps)
 eval "$(scripts/test-stack.sh env)"
 pnpm test:integration && pnpm test:routes
 scripts/test-stack.sh down        # destroys the volume
 ```
 
-`up --serve` also builds and starts both apps, for `pnpm test:e2e`.
-`pnpm test:stack` is the same thing through the package script.
-
-**One suite at a time.** The Go suites truncate every table between tests and
-the browser suite reads the same database, so running `test:integration` during
-a `test:e2e` run empties the settings and the accounts under it. It does not
-look like an empty database; it looks like unrelated specs failing on their own
-subject matter ([traps.md](traps.md) § Test stacks).
-
-**`eval "$(scripts/test-stack.sh env)"` is required for the browser suite too**,
-and for two separate reasons. It exports the seeded admin's credentials, without
-which `public-content.spec.ts` and `admin-dashboard.spec.ts` fail or skip on a
-message about missing variables rather than on anything real. And it exports
-**`TEST_DATABASE_URL`, which is what decides the web app's database** — Next
-re-applies `apps/web/.env` over the inherited environment before any of this
-repo's code runs, so `DATABASE_URL` alone leaves the Go API on the test database
-and the web app on the developer's own. That was live until 2026-08-26; see
-[traps.md](traps.md) § Test stacks and `apps/web/lib/prisma.ts`.
-
-**Never point this at a development database.** These suites truncate tables and
-`down` destroys the volume — that is the point, not a hazard to work around.
-
-**They share one database and run in any order**, deliberately: the Go suites
-truncate every table between tests, so anything depending on rows another suite
-left behind would pass or fail on package ordering.
-
----
+- **One suite at a time**: `test:integration` truncates under a running `test:e2e`, and it looks like unrelated specs failing ([traps.md](traps.md) § Test stacks).
+- **The `eval` is required for e2e too**: it exports the seeded admin's credentials and **`TEST_DATABASE_URL`, which decides the web app's database** (Next re-applies `apps/web/.env` over `DATABASE_URL` — `lib/prisma.ts`).
+- **Never point it at a development database.** Suites share one database in any order; each Go suite truncates between tests.
 
 ## Where a new test goes
 
@@ -79,142 +38,70 @@ left behind would pass or fail on package ordering.
 |---|---|---|
 | a pure function in `lib/` | `apps/web/lib/<module>.test.ts` | nothing |
 | pure Go arithmetic | `apps/api/internal/<pkg>/*_test.go` | nothing |
-| a cross-file invariant read off disk | `apps/web/test/unit/*.test.ts` | nothing |
+| a cross-file invariant / a rule across the whole tree | `apps/web/test/unit/*.test.ts` (a census that walks the source) | nothing |
 | SQL, a transaction, a race | `apps/api/internal/repositories/*_integration_test.go` | Postgres |
 | a Go HTTP contract | `apps/api/cmd/server/routes_integration_test.go` | Postgres |
-| **what an auth endpoint discloses** | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
+| what an auth endpoint discloses | `apps/api/cmd/server/auth_security_integration_test.go` | Postgres |
 | a Next route handler | `apps/web/test/routes/*.test.ts` | Postgres |
-| **who owns a contact, and what a deletion takes with it** | `apps/web/test/routes/identity-integrity.test.ts` | Postgres |
-| **where a member's files are stored, and what moves them** | `apps/web/test/routes/document-filing.test.ts` (the route, with Cloudinary stubbed at the module boundary — that account holds real NID scans and CI has no credentials for it) and `apps/web/test/unit/image-uploads.test.ts` (the folder names, [ADR-040](decisions.md)) | Postgres / nothing |
-| **what an approval hands out** | `apps/web/test/unit/approval-credentials.test.ts` — the account number, never the password ([ADR-042](decisions.md)). Fails in **both** directions: a handler returning a credential with no screen to show it, and a screen reading a field nothing sends | nothing |
-| **how long identity data is kept** | `apps/api/internal/repositories/retention_integration_test.go` (the text half) and `apps/web/test/unit/audit-actions.test.ts` (the tiers, [ADR-038](decisions.md)) | Postgres / nothing |
-| **an action written into `audit_logs`** | `apps/web/test/unit/audit-actions.test.ts` — it reads both backends for audit writes and fails in **both** directions: an action nothing catalogues, and a catalogued action nothing writes | nothing |
+| contact ownership; what a deletion takes | `apps/web/test/routes/identity-integrity.test.ts` | Postgres |
+| where a member's files go | `test/routes/document-filing.test.ts` (Cloudinary stubbed) + `test/unit/image-uploads.test.ts` ([ADR-040](decisions.md)) | Postgres / nothing |
+| what an approval hands out | `test/unit/approval-credentials.test.ts` — account number, never a password, both directions ([ADR-042](decisions.md)) | nothing |
+| retention | `retention_integration_test.go` (text) + `test/unit/audit-actions.test.ts` (tiers, [ADR-038](decisions.md)) | Postgres / nothing |
+| an `audit_logs` action | `test/unit/audit-actions.test.ts` — both backends, both directions | nothing |
 | a document builder or renderer | `apps/web/lib/documents/*.test.ts` | nothing |
-| a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | the full stack |
-| **a journey that crosses roles** | `apps/web/e2e/entry-path.spec.ts` | the full stack. Registration → confirmation → an admin's decision → the applicant being told → first login, at 412 px in both languages. The distinction from `registration.spec.ts` matters: that one covers the **form** and passed throughout, because every defect Phase 1 found lived in the *gaps between* steps rather than inside one. A suite of per-screen specs cannot see "the applicant is never told" |
-| **a URL shape, a redirect, or a middleware header** | `apps/web/e2e/locale-negotiation.spec.ts` | the full stack — never a unit test, see traps.md "Locale routing" |
-| **what a reader in one language actually sees** | `apps/web/e2e/locale-content.spec.ts` | the rendered page. A source census cannot see copy that was never in a message file, and a database value is not the code's to assert — so this reads `document.body.innerText`, strips the public settings' own values, and fails on Bengali left on an English page. The language toggle is here too, because only a click distinguishes a working switch from one that builds a 404 |
-| **a journey that touches a third party** | it cannot run in CI. That Cloudinary account holds real members' NID scans, so the workflow sets **no** `CLOUDINARY_*` on purpose and `POST /registrations` rolls every application back there. Two answers, both in use: stub at the module boundary (`test/routes/registration.test.ts` mocks `@/lib/cloudinary` and asserts the compensation), or **seed the row the journey would have created** and test what comes after (`e2e/entry-path.spec.ts`, whose four decision tests do exactly that and are pinned to the route's own `create` so the fixture cannot drift). A spec that drives the real service skips loudly and says why — it must never fail into the noise, which is what six of them did on every push for twenty minutes a run |
-| **that an admin's edit reaches a visitor's screen** | `apps/web/e2e/public-content.spec.ts` | the full stack. Signs in as an admin, `PUT`s a distinct marker per language through `/api/v1/settings`, and asserts on each page that the marker arrives **and that the other language's marker does not**. Three things break this loop and no source census can see any of them: the hour-long prerender cache (an edit is invisible unless the route revalidates the `system-config` tag), the read tier (a key outside `PUBLIC_CONFIG_KEYS` reads `undefined` and the page's fallback renders for ever), and the language (a pair whose English half is never read shows Bengali to an English reader). Restores the seeded values in `afterAll` — it writes to `system_config`, which the Go suites do not truncate |
-| **that a control does something at all** | `apps/web/test/unit/settings-keys-read.test.ts` | nothing. The converse of the read census: every declared key must have a reader **in either backend**, or it is a switch that will be trusted and does nothing. Scans the Go tree as well, because `loan.*` is read only there |
-| **a measurement of the rendered page** | `apps/web/e2e/matrix.spec.ts` | the full stack. Overflow, clipped text and untranslated keys per page — plus the logo against the header it sits in, which is a number rather than a look. `logo.tsx` rendered every call site at 192×108 inside a 64 px header and nothing else in the suite could tell: the page does not scroll sideways and no text is clipped |
-| **whether a rule still holds across the whole tree** | `apps/web/test/unit/*.test.ts` as a *census* that walks the source | nothing |
+| a screen, a form, a layout | `apps/web/e2e/*.spec.ts` | full stack |
+| a journey crossing roles | `e2e/entry-path.spec.ts` (apply → decision → told → first login, 412 px, both languages — the gaps between screens, which per-screen specs cannot see) | full stack |
+| a URL shape, redirect or middleware header | `e2e/locale-negotiation.spec.ts` — never a unit test | full stack |
+| what a reader in one language sees | `e2e/locale-content.spec.ts` (rendered text, settings values stripped; the language toggle) | full stack |
+| an admin edit reaching a visitor | `e2e/public-content.spec.ts` (cache, tier and language; restores `system_config` after) | full stack |
+| that a control does anything | `test/unit/settings-keys-read.test.ts` (a reader in either backend) | nothing |
+| a measurement of the rendered page | `e2e/matrix.spec.ts` (overflow, clipping, keys, logo vs header) | full stack |
+| a journey touching a third party | **cannot run in CI** (no `CLOUDINARY_*` there — real NID scans). Stub at the module boundary (`test/routes/registration.test.ts`) or seed the row the journey would create (`entry-path.spec.ts`). A spec needing the real service skips loudly | — |
 
 ## The fixture contract
 
-1. **Namespace everything you seed to your own suite** — ids, phones, emails,
-   `accountNo`. Both contract suites originally seeded `accountNo = 'RT-MEMBER'`
-   and whichever ran second died on `users_accountNo_key`: invisible when either
-   ran alone, therefore invisible until CI ran both.
-2. **Seed what you need; never depend on what another suite left.**
-3. **Upsert rather than truncate** in the browser fixtures — they share the
-   database with the Go suites, and clearing it out from under them is the same
-   ordering bug from the other direction.
-4. **Never suppress stderr on a setup step.** A failed fixture insert that looks
-   like success turns into an auth failure blamed on the token.
-5. **The browser fixtures refuse a non-localhost `DATABASE_URL`**
-   (`assertDisposableDatabase`). They write balances; the mistake is one pasted
-   environment variable away.
-6. **Assert on a *delta* of `audit_logs`, never an absolute count.** The table is
-   append-only and the trigger refuses a `DELETE`, so rows your suite wrote on
-   previous runs are still there. A test that expected exactly one
-   `MEMBER_ERASED` row passed once and then found three. Read the newest row and
-   compare counts before and after.
+1. **Namespace everything you seed** (ids, phones, emails, `accountNo`) — collisions appear only when suites share a run, i.e. in CI.
+2. **Seed what you need; never depend on another suite's rows.**
+3. **Upsert, never truncate,** in browser fixtures.
+4. **Never suppress stderr on a setup step** — a silent fixture failure is later blamed on the token.
+5. **Browser fixtures refuse a non-localhost `DATABASE_URL`** (`assertDisposableDatabase`).
+6. **Assert a delta of `audit_logs`, never an absolute count** — the trigger keeps every previous run's rows.
 
 ## Writing an assertion that stays true
 
-- **Some questions can only be answered by an artifact.** "Is this route
-  static?" is a conclusion `next build` draws after following every import in a
-  page, its layout and every component it renders — no test that reads the
-  source can know it, and a grep for `export const revalidate` would pass on
-  exactly the regression it was meant to catch. Same for "does this CSP break
-  the app": a header assertion cannot see a blocked bootstrap script, and only a
-  real browser can. Prefer the artifact when the source cannot answer.
-- **Enumerate, do not list.** Twenty-one suites and two CI checks derive their
-  coverage from the source and fail the build when the code grows something they
-  do not know about. The table of what each one demands is in
-  [CLAUDE.md](../CLAUDE.md) — read it before adding a route, a balance writer, a
-  notification, a message key or a schema field.
-- **A regression test must be seen to fail first**, with the symptom it
-  describes. And revert the *whole* fix to check — restore from
-  `git show HEAD:<path>` rather than editing back what you remember changing.
-- **A route contract proves who may call a route, not what it returns.** Every
-  route in the contract table wants at least one row driving it to a 2xx;
-  `success-paths.test.ts` is where those live.
-- **Test behaviour at the boundary, not implementation.** A test that breaks when
-  you rename a private helper is a liability.
-- **A found bug is fixed in the same batch**, not filed.
-- **If a test is hard to write, that is a finding** — usually the seam is in the
-  wrong place. Extracting `mountRoutes` and `mountMiddleware` from `main()` is
-  what made the routes and the middleware stack testable at all.
-- **Flaky is failing.** Fix the cause or delete the test.
-- **In a browser, use the retrying matchers.**
+- **A regression test must be seen to fail first** against the pre-fix code — revert the whole fix from `git show HEAD:<path>`, watch it go red, restore. (Two green tests here once checked nothing: a census matching its own docs, and a spec clicking the logo because Playwright matches names by substring.) If a test genuinely cannot fail, say so in the test.
+- **Some questions only an artifact answers** — "is this route static?", "does the CSP break the app?" — prefer the build output or a real browser.
+- **Enumerate, do not list** ([guardrails.md](guardrails.md)).
+- **A route contract proves who may call a route, not what it returns** — drive at least one 2xx in `success-paths.test.ts`.
+- Test behaviour at the boundary, not private helpers. A hard-to-write test is a finding (a seam in the wrong place). A found bug is fixed in the same batch. Flaky is failing. Use retrying matchers in a browser.
 
-More failure modes, with the stories behind them: [traps.md](traps.md) —
-especially *Tests and evidence* and *Browser suites*.
+More failure modes: [traps.md](traps.md) — *Tests and evidence*, *Browser suites*.
 
 ## When something fails and you cannot see why
 
-- `.test-stack/api.log` and `.test-stack/web.log` hold the server output. Start
-  with `grep -c 429 .test-stack/api.log`.
-- `playwright-report/` and `test-results/` carry a screenshot, a video and a
-  trace for every failed spec. Video is off by default (`PWVIDEO=1`) — it costs
-  an ffmpeg process per test.
-- Go integration failures print the seeded ids; query directly with
-  `docker exec hn-test psql -U postgres -d hasnahena_test`.
-- **Check `uptime` before believing a browser failure.** A Playwright run starved
-  of CPU produces timeouts that read exactly like defects.
+- `.test-stack/api.log` and `.test-stack/web.log` — start with `grep -c 429 .test-stack/api.log`.
+- `playwright-report/` and `test-results/` have a screenshot and trace per failed spec (video with `PWVIDEO=1`).
+- Query the test database: `docker exec hn-test psql -U postgres -d hasnahena_test`.
+- **Check `uptime` first** — a CPU-starved Playwright run times out like a defect.
 
----
-
-## What is deliberately not covered
-
-Not everything absent is a gap. These are decisions:
+## Deliberately not covered
 
 | Not covered | Why |
 |---|---|
-| Brevo actually delivering mail | Testing a third party's SMTP proves nothing about this code. The message and the transport are both tested against stubs; delivery is an operational check on the go-live list |
-| Load and stress testing | Out of scope in [product.md](product.md). 240 sustained postings is the ceiling this workload needs |
-| A generic accessibility audit | See the reasoning in `e2e/accessibility.spec.ts` — four specific checks beat a long advisory list nobody actions |
-| Cloudinary against the real account | It holds members' NID scans. The client is stubbed and the compensation path driven end to end |
+| Brevo actually delivering mail | proves nothing about this code; message and transport are tested against stubs; delivery is a launch-day check |
+| Load/stress testing | out of scope ([product.md](product.md)); 240 sustained postings is the needed ceiling |
+| A generic accessibility audit | four specific checks in `accessibility.spec.ts` beat an advisory list nobody actions |
+| Cloudinary against the real account | real NID scans; the client is stubbed and the compensation path driven |
 
-**The hole that used to be here is closed.** `e2e/admin-dashboard.spec.ts` skips
-unless `E2E_ADMIN_IDENTIFIER` and `E2E_ADMIN_PASSWORD` are set, and for most of
-this project's life *nothing* set them — not `test-stack.sh env`, not the CI e2e
-job — so it had never run in any environment and was the "1 skipped" in every
-report, reading as covered. Both now supply them: CI in `.github/workflows/ci.yml`
-and the stack from the same two constants its seed uses. A spec that can only
-skip is worse than no spec; if one appears again, wire it up or delete it.
+A spec that can only skip is worse than none — wire it up or delete it.
 
-## Measured, so a regression has something to compare against
-
-Observations, not thresholds — a budget invented before anything is slow is a
-number nobody trusts. Taken on the author's machine.
+## Measured (observations, not thresholds)
 
 | | Measured |
 |---|---|
-| Sustained postings | ~180/s, six concurrent writers, four contended accounts, reconciling exactly |
-| List read | 1–2 queries, flat in row count |
-| Member dashboard read | 5 queries, flat in history length |
-| Go integration suite | ~8 s; ~40 s under `-race` |
-| Web unit suite | ~6 s for 556 tests across 30 files |
-| Next route contracts | ~3 s |
-| Browser suite | 153 passed + 1 skipped, 10.8 min, one worker, on an idle machine |
-| Largest client bundle | `/[locale]/dashboard/{worker,admin}/transactions`, ~1.41 MB uncompressed first-load JS — the same figure twice, because they are the same component. Recorded, not endorsed — see `bundle-budget.json` |
-
----
-
-## The rule that makes a regression test worth writing
-
-**A regression test must be seen to fail against the pre-fix code before it is
-allowed to pass.** Put the defect back, watch the test go red, then restore the
-fix. A test written after the fix and never seen red proves only that it
-compiles — and this repository has caught two of those: a census whose regex
-matched its own documentation, and a language-toggle spec that clicked the logo
-instead of the button because Playwright matches an accessible name by
-substring. Both were green and both were checking nothing.
-
-When a test genuinely *cannot* be made to fail — a guard against something the
-type system already prevents, say — say so in the test itself, so the next
-reader does not go looking for the red run that never happened.
-
+| Sustained postings | ~180/s, six writers, four contended accounts, reconciling exactly |
+| List read / member dashboard | 1–2 queries / 5 queries, flat in row count |
+| Go integration suite | ~15 s; slower under `-race` |
+| Next route contracts | 528 tests, a few seconds |
+| Web unit suite | 849 tests, ~6 s |
+| Largest client bundle | `/[locale]/dashboard/worker/transactions`, ~1.44 MB first-load JS (see `bundle-budget.json`) |

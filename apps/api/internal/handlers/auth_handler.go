@@ -26,13 +26,7 @@ func NewAuthHandler(authService *services.AuthService, securityService *services
 	}
 }
 
-// getClientIP is the address a login attempt is attributed to.
-//
-// It used to read the LEFTMOST X-Forwarded-For entry — the end the caller
-// writes — and this value keys the login lockout. Varying one header therefore
-// gave an attacker a fresh allowance of failed attempts per request, which is
-// the lockout not existing. It now goes through the same resolver as the access
-// log and the rate limiter (WO-60).
+// getClientIP is the address a login attempt is attributed to (WO-60).
 func getClientIP(r *http.Request) string {
 	return appmw.RequestClientIP(r)
 }
@@ -110,15 +104,8 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	utils.Success(w, http.StatusOK, map[string]string{"message": "Successfully logged out"})
 }
 
-// forgotPasswordReply is the ONLY thing a caller learns from this endpoint, and
-// it is the same for a member, a suspended member, a member with no email
-// address, and a phone number that has never been near this foundation.
-//
-// The three answers it replaces were a membership oracle: 404 meant "not a
-// member", 400 AUTH_EMAIL_REQUIRED meant "a member, and here is a fact about
-// their record", 200 meant "a member" (WO-88). Nothing below may branch on what
-// the lookup found — see AuthService.ForgotPassword, which returns nil for
-// every one of those cases and logs what actually happened.
+// forgotPasswordReply is the ONLY thing a caller learns from this endpoint —
+// identical for every case (WO-88, ADR-032). Nothing may branch on the lookup.
 const forgotPasswordReply = "If an account exists for that email or phone, a password reset link has been sent."
 
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -138,9 +125,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		req.Locale = "en"
 	}
 
-	// The two refusals that survive are both true of every caller alike: the
-	// throttle counts what *this* caller has asked for, and an unconfigured
-	// email service is decided before any lookup happens.
+	// Surviving refusals (throttle, unconfigured email) are true of every caller.
 	err := h.authService.ForgotPassword(r.Context(), req.Identifier, req.Locale, getClientIP(r))
 	var rateLimited *services.ErrRateLimited
 	switch {
@@ -175,9 +160,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An invalid link is the caller's problem and says so; anything else is
-	// ours, and answering it with err.Error() used to put internal detail on a
-	// public endpoint.
+	// An invalid link says so; anything else is ours and is not echoed.
 	if err := h.authService.ResetPassword(r.Context(), req.Token, req.Password); err != nil {
 		if errors.Is(err, services.ErrInvalidResetToken) {
 			utils.Error(w, http.StatusBadRequest, "AUTH_INVALID_TOKEN", "This reset link is invalid or has expired")

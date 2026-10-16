@@ -12,13 +12,7 @@ import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 import { localePath } from '@/lib/locale-path';
 
-/**
- * WO-73. This page's content changes when an admin edits a setting, which is to
- * say almost never — so it is prerendered and served from the edge instead of
- * opening a Neon connection on every visit. `revalidateTag('system-config')` in
- * the settings `PUT` is what makes an edit appear immediately; this interval is
- * only the backstop.
- */
+/** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
@@ -46,10 +40,7 @@ export default async function SupportPage({ params }: PageProps) {
   const settings = await getPublicSettings();
 
   const isBn = locale === 'bn';
-  // WO-67. The `settings['contact.*']` second choice is gone: those keys were
-  // never declared in SYSTEM_CONFIG_KEYS, so no admin could ever set one and the
-  // branch was unreachable. `org.*` is declared, seeded, and printed on every
-  // generated document.
+  // org.* via contactDetails (WO-67).
   const {
     address: supportAddress,
     phone: supportPhone,

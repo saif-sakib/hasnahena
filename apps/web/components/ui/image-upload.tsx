@@ -29,36 +29,13 @@ interface ImageUploadProps {
   showPreview?: boolean;
   autoUpload?: boolean;
   onFileSelected?: (file: File) => void;
-  /**
-   * Which compression preset to shrink the picked file with before it leaves the
-   * browser. See IMAGE_PRESETS — a preset is a ceiling, never an enlargement.
-   *
-   * Not optional in practice: every caller passes one. It has a default only so
-   * that a future uploader cannot be added with no compression at all by
-   * forgetting a prop, which is how Content & Media came to post 5 MB logos into
-   * a Server Action that caps a body at 1 MB.
-   */
+  /** Compression preset (IMAGE_PRESETS); defaulted so no uploader skips compression. */
   preset?: ImagePresetName;
   /** Description shown under the control: where this image will appear. */
   hint?: string;
-  /**
-   * How the preview fills its box. `contain` for anything with a shape of its
-   * own — a logo, a favicon, a partner mark — because `cover` crops, and an
-   * admin judging a logo from a preview that has cut its edges off will crop the
-   * source file to compensate for a crop that only ever existed in this box.
-   */
+  /** `contain` for anything with its own shape — a cropped preview makes admins crop the source. */
   fit?: 'cover' | 'contain';
-  /**
-   * The uploader's own chrome, in the reader's language.
-   *
-   * These were English string literals in the JSX, so the Bengali dashboard
-   * showed "Drag and drop your image here / or click to browse / Choose Image /
-   * Uploading..." under headings and descriptions that were all in Bengali.
-   * Passed in rather than read from `next-intl` here because this is a generic
-   * primitive and its two call sites already know the locale — and because a
-   * component that reaches for a translation namespace cannot be used outside
-   * one.
-   */
+  /** The uploader's own labels, in the reader's language (passed in; a primitive has no namespace). */
   labels?: Partial<UploadLabels>;
 }
 
@@ -115,16 +92,8 @@ export function ImageUpload({
   const [savedBytes, setSavedBytes] = useState<{ from: number; to: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // The stored image arrives *after* the first render.
-  //
-  // `preview` was seeded from `currentImage` in useState and then never looked
-  // at it again, so on Content & Media — where the settings are fetched with SWR
-  // — every brand field mounted with `currentImage === undefined` and kept the
-  // empty drop zone for the rest of the session. An admin with a logo already
-  // uploaded saw a screen that said there was none, uploaded it again, and got
-  // the same empty box back. The guard is `blob:`: a preview the reader is
-  // partway through choosing must not be replaced by a server value landing
-  // behind them.
+  // currentImage arrives after first render (SWR): sync it into the preview,
+  // but never over a `blob:` preview the reader is choosing.
   const lastSyncedRef = useRef<string | undefined>(currentImage);
   useEffect(() => {
     if (currentImage === lastSyncedRef.current) return;
@@ -171,12 +140,7 @@ export function ImageUpload({
       setError(null);
       setSavedBytes(null);
 
-      // Compress FIRST, then validate.
-      //
-      // In that order the size limit is a statement about what is stored rather
-      // than about what a phone camera happens to produce, and a member is only
-      // ever shown a size error for a file nothing could rescue. It is also what
-      // keeps a Server Action body under Next's cap — see compressImageFile.
+      // Compress FIRST, then validate — the limit describes what is stored.
       const file = await compressImageFile(picked, IMAGE_PRESETS[preset]);
       if (file !== picked) {
         setSavedBytes({ from: picked.size, to: file.size });

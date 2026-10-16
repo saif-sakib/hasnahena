@@ -121,29 +121,13 @@ interface ApproveRegistrationResult {
   message?: string;
   emailDelivered?: boolean;
   deliveryError?: string;
-  /**
-   * Allocated by the approval itself — an application has none.
-   *
-   * The temporary password used to come back beside it and be shown here. It
-   * does not any more: a working credential for a brand-new account does not
-   * belong on a queue screen in a shared office. A member with no email address
-   * is given one deliberately, from **Reset password** on their own page
-   * (ADR-036), which is also where an admin is when they are actually with them.
-   */
+  /** Allocated by the approval. The temporary password is never returned (ADR-036). */
   accountNo?: string;
 }
 
 /**
- * When a request was submitted, to the minute.
- *
- * The date alone is not enough to work a queue with. Two deposit requests from
- * the same member on the same day are indistinguishable by it, and first-asked
- * is the order staff serve them in — so the one fact that orders the queue was
- * the one the screen dropped. `requestDate` has always been RFC3339 and has
- * always carried the time; only the render threw it away.
- *
- * Returned as two parts rather than one string because every caller stacks
- * them: at 412 px a date and a time on one line wraps mid-timestamp.
+ * Submission time to the minute (first-asked is served first), as two parts so
+ * callers can stack them at 412px.
  */
 function formatSubmitted(
   value: string,
@@ -162,14 +146,7 @@ function formatSubmitted(
   };
 }
 
-/**
- * The submitted stamp, stacked, for a table cell.
- *
- * Also rendered under the member's name on a phone: the Date column is
- * `hidden md:table-cell`, and these tables are `min-w-[720px]` inside a
- * horizontal scroller, so on the screen most of this foundation's staff use it
- * would otherwise be two swipes away from the name it belongs to.
- */
+/** The submitted stamp, stacked; also under the name on phones, where the Date column is hidden. */
 function SubmittedStamp({ value, locale }: { value: string; locale: string }) {
   const { date, time } = formatSubmitted(value, locale);
   return (
@@ -469,9 +446,7 @@ function RegistrationRow({
                         </p>
                         <div className="mt-2 overflow-hidden rounded-sm border border-gray-200 bg-slate-50">
                           {isImageDocument(document.url, document.mimeType) ? (
-                            // WO-75. `fill` rather than fixed dimensions: these are
-                            // member-uploaded scans, so nothing here knows their size.
-                            // The parent is the box that decides, hence `relative`.
+                            // `fill`: member scans have unknown sizes (WO-75).
                             <div className="relative h-28 w-full">
                               <Image
                                 src={document.url}
@@ -546,9 +521,7 @@ function RegistrationRow({
                       previewDocument.url,
                       previewDocument.mimeType,
                     ) ? (
-                      // `object-contain`, not `cover`: this is the full-size read of
-                      // an NID, and a crop that hides the corner of a document is
-                      // worse than one that leaves letterboxing.
+                      // object-contain: never crop the corner of an NID.
                       <div className="relative mx-auto h-[65vh] w-full">
                         <Image
                           src={previewDocument.url}
@@ -577,20 +550,9 @@ function RegistrationRow({
 }
 
 /**
- * The approvals queue — one screen for both staff dashboards.
- *
- * A worker sees the two tabs that are *processing* work: a member's deposit
- * request and a member's loan repayment request, which they act on by taking the
- * cash (FR-07). Approving a registration is an admin decision (product.md), so
- * that tab is not rendered for them — and the API agrees rather than merely
- * going along with it: `AdminApprovals` returns no `registrationRequests` to a
- * worker at all, and `POST /admin/approvals/registration` is mounted inside the
- * admin-only group.
- *
- * This screen was already shared — `dashboard/worker/approvals` was a one-line
- * re-export of it — but the endpoint it calls was mounted admin-only, so every
- * worker who opened it got a 403 and an empty page. That is the failure this
- * pair of changes closes.
+ * The approvals queue for both staff dashboards. Workers see the processing
+ * tabs (deposits, repayments); registrations are admin-only, and the API
+ * returns none to a worker.
  */
 export default function ApprovalsScreen() {
   const locale = useLocale();
@@ -621,19 +583,9 @@ export default function ApprovalsScreen() {
   // balance that moved — and must not be confused with a failure to load.
   const [actionError, setActionError] = useState<string | null>(null);
   /**
-   * What the admin has to pass on, shown until they dismiss it.
-   *
-   * The account number, which the approval has just allocated and which nothing
-   * else shows the admin who allocated it: they are on a queue screen they will
-   * have left by the time they think to look for it, and most members of this
-   * cooperative have no email address (ADR-036) so no message went out either.
-   *
-   * **The temporary password is deliberately not here.** It was, on the same
-   * reasoning — and it is a different kind of thing. An account number is a
-   * name; a password is a key, and putting a working key for a fresh account on
-   * a shared office screen at the moment somebody is working through a queue is
-   * not the same act as showing them a number. The member who needs one gets it
-   * from **Reset password** on their own page, when they are there to be told.
+   * The newly allocated account number, shown until dismissed (no email goes
+   * to most members). Deliberately NOT the password — that comes from Reset
+   * password on the member's page (ADR-036).
    */
   const [approvedMember, setApprovedMember] = useState<{
     name: string;
@@ -669,29 +621,12 @@ export default function ApprovalsScreen() {
     deposit: depositRequests.length,
   };
 
-  // What the reject dialog is currently about. `null` means it is closed.
-  //
-  // Rejection used to fire straight off an icon-only button with no
-  // confirmation and no reason — `reason: ''` was hardcoded at the call site —
-  // and it is irreversible. On a 412 px screen those buttons are 28 px apart,
-  // which made a mis-tap enough to refuse somebody's membership.
-  /**
-   * Which application the admin is admitting, and to which office.
-   *
-   * Approving used to fire straight off an icon button. It now asks one
-   * question first, because there is one to ask: a member's branch is a
-   * decision the foundation makes about them and there was nowhere to make it.
-   * Registration guessed — it assigned the sole active office and assigned
-   * nothing once a second one existed, so a member's branch was either an
-   * inference or blank, and neither was anybody's answer.
-   */
+  /** The application being admitted, and to which office (a decision, not a guess). */
   const [approveTarget, setApproveTarget] =
     useState<RegistrationRequest | null>(null);
   const [approveBranchId, setApproveBranchId] = useState<string>("");
 
-  // The offices, from the Next route rather than the Go API — `useApi` talks to
-  // Go, and branches are a Next resource. Loaded once for the screen rather than
-  // per dialog: an admin working through a queue opens this repeatedly.
+  // Offices from the Next route, loaded once for the screen.
   const { data: branches } = useSWR<BranchOption[], Error>(
     canApproveRegistrations ? "/api/v1/admin/branches" : null,
     async (url: string) => {
@@ -716,10 +651,7 @@ export default function ApprovalsScreen() {
 
   const openApproveDialog = (item: RegistrationRequest) => {
     setApproveTarget(item);
-    // Pre-selected when there is exactly one office it could be, which is the
-    // foundation's situation today and keeps the common case one extra click
-    // rather than a decision. With several, nothing is chosen: guessing between
-    // them is the wrong answer that nothing would ever report.
+    // Pre-select only when there is exactly one active office.
     setApproveBranchId(activeBranches.length === 1 ? activeBranches[0].id : "");
   };
 
@@ -773,20 +705,8 @@ export default function ApprovalsScreen() {
       });
       closeRejectDialog();
 
-      // Erase the four identity documents now, not on a clock.
-      //
-      // A scan of a national identity card is the single most damaging thing
-      // this platform stores, it is served from a URL that needs no login, and
-      // the moment the foundation decides not to admit somebody it has no
-      // remaining use for it — the written decision, the reason code and the
-      // retention sweep's own clock cover every purpose keeping the images
-      // would serve (ADR-038).
-      //
-      // Best effort, and deliberately so: this is a browser-initiated call, and
-      // a closed tab or a Cloudinary outage must not leave the admin looking at
-      // a rejection that appears to have failed. What makes that safe is that
-      // the same route sweeps every refused application on a schedule, so
-      // anything missed here is picked up rather than lost.
+      // Delete the four identity documents NOW (ADR-038). Best effort — the
+      // nightly sweep catches anything missed.
       void fetch("/api/v1/admin/retention", {
         method: "POST",
         headers: {
@@ -803,9 +723,7 @@ export default function ApprovalsScreen() {
         // The scheduled sweep is the guarantee; this call is only the hurry.
       });
 
-      // The rejection is committed either way. An admin whose email did not go
-      // out has to telephone instead, and needs to be told that rather than
-      // assuming the applicant has been informed.
+      // Committed either way; if the email failed, the admin must phone.
       if (result?.emailDelivered === false) {
         const base =
           locale === "bn"
@@ -851,25 +769,9 @@ export default function ApprovalsScreen() {
         filed: null,
       });
 
-      // File the four identity documents under the account number the approval
-      // has just issued — `hasnahena/people/ACC-KH-33001`, beside the avatar,
-      // instead of `applications/APP-2026-000001` where they were uploaded by
-      // somebody who had no account number yet.
-      //
-      // **Awaited, and reported.** This was fire-and-forget on the reasoning
-      // that a failure changes nothing anybody can see — which is true, and is
-      // exactly why nobody would ever find out. The one person who can tell that
-      // the documents did not move is the admin standing in front of the screen
-      // that moved them, and only while they are still looking at it.
-      //
-      // It still cannot fail the approval: that is already committed, and the
-      // stored URLs still resolve either way. What it does is put a word in the
-      // notice, and the nightly sweep remains the guarantee.
-      // **The member's id, not the application's.** Admission renames the row
-      // from `APP-2026-000001` to the account number (ADR-043), so `id` — read
-      // from the queue before the approval — no longer addresses anybody. This
-      // is the one call in the application that holds a user id across the
-      // rename, and it answered 404 until it stopped.
+      // File the documents under people/<accountNo> (ADR-040). Awaited and
+      // reported — the admin is the only one who would notice a failure — but it
+      // cannot fail the approval. Uses the NEW id: admission renamed the row (ADR-043).
       const memberId = approvalResult.accountNo ?? id;
       void (async () => {
         try {
@@ -922,16 +824,8 @@ export default function ApprovalsScreen() {
   };
 
   /**
-   * Which posting the confirmation dialog is about, and what it would do.
-   *
-   * These four buttons used to act on the first press. They are 28 px apart on
-   * a 412 px screen, they are icon-only, and both of them move money: approving
-   * a deposit credits a member's savings, and rejecting one refuses a payment
-   * they have already made. Neither is undoable from this screen — a correction
-   * is a new posting an admin has to make (rule 6).
-   *
-   * The registration tab already asked, for both approve and reject. This is
-   * the same question for the tabs that were missed.
+   * The posting the confirmation dialog is about. Approve/reject move money and
+   * the buttons are 28px apart, so each asks first.
    */
   const [transactionTarget, setTransactionTarget] = useState<{
     item: TransactionRequest;
@@ -955,9 +849,7 @@ export default function ApprovalsScreen() {
         });
       }
       setTransactionTarget(null);
-      // The shared SWR key is what puts the sidebar's red dot out: the dashboard
-      // shell subscribes to this same path, so one mutate updates both without
-      // either knowing about the other.
+      // The shared SWR key also clears the sidebar's red dot.
       await loadApprovals();
     } catch (e: any) {
       setActionError(e?.message ?? "Action failed");
@@ -1427,22 +1319,8 @@ export default function ApprovalsScreen() {
         </div>
       )}
 
-      {/*
-        Approving asks one question: which office the member belongs to.
-
-        Not a "are you sure?" step — those train people to tap through. The
-        branch has to be decided by somebody and this is the moment somebody who
-        knows is looking at the application. The office is pre-selected when
-        there is only one, so the foundation's situation today is one extra tap.
-      */}
-      {/*
-        Confirming a deposit or a repayment.
-
-        Deliberately restates the facts being acted on — who, what, how much and
-        when — rather than only asking "are you sure?". A confirmation that
-        repeats nothing back is a second button in the same place, and trains
-        people to tap through it.
-      */}
+      {/* Approving asks which office the member belongs to (pre-selected when there is one). */}
+      {/* Confirming restates who, what, how much and when — not a bare "are you sure?". */}
       <Dialog
         open={transactionTarget !== null}
         onOpenChange={(open) => {
@@ -1645,14 +1523,7 @@ export default function ApprovalsScreen() {
         </DialogContent>
       </Dialog>
 
-      {/*
-        Rejecting an application is irreversible and, since 2026-08-26, sends the
-        applicant an email. It used to happen on a single tap of a 28 px icon
-        with no reason attached and nothing sent. This dialog is the
-        confirmation *and* the reason, which is deliberate: a confirm step that
-        only asks "are you sure?" trains people to tap through it, while one that
-        asks for something makes them look at the row again.
-      */}
+      {/* Rejecting is irreversible and emails the applicant: the dialog is the confirmation AND the reason. */}
       <Dialog
         open={rejectTarget !== null}
         onOpenChange={(open) => {
@@ -1678,13 +1549,7 @@ export default function ApprovalsScreen() {
               <Label htmlFor="reject-reason">
                 {locale === "bn" ? "কারণ" : "Reason"}
               </Label>
-              {/*
-                A native <select>. The applicant reads whichever of these the
-                admin picks, translated into *their* language on the server, so
-                the important property is that a reason is always chosen — not
-                that the control is elaborate. Native also means it works with
-                one thumb on a low-end Android, which is rule 10's whole point.
-              */}
+              {/* Native <select>: works one-thumbed on low-end Android; the server translates the reason. */}
               <select
                 id="reject-reason"
                 value={rejectCode}

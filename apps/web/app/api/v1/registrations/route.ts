@@ -38,16 +38,8 @@ function parseOptionalDate(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// The four documents, their form fields and the name each asset is given, are
-// declared once in `lib/application-documents.ts` — because the *approval* has
-// to re-derive those names when it moves the files into the member's own folder,
-// and two lists that must agree and live in different layers do not stay equal.
+// One list, shared with the approval's document move (lib/application-documents.ts).
 const REQUIRED_DOCUMENT_FIELDS = APPLICATION_DOCUMENTS;
-
-// The sentinel and the rejected-application predicate live in
-// `lib/rejected-application.ts` now, because the database's partial unique
-// indexes and the Go API's login lookup have to agree with them. They were
-// declared here when this route was their only consumer.
 
 function isFileEntry(value: FormDataEntryValue | null): value is File {
   if (!value || typeof value === 'string') return false;
@@ -59,31 +51,12 @@ function isFileEntry(value: FormDataEntryValue | null): value is File {
   );
 }
 
-// SEC-08. This endpoint answers "is this address a member?" to anyone who asks.
-// It exists for the signup form's live validation and cannot simply be closed —
-// but unthrottled it is a bulk membership-disclosure oracle, and for a
-// religious-finance cooperative in one town, *membership itself* is the
-// sensitive fact. A list of who banks here is worth more to the wrong person
-// than any single balance.
-//
-// 20 checks per 10 minutes per address is generous for someone filling in a form
-// once (two fields, plus retries and typos) and useless for walking a phone-number
-// range: Bangladeshi mobile numbers are an 8-digit space behind a known prefix,
-// which at this rate takes centuries instead of an afternoon.
+// SEC-08: availability answers "is this a member?" — membership itself is the
+// sensitive fact here. 20 per 10 min fits a form and makes enumeration take centuries.
 const AVAILABILITY_RATE_LIMIT = { limit: 20, windowSeconds: 600 };
 
-// The POST had **no throttle at all** until 2026-08-26, while the GET beside it
-// has had one since SEC-08. It is by far the more expensive of the two: each
-// call writes a `users` row with three related records, uploads four images to
-// Cloudinary, and takes a *global* advisory lock to allocate an account number.
-// Unthrottled that is an approvals queue anybody can flood, a third-party
-// storage quota anybody can spend, and — because the lock is global — a way to
-// serialise every genuine registration behind a script.
-//
-// Five in fifteen minutes per address. A household filling in forms on one
-// phone connection is nowhere near it; the same family reapplying after a
-// rejection is not either. The limit is per address rather than per email
-// because the email is chosen by the caller.
+// Submission throttle, per address (the email is caller-chosen): each call
+// writes rows and uploads four images.
 const SUBMISSION_RATE_LIMIT = { limit: 5, windowSeconds: 900 };
 
 export async function GET(req: Request) {
@@ -163,9 +136,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const uploadedPublicIds: string[] = [];
-  // The folder those uploads went into, once there is one. Known separately
-  // because the assets are deleted by public id and a folder outlives its
-  // contents — see below.
+  // The upload folder, so it can be removed on rollback.
   let uploadFolder: string | null = null;
   const cleanupUploadedAssets = async () => {
     if (uploadedPublicIds.length === 0) return;
@@ -176,19 +147,12 @@ export async function POST(req: Request) {
         })
       ),
     );
-    // And the directory entry they created. Deleting the four assets leaves
-    // `applications/APP-2026-000011` behind, empty, for ever: seven of those
-    // were sitting in the account on 2026-09-02, naming applications that had
-    // been rolled back and therefore never existed. An asset tree full of the
-    // numbers of submissions that failed is a record of nothing, and it is
-    // indistinguishable at a glance from an application whose documents have
-    // been wrongly deleted.
+    // And the now-empty folder, or failed submissions litter the asset tree.
     if (uploadFolder) await deleteEmptyFolder(uploadFolder);
   };
 
   try {
-    // Before the body is read. `req.formData()` buffers four images, so a
-    // throttle applied after it has already paid the cost it exists to prevent.
+    // Before reading the body — formData() buffers four images.
     const submissionLimit = await consumeRateLimit(
       'registration-submit',
       callerAddress(req),
@@ -221,10 +185,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Sent as its own form field rather than inside `payload`, because
-    // `registerApiSchema` is `.strict()` and rejects unknown keys — and it
-    // should stay that way: the payload is the application, and the language
-    // the applicant is reading is a fact about the request.
+    // Outside `payload`, which is strict and holds only the application.
     const localeRaw = formData.get('locale');
     const applicantLocale = localeRaw === 'bn' ? 'bn' : 'en';
 
@@ -250,14 +211,7 @@ export async function POST(req: Request) {
     const payload = parsed.data;
     const normalizedEmail = payload.email.trim().toLowerCase();
 
-    // Age, against the foundation's own setting rather than a number compiled
-    // in here. The schema checks only that the date parses and is not in the
-    // future — deliberately, because the floor is policy and this route is
-    // where policy is read. Until 2026-08-26 there was no floor at all and a
-    // date of birth of yesterday created a pending member.
-    //
-    // The form checks this too. This check is the one that counts: the form is
-    // a convenience and the caller need not use it.
+    // The age floor from settings. This server check is the one that counts.
     const publicSettings = await getPublicSettings();
     const minimumAge = minimumAgeYears(publicSettings);
     const dobProblem = dateOfBirthProblem(payload.dateOfBirth, minimumAge);
@@ -267,8 +221,7 @@ export async function POST(req: Request) {
           ok: false,
           error: dateOfBirthMessage(dobProblem, minimumAge, 'en'),
           field: 'dateOfBirth',
-          // So the form can render the refusal in the applicant's language
-          // rather than echoing this English string back at a Bengali reader.
+          // So the form can render the refusal in the applicant's language.
           code: `DOB_${dobProblem.toUpperCase().replace('-', '_')}`,
           minimumAge,
         },
@@ -276,9 +229,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // A nominee is who receives the money if the member dies, so the member
-    // cannot be their own. Nothing checked this: the same NID in both boxes was
-    // accepted and produced a nomination that can never be acted on.
+    // A member cannot be their own nominee.
     if (payload.nomineeNid.trim() === payload.nidNumber.trim()) {
       return NextResponse.json(
         {
@@ -291,21 +242,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // A rejected applicant's email and phone used to be scrambled here, before
-    // this submission had been validated, so that the unique constraint would
-    // let them reapply. Two things were wrong with it. It ran *first*, so a
-    // submission that then failed on a missing document left somebody else's
-    // record permanently renamed and returned a 400 — repeatable by anyone who
-    // knew a rejected applicant's email. And it was the second half of the same
-    // erasure that made a rejection impossible to communicate.
-    //
-    // Uniqueness is scoped to live rows now
-    // (`20260826120000_live_identity_uniqueness`), so the constraint is already
-    // out of the way and nothing has to be destroyed to move it.
-
-    // Check if a LIVE user already holds these details. A rejected application
-    // holding the same email is not a conflict — that is the point.
-    // Check if user already exists
+    // A LIVE user holding these details is a conflict; a rejected application
+    // is not (rejected-application.ts).
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
@@ -319,9 +257,7 @@ export async function POST(req: Request) {
     });
 
     if (existingUser) {
-      // Name the field that actually collided. The old version compared phone
-      // and called everything else "email", so an NID clash — which this now
-      // also checks — would have told the applicant their email was taken.
+      // Name the field that actually collided.
       const field = existingUser.phone === payload.phone
         ? 'phone number'
         : existingUser.email === normalizedEmail
@@ -360,9 +296,7 @@ export async function POST(req: Request) {
         );
       }
 
-      // Checked against the running total *before* reading the body into
-      // memory. Buffering all four first and rejecting afterwards meant an
-      // oversized submission was fully resident before we declined it.
+      // Checked before buffering the file.
       totalUploadBytes += fileEntry.size;
       if (totalUploadBytes > REGISTRATION_UPLOAD_LIMITS.TOTAL_BYTES) {
         return NextResponse.json(
@@ -400,38 +334,15 @@ export async function POST(req: Request) {
     };
 
     const created = await prisma.$transaction(async (tx) => {
-      // The **application's** number, not a member's.
-      //
-      // This route used to allocate `ACC-KH-33001` here, to a PENDING applicant,
-      // before anybody had read the application — so refusing the first one
-      // consumed the foundation's first membership number for ever and handed
-      // the next applicant `002`. A public form that anybody can submit was
-      // punching holes in the register.
-      //
-      // An account number is issued at **approval** and nowhere else now
-      // (`ApproveRegistration` already allocated one for a row that had none;
-      // that branch is simply the only one left). The applicant still gets a
-      // reference to quote, from the same gapless per-year allocator that backs
-      // every receipt and loan number — and one it costs nothing to burn.
+      // The APPLICATION number. An account number is issued only at approval,
+      // so a refusal burns nothing (ADR-039).
       const formNumber = await nextDocumentNumber(SERIES.application, tx);
 
-      // **No branch is assigned here.** Which office a member belongs to is a
-      // decision the foundation makes about them, not a property of the form
-      // they filled in — a public applicant has no idea which office exists, and
-      // this route ran before anybody had read the application. It is chosen by
-      // the admin on the approvals screen, alongside the account number that is
-      // issued at the same moment ([ADR-042](../../../../../docs/decisions.md));
-      // the dialog pre-selects the sole active office, so the foundation's
-      // situation today is still one click.
+      // No branch here — the admin picks it at approval (ADR-042).
 
       return tx.user.create({
         data: {
-          // The id **is** the number this person is known by
-          // ([ADR-043](../../../../../docs/decisions.md)). An applicant is known
-          // by their application number until they are admitted, when
-          // `ApproveRegistration` moves the id to `ACC-KH-33001` — the one
-          // moment it ever changes, and the one moment when nothing outside the
-          // database holds it, because an applicant has never signed in.
+          // The id IS the application number until approval moves it (ADR-043).
           id: formNumber,
           email: normalizedEmail,
           phone: payload.phone,
@@ -457,10 +368,7 @@ export async function POST(req: Request) {
 
           nidNumber: normalizeOptionalString(payload.nidNumber) ?? payload.nidNumber,
 
-          // One relation carrying both, distinguished by `type` (ADR-044).
-          // They used to be two separate one-to-ones with a nullable key each,
-          // so "this person's addresses" was two queries and a row could be
-          // written belonging to neither.
+          // One relation, distinguished by `type` (ADR-044).
           addresses: {
             create: [
               {
@@ -509,36 +417,16 @@ export async function POST(req: Request) {
           status: true,
           nameEn: true,
         },
-        // `formNumber` is what the confirmation page shows the applicant, under
-        // the heading it has always had — "Your application reference". Until
-        // 2026-08-26 they were told nothing at all: a two-second toast and a
-        // redirect to a login page they cannot use, with no reference for the
-        // thing they had just spent twenty minutes filling in.
       });
     });
 
-    // Everything past this point runs against a user row that already exists,
-    // so every failure here has to undo it. Leaving the row behind is worse
-    // than failing: the member's email and phone are then taken, and their
-    // second attempt is refused with "already exists" — a dead end only an
-    // admin can clear, caused by an image host being briefly unavailable.
+    // From here every failure must undo the user row, or the applicant's
+    // email and phone stay taken.
     try {
       const uploadResults = await Promise.all(
         validatedFiles.map(async ({ requirement, fileEntry, buffer }) => {
-          // `applications/APP-2026-000001/nid-front`, one folder per
-          // application, named after the reference the applicant was just given.
-          // Not `people/`: nobody is a member yet, and the folder that gets
-          // deleted when an application is refused should be the application's,
-          // not a person's.
-          //
-          // The document slug is the **public id**, not another folder with a
-          // random filename inside it. A registration submits exactly one of
-          // each of the four, so the name is unique by construction, and the
-          // asset tree stays readable rather than becoming four folders of one
-          // file each.
-          //
-          // `preserveOriginal` stays: an NID scan must not be re-encoded, which
-          // is the one rule in this file that cannot be undone after the fact.
+          // applications/<APP-…>/<slug>: the application's folder, deleted on
+          // refusal. preserveOriginal — an NID scan must never be re-encoded.
           uploadFolder = applicationFolder(created.formNumber, created.id);
           const uploadResult = await uploadImage(
             buffer,
@@ -552,9 +440,7 @@ export async function POST(req: Request) {
             },
           );
 
-          // Recorded the moment it lands, not after all four settle: if a
-          // later upload throws, the ones that already succeeded still need
-          // deleting, and a list assembled afterwards never gets built.
+          // Recorded as each lands, so a later failure can delete it.
           uploadedPublicIds.push(uploadResult.publicId);
 
           return {
@@ -584,15 +470,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Awaited, not fire-and-forget. On Vercel the function can be frozen the
-    // moment the response is returned, and a promise that has not settled is
-    // simply not finished — so the admin was never told a registration was
-    // waiting, while the member sat waiting for an approval nobody knew to
-    // give (WO-59).
-    //
-    // Caught and logged rather than thrown: the member's account exists by
-    // now, and must not be rolled back because a notification failed. The
-    // point is to know it failed, not to fail because of it.
+    // Awaited (Vercel may freeze the function after responding, WO-59), but
+    // caught: a failed notification must not roll back the account.
     await prisma.notification.create({
       data: {
         type: 'NEW_REGISTRATION',

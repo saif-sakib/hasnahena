@@ -1,29 +1,12 @@
 # =============================================================================
-#  Docker build context  —  WO-22 (PKG-05)
-# =============================================================================
-#  Both images build from the repository root, so this one file governs both.
-#
-#  This is not only a speed optimisation. Next's standalone output tracer copies
-#  whatever it finds next to the app, and it was verified to pull `.env.local`
-#  and the `apps/web/.env` symlink straight into `.next/standalone/`. Without
-#  the env rules below, a built image would carry the production Neon URL and
-#  JWT_SECRET in a layer — readable by anyone who can `docker pull` it, and
-#  still readable after a later layer deletes the file.
+#  Docker build context (WO-22) — governs both images, built from the root.
+#  Next's standalone tracer copies env files it finds; without these rules an
+#  image would carry the production Neon URL and JWT_SECRET in a layer.
 # =============================================================================
 
 # --- Secrets. Keep this block first and do not weaken it. --------------------
-#
-#  IMPORTANT: .dockerignore is NOT .gitignore. Docker matches each pattern
-#  against the full path relative to the build context, so a bare `.env`
-#  matches ONLY the root `.env` — it does not match `apps/web/.env`. Every
-#  pattern here needs an explicit `**/` prefix to apply at depth. This was
-#  originally written with git's semantics in mind and left `apps/web/.env`
-#  and `apps/web/.env.*` in the build context.
-#
-#  It surfaced as a build failure rather than a leak, and only by luck:
-#  `apps/web/.env` is a symlink to the root `.env.local`, which *was* excluded,
-#  so Docker copied a dangling symlink and `next build` died on stat(). Had it
-#  been a real file, it would have gone into an image layer instead — silently.
+#  .dockerignore is NOT .gitignore: a bare `.env` matches only the root, so
+#  every pattern needs `**/` to apply at depth.
 .env
 .env.*
 **/.env

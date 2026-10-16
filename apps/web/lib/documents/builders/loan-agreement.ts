@@ -1,16 +1,6 @@
 /**
- * Qard al-Hasan loan agreement.
- *
- * The zero-interest terms are printed explicitly: an interest-free loan
- * document that does not state the rate is worthless as evidence of Shariah
- * compliance.
- *
- * The same reasoning is why the terms *deny* a late fee rather than staying
- * silent about one. Until 2026-08-25 this list reserved the right to charge
- * “a fixed, interest-free late fee as set by foundation policy” — a policy that
- * did not exist, on a question (who keeps the money?) that decides whether the
- * charge is riba at all. The foundation ruled that there is no late fee, so the
- * agreement now says so, which is the half of the ruling a member can read.
+ * Qard al-Hasan loan agreement. States the zero rate explicitly, and DENIES a
+ * late fee rather than staying silent (rule 3).
  */
 
 import {
@@ -40,9 +30,7 @@ export function buildLoanAgreement(
   data: LoanDocumentData,
   org: OrgSettings = DEFAULT_ORG
 ): DocumentModel {
-  // Under Qard al-Hasan the borrower repays the principal and not one taka more,
-  // so equal-installment rounding is absorbed by the final installment rather
-  // than inflating the total — a schedule summing above the principal is riba.
+  // Rounding goes in the final instalment, never on top of the principal (riba).
   const principal = Math.round(data.principalAmount || 0);
   const count = Math.max(0, Math.round(data.totalInstallments || 0));
   const perInstallment = Math.round(data.installmentAmount || 0);

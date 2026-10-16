@@ -1,18 +1,8 @@
 //go:build integration
 
-// TEST-22 — the lifecycle state machines, and TEST-21's database half.
-//
-// The lifecycle is the product's central rule: **Request → Process → Confirm**,
-// with workers never initiating money movement (CLAUDE.md rule 4). A state
-// machine that only guards the transitions someone remembered to guard is not a
-// state machine — it is a happy path with a comment. So these tests drive every
-// status a record can hold at every transition, from a table, and require the
-// illegal ones to be refused *and to have moved nothing*.
-//
-// The "moved nothing" half matters as much as the refusal. An approval that is
-// rejected after it has already credited an account is worse than one that
-// succeeds, because the ledger and the request record then disagree and nothing
-// says which is right.
+// TEST-22 — the lifecycle state machines (Request → Process → Confirm, rule 4)
+// and TEST-21's database half. Every status × transition from a table; illegal
+// ones must be refused AND move nothing.
 package repositories
 
 import (
@@ -53,9 +43,7 @@ func statusOfTransaction(t *testing.T, id string) string {
 	return status
 }
 
-// allTransactionStatuses is the enum, in full. Driving the table off this
-// rather than off a hand-picked subset is what makes a new value fail the test
-// until somebody decides what it means here.
+// allTransactionStatuses is the full enum, so a new value fails until decided.
 var allTransactionStatuses = []string{
 	"PENDING", "PROCESSED", "CONFIRMED", "REJECTED", "DISPUTED", "REVERSED",
 }
@@ -165,9 +153,7 @@ func TestARejectedRequestCannotThenBeApproved(t *testing.T) {
 	if err := repo.RejectWithdrawal(ctx, id, admin, "wrong reference"); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	// The member disputes, the admin reconsiders and clicks approve. Without a
-	// guard this credits an account for a request already refused, with the
-	// rejection notification already sent.
+	// Approving an already-rejected request must not credit anything.
 	if err := repo.ApproveWithdrawal(ctx, id, admin); err == nil {
 		t.Fatalf("a REJECTED request was approved")
 	}
@@ -210,10 +196,7 @@ func TestApprovingARequestThatDoesNotExist(t *testing.T) {
 // Loan lifecycle
 // ---------------------------------------------------------------------------
 
-// Every LoanStatus the enum holds. WO-71 removed the legacy "PENDING" and
-// "APPROVED" labels, so this is seven rather than nine — and the point of
-// keeping the list exhaustive is that adding an eighth without deciding whether
-// it can be approved fails here rather than in production.
+// Every LoanStatus, exhaustive so an eighth fails here until decided.
 var allLoanStatuses = []string{
 	"PENDING_GUARANTOR", "PENDING_APPROVAL",
 	"ACTIVE", "COMPLETED", "SETTLED", "DEFAULTED", "REJECTED",
@@ -306,9 +289,7 @@ func TestALoanCannotBeApprovedTwice(t *testing.T) {
 	}
 }
 
-// TestRepaymentClosesTheLoanExactlyOnce walks the whole happy path and stops at
-// the boundary: the final installment must close the loan, and a payment after
-// that must be refused because a COMPLETED loan is no longer active.
+// TestRepaymentClosesTheLoanExactlyOnce: a payment after completion is refused.
 func TestRepaymentClosesTheLoanExactlyOnce(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -347,13 +328,8 @@ func TestRepaymentClosesTheLoanExactlyOnce(t *testing.T) {
 // TEST-21 — the Shariah invariant, at the database
 // ---------------------------------------------------------------------------
 
-// TestTotalRepaidNeverExceedsPrincipal is the invariant, stated over the ledger
-// rather than over the arithmetic.
-//
-// `internal/money` proves the *schedule* sums to the principal. This proves the
-// *postings* do: whatever sequence of repayments is accepted, the sum of
-// LOAN_REPAYMENT rows for a loan can never exceed what was disbursed. One taka
-// more is riba, however it got there.
+// TestTotalRepaidNeverExceedsPrincipal: repayment postings never exceed the
+// disbursed principal — one taka more is riba.
 func TestTotalRepaidNeverExceedsPrincipal(t *testing.T) {
 	// Deliberately awkward splits, including ones that do not divide evenly.
 	cases := []struct {
@@ -416,13 +392,8 @@ func TestTotalRepaidNeverExceedsPrincipal(t *testing.T) {
 	}
 }
 
-// TestNoLoanEverCarriesAFee guards the schema's one fee-shaped column.
-//
-// `loans.applicationFee` exists and defaults to 0. Nothing sets it, which is
-// the correct state — but "nothing sets it" is a property of today's code, and
-// a column called applicationFee is an invitation. This fails the moment
-// anything writes a non-zero value, which is the moment to have the
-// conversation rather than after a member has been charged (rule 3).
+// TestNoLoanEverCarriesAFee fails the moment anything writes a non-zero
+// applicationFee (rule 3).
 func TestNoLoanEverCarriesAFee(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -452,10 +423,7 @@ func TestNoLoanEverCarriesAFee(t *testing.T) {
 		t.Fatalf("a loan carries an applicationFee of %d — Qard al-Hasan permits no fee (rule 3)", maxFee)
 	}
 
-	// And no FEE transaction is ever raised against a member. The waterfall
-	// uses type FEE for the donation-pool draw, which is the pool paying the
-	// foundation, not the member paying anything — so it always carries a
-	// loanId. A FEE row without one would be a charge to a person.
+	// FEE rows are the pool draw and always carry a loanId; one without is a charge.
 	var memberFees int64
 	if err := testPool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM transactions WHERE type = 'FEE' AND "loanId" IS NULL
