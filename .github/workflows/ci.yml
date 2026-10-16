@@ -190,7 +190,7 @@ jobs:
       # test. WO-60 removed the last suppression (SA1019 on chi's RealIP) along
       # with the middleware itself, so nothing is nolint'd for staticcheck.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.6.1
           working-directory: apps/api
@@ -443,7 +443,7 @@ jobs:
 
       - name: Upload the report when something fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: apps/web/playwright-report
@@ -453,7 +453,7 @@ jobs:
       # reads as flaky ordering until `grep -c 429` says otherwise.
       - name: Upload the API log when something fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-log
           path: /tmp/api.log
