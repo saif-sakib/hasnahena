@@ -7,7 +7,6 @@
   exactly like a worker who had processed nothing. `continue` on a scan error is
   how a column-count bug becomes an empty page instead of a crash; if you write
   one, count the columns first.
-
 - **A startup context is not a background context.** `main.go` had a bare `ctx`
   that was a 10-second startup timeout; anything long-lived handed it runs exactly
   once and returns, silently. It froze the business gauges immediately — and a

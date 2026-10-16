@@ -33,5 +33,6 @@ own, and the owner confirmed it is the second kind.
 
 **Consequences.** The Terms, the loan-application form's intro, the home page's
 "repay" step and the printed loan agreement state the charge. Whether the
-platform should *record* the receipt — the `FEE` transaction type exists and is
-unused — is a separate decision, not taken here.
+platform should *record* the receipt is a separate decision, not taken here; the
+`FEE` type is not free for it — its one writer is the default waterfall's
+donation-pool draw ([data-model.md](../data-model.md#enums)).

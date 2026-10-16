@@ -19,7 +19,6 @@
   shortest idle timeout it can be behind; and cancellation has to be *forwarded*
   to the upstream reader, or wrapping the body reintroduces the leak that
   `signal: req.signal` was added to close.
-
 - **A Server Action's request body is capped at 1 MB, and exceeding it is
   silent.** Next enforces `experimental.serverActions.bodySizeLimit` *before* the
   action runs, so nothing in the action executes and nothing logs. Content &
@@ -36,7 +35,6 @@
   in `UPLOAD_SIZE_LIMITS` so the two cannot drift apart again. Note the platform
   in front of the app has its own cap (4.5 MB on Vercel) which is lower than the
   10 MB one validator used to claim.
-
 - **A reader census that greps for a key name is satisfied by the writer.**
   `branding.favicon` and `branding.dashboardLogo` each had an admin control and
   **no reader anywhere**, and passed `settings-keys-read.test.ts` because the
@@ -46,7 +44,6 @@
   `UNIMPLEMENTED_CONFIG_KEYS` exists to make honest. A census over "is this
   string present" cannot tell a read from a write; where that distinction is the
   whole point, assert the *reader* by name and by file.
-
 - **Awaiting in a layout changes when everything below it mounts.** Reading
   `getPublicSettings()` in the dashboard's server layout — to hand a logo down —
   put a database round trip on every dashboard navigation *and* tripped a race in
@@ -55,7 +52,6 @@
   on a path that cannot delay or break the page: this one is a client fetch of a
   key that is in `PUBLIC_CONFIG_KEYS`, so it needs no token and its worst failure
   is a missing logo.
-
 - **A single click can fire a handler and then submit the form, when a
   conditional swaps a button's `type` in place.** `{!isLastStep ? <Button
   type="button" onClick={next}/> : <Button type="submit"/>}` is one `<button>` in

@@ -11,7 +11,6 @@
   [.github/actions/postgres-client](../../.github/actions/postgres-client). **A bare
   container with no cluster does not reproduce this** — the wrapper picks
   correctly there, which is what makes the bug look like a failed install.
-
 - **Two parameters added together are `unknown + unknown`.** pgx's simple
   protocol renders `$2` and `$3` as untyped literals, so
   `make_interval(secs => $2 + $3)` fails at runtime with

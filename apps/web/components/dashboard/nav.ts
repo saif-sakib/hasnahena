@@ -212,10 +212,3 @@ export function navFor(
       (group === undefined || item.group === group),
   );
 }
-
-/** Whether a screen is reachable at all in this dashboard. */
-export function navItemVisible(role: DashboardRole, name: string): boolean {
-  return DASHBOARD_NAV.some(
-    (item) => item.name === name && item.roles.includes(role),
-  );
-}

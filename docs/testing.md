@@ -103,5 +103,5 @@ A spec that can only skip is worse than none — wire it up or delete it.
 | List read / member dashboard | 1–2 queries / 5 queries, flat in row count |
 | Go integration suite | ~15 s; slower under `-race` |
 | Next route contracts | 528 tests, a few seconds |
-| Web unit suite | 849 tests, ~6 s |
+| Web unit suite | 876 tests, ~6 s |
 | Largest client bundle | `/[locale]/dashboard/worker/transactions`, ~1.44 MB first-load JS (see `bundle-budget.json`) |

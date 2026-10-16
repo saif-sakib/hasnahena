@@ -17,7 +17,6 @@
   the hero's counting figures put the first `sr-only` on a public page. The
   technique *is* the thing being detected; exempt `clip: rect(0,0,0,0)` rather
   than removing the label, which is the accessible half of the component.
-
 - **A test stack can hand `next dev` the right `DATABASE_URL` and have Next
   overwrite it from `apps/web/.env` before any of your code runs.** `@next/env`
   re-applies the `.env` files over `process.env` when it loads, so a value
@@ -44,7 +43,6 @@
   E2E_ADMIN_IDENTIFIER and E2E_ADMIN_PASSWORD" — which reads like a defective
   spec and is a rig that did not finish introducing itself. `test-stack.sh env`
   exports them now, from the same two constants the seed uses.
-
 - **`test-stack.sh up --serve` will not replace a server that is already
   answering.** It polls `/v1/health` and moves on, so an API left running by an
   earlier session keeps serving — and a full green browser run then proves

@@ -32,7 +32,6 @@
 
   Then `prisma migrate resolve --rolled-back <name>` before re-running, or Prisma
   refuses to start with the failed migration still recorded.
-
 - **A migration that is only ever run against an empty database is only ever
   tested against an empty database.** The `audit_logs` UPDATE in the first
   version of the user-id migration passed the entire test stack — because the
@@ -41,7 +40,6 @@
   history in it, which was the owner's. When a migration rewrites *data* rather
   than shape, the suite that proves it works is the one run against a database
   with rows in it.
-
 - **A primary key that changes has exactly one hazard, and it is the caller
   holding the old value across the change.** `users.id` became the person's own
   number, which means it moves once — from `APP-2026-000001` to `ACC-KH-33001` —
@@ -54,7 +52,6 @@
   see it; the end-to-end journey that spans the rename is what found it. If a key
   can move, the thing to audit is not the foreign keys — those look after
   themselves — it is every value already in flight when it moves.
-
 - **`_prisma_migrations` is a table like any other, and emptying it turns a
   deploy into a replay from zero.** It can be cleared by hand in a database
   console, by a restore that did not include it, or by copying a database
@@ -67,7 +64,6 @@
   none, and refuses if the drift check disagrees — because marking migrations
   applied against a schema that is genuinely behind converts a loud failure into
   a database Prisma believes is current and that is missing columns.
-
 - **A view depends on the columns it names, and nothing you run before a deploy
   will tell you.** `branches.code` was dropped in favour of making the code the
   primary key. `v_people` selected `b.code`. Prisma's `migrate diff` does not
@@ -86,7 +82,6 @@
   definition of each view rather than only the migration that first created them,
   which was its own quiet bug: it would have kept passing for a view a later
   migration broke.
-
 - **An idempotent seed that refuses to touch an existing value cannot repair a
   row that exists and is blank — and a settings screen creates those by the
   dozen.** `seedConfig` upserted with `update: { description }`, on the
@@ -106,7 +101,6 @@
   is the right way round, because a settings screen can express "blank" and this
   file cannot express "deliberately blank", while the other failure is copy no
   re-run can fix.
-
 - **`@unique` on a text column is case-sensitive, so uniqueness you believe you
   have is a convention two write paths happen to share.** `email String? @unique`
   is a plain Postgres unique index: `Saif@x.com` and `saif@x.com` are two rows,
@@ -175,20 +169,18 @@
 - **Triggers are invisible to Prisma.** `migrate diff` cannot see the `audit_logs`
   immutability trigger, so a later `--from-empty` baseline would drop it
   silently. That is also why it is not reported as drift by `db:migrate:check`.
+- **`prisma migrate diff` cannot see a rename.** Renaming `users.memberId` to
+  `users.accountNo` generates `DROP COLUMN "memberId"` followed by
+  `ADD COLUMN "accountNo"`, which is a migration that discards every member's
+  account number and reports success. `ALTER TABLE … RENAME COLUMN` carries the
+  data, the unique index and the constraint across untouched, and has to be written
+  by hand. Third time in this project: the addresses relation and the `LoanStatus`
+  enum needed the same treatment, for the same reason.
 
-**`prisma migrate diff` cannot see a rename.** Renaming `users.memberId` to
-`users.accountNo` generates `DROP COLUMN "memberId"` followed by
-`ADD COLUMN "accountNo"`, which is a migration that discards every member's
-account number and reports success. `ALTER TABLE … RENAME COLUMN` carries the
-data, the unique index and the constraint across untouched, and has to be written
-by hand. Third time in this project: the addresses relation and the `LoanStatus`
-enum needed the same treatment, for the same reason.
-
-Postgres also does **not** rename the dependent index, so
-`users_memberId_key` keeps its old name over a column that no longer exists
-under it. `ALTER INDEX … RENAME` separately, or the next drift check compares an
-index name against a schema that disagrees.
-
+  Postgres also does **not** rename the dependent index, so
+  `users_memberId_key` keeps its old name over a column that no longer exists
+  under it. `ALTER INDEX … RENAME` separately, or the next drift check compares an
+  index name against a schema that disagrees.
 - **"These rows cannot be migrated" is worth checking before believing.** The
   spec for hashing `password_reset_tokens` said existing rows had to be deleted
   because plaintext cannot be recovered from a hash. Nothing needed recovering:

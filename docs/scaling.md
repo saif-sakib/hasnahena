@@ -1,6 +1,6 @@
 # Scaling
 
-**When the free tiers run out, and what to do then.** Typeset copy: [`pdf/scaling-plan.pdf`](pdf/scaling-plan.pdf) (source `pdf/scaling-plan.tex`, `pdflatex` twice); this file is the maintained one — regenerate the PDF when it changes.
+**When the free tiers run out, and what to do then.** [`pdf/scaling-plan.pdf`](pdf/scaling-plan.pdf) is the typeset report of 2026-09-03 (source `pdf/scaling-plan.tex`, `pdflatex` twice) — a snapshot, some of whose fixes have since landed; this file is the maintained one.
 
 ## The short answer
 
@@ -10,7 +10,7 @@
 
 **Neon compute** — 100 CU-h/month free; awake 24/7 at 0.25 CU is 182. It suspends after 5 idle minutes, so anything touching it more often pins it awake. The Go API is tuned ([ADR-035](decisions/adr-035-idle-behaviour-is-a-line-item-not-a-performance-detail.md): `DB_MIN_CONNS=0`, daily background jobs ≈ 4 CU-h/month). The leak to watch is any **UptimeRobot monitor on `/v1/ready`** (pings the pool): 5-minute default = 182 CU-h (the whole allowance), 30 min = 30, 6 h = 2.5. Uptime belongs on `/v1/health`, which touches nothing.
 
-**Actions minutes** — 2,000/month: fixed scheduled cost ~420 (nightly backup ~240, monitor ~120, image builds), leaving room for ~45 full CI runs (~32 min each). Free remedies: (1) assets backup weekly and `images.yml` tags-only (~230 min); (2) a self-hosted runner; (3) a public repository (MIT already — review [runbook.md](runbook.md) first, it maps every credential). Pushing to feature branches costs nothing until a PR ([workflow.md](workflow.md)).
+**Actions minutes** — 2,000/month: fixed scheduled cost ~420 (nightly backup ~240, monitor ~120, image builds), leaving room for ~45 full CI runs (~32 min each). Free remedies: (1) assets backup weekly (`images.yml` is already tags-only); (2) a self-hosted runner; (3) a public repository (MIT already — review [runbook.md](runbook.md) first, it maps every credential). Pushing to feature branches costs nothing until a PR ([workflow.md](workflow.md)).
 
 **Render cold starts** — free services sleep after 15 idle minutes (~60 s first request); 750 instance-hours vs a 730-hour month. Better: a **Cloudflare Worker cron** pinging `/v1/health` every 5 minutes 00:00–17:00 UTC (06:00–23:00 Dhaka) — ~510 hours, no database wake.
 
@@ -59,7 +59,7 @@ Rejected: **Namecheap VPS** (Phoenix only, ~250 ms from Dhaka); **Oracle Always 
 
 ## The staged plan
 
-**Stage 0 — now, $0**: confirm no UptimeRobot monitor polls `/v1/ready` frequently (delete it or make it six-hourly); assets backup weekly + `images.yml` tags-only; the Cloudflare Worker warm-up cron; decide the Vercel terms question. Carries to ~6,000 members.
+**Stage 0 — now, $0** ([T-35](tasks.md)): assets backup weekly; the Cloudflare Worker warm-up cron; decide the Vercel terms question ([T-36](tasks.md)). (UptimeRobot already watches `/v1/health`; `images.yml` is tags-only.) Carries to ~6,000 members.
 
 **Stage 1 — Neon storage past 0.4 GB or compute past 80 CU-h — ~$7**: Neon Free → **Launch** (no base fee, no migration; $0.106/CU-h, $0.35/GB-month, still scales to zero).
 
@@ -90,4 +90,4 @@ Rejected: **Namecheap VPS** (Phoenix only, ~250 ms from Dhaka); **Oracle Always 
 | A funder or regulator names a cloud | reopen "rejected" with their requirement written down |
 | Anyone proposes self-hosting Postgres | the answer is no |
 
-**Owner actions** (accounts I cannot reach; all free): check UptimeRobot for a `/v1/ready` monitor; create the Cloudflare Worker cron; decide the Vercel terms question; choose public repo vs self-hosted runner; set a billing alert on any account that becomes paid.
+**Owner actions** (accounts I cannot reach; all free): create the Cloudflare Worker cron; decide the Vercel terms question; choose public repo vs self-hosted runner; set a billing alert on any account that becomes paid.

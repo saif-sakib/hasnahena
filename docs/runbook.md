@@ -52,7 +52,7 @@ Neon healthy but no connection → `DATABASE_URL` rotated in one host and not th
 
 ## 2. A disputed or wrong transaction
 
-`PATCH /api/v1/member/transactions/{id}/dispute` sets the posting to `DISPUTED` and writes `TRANSACTION_DISPUTED` with the reason. **It changes no balance** — reconciliation counts a disputed posting as money that moved (ADR-026). There is no edit: corrections append (rule 6).
+`POST /api/v1/member/transactions/{id}/dispute` sets the posting to `DISPUTED` and writes `TRANSACTION_DISPUTED` with the reason. **It changes no balance** — reconciliation counts a disputed posting as money that moved (ADR-026). There is no edit: corrections append (rule 6).
 
 1. **Read the trail:** `SELECT action, "performedBy", details, "createdAt" FROM audit_logs WHERE "entityId" = '<receipt number>' ORDER BY "createdAt";`
 2. **Decide with a second person.**
@@ -177,7 +177,7 @@ It re-homes assets whose `asset_folder` disagrees with their public id, deletes 
 | **Cloudflare** | DNS, Email Routing, R2 | Cloudflare account owner (2FA on) |
 | **Brevo** / **Cloudinary** / **Sentry** | their own keys | their account owners |
 
-The `.env.*.example` files list which variables each host needs (never values, rule 7). **Must agree across both hosts:** `JWT_SECRET`, `DATABASE_URL`, `NEXT_PUBLIC_APP_URL` (and `JWT_EXPIRY_SECONDS` if changed).
+**One person can reach every credential** (OPS-06): this table maps the single points of failure, it does not fix them ([T-39](tasks.md)). The `.env.*.example` files list which variables each host needs (never values, rule 7). **Must agree across both hosts:** `JWT_SECRET`, `DATABASE_URL`, `NEXT_PUBLIC_APP_URL` (and `JWT_EXPIRY_SECONDS` if changed).
 
 ---
 
@@ -267,10 +267,6 @@ refused. Announce changes with IndexNow **after** the deploy —
 `cd apps/web && pnpm seo:indexnow [paths…]` (the key file `public/<key>.txt` is
 public by design). Ranking for the foundation's own name will need inbound links
 and the name in a visible heading — a content decision, not a bug.
-
-## Action still required
-
-- **One person can still reach every credential** (OPS-06) — §6 maps single points of failure; it does not fix them. Cloudflare has 2FA (2026-09-03); check GitHub, Vercel, Render, Neon, Brevo and Cloudinary have it too.
 
 ## Steady-state cadences
 

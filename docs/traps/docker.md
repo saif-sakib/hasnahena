@@ -24,15 +24,14 @@
   run `db:seed` against real member data.
 - **A Dockerfile that has never been built is a hypothesis.** Static review
   caught none of the three defects above.
-
-**Making a page static moves its database reads into the build.** WO-73
-prerendered the marketing pages; `apps/web/Dockerfile` builds with
-`DATABASE_URL` pointing at a placeholder database that does not exist, on purpose
-— `prisma generate` parses the URL and never connects. The next image build died
-with `Export encountered an error on /[locale]/donate/page` and exit code 1. Two
-of the eight pages had their own `try` and survived, which made it look like a
-bug in the other six. **A page that can be prerendered must render without a
-database** — [ADR-028](../decisions.md).
+- **Making a page static moves its database reads into the build.** WO-73
+  prerendered the marketing pages; `apps/web/Dockerfile` builds with
+  `DATABASE_URL` pointing at a placeholder database that does not exist, on purpose
+  — `prisma generate` parses the URL and never connects. The next image build died
+  with `Export encountered an error on /[locale]/donate/page` and exit code 1. Two
+  of the eight pages had their own `try` and survived, which made it look like a
+  bug in the other six. **A page that can be prerendered must render without a
+  database** — [ADR-028](../decisions.md).
 
 ---
 

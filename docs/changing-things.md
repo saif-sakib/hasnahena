@@ -34,7 +34,7 @@ Contained: one file, [`app/[locale]/page.tsx`](../apps/web/app/[locale]/page.tsx
 
 Prove it: `pnpm typecheck && pnpm lint`, `pnpm --filter @hasnahena/web build`, then read `/` and `/bn` in light and dark.
 
-Site-wide look: HSL values under `:root`/`.dark` in `app/globals.css` (primary emerald `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`); status badge colours only in [`lib/status-styles.ts`](../apps/web/lib/status-styles.ts).
+Site-wide look: [architecture.md § UI tokens](architecture.md#frontend-structure).
 
 ---
 
@@ -80,7 +80,7 @@ Read [product.md](product.md) and [ADR-015](decisions.md) first.
 
 ## "I want to change the registration form"
 
-[`app/[locale]/(auth)/register/page.tsx`](../apps/web/app/[locale]/(auth)/register/page.tsx): an eight-step form, the only way in, usually filled on a mid-range Android.
+[`app/[locale]/(auth)/register/page.tsx`](../apps/web/app/[locale]/(auth)/register/page.tsx): a four-step form, the only way in, usually filled on a mid-range Android.
 
 **Adding a field is four edits** (the compiler enforces the last): the shape in [`lib/validation/registration.ts`](../apps/web/lib/validation/registration.ts); a label in `fieldLabels` in both languages; the input with `id` equal to the field name (the summary scrolls by id); the name in `STEP_FIELDS`.
 
@@ -162,9 +162,10 @@ Replace three Render/Vercel-shaped things: **TLS** (Caddy or nginx + certbot; `E
 
 ```bash
 pnpm typecheck        # zero errors (rm -rf apps/web/.next if it reports a missing app/api/**/route.js)
-pnpm lint
+pnpm lint             # exactly 1 warning
 pnpm test:unit
 pnpm test:go
+cd apps/api && go build ./... && gofmt -l .   # gofmt prints nothing
 ```
 
 - Never commit `apps/web/next-env.d.ts` (generated, untracked).

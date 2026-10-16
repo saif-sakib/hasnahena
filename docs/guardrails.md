@@ -13,6 +13,7 @@ goes, and what is deliberately uncovered: [testing.md](testing.md).
 | a Next route file | `apps/web/test/routes/routes.contract.test.ts` — walks `app/api` on disk |
 | a repository method that writes a balance | `TestBalanceWritersAreEnumerated` — demands a concurrency test and an audit test. `AddLoanTopUp` writes three (loan principal, loan remaining, account `loanBalance`) and its test asserts the three still agree afterwards, which a per-column check would miss |
 | an FR, or a change of FR status | `apps/web/test/unit/requirements.test.ts` — `product.md`, `tasks.md` and the code must agree, and a requirement marked `[~]` must **still** be unimplemented in the source |
+| a trap, an ADR, or a trap written as a `**Title.**` paragraph | `apps/web/test/unit/docs-indexes.test.ts` — `traps.md` must list every `- **Title.**` entry verbatim with true counts, and `decisions.md` one row per ADR file. Kept by hand, the trap index had dropped ~30 entries |
 | a notification builder | `internal/notify/messages_test.go` — `TestEveryBuilderIsTested` reads `messages.go`; every builder needs a table row |
 | a notification message built **outside** `internal/notify` | `internal/notify/repositories_test.go` — a string literal or a float verb in a repository fails |
 | a key in `messages/{en,bn}.json` | `apps/web/test/unit/messages.test.ts` — both files, no untranslated copy-paste, no dropped `{placeholder}` |

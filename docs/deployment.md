@@ -109,7 +109,7 @@ Migrations, not `db push` ([ADR-014](decisions/adr-014-prisma-migrate-supersedes
 
 **Off GitHub (live since 2026-09-03, Cloudflare R2).** Both jobs copy to any S3-compatible bucket when `BACKUP_S3_BUCKET` is set — secrets only, no code. Setup: one private bucket near Dhaka; a token scoped to that bucket (read+write); secrets `BACKUP_S3_BUCKET` (`s3://hasnahena-backups`), `BACKUP_S3_ENDPOINT` (R2 `https://<account-id>.r2.cloudflarestorage.com`, B2 `https://s3.<region>.backblazeb2.com`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (**`auto`** on R2 — required). Lifecycle rules: `database/` 365 days (~63 KB/night), `assets/` 60 days (~4.8 MB/night and growing with membership — this rule is what keeps the 10 GB free tier safe). R2 egress is free and the archives are encrypted before upload, so the provider only holds ciphertext.
 
-**Actions minutes.** A private repo on GitHub Free gets 2,000 minutes and 500 MB storage a month, with a **$0 spending limit — exhausting minutes stops Actions, including the nightly backup** (August 2026: 2,033 minutes in 17 days, 86% `ci.yml`; backups silently stopped on the 27th). Mitigations in place: `images.yml` on tags/monthly only; the restore drill only when its inputs change; and **push to feature branches** — `ci.yml` runs on `pull_request` and `push` to `main`, so branch pushes cost nothing ([workflow.md](workflow.md) §2). Check Settings → Billing → Usage monthly; if minutes run out, first check last night's backup ran.
+**Actions minutes.** GitHub Free's 2,000 minutes have a **$0 spending limit**: running out stops Actions, the nightly backup included, with no failure to report ([trap](traps/a-safety-job-that-spends-the-budget-the-safety-job-needs.md)). In place: `images.yml` tags/monthly, the restore drill gated on its inputs, CI only on PRs and `main` ([workflow.md](workflow.md) §2). Check Settings → Billing → Usage monthly; if minutes run out, first check last night's backup ran.
 
 **PostgreSQL client version.** `pg_dump` refuses a newer server, and Neon upgrades on its own schedule. On Ubuntu runners `/usr/bin/pg_dump` is `pg_wrapper`, pinned to the image's PG16 cluster, so installing a newer client changes nothing. Handled twice: [`.github/actions/postgres-client`](../.github/actions/postgres-client) (newest PGDG client first on `PATH`) and [`scripts/lib/pg-client.sh`](../scripts/lib/pg-client.sh) (newest binaries by absolute path; `backup.sh` refuses an older client, naming the package). Override with `PG_DUMP`/`PG_RESTORE`/`PSQL`. When Neon moves to a major PGDG lacks, raise the loop in the action.
 
@@ -154,7 +154,7 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.hasnahenafoundation.c
 
 ## Getting off the free tiers
 
-**[scaling.md](scaling.md) is the plan** (priced, staged, triggered): the first wall is Neon's 0.5 GB at ~6,000 members ($7 to pass); the host move is for ~10,000; Fly.io Singapore preferred over a VPS; Postgres stays on Neon; full AWS only if a funder requires it. Its Stage 3 breakdown:
+**[scaling.md](scaling.md) is the plan** (priced, staged, triggered): the first wall is Neon's 0.5 GB at ~6,000 members ($7 to pass); the host move is for ~10,000; Fly.io Singapore preferred over a VPS; Postgres stays on Neon; full AWS only if a funder requires it. Its Stage 2 breakdown ([T-30](tasks.md)):
 
 | ID | Task | Notes |
 |---|---|---|

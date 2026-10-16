@@ -93,24 +93,7 @@ Defaults and effects (Render unless noted):
 
 ## Tests
 
-```bash
-pnpm test:unit         # web unit (vitest), no database
-pnpm test:go           # Go unit, no database
-pnpm test:integration  # Go against real Postgres
-pnpm test:routes       # Next route handlers against real Postgres
-pnpm test:e2e          # Playwright; needs the stack running
-```
-
-The database suites get their database from the test stack (never a development database — they truncate):
-
-```bash
-scripts/test-stack.sh up          # migrated + seeded, port 55433 (up --serve adds both apps)
-eval "$(scripts/test-stack.sh env)"
-pnpm test:integration && pnpm test:routes
-scripts/test-stack.sh down        # destroys the volume
-```
-
-Install the browser once: `pnpm --filter @hasnahena/web exec playwright install chromium`. Where tests go: [testing.md](testing.md).
+Suites, the test stack and where a test goes: [testing.md](testing.md) (never point the database suites at a development database — they truncate). Install the browser once: `pnpm --filter @hasnahena/web exec playwright install chromium`.
 
 ## Database work
 
@@ -136,15 +119,7 @@ Idempotent: creates one `SUPER_ADMIN` only if no loginable admin exists (never r
 
 ## Checks before you call something done
 
-```bash
-pnpm typecheck          # zero errors
-pnpm lint               # exactly 1 warning
-pnpm test:unit
-pnpm test:go
-cd apps/api && go build ./... && gofmt -l .
-```
-
-Money or SQL → `pnpm test:integration` on the test stack. `schema.prisma` → `pnpm db:migrate:dev` (CI fails on drift).
+[changing-things.md § Before you commit](changing-things.md#before-you-commit-whatever-you-changed). `schema.prisma` changed → `pnpm db:migrate:dev` (CI fails on drift).
 
 ## Troubleshooting
 
@@ -167,7 +142,7 @@ Dependabot tracks **GitHub Actions only** (`.github/dependabot.yml`: automated n
 
 ```bash
 pnpm outdated
-pnpm update --latest       # minors and patches
+pnpm update -r             # within the ranges in package.json — minors and patches only
 pnpm install               # regenerate the lockfile
 pnpm typecheck && pnpm build && pnpm test:go
 ```

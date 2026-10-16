@@ -51,23 +51,21 @@
   posting wrote an audit line with `%d BDT` — correct — and a member
   notification with `BDT %.2f` from a `float64`. A test reading either alone
   would have passed the code. The int64 ceiling rendered as `…808.00`.
-
-**A ledger row is not proof that money moved, and money moving is not proof of a
-ledger row.** `waterfallRecoveryTx` inserted its three default-recovery rows with
-no `status` column, so they took Prisma's default of `PENDING` — while the
-savings had already been deducted in the same transaction. Every aggregate that
-correctly filters on `CONFIRMED` (ADR-016) therefore under-counted a recovery
-that had happened. The same function reduced `loans."remainingAmount"` and never
-touched `accounts."loanBalance"`, so a member whose savings were taken to settle
-a default kept seeing the whole debt — permanently, because nothing recomputes
-that column. Neither failed any of the four existing waterfall tests: they
-asserted savings and ordering, which were right. **Summing the ledger is the only
-check that asks the question those tests do not** (WO-82).
-
-**A disputed posting is money that moved.** Disputing a `CONFIRMED` transaction
-flips its status and changes no balance. Any reconciliation, aggregate or report
-that treats status as a proxy for "did this happen" has to decide about
-`DISPUTED` explicitly — [ADR-026](../decisions.md).
+- **A ledger row is not proof that money moved, and money moving is not proof of a
+  ledger row.** `waterfallRecoveryTx` inserted its three default-recovery rows with
+  no `status` column, so they took Prisma's default of `PENDING` — while the
+  savings had already been deducted in the same transaction. Every aggregate that
+  correctly filters on `CONFIRMED` (ADR-016) therefore under-counted a recovery
+  that had happened. The same function reduced `loans."remainingAmount"` and never
+  touched `accounts."loanBalance"`, so a member whose savings were taken to settle
+  a default kept seeing the whole debt — permanently, because nothing recomputes
+  that column. Neither failed any of the four existing waterfall tests: they
+  asserted savings and ordering, which were right. **Summing the ledger is the only
+  check that asks the question those tests do not** (WO-82).
+- **A disputed posting is money that moved.** Disputing a `CONFIRMED` transaction
+  flips its status and changes no balance. Any reconciliation, aggregate or report
+  that treats status as a proxy for "did this happen" has to decide about
+  `DISPUTED` explicitly — [ADR-026](../decisions.md).
 
 ---
 

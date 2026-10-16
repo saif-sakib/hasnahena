@@ -4,6 +4,8 @@
 
 Say **`do T-12`** and the task is executed from its row plus the docs it points at. **Sessions** = focused working sessions end to end (code, tests, suites, docs); the high end is what it costs when the first honest look finds more, which here is common. **`owner`** = needs an account, credential, paid plan or a decision only the foundation can make.
 
+IDs are never reused: a new task takes the next number above the highest on this board **and** in [changelog.md](changelog.md) — Phase 8 once reused four closed numbers.
+
 Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 
 ## Where the platform stands
@@ -29,6 +31,7 @@ Not engineering; all quick.
 |---|---|---|---|
 | `[~]` **T-03** | **Fill in the English description, and read the seeded copy** | `owner` 15 min | **Settings → Organisation → Description (English)** — until filled, the JSON-LD describes the foundation in Bengali on both pages. Then read **Content & Media → Public Pages** in both languages (all seeded) and correct anything you would say differently — especially the four hero figures (`135+` and estimates), published under the foundation's name. Press Save on Settings once to write any missing defaults |
 | `[ ]` **T-05** | **Decide how long a half-finished registration stays on the phone** | `owner` 5 min | The registration draft (NID, parents' names, addresses) stays in `localStorage` for **7 days** — a modest exposure on shared handsets. Pick a number, or confirm 7 |
+| `[ ]` **T-39** | **Two-factor authentication on every account that holds a credential** | `owner` 15 min | Cloudflare has it (2026-09-03); check GitHub, Vercel, Render, Neon, Brevo and Cloudinary. One person still holds every credential (OPS-06, [runbook.md §6](runbook.md#6-where-every-credential-lives)) |
 | `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | Decided 2026-08-25: 365 (the seeded default) — just look at Admin → Settings ([ADR-033](decisions.md)) |
 
 ---
@@ -69,11 +72,11 @@ The FR rows that are not `[x]`, ordered by what a member notices.
 | `[ ]` **T-15** | **Fairness and solvency caps** (FR-10) | 1–2 | The personal cap is enforced; the fund-level ones are not. Nothing stops the fund lending itself empty |
 | `[ ]` **T-16** | **Guarantor-obligation withdrawal block** (FR-09) | 1 | A guarantor's savings back someone else's loan; today only the guarantor's *own* active loan blocks a withdrawal |
 | `[ ]` **T-17** | **Notifications in both languages** | 1–2 | Both surfaces hardcode English, against rule 5. The builders are already in one place each — `internal/notify/messages.go` and `lib/notify.ts` — with a census over both, so this is a translation job rather than a hunt |
-| `[ ]` **T-18** | **Member edits their nominee** (FR-06) | 1 | Captured at signup and never editable. A nominee is who receives the money if a member dies, so a stale one is the worst kind of stale record |
+| `[ ]` **T-18** | **Member edits their nominee** (FR-06) | 1 | Captured at signup and never editable. A nominee is who receives the money if a member dies, so a stale one is the worst kind of stale record. The profile screen shows it read-only — its old Edit button "saved" to the screen only (and logged the nominee's NID to the console), so it was removed; the endpoint brings the control back, audit-logged |
 | `[ ]` **T-20** | **Admin correction flow for a disputed posting** (FR-18) | 1 | The freeze works; the correction is manual SQL today. Corrections append ([ADR-026](decisions.md), [runbook.md](runbook.md) §2) |
 | `[ ]` **T-22** | **48-hour unconfirmed-transaction sweep** (OPS-08) | 1 | The Monitor workflow alerts on the backlog twice a day and nothing acts on it |
 | `[ ]` **T-23** | **Worker SLA colouring** (FR-21) | 1 | Queues are live; the green-under-24 h / red-over-48 h signal is missing |
-| `[ ]` **T-24** | **The 827 inline EN/BN strings** | 3–4 | `locale === 'bn' ? … : …` across 33 dashboard files instead of `messages/` (rule 5); worst: `dashboard/admin/workers` (72), `member-detail-screen` (66), `dashboard/member/loans` (57). Translated, but invisible to `messages.test.ts` (how a fee promise once hid). `(auth)` is done (WO-96); widening that census is the same job |
+| `[ ]` **T-24** | **The ~780 inline EN/BN strings** | 3–4 | `locale === 'bn' ? … : …` / `isBn ? …` across 32 files instead of `messages/` (rule 5); worst: `(auth)/register` (87), `member-detail-screen` (69), `dashboard/admin/workers` (65), `dashboard/member/loans` (55). Translated, but invisible to `messages.test.ts` (how a fee promise once hid); widening that census is the same job |
 
 ---
 
@@ -93,11 +96,11 @@ Plan, measured limits and triggers: [scaling.md](scaling.md). Stage 0 below is f
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-31** | **Stage 0 — the free fixes** | `owner` + 0.5 | All $0. (a) ~~UptimeRobot on `/v1/ready`~~ — done, it watches `/v1/health`. (b) Assets backup weekly, not nightly (recovers Actions minutes). (c) A Cloudflare Worker cron on `/v1/health` during Dhaka daytime keeps Render warm without waking the database |
-| `[ ]` **T-33** | **Decide the Vercel Hobby terms question** | `owner` | Hobby is non-commercial only. Pay $20/mo, apply to Vercel's open-source programme (this repo is MIT-licensed and may qualify), or bring T-30 forward. Capacity is fine to ~15,000 members; this is a policy risk, not a technical one |
-| `[ ]` **T-34** | **Neon Free → Launch** | `owner` | Trigger: storage past 0.4 GB or compute past 80 CU-h — about **6,000 members**, the first real capacity wall. A dashboard toggle, no migration, no base fee. ~$7/mo |
-| `[ ]` **T-32** | **Cloudinary → Cloudflare R2** | 1–2 | **Privacy, not cost** — an NID scan is served from a URL needing no login (ADR-038 only mitigates). R2 makes the bucket private, removes the dynamic-folder bug class and `cloudinary-reconcile.mjs`, and a vendor with no export path. Cheapest while assets number in the hundreds |
-| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-33 decided by moving. **Fly.io Singapore (~$16–25/mo) preferred over a VPS**; not AWS, not Kubernetes; Postgres stays on Neon ([scaling.md](scaling.md)) |
+| `[ ]` **T-35** | **Stage 0 — the free fixes** | `owner` + 0.5 | All $0. (a) Assets backup weekly, not nightly (recovers Actions minutes). (b) A Cloudflare Worker cron on `/v1/health` during Dhaka daytime keeps Render warm without waking the database |
+| `[ ]` **T-36** | **Decide the Vercel Hobby terms question** | `owner` | Hobby is non-commercial only. Pay $20/mo, apply to Vercel's open-source programme (this repo is MIT-licensed and may qualify), or bring T-30 forward. Capacity is fine to ~15,000 members; this is a policy risk, not a technical one |
+| `[ ]` **T-37** | **Neon Free → Launch** | `owner` | Trigger: storage past 0.4 GB or compute past 80 CU-h — about **6,000 members**, the first real capacity wall. A dashboard toggle, no migration, no base fee. ~$7/mo |
+| `[ ]` **T-38** | **Cloudinary → Cloudflare R2** | 1–2 | **Privacy, not cost** — an NID scan is served from a URL needing no login (ADR-038 only mitigates). R2 makes the bucket private, removes the dynamic-folder bug class and `cloudinary-reconcile.mjs`, and a vendor with no export path. Cheapest while assets number in the hundreds |
+| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-36 decided by moving. **Fly.io Singapore (~$16–25/mo) preferred over a VPS**; not AWS, not Kubernetes; Postgres stays on Neon ([scaling.md](scaling.md)) |
 
 ---
 ## Requirements

@@ -41,8 +41,3 @@ export function useDashboardRole(): DashboardRole {
 export function useIsAdmin(): boolean {
   return useDashboardRole() === 'admin';
 }
-
-/** True in either staff dashboard. */
-export function useIsStaff(): boolean {
-  return useDashboardRole() !== 'member';
-}

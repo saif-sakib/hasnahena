@@ -6,12 +6,12 @@ at build time. They are grouped by **what you have to be touching to hit one**.
 This is the only file that keeps them. If you are about to add a lesson to
 another doc, add it here and link instead.
 
-**This file is the index — 166 traps in 24 files.** The lines below are the
+**This file is the index — 206 traps in 24 files.** The lines below are the
 trap titles verbatim, so this page alone answers "is my problem already known?".
-Open the one file whose heading matches what you are touching; the set is 116 KB
-and the largest single file is 30 KB.
+Open the one file whose heading matches what you are touching; the set is 111 KB
+and the largest single file is 32 KB.
 
-### [Money and concurrency](traps/money-and-concurrency.md) · 8
+### [Money and concurrency](traps/money-and-concurrency.md) · 10
 
 - An invariant enforced only in application code is a claim about today's code.
 - A balance written absolutely is a lost update.
@@ -21,6 +21,8 @@ and the largest single file is 30 KB.
 - Integer division loses money.
 - A `transactions` row is not necessarily money that moved.
 - The same function can write one correct record and one wrong one.
+- A ledger row is not proof that money moved, and money moving is not proof of a ledger row.
+- A disputed posting is money that moved.
 
 ### [Seed data that outlives the seed](traps/seed-data-that-outlives-the-seed.md) · 2
 
@@ -35,20 +37,31 @@ and the largest single file is 30 KB.
 - Count background jobs in wakes per day, not in queries per pass.
 - A build that nothing consumes is a bill nothing notices.
 
-### [A safety job that spends the budget the safety job needs](traps/a-safety-job-that-spends-the-budget-the-safety-job-needs.md) · 0
+### [A safety job that spends the budget the safety job needs](traps/a-safety-job-that-spends-the-budget-the-safety-job-needs.md) · 3
 
+- The restore drill ran on every code commit and the nightly backup stopped for four days.
+- A scheduled job that never starts cannot fail.
+- A guard that shares a metered resource with the thing it guards can starve it.
 
-### [A column that stores what could be derived](traps/a-column-that-stores-what-could-be-derived.md) · 0
+### [A column that stores what could be derived](traps/a-column-that-stores-what-could-be-derived.md) · 2
 
+- A stored copy of a computed value is only correct at the instant it is written, and nothing tells you when it stops being.
+- A column nothing reads is a column nothing keeps honest.
 
-### [SQL that no compiler reads](traps/sql-that-no-compiler-reads.md) · 0
+### [SQL that no compiler reads](traps/sql-that-no-compiler-reads.md) · 2
 
+- A dropped column referenced from a Go string is invisible to every build step.
+- Skip by shape, never by message.
 
-### [Reading a schema built for machines](traps/reading-a-schema-built-for-machines.md) · 0
+### [Reading a schema built for machines](traps/reading-a-schema-built-for-machines.md) · 2
 
+- Make the database readable with a view, not by denormalising a table.
+- `prisma migrate diff` does not model views.
 
-### [An identifier issued too early](traps/an-identifier-issued-too-early.md) · 0
+### [An identifier issued too early](traps/an-identifier-issued-too-early.md) · 2
 
+- A number is spent the moment it is issued, and a public form must not be able to spend one.
+- Changing an identifier strands whoever held the old one.
 
 ### [Deleting only what the database remembers](traps/deleting-only-what-the-database-remembers.md) · 4
 
@@ -62,10 +75,13 @@ and the largest single file is 30 KB.
 - Reading config from the pool inside a transaction deadlocks it.
 - `&&` short-circuiting can hide a latent deadlock for weeks.
 
-### [A script that runs because it was imported](traps/a-script-that-runs-because-it-was-imported.md) · 0
+### [A script that runs because it was imported](traps/a-script-that-runs-because-it-was-imported.md) · 3
 
+- Importing a module executes it, and `main()` at the bottom of a file is a module that works.
+- Output sent to `/dev/null` is evidence destroyed before it is read.
+- A backup taken after an incident captures the incident.
 
-### [Prisma and migrations](traps/prisma-and-migrations.md) · 19
+### [Prisma and migrations](traps/prisma-and-migrations.md) · 20
 
 - The test stack cannot review a data migration, because it has no data.
 - A migration that fails leaves Prisma's advisory lock on an idle pooled backend, and every later `migrate` blames the server.
@@ -85,6 +101,7 @@ and the largest single file is 30 KB.
 - `prisma migrate` needs a direct, non-pooled Neon connection.
 - Timestamps are `timestamp without time zone`.
 - Triggers are invisible to Prisma.
+- `prisma migrate diff` cannot see a rename.
 - "These rows cannot be migrated" is worth checking before believing.
 
 ### [PostgreSQL clients](traps/postgresql-clients.md) · 2
@@ -102,7 +119,7 @@ and the largest single file is 30 KB.
 - `next dev` hot-reloads, `go run` does not.
 - `down` used to leave the API running and say it had not.
 
-### [Docker](traps/docker.md) · 7
+### [Docker](traps/docker.md) · 8
 
 - `.dockerignore` does not use git's matching rules.
 - `node:*-slim` ships no OpenSSL.
@@ -111,6 +128,7 @@ and the largest single file is 30 KB.
 - `docker compose --env-file` must come before the subcommand
 - `DATABASE_URL` is hard-coded to the `postgres` service in `docker-compose.yml` on purpose.
 - A Dockerfile that has never been built is a hypothesis.
+- Making a page static moves its database reads into the build.
 
 ### [Next, React and the build](traps/next-react-and-the-build.md) · 16
 
@@ -138,10 +156,11 @@ and the largest single file is 30 KB.
 - A guard was invalidated by a row added later in the same file.
 - Watch for a safety net positioned where it can never be reached.
 
-### [Tests and evidence](traps/tests-and-evidence.md) · 23
+### [Tests and evidence](traps/tests-and-evidence.md) · 27
 
 - A truncated read of a file is a claim about the file, and it will be believed as one.
 - The site's own domain is in the repository; do not take it from a screenshot.
+- `next dev` can serve a stale route handler, and a browser test will believe it.
 - A helper that throws fails the tests rather than the code, and the failure looks like the suite's fault.
 - A source-reading census anchored on an incidental detail goes blind the day that detail is removed, and passes.
 - Red-check a new census by planting the defect, not by reading the regex.
@@ -159,6 +178,9 @@ and the largest single file is 30 KB.
 - A detector must search code, not prose.
 - Suppressing stderr on a setup step turns a broken fixture into a passing test.
 - A dead endpoint can look healthy in a test log.
+- A green test that never reached the code proves nothing.
+- A budget recorded from a build is a fact; a budget maintained by hand is a wish.
+- An ordinary refusal reported as a 500 reads as a broken feature.
 - A test cannot clean up after itself in `audit_logs`.
 - A hardcoded unique value in a shared-database suite passes until another suite runs first.
 - Comparing whole response bodies compares the clock.
@@ -176,8 +198,18 @@ and the largest single file is 30 KB.
 - Chromium reports `'upgrade-insecure-requests' is ignored when delivered in a report-only policy` to the console on every page load.
 - Generous per-page waits multiply.
 
-### [Interface](traps/interface.md) · 46
+### [Interface](traps/interface.md) · 51
 
+- A badge inside a link changes that link's accessible name.
+- A feature behind `@supports` that degrades to nothing degrades silently, and looks exactly like never having built it.
+- A reveal that hides on a page which has already painted will animate the wrong way first.
+- Hide with an animation, not a transition — the element's own `transition` will otherwise animate it into hiding.
+- A reveal that re-arms on scroll position also re-arms on layout growth, and at load the layout grows.
+- `preserveAspectRatio="none"` makes a viewBox's height a divisor, not a canvas.
+- A spec that proves a negative must first prove its precondition.
+- Opacity and movement want different timing, whatever the mechanism.
+- An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering fault on a four-column one.
+- `position: fixed` escapes the page only while no ancestor opens a stacking context.
 - A barrel import charges you for everything the barrel touches.
 - `img-src` and `connect-src` are the same asset and not the same permission, and a screen that has one of them looks completely correct.
 - A download after `await` works exactly once per page load, then silently stops.
@@ -215,15 +247,10 @@ and the largest single file is 30 KB.
 - A swallowed query error becomes a fabricated balance.
 - Never initialise a money figure to zero.
 - A config key nothing reads is worse than a missing one.
-- A feature behind `@supports` that degrades to nothing degrades silently, and looks exactly like never having built it.
-- A reveal that hides on a page which has already painted will animate the wrong way first.
-- Hide with an animation, not a transition — the element's own `transition` will otherwise animate it into hiding.
-- A reveal that re-arms on scroll position also re-arms on layout growth, and at load the layout grows.
-- `preserveAspectRatio="none"` makes a viewBox's height a divisor, not a canvas.
-- A spec that proves a negative must first prove its precondition.
-- Opacity and movement want different timing, whatever the mechanism.
-- An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering fault on a four-column one.
 - Measure a layout, do not look at it.
+- `x-default` is not the default locale, even when the two hold the same value.
+- JSON-LD cannot be a text child.
+- One name for two things is a bug waiting for a rename to expose it.
 
 ### [Go](traps/go.md) · 6
 
@@ -239,10 +266,12 @@ and the largest single file is 30 KB.
 - Never take a major version through `pnpm update`.
 - After merging any dependency PR, run `pnpm install` and commit the regenerated lockfile.
 
-### [Deleting a rule](traps/deleting-a-rule.md) · 0
+### [Deleting a rule](traps/deleting-a-rule.md) · 2
 
+- A rule you remove needs a test that asserts its absence, or nothing stops it coming back.
+- And check what the deletion strands.
 
-### [Locale routing](traps/locale-routing.md) · 14
+### [Locale routing](traps/locale-routing.md) · 15
 
 - Changing the default locale does not change any code — it changes what every untested assumption was hiding.
 - There is no correct way to swap a locale with `String.replace`.
@@ -258,3 +287,4 @@ and the largest single file is 30 KB.
 - A URL in an email is not a URL in a page.
 - A guard's coverage can shrink as the code improves.
 - A lint rule can be silenced by making its input unanalysable.
+- A response whose target depends on a request header must send `Vary`.

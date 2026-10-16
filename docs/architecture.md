@@ -68,6 +68,7 @@ cmd/server/main.go        config, pool, DI, mountMiddleware + mountRoutes — th
 internal/config           env loading (walks up for .env); refuses JWT_SECRET < 32 chars
 internal/middleware       CORS, ClientIP, Identity, rate limiting, NUL-byte rejection, logging, metrics
 internal/handlers         auth_handler.go, dashboard_handler.go (HTTP shape only)
+internal/models           auth request/response and User types
 internal/services         auth (JWT, bcrypt), security (lockout, blacklist), email (Brevo)
 internal/repositories     all SQL and business rules, split by domain (see CLAUDE.md Map)
 internal/money            pure loan/instalment/waterfall/schedule arithmetic — new money maths here

@@ -17,12 +17,9 @@ linters:
     - staticcheck
     - unused
 
-  # All five linters on and green (WO-40); a new finding is a new defect.
-  # No staticcheck suppressions remain.
+  # All five green (WO-40): a new finding is a new defect, not a suppression.
 
   settings:
-    # Applies once errcheck is enabled. Kept here so the exclusions are reviewed
-    # alongside the decision rather than invented under time pressure later.
     errcheck:
       exclude-functions:
         # A rollback after a successful commit legitimately errors, and the

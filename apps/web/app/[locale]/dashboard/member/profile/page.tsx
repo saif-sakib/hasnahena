@@ -9,9 +9,6 @@ import {
   Mail,
   MapPin,
   UserCheck,
-  Edit2,
-  Save,
-  X,
   Shield,
   Users,
   FileText,
@@ -21,8 +18,6 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { AvatarUpload } from '@/components/ui/avatar-upload';
 import { apiGet } from '@/lib/api';
 import { useApi, useRedirectOnUnauthorized } from '@/lib/use-api';
@@ -92,18 +87,10 @@ const emptyAddress: UserProfile['permanentAddress'] = {
   district: '',
 };
 
-const emptyNominee: Nominee = {
-  name: '',
-  relationship: '',
-  nidNumber: '',
-  phone: undefined,
-};
-
 export default function ProfilePage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
   const router = useRouter();
-  const [isEditingNominee, setIsEditingNominee] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // WO-27 — SWR, not an effect. See lib/use-api.ts.
@@ -145,7 +132,8 @@ export default function ProfilePage() {
     };
   }, [profileData]);
 
-  const loadedNominee = useMemo<Nominee>(() => {
+  // Read-only until FR-06 (T-18) gives the nominee an endpoint that writes it.
+  const nominee = useMemo<Nominee>(() => {
     const n = profileData?.nominee;
     return {
       name: n?.name ?? '',
@@ -154,12 +142,6 @@ export default function ProfilePage() {
       phone: n?.phone,
     };
   }, [profileData]);
-
-  // FR-06 gap: no endpoint updates a nominee, so "save" only holds the edit on
-  // screen until reload. Delete once an endpoint exists.
-  const [savedNomineeOverride, setSavedNomineeOverride] = useState<Nominee | null>(null);
-  const nominee = savedNomineeOverride ?? loadedNominee;
-  const [editedNominee, setEditedNominee] = useState<Nominee>(emptyNominee);
 
   const accountSummary = useMemo(
     () => ({
@@ -193,18 +175,6 @@ export default function ProfilePage() {
       .map((part) => part.trim())
       .filter(Boolean)
       .join(', ');
-  };
-
-  const handleSaveNominee = () => {
-    // TODO: Call API to update nominee
-    console.log('Saving nominee:', editedNominee);
-    setSavedNomineeOverride({ ...editedNominee });
-    setIsEditingNominee(false);
-  };
-
-  const handleCancelNomineeEdit = () => {
-    setEditedNominee({ ...nominee });
-    setIsEditingNominee(false);
   };
 
   const handleDownloadStatement = async () => {
@@ -427,97 +397,29 @@ export default function ProfilePage() {
               <Users className="h-5 w-5 text-emerald-600" />
               {t('nomineeInfo')}
             </CardTitle>
-            {!isEditingNominee && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => {
-                  // Seeded here rather than at load time, so the draft always
-                  // starts from what is on screen.
-                  setEditedNominee({ ...nominee });
-                  setIsEditingNominee(true);
-                }}
-              >
-                <Edit2 className="h-3 w-3" />
-                {locale === 'bn' ? 'সম্পাদনা' : 'Edit'}
-              </Button>
-            )}
           </div>
         </CardHeader>
         <CardContent>
-          {isEditingNominee ? (
-            <form className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="nomineeName">{t('nomineeName')}</Label>
-                  <Input
-                    id="nomineeName"
-                    value={editedNominee.name}
-                    onChange={(e) => setEditedNominee({ ...editedNominee, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="nomineeRelation">{t('nomineeRelation')}</Label>
-                  <Input
-                    id="nomineeRelation"
-                    value={editedNominee.relationship}
-                    onChange={(e) => setEditedNominee({ ...editedNominee, relationship: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="nomineeNid">{t('nomineeNid')}</Label>
-                  <Input
-                    id="nomineeNid"
-                    value={editedNominee.nidNumber}
-                    onChange={(e) => setEditedNominee({ ...editedNominee, nidNumber: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="nomineePhone">{t('phone')}</Label>
-                  <Input
-                    id="nomineePhone"
-                    value={editedNominee.phone || ''}
-                    onChange={(e) => setEditedNominee({ ...editedNominee, phone: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button type="button" onClick={handleSaveNominee} className="gap-1">
-                  <Save className="h-4 w-4" />
-                  {locale === 'bn' ? 'সংরক্ষণ' : 'Save'}
-                </Button>
-                <Button type="button" variant="outline" onClick={handleCancelNomineeEdit}>
-                  <X className="h-4 w-4 mr-1" />
-                  {locale === 'bn' ? 'বাতিল' : 'Cancel'}
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('nomineeName')}</p>
-                <p className="font-medium">{nominee.name}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('nomineeRelation')}</p>
-                <p className="font-medium">{nominee.relationship}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('nomineeNid')}</p>
-                <p className="font-medium">{nominee.nidNumber}</p>
-              </div>
-              {nominee.phone && (
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">{t('phone')}</p>
-                  <p className="font-medium">{nominee.phone}</p>
-                </div>
-              )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('nomineeName')}</p>
+              <p className="font-medium">{nominee.name}</p>
             </div>
-          )}
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('nomineeRelation')}</p>
+              <p className="font-medium">{nominee.relationship}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('nomineeNid')}</p>
+              <p className="font-medium">{nominee.nidNumber}</p>
+            </div>
+            {nominee.phone && (
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">{t('phone')}</p>
+                <p className="font-medium">{nominee.phone}</p>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 

@@ -1,62 +1,23 @@
 # Tests and evidence
 
-**A truncated read of a file is a claim about the file, and it will be believed
-as one.** Diagnosing a Search Console report, the served `robots.txt` was
-fetched and read through `head`. The app's own `Disallow` lines were not in what
-came back, so the conclusion was that Cloudflare's managed robots.txt had
-*replaced* the application's — a confident, specific, wrong finding, complete
-with a list of what it supposedly broke.
-
-Cloudflare **prepends**. The app's `Allow`, three `Disallow`s, `Host` and
-`Sitemap` were all present at lines 64–69 of a 69-line file, in their own
-`User-agent: *` group, which Google merges with the first one. Nothing was
-wrong.
-
-The general form: `head`, `grep -c`, a first page of output, and a summary are
-all *samples*, and a sample can only support "I saw X", never "there is no X".
-When the conclusion is going to be "the thing is missing", read the whole file
-and say how long it was. The correction here cost less than the original claim
-would have: acting on it meant asking the owner to change a CDN setting that was
-already correct.
-
-
-**The site's own domain is in the repository. Do not take it from a
-screenshot.** A whole diagnosis pass — DNS, redirect chains, sitemap fetches,
-and a confident report that the domain was serving an "Account Suspended" page —
-was run against `hasnahena.com`, which was read out of a Safari address bar in a
-*reference design* the owner had pasted for its visual style. The site is
-`hasnahenafoundation.com`. The evidence was in the same set of images: the
-contact card two screens below said `info@hasnahenafoundation.com`.
-
-`NEXT_PUBLIC_SITE_URL`, `lib/contact-details.ts` and the `org.email` setting all
-name the real one, and any of them settles it in a second. An image pasted to
-show a *style* carries no promise that anything else in it is this project.
-
-
-**`next dev` can serve a stale route handler, and a browser test will believe
-it.** Adding `totalPages` to `/api/v1/admin/audit-logs` and re-running the spec,
-the pager kept rendering one page. The source was correct, `tsc` was clean, and
-the endpoint — queried directly with curl — still answered
-`{page, limit, hasMore}` with no sign of the new fields. Touching the file to
-force a recompile changed nothing; only killing the dev server and restarting it
-did.
-
-Two consequences worth separating:
-
-- A spec that fails against a stale server looks exactly like a spec that fails
-  against a bug, and the natural next move is to change the code that was
-  already right.
-- Worse, a suite **started before an edit keeps running through it**. The dev
-  server hot-reloads mid-run, so some specs execute the old code and some the
-  new, and the result is a green or red that describes no version of the tree.
-  If the working copy changed while a suite was in flight, that run proves
-  nothing — restart it.
-
-When an endpoint's response disagrees with its source, check the server before
-checking the code: `curl` it directly, and if the shape is stale, restart rather
-than debug.
-
-
+- **A truncated read of a file is a claim about the file, and it will be believed
+  as one.** The served `robots.txt` was read through `head`, the app's
+  `Disallow` lines were not in it, and the confident conclusion was that
+  Cloudflare had *replaced* the app's file. Cloudflare prepends: the app's group
+  was at lines 64–69 of 69. `head`, `grep -c`, a first page and a summary are
+  samples — they support "I saw X", never "there is no X". Before concluding
+  something is missing, read the whole file and say how long it was.
+- **The site's own domain is in the repository; do not take it from a
+  screenshot.** A whole diagnosis ran against `hasnahena.com`, read from a
+  reference design pasted for its style. The site is `hasnahenafoundation.com` —
+  `NEXT_PUBLIC_SITE_URL`, `lib/contact-details.ts` and `org.email` settle it in a
+  second.
+- **`next dev` can serve a stale route handler, and a browser test will believe
+  it.** After adding `totalPages` to `/api/v1/admin/audit-logs`, curl still
+  returned the old shape; touching the file did nothing, restarting the server
+  fixed it. A suite started before an edit keeps running through it, half old
+  code and half new, so its result describes no version of the tree. When a
+  response disagrees with its source, `curl` it and restart before debugging.
 - **A helper that throws fails the tests rather than the code, and the failure
   looks like the suite's fault.** `registration.spec.ts` filled the date of birth
   with `page.fill('#dateOfBirth', '1990-04-12')`. When that control became three
@@ -104,7 +65,6 @@ than debug.
   asserting exactly one `MEMBER_ERASED` row passed on a clean database and found
   three after two red-check runs, because `t.Cleanup` cannot delete from that
   table. Count before, count after, and read the newest row.
-
 - **The defects that moved money were found by running the code, not by reading
   it.** Every audit that reviewed those files by eye passed them. A green suite
   bounds only the cases it contains — 17 integration tests were green while two
@@ -151,42 +111,26 @@ than debug.
   vs valid id" discrimination was cited as proof the handler worked — but the
   check read ids through a UUID regex that rejects every `cuid()`, so a fully dead
   endpoint passed. When a test discriminates, check *what* it is discriminating on.
-
-**A green test that never reached the code proves nothing.** The first
-`public-content-fallback.test.ts` asserted that `getPublicSettings()` returns
-`{}` when the database is unreachable, and passed — with `findMany` called
-**zero** times. Outside a Next server `unstable_cache` throws
-`Invariant: incrementalCache missing`, and the `catch` under test swallowed it.
-The fix is two lines: mock `next/cache` to a pass-through so the real query runs,
-and assert the mock **was called**. Any test whose subject is an error path
-should assert it reached the thing that was supposed to fail.
-
-**A budget recorded from a build is a fact; a budget maintained by hand is a
-wish.** `assert-bundle-budget.mjs` reads
-`.next/diagnostics/route-bundle-stats.json`, which the bundler emits — "how much
-JavaScript does this route ship" is a conclusion drawn after following every
-import, and no test over the source can reach it. Same reasoning as
-`assert-static-routes.mjs` reading `prerender-manifest.json`.
-
-**An ordinary refusal reported as a 500 reads as a broken feature.**
-(The two FR-08 refusals in this story no longer exist — [ADR-030](../decisions.md)
-deleted the notice period itself. The lesson is about error classification and
-stands unchanged.) `WorkerAddWithdrawal` classified the repository's errors with
-`strings.Contains(err.Error(), …)`. The two FR-08 refusals — no withdrawal
-notice on file, notice not yet matured — matched no branch, so both arrived as
-`500 WITHDRAWAL_FAILED "Failed to process withdrawal"`: the single most common
-outcome of that screen, indistinguishable from a crash, which is how it was
-reported ("admin member withdrawal is not working"). The same substring matching
-also ordered `"active loan"` before `"guarantor"`, and
-`"is guarantor for active loan"` contains `"active loan"`, so a guarantor was
-told they had a loan of their own.
-
-Two rules fall out. Classify errors with `errors.Is` over sentinels, never over
-message text — substrings have no ordering guarantee and no compiler. And test
-the **translation** from error to HTTP answer: the repository behaviour here was
-thoroughly covered and every one of those tests passed while the endpoint
-answered 500.
-
+- **A green test that never reached the code proves nothing.** The first
+  `public-content-fallback.test.ts` asserted `getPublicSettings()` returns `{}`
+  with the database down, and passed with `findMany` called **zero** times:
+  outside a Next server `unstable_cache` throws `Invariant: incrementalCache
+  missing` and the `catch` under test swallowed it. Mock `next/cache` to a
+  pass-through and assert the mock **was called** — an error-path test must prove
+  it reached the thing meant to fail.
+- **A budget recorded from a build is a fact; a budget maintained by hand is a
+  wish.** `assert-bundle-budget.mjs` reads the bundler's
+  `.next/diagnostics/route-bundle-stats.json`; no test over the source can know
+  what a route ships. Same for `assert-static-routes.mjs` and
+  `prerender-manifest.json`.
+- **An ordinary refusal reported as a 500 reads as a broken feature.**
+  `WorkerAddWithdrawal` classified errors with `strings.Contains(err.Error(), …)`;
+  the screen's two commonest refusals matched no branch and answered
+  `500 WITHDRAWAL_FAILED` ("withdrawal is not working"), and `"active loan"`,
+  checked before `"guarantor"`, also matched `"is guarantor for active loan"`, so
+  a guarantor was told they had a loan. Classify with `errors.Is` over sentinels
+  (Rule 2b) and test the error → HTTP translation itself: every repository test
+  passed while the endpoint answered 500.
 - **A test cannot clean up after itself in `audit_logs`.** The DATA-08 trigger
   refuses `DELETE` unless the transaction has set `hasnahena.allow_audit_purge`,
   so a `t.Cleanup` deleting audit rows fails, is ignored because the cleanup

@@ -76,6 +76,7 @@ Bare JSON, no envelope ([ADR-005](decisions.md)); auth via `lib/server-auth.ts` 
 | POST | `/api/v1/member/transactions/{id}/dispute` | member disputes an amount | member transactions |
 | GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to Go support — **allow-list** (`config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, per method); mutations 60/min per member address ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
 | POST | `/api/v1/loans/applications` | member loan application | `loan-application-form.tsx` |
+| GET | `/api/v1/members/lookup` | **FR-11.** Full account number → name and guarantor eligibility, so an applicant can nominate one. Signed in, exact match only, 10 per 10 min — an id-to-name resolver is an oracle | `loan-application-form.tsx` |
 | POST | `/api/v1/loans/{id}/guarantor-approval` | guarantor accepts/declines | `guarantor-requests.tsx` |
 | GET·POST·PUT·DELETE | `/api/v1/admin/branches` | branches; DELETE deactivates when anyone is attached | admin branches, approval branch picker |
 | GET | `/api/v1/admin/audit-logs` | **FR-24.** Filters `q` (details, action, and ids resolved from account/application/loan/receipt numbers and names), `category`, `severity`, `action`, `from`, `to`, `includeNoise`, `page`, `limit` (≤100, default 20). Numbered pages with a **bounded** count (ceiling 2,000 → `100+`). Resolves subjects and actors per entity type; hides noise unless asked | admin audit screen |

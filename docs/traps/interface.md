@@ -1,214 +1,73 @@
 # Interface
 
-**A badge inside a link changes that link's accessible name.** The Approvals
-nav item gained a red dot carrying `role="status"` and an `aria-label` of
-"3 pending approvals", which is right for a screen reader — a colour is not
-information — and it means `getByRole('link', { name: 'Approvals', exact: true })`
-stops matching the moment the badge works. The spec written alongside the badge
-failed on its own feature. Locate a nav item by `href`, which is what actually
-identifies it, and keep the name assertions for the badge itself.
-
-The same applies to a tab button that renders its own count: `{ name: 'Deposit',
-exact: true }` matches until the queue is non-empty, which is precisely the state
-every test about the queue sets up.
-
-
-**A feature behind `@supports` that degrades to nothing degrades SILENTLY, and
-looks exactly like never having built it.** The home page's section reveal was
-written as a scroll-driven CSS animation — `animation-timeline: view()`, no
-observer, no listener, off the main thread, not one byte of JavaScript. It is
-the right answer on paper and it was wrapped in `@supports` so that a browser
-without the feature would fall back to the finished page, which is the correct
-way to write it.
-
-`animation-timeline` reached Safari in **26** and Firefox in **144**. The owner
-was on an engine that had neither, so *not one line of the block was ever
-applied for them*. It was reported twice, in the same words both times —
-"everything is loaded previously and shown as static" — and both reports were
-accurate. Two rounds of fixes were made in between, each carefully measured, and
-neither could possibly have helped: they were adjustments to a block that never
-ran.
-
-Three things generalise:
-
-- **The engine you test in is the one that supports the feature.** A headless
-  Chromium check confirms the animation works, which is true and irrelevant. So
-  does reading the CSS. So does the bundle containing it.
-- **A graceful degradation and a broken feature are the same observation.** The
-  page renders correctly in both, which is why the report was "nothing happens"
-  rather than "something is wrong" — and why it took a second identical report
-  to suspect the mechanism rather than the tuning.
-- **Ask what the reader's browser is before optimising for elegance.** The
-  replacement — `IntersectionObserver` plus a CSS transition — costs 1,280 bytes
-  of first-load JavaScript and has worked in every engine since 2019. That was
-  the right trade from the start for a site whose readers are not chosen.
-
-Guarded now by `apps/web/e2e/scroll-reveal.spec.ts`, and the assertion that
-matters is the negative one: **elements below the fold must actually be hidden
-before you scroll to them.** A reveal that reveals nothing passes every check
-that only looks at the finished page.
-
-
-**`preserveAspectRatio="none"` makes a viewBox's height a divisor, not a
-canvas.** The brushed underline under each section heading is an SVG stretched
-to whatever the title measures, which is the only way it can be right in both
-English and Bengali — Bengali sets wider at the same point size, so any constant
-width is wrong in one language by construction.
-
-Written with a 14-unit-tall viewBox rendering into a 10px-tall box, the vertical
-scale is 0.7, and a stroke drawn 3 units thick came out as two pixels of
-hairline. It looks like the shape is wrong; the shape is fine. With
-`preserveAspectRatio="none"` the two axes scale independently, so the viewBox
-height only ever appears as a ratio against the rendered height — make it
-smaller than the box, not larger, when you want the drawing to keep its weight.
-
-The trade is worth knowing: stretching is safe for a nearly-horizontal shape,
-where it changes length and almost nothing else, and ruinous for anything with
-its own proportions. The same trick on the leaf mark would read as a smear.
-
-
-**Hide with an animation, not a transition — the element's own `transition`
-will otherwise animate it INTO hiding.** The reveal hid elements by putting
-`opacity: 0` on them from a class. Ten cards then spent 300ms fading *out* at
-every page load, and the reason was on the cards themselves: `transition-all
-duration-300`, written for their hover lift, and `transition-all` includes
-opacity.
-
-It presents as the reveal being broken, and it is not — the giveaway when it was
-finally measured was that the ten elements sitting at 0.41 opacity had **no
-`data-revealed` attribute at all**. They were not half-revealed. They were
-half-hidden.
-
-Two rules follow. The waiting state carries `transition: none`, so nothing can
-animate into it. And the waiting state is written `:not([data-revealed])` rather
-than as a bare class, so it stops applying the moment the element arrives and
-hands the card its own transitions back — a permanent `transition: none` would
-have killed the hover lift it was written for.
-
-The arrival is an `animation` rather than a transition for the same reason: a
-transition is a property of the element and any utility class that sets
-`transition` is in a fight with it, whereas an animation runs once and cannot be
-overridden.
-
-Use `animation-fill-mode: backwards`, not `both`. `backwards` holds the
-from-state through a stagger delay, which is what stops a card flashing in at
-full opacity and dropping to zero when its turn comes; a forwards fill would
-hold the end state for ever, and a filling animation outranks ordinary
-declarations, so anything setting the same property later is silently ignored.
-
-
-**A reveal that re-arms on scroll position also re-arms on layout growth, and at
-load the layout grows.** Un-revealing an element once it is below the viewport
-is how "scroll up, then down again, and it plays a second time" is implemented.
-The observer cannot tell that from "the page got taller underneath it" — and on
-first load the gallery's images arrive without reserved dimensions, the document
-grows by a thousand pixels, and ten elements that were on screen are suddenly
-far below it. Every one of them un-reveals. What a reader sees is a block of
-cards fading in and then vanishing.
-
-A reader cannot have scrolled up before the page has loaded, so the reset does
-not exist until `load` plus a short grace for the layout that settles just after
-it. Revealing is unconditional from the start; only un-revealing waits.
-
-The same event ordering bites one step earlier: deciding what is already on
-screen with `getBoundingClientRect()` inside the effect measures a document that
-has not finished laying out. Ask the IntersectionObserver instead and act in its
-first callback — it answers from the geometry the browser actually composites
-with, and arming there means the elements it hides are exactly the ones that
-pass did not mark.
-
-
-**A reveal that hides on a page which has already painted will animate the wrong
-way first.** The replacement above hides elements by putting `data-reveal-js` on
-`<html>` from JavaScript — deliberately, so that no JavaScript means nothing
-hidden and the page can never fail closed. But the `transition` was written on
-the hiding rule, so when the attribute landed on an already-painted page, every
-revealed element transitioned from its resting opacity of **1 down to 0**: a
-520ms fade-OUT of twenty-nine elements at load, then a fade back in. On screen
-it is a blink.
-
-Put the transition on the ARRIVAL rule (`[data-revealed]`) and nowhere else.
-Hiding then happens in one frame — invisible, because everything it applies to
-is off-screen when it happens — and the animation can only ever run inwards.
-
-The test for it is a direction, not a state: sample opacity twice and assert
-nothing **decreased**. "Nothing is part-way" is the obvious assertion and it is
-wrong, because part-way is also what a legitimate reveal looks like — that form
-failed on ten elements sitting at 0.915 on their way up.
-
-
-**A spec that proves a negative must first prove its precondition.** The
-reduced-motion case asserts that no observer is armed and nothing is hidden.
-Written with `test.use({ reducedMotion: 'reduce' })` inside a `describe`, the
-emulation never reached the page under this project's Playwright config —
-`matchMedia('(prefers-reduced-motion: reduce)').matches` was `false` — so the
-test was asserting the ordinary behaviour of an ordinary page and would have
-passed forever. `page.emulateMedia()` sets it unambiguously, and the spec now
-asserts the media query is in force before asserting what follows from it.
-
-
-**Opacity and movement want different timing, whatever the mechanism.** This
-survived a complete rewrite of the reveal, which is the sign that it is about
-reading rather than about CSS. Tie a fade to the same slow curve as the travel
-and the text is unreadable for as long as the travel lasts — that was reported
-as "why are the hadith grey, the colour is so light", and measured at **0.19
-opacity on an element that was fully on screen**, under 0.9 for five hundred
-pixels of scrolling, across thirty-four elements. Nothing was wrong with the
-colours; the paragraphs have no `text-*` class at all and inherit near-black.
-
-A reader who stops to read stops in the middle of your animation. So the fade is
-short and linear and finishes early; the movement is longer and eased and
-finishes late. In a staggered row, stagger the **movement** — staggering the
-fade by the same amount is what made the third card of each row the one that was
-still grey when you stopped at it.
-
-
-**An `nth-child(3n)` stagger is a cascade on a three-column grid and a rendering
-fault on a four-column one.** `reveal-row` shifts each column's range by a step
-using `nth-child(3n + 2)` and `(3n + 3)`, which is right for the three- and
-six-card rows it was written against. Two rows on the home page are
-`lg:grid-cols-4`, and there the fourth card falls back onto the *first* card's
-offset — so cards 1 and 4 arrived together while 2 and 3 were still fading, and
-what a reader sees is not a stagger but one card that has failed to animate.
-
-CSS cannot count a grid's columns, so the cycle cannot be inferred: the caller
-has to say which one it is in (`reveal-row` or `reveal-row-4`). Keep the
-keyframe, the timeline and the base range shared between them, or the variants
-drift apart the first time one is tuned.
-
-**`position: fixed` escapes the page only while no ancestor opens a stacking
-context.** The gallery lightbox is `fixed inset-0 z-50`. On `/gallery` it
-covered the viewport correctly. On the home page the same component sits inside
-
-```html
-<section class="relative overflow-hidden">
-  <div class="container-wide relative z-10">
-```
-
-and that `relative z-10` is a stacking context, so the overlay's `z-50` was
-50-*within*-10: the page's `fixed z-50` header painted straight over the top of
-it, and the section's `overflow-hidden` clipped the rest. Nothing was wrong with
-the component, and no test of the component could have found it — what changed
-was the page that wrapped it.
-
-Render an overlay through `createPortal(…, document.body)`. It is then a child
-of `<body>`, out of reach of whatever any page wraps the grid in, and it is the
-only version that stays correct when someone adds a `relative z-10` above it
-later. No mounted flag is needed for the server: the overlay's open state starts
-`null`, so it renders as nothing on the server and through hydration, and only a
-click can reach `createPortal`.
-
-Assert the symptom rather than the styles. `gallery-lightbox.spec.ts` hit-tests
-`document.elementFromPoint` at the top of the screen and requires the result to
-be inside the dialog — which reported `NAV` on the home page before the fix and
-passed on `/gallery` in the same run, reproducing the report exactly. A test of
-one page would have been green.
-
-Use `dvh`, not `vh`, for anything that must stay on screen on a phone: on
-Android the address bar makes `vh` taller than the visible area, which pushes
-the last element of a full-height panel off the bottom.
-
-
+- **A badge inside a link changes that link's accessible name.** The Approvals
+  nav item's red dot carries `role="status"` and an `aria-label` ("3 pending
+  approvals"), so `getByRole('link', { name: 'Approvals', exact: true })` stops
+  matching the moment the badge works — the badge's own spec failed on its
+  feature. Same for a tab button rendering a count. Locate nav items by `href`;
+  assert names only on the badge.
+- **A feature behind `@supports` that degrades to nothing degrades silently, and
+  looks exactly like never having built it.** The section reveal was a
+  scroll-driven CSS animation (`animation-timeline: view()`) under `@supports`.
+  That reached Safari only in 26 and Firefox in 144; the owner's browser had
+  neither, so the block never applied, and two rounds of tuning changed code that
+  never ran. Headless Chromium supports it, so every check passed. A graceful
+  degradation and a broken feature are the same observation — ask what the
+  reader's browser is first. The replacement (`IntersectionObserver` + CSS,
+  1,280 bytes of first-load JS) works everywhere; `e2e/scroll-reveal.spec.ts`
+  asserts the negative: below-the-fold elements are actually hidden before you
+  scroll to them.
+- **A reveal that hides on a page which has already painted will animate the
+  wrong way first.** Hiding is `data-reveal-js` on `<html>`, set from JS so no JS
+  means nothing hidden. With the `transition` on the hiding rule, every element
+  faded 1 → 0 at load and back in — a blink. Put the transition on the arrival
+  rule (`[data-revealed]`) only. Test a direction, not a state: sample opacity
+  twice and assert nothing *decreased* ("nothing part-way" also fails a
+  legitimate reveal mid-flight).
+- **Hide with an animation, not a transition — the element's own `transition`
+  will otherwise animate it into hiding.** Cards with `transition-all` (for their
+  hover lift) spent 300 ms fading *out* at load; the giveaway was elements at 0.41
+  opacity with no `data-revealed` at all. The waiting state is
+  `:not([data-revealed])` with `transition: none`, so it releases the card's own
+  transitions on arrival; arrival is an `animation` (no utility class can fight
+  it) with `animation-fill-mode: backwards` — `forwards`/`both` holds the end
+  state for ever and outranks later declarations.
+- **A reveal that re-arms on scroll position also re-arms on layout growth, and
+  at load the layout grows.** Gallery images without reserved dimensions grow the
+  document ~1,000 px, pushing on-screen cards below the viewport, which
+  un-revealed them: cards faded in, then vanished. Un-revealing waits for `load`
+  plus a short grace; revealing never waits. Decide what is on screen in the
+  observer's first callback, not with `getBoundingClientRect()` in the effect,
+  which measures an unfinished layout.
+- **`preserveAspectRatio="none"` makes a viewBox's height a divisor, not a
+  canvas.** The heading underline SVG stretches to the title (the only way to fit
+  both languages — Bengali sets wider). A 14-unit viewBox in a 10 px box scales
+  strokes by 0.7, turning a 3-unit stroke into a hairline. Make the viewBox
+  shorter than the box to keep weight. Stretching suits near-horizontal shapes
+  only.
+- **A spec that proves a negative must first prove its precondition.**
+  `test.use({ reducedMotion: 'reduce' })` inside a `describe` never reached the
+  page under this config, so the reduced-motion test asserted an ordinary page
+  and would have passed forever. Use `page.emulateMedia()` and assert the media
+  query matches before asserting what follows from it.
+- **Opacity and movement want different timing, whatever the mechanism.** A fade
+  on the same slow curve as the travel left text at 0.19 opacity while fully on
+  screen ("why are the hadith grey"). A reader stops mid-animation: the fade is
+  short, linear, early; the movement long, eased, late. Stagger the movement, not
+  the fade.
+- **An `nth-child(3n)` stagger is a cascade on a three-column grid and a
+  rendering fault on a four-column one.** On `lg:grid-cols-4` card 4 took card
+  1's offset and read as a failed animation. CSS cannot count columns, so the
+  caller says which: `reveal-row` or `reveal-row-4`, sharing keyframe, timeline
+  and base range.
+- **`position: fixed` escapes the page only while no ancestor opens a stacking
+  context.** The gallery lightbox (`fixed inset-0 z-50`) was right on `/gallery`
+  and, on the home page, sat inside `relative z-10` — so its `z-50` was
+  50-within-10, the header painted over it and `overflow-hidden` clipped it.
+  Render overlays through `createPortal(…, document.body)` (open state starts
+  `null`, so no mounted flag is needed). `e2e/gallery-lightbox.spec.ts` asserts
+  the symptom on both pages: `elementFromPoint` at the top must be inside the
+  dialog. Use `dvh`, not `vh`, for full-height panels on Android.
 - **A barrel import charges you for everything the barrel touches.** Moving a
   fifteen-line `saveBlob` helper into `lib/documents/export.ts` and importing it
   from `@/lib/documents` put **jsPDF** — 400 kB — into the approvals screen,
@@ -250,7 +109,6 @@ the last element of a full-height panel off the bottom.
   are three taps and no travel, and the year list starts at the oldest plausible
   member rather than the youngest, because a village cooperative's next member is
   far more likely to be sixty than eighteen.
-
 - **A CSS property that only applies to one input type, applied to another, is a
   no-op that looks like a mechanism.** `data-no-native-password-toggle` set
   `-webkit-text-security: disc` on an input that was already `type="password"`.
@@ -262,7 +120,6 @@ the last element of a full-height panel off the bottom.
   which is also the right *scope*: the failure is per browser, not per screen, so
   a mechanism somebody has to remember to apply is one that gets missed on the
   next form.
-
 - **A canvas re-encode to JPEG destroys transparency, and JPEG is the obvious
   default.** `downscaleImageFile` filled the canvas white before drawing —
   correct for a photograph of an NID, and the reason a transparent signature did
@@ -271,7 +128,6 @@ the last element of a full-height panel off the bottom.
   coloured header. Alpha is a property of the *purpose*, not of the compressor:
   `IMAGE_PRESETS` marks which uploads keep it, and those encode WebP. Never name
   an output `format` in a Cloudinary transformation for the same reason.
-
 - **`useState(prop)` is a one-time seed, and on a screen that fetches its data
   the prop arrives afterwards.** `ImageUpload` seeded its preview from
   `currentImage` and never looked again, so on Content & Media — which loads
@@ -280,7 +136,6 @@ the last element of a full-height panel off the bottom.
   uploaded saw a screen telling them there was none, and uploaded it again. Sync
   in an effect, and guard the case the reader is mid-edit (here: a `blob:`
   preview must not be replaced by a server value landing behind them).
-
 - **A generic UI primitive with English string literals is invisible to the
   translation census.** `ImageUpload` said "Drag and drop your image here", "or
   click to browse", "Choose Image" and "Uploading..." — so the Bengali dashboard
@@ -288,7 +143,6 @@ the last element of a full-height panel off the bottom.
   Nothing could see it: `messages.test.ts` compares the two message files, and a
   string that was never in either has nothing to be compared against. Pass the
   copy in from the call site, which already knows the locale.
-
 - **A `flex` section makes its container a flex item, and a flex item with no
   width shrinks to its contents.** The hero was
   `<section class="… flex items-center">` wrapping `<div class="container-wide">`
@@ -304,7 +158,6 @@ the last element of a full-height panel off the bottom.
   headline against a fixed part of the page in a browser
   (`e2e/matrix.spec.ts`). **The general form: centring a section vertically
   with flex silently changes the sizing rules of everything inside it.**
-
 - **That the database knows a number does not mean the number may be
   published.** The home page's four statistics were invented literals — "125+
   members", "BDT 250,000+ deposits" — so they were moved into `system_config`,
@@ -337,7 +190,6 @@ the last element of a full-height panel off the bottom.
   wider script), which turns a number into something breakable anywhere. A
   number is one word however long it is: widen the column instead. Two columns
   now exist only above the width where a seven-digit total fits on one line.
-
 - **An application-level check that is stricter than the constraint it
   anticipates is invisible, and it always wins.** Staff creation looked a
   contact up with `OR: [{ email }, { phone }]` and no `liveIdentityFilter`, so a
@@ -351,7 +203,6 @@ the last element of a full-height panel off the bottom.
   down in CLAUDE.md and in `product.md` for a day, and written down is not
   enforced — the census over every `prisma.user.find*` that filters on a contact
   detail is.
-
 - **A page whose layout depends on an admin having filled a box in looks broken
   on launch day.** The hero's right-hand column was four statistic cards; when
   those figures moved out of the message files into `system_config` — correctly,
@@ -361,7 +212,6 @@ the last element of a full-height panel off the bottom.
   appears when there are figures. **Design the unconfigured state first**; it is
   the one every new deployment sees, and the only one the owner sees before they
   have anything to say.
-
 - **A spec that drives a third-party service cannot run in CI, and failing is
   not the same as being honest about it.** `entry-path.spec.ts` filled the
   registration form and submitted it, which uploads four documents to
@@ -373,7 +223,6 @@ the last element of a full-height panel off the bottom.
   two that are about what the applicant is *shown after submitting* skip, and
   say why. A test that needs a service the environment cannot provide should
   skip loudly, never fail quietly into the noise.
-
 - **A CSS `auto` silently overrides the size you just computed.** `logo.tsx`
   derived a width from its `size` prop, passed it to `next/image` as the `width`
   attribute, and set `h-auto w-auto` in the className. A replaced element sized
@@ -394,7 +243,6 @@ the last element of a full-height panel off the bottom.
   `36 ≤ logo ≤ header`, and the header is sized to hold the lockup (`h-24`,
   shrinking to `h-16` on scroll) rather than the lockup shrinking to fit a
   header nobody chose.
-
 - **A loading skeleton is a lie when nothing is loading.** The home page's
   partner-logo block rendered three grey `animate-pulse` rectangles as its
   *else* branch — the state for "no partner logos are configured". They had been
@@ -402,7 +250,6 @@ the last element of a full-height panel off the bottom.
   page was written, and they read as a page that never finishes loading.
   **`animate-pulse` belongs to a pending request, never to an empty
   collection.** An empty collection renders nothing, or says it is empty.
-
 - **A number in the copy is a claim, and copy has no owner.** "125+ Total
   Members", "BDT 250,000+ Total Deposits" were literals in
   `messages/{en,bn}.json`, invented when the page was designed, live for months,
@@ -412,7 +259,6 @@ the last element of a full-height panel off the bottom.
   about the organisation belongs in `system_config`, not in a message file** —
   a message file is for words the software says, and this is a fact the
   foundation asserts.
-
 - **A dead control on a public page advertises a feature that does not exist.**
   The gallery's Like button toggled a heart, incremented a count in the DOM, and
   persisted nothing — no endpoint in either backend accepts a like. For a
@@ -421,7 +267,6 @@ the last element of a full-height panel off the bottom.
   implemented. The rule `UNIMPLEMENTED_CONFIG_KEYS` states for settings is the
   same rule: **a control that does nothing is worse than no control, because it
   will eventually be trusted.**
-
 - **A page can be in the sitemap and reachable by nobody.** The menu pointed at
   `/#about`, `/#donate` and `/#contact` while `/about`, `/donate` and `/contact`
   existed as real pages with different content. The link crawl found 24 links to
@@ -431,7 +276,6 @@ the last element of a full-height panel off the bottom.
   **Crawl the rendered links, not the route list.** A route that exists, builds,
   prerenders and appears in `sitemap.xml` can still be unreachable, and no test
   over the source can tell.
-
 - **A segment's `not-found.tsx` does not catch an unmatched URL.** It only
   catches `notFound()` thrown from *inside* that segment, and a URL that matches
   no route never reaches the segment at all — so `app/[locale]/not-found.tsx`
@@ -442,7 +286,6 @@ the last element of a full-height panel off the bottom.
   which is where next-intl's provider and the font variables live: there is no
   `useTranslations`, and no locale to translate into either. Say it in both
   languages and import `globals.css` directly.
-
 - **Prose in a component is invisible to every guard, and legal pages are all
   prose.** `/privacy` and `/terms` each carried a `content = { en: …, bn: … }`
   object, which is the inline-string problem wearing a different shape: the
@@ -450,7 +293,6 @@ the last element of a full-height panel off the bottom.
   `messages/{en,bn}.json` and none of them read that object. It is the same
   reason the Terms once promised administrative fees in both languages with
   every check green. Both pages are shells around `legal.*` now.
-
 - **A revision date is a claim about the document, and it goes stale in
   silence.** Both legal pages printed `Last updated: March 2026` as a literal,
   through two rewrites of the loan clause — one deleting the promise of
@@ -458,7 +300,6 @@ the last element of a full-height panel off the bottom.
   version had no way to learn what they agreed to had changed. The dates are
   constants in `lib/legal.ts` now, next to nothing else, so changing the wording
   and changing the date are one edit in one place.
-
 - **A workaround can be the thing that makes the defect unfixable.** Rejecting a
   registration overwrote the applicant's email and phone
   (`rejected+<id>@hasnahena.local`) so the unique constraint would let them
@@ -470,7 +311,6 @@ the last element of a full-height panel off the bottom.
   thrown away what the notification needs.** The fix was not to send the email
   sooner — it was to scope uniqueness to live rows so nothing had to be
   destroyed at all.
-
 - **Removing a workaround silently breaks whatever was reading its
   side-effects.** That same tombstone was how `retention_repository.go`
   identified a rejected application: `phone LIKE 'rejected-%'`. Deleting the
@@ -480,7 +320,6 @@ the last element of a full-height panel off the bottom.
   also what a correct sweep reports on a quiet week, so nothing would have
   looked wrong. Grep for the *value* a workaround writes, not just for the code
   that writes it, and give the concept one definition all its readers share.
-
 - **A form's "default" is a writer, not a fallback, when the form posts every
   field.** The admin Settings screen held its own `DEFAULT_ORG_SETTINGS` for any
   `org.*` row the database lacked, and submitted the whole object on save. It
@@ -499,14 +338,12 @@ the last element of a full-height panel off the bottom.
   short name arrive on a PDF and defended the PDF. **A downstream fallback
   written against one specific wrong value is evidence of an upstream writer**,
   not a fix for it — the JSON-LD and the browser tab had no such guard.
-
 - **A timestamp is not a unique value, however precise it looks.** Staff account
   numbers were `STF-${Date.now().toString(36).toUpperCase()}`. Two admins adding
   two *different* workers within the same millisecond collided on `accountNo`,
   which is `@unique` — so the second create raised `P2002` on a column neither
   of them had sent, and the 409 told them to change an email and a phone that
   were both fine. Random bytes, or a sequence.
-
 - **A one-line re-export is not proof that two screens are the same screen.**
   `dashboard/worker/approvals` was `export { default } from '../../admin/approvals/page'`
   and had never worked for a worker: the component it re-exported calls
@@ -548,7 +385,6 @@ the last element of a full-height panel off the bottom.
   (`CONTENT_CONFIG_KEYS` / `SETTINGS_CONFIG_KEYS`); the same test catches the
   opposite failure, a declared key that *no* form offers, whose value is then
   whatever the seed wrote.
-
 - **A `|| 'fallback'` on a value nobody can set is not a fallback.** The public
   `/donate` page read four `bank.*` keys that were absent from
   `SYSTEM_CONFIG_KEYS`, so `PUT /api/v1/settings` — which rejects the whole
@@ -585,33 +421,30 @@ the last element of a full-height panel off the bottom.
   every printed statement. Nobody spotted it in a PDF viewer; a test computing
   rendered text width against column width found it immediately — and found a
   second overflowing column on its first run.
-
-**`x-default` is not the default locale, even when the two hold the same value.**
-It was written out as `'en'` when `defaultLocale` was `bn`, because they answer
-different questions: *what this site is primarily in* versus *what to serve a
-reader the site was not built for*. WO-94 made the site's default English, so the
-two now agree — and the line is still written out, because collapsing it would
-make a future change to one silently change the other, and the failure it
-produces (every unmatched reader in the world sent to a page they cannot read) is
-invisible from inside Bangladesh. A constant that happens to equal another
-constant is not the same constant.
-
-**JSON-LD cannot be a text child.** React HTML-escapes text children, and HTML
-entities are **not** decoded inside a `<script>` element, so every `"` in the
-payload reaches the crawler as `&quot;` and the JSON is unparseable. Next's own
-guide specifies `dangerouslySetInnerHTML` with `<` escaped to `\u003c`. That is
-the one sanctioned sink in this codebase and `csp.test.ts` counts them, because
-[ADR-024](../decisions.md) rests on there being no others.
-
-**One name for two things is a bug waiting for a rename to expose it.**
-`memberId` meant the account number (`ACC-KH-33001`) in every response payload
-*and* the member's cuid row id in every `/worker/members/{memberId}` route,
-handler local and `PathValue` call. A blanket rename to `accountNo` compiled and
-would have sent `PathValue("accountNo")` to a route still declaring
-`{memberId}` — every member-detail request 400ing on an empty id, at runtime,
-with the types perfectly happy. Classify each occurrence against the SQL it was
-scanned from before renaming anything. The route parameter is `{memberUserId}`
-now, which is what it always was.
+- **`x-default` is not the default locale, even when the two hold the same value.**
+  It was written out as `'en'` when `defaultLocale` was `bn`, because they answer
+  different questions: *what this site is primarily in* versus *what to serve a
+  reader the site was not built for*. WO-94 made the site's default English, so the
+  two now agree — and the line is still written out, because collapsing it would
+  make a future change to one silently change the other, and the failure it
+  produces (every unmatched reader in the world sent to a page they cannot read) is
+  invisible from inside Bangladesh. A constant that happens to equal another
+  constant is not the same constant.
+- **JSON-LD cannot be a text child.** React HTML-escapes text children, and HTML
+  entities are **not** decoded inside a `<script>` element, so every `"` in the
+  payload reaches the crawler as `&quot;` and the JSON is unparseable. Next's own
+  guide specifies `dangerouslySetInnerHTML` with `<` escaped to `\u003c`. That is
+  the one sanctioned sink in this codebase and `csp.test.ts` counts them, because
+  [ADR-024](../decisions.md) rests on there being no others.
+- **One name for two things is a bug waiting for a rename to expose it.**
+  `memberId` meant the account number (`ACC-KH-33001`) in every response payload
+  *and* the member's cuid row id in every `/worker/members/{memberId}` route,
+  handler local and `PathValue` call. A blanket rename to `accountNo` compiled and
+  would have sent `PathValue("accountNo")` to a route still declaring
+  `{memberId}` — every member-detail request 400ing on an empty id, at runtime,
+  with the types perfectly happy. Classify each occurrence against the SQL it was
+  scanned from before renaming anything. The route parameter is `{memberUserId}`
+  now, which is what it always was.
 
 ---
 

@@ -13,7 +13,6 @@
   plausible values into required columns, and plausible is exactly what nobody
   re-reads.** Enumerate the fields a reset must clear, and have the script print
   what it changed field by field rather than "row reused".
-
 - **What a reset must *not* touch is as worth stating as what it must.** The row
   id, the email and the phone are identity other rows reference and the two
   things a person signs in with; the display name is something only the person

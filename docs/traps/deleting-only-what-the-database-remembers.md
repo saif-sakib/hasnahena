@@ -11,7 +11,6 @@
   column to be either cleared or on a keep-list with the reason written beside
   it, so the next column added to `users` fails a test instead of quietly
   surviving an erasure.
-
 - **Two meaningful folder names are still worse than one, if nothing joins
   them.** A member's avatar was under `people/ACC-KH-33001` and their four
   identity documents under `applications/APP-2026-000001`. Both names are
@@ -43,7 +42,6 @@ callers must tell them apart. Collapsing the two makes an unreachable image host
 indistinguishable from a clean erasure, which is the difference between a
 member's NID scan being gone and it still being online after they were told it
 was not.
-
 - **A rename moves the URL. It does not move the folder anybody looks at.** This
   Cloudinary account is in **dynamic folder mode**, where `public_id` — the path
   in the URL — and `asset_folder` — the folder the Media Library draws — are two
@@ -62,7 +60,6 @@ was not.
   `moveAsset` now sets `asset_folder` and `display_name` after the rename, and
   `scripts/cloudinary-reconcile.mjs` reports and repairs any asset whose two
   halves disagree.
-
 - **The test rig has a disposable database and no disposable image host, and
   nothing said so.** `scripts/test-stack.sh` moves the whole stack onto a
   throwaway Postgres, `assertDisposableDatabase` refuses to seed anything that

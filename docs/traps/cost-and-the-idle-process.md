@@ -10,14 +10,12 @@
   general form: **when the platform charges for wall-clock time, the idle
   behaviour of a process is a line item.** [ADR-035](../decisions.md), pinned by
   `internal/config/idle_cost_test.go`.
-
 - **An uptime check on a readiness endpoint keeps the database awake.**
   `/v1/ready` pings the pool, which is exactly right for a load balancer and
   exactly wrong for a robot calling it every sixty seconds. `/v1/health` touches
   nothing and answers the question an uptime monitor is actually asking. The two
   needs look like one — *is it up?* — and separating them is what lets the API
   stay warm on Render while the database sleeps.
-
 - **A ticker ties load to nothing at all, which is not obviously better than
   tying it to a scraper.** The business gauges refreshed every minute so that
   "database load does not depend on how often somebody else's scraper runs". The
@@ -25,13 +23,11 @@
   60 questions, and enough on its own to stop the compute suspending. Refresh
   lazily *with a floor* — the floor keeps the original argument's teeth, and the
   laziness restores the connection between load and demand.
-
 - **Count background jobs in wakes per day, not in queries per pass.** A tick
   against a scale-to-zero database is a wake, and a wake is billed for the whole
   idle timer whatever the query cost. Hourly cleanup and hourly reconciliation
   were forty-eight wakes a day to delete a few expired rate-limit buckets and
   add up a ledger nobody reads within the hour.
-
 - **A build that nothing consumes is a bill nothing notices.** `images.yml` built
   two Docker images on every push to `main` — one a full Next.js production
   build — and `deployment.md` states plainly that nothing in production uses

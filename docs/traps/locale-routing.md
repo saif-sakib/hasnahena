@@ -58,14 +58,15 @@
   test that goes red because someone edited a database row gets deleted rather
   than read. `locale-content.spec.ts` fetches the public settings and removes
   their values before asserting, so it only ever fails on copy the code owns.
-
 - **A redirect at the root is what makes `/` and `/bn` duplicates, not the
   choice of default locale.** Search Console reported *"Duplicate, Google chose
   different canonical than user"* on `/bn` with a Google-selected canonical of
   `/`. `/` was 307ing to a negotiated locale; Google merges a redirecting root
   with whatever it lands on and keeps the shorter URL. Flipping `defaultLocale`
   from `bn` to `en` would have moved the report to `/en` and changed nothing
-  else. The fix is that `/` renders (WO-95, [ADR-034](../decisions.md)).
+  else. The fix is that `/` renders (WO-95, [ADR-034](../decisions.md)). Before
+  blaming canonical tags, check the pages are not *actually* duplicates: strip
+  the tags and compare (here 6% shared tokens).
 - **next-intl's `as-needed` redirect is a 307, and a 307 is not a canonical
   signal.** Google treats a temporary redirect as reversible and may keep
   indexing the old URL. Every `/en/*` URL that is already out in the world has
@@ -109,32 +110,12 @@
   does not, because the rule cannot see a literal any more. The warning count
   went down and the code was no better. If a rule stops firing after a refactor,
   check whether it was satisfied or merely blinded.
-
-**A response whose target depends on a request header must send `Vary`.**
-next-intl's middleware reads `Accept-Language` to decide whether `/` sends a
-visitor to `/bn` or `/en`, and emits a 307 with `cache-control: public` and no
-`Vary` of its own. As shipped that is cache-poisonable in the ordinary sense: a
-shared cache may store the redirect computed for one visitor and hand it to the
-next, so a member in Jashore lands on the English site because an English
-speaker asked first. Cloudflare sits in front of production, which makes the
-shared cache real rather than theoretical.
-
-`proxy.ts` adds `Vary: Accept-Language` now, and `e2e/locale-negotiation.spec.ts`
-holds it. The test is in the **browser** suite on purpose: `proxy.ts` is edge
-middleware and the header it sets can be replaced further down the response
-path, so the only honest check is what comes back over HTTP. Next does exactly
-that on a rendered page — `/bn` comes back with Next's own `Vary` and not this
-one, which is correct, because `/bn` is Bengali for everyone and its content
-does not depend on the header.
-
-**And know what it does not fix.** Search Console reporting
-`/bn` as *"Duplicate, Google chose different canonical than user"* is a
-different thing: `/` redirects to `/bn`, Google merges a redirect with its
-target, and it often keeps the shorter URL. The content stays indexed under `/`.
-Before blaming the canonical tags, check the two pages are not *actually*
-duplicates — strip the tags and compare. Here they share 6% of their tokens and
-`/bn` is 95% Bengali script, which ruled out the obvious suspect in one command
-and stopped a day of edits to correct canonical tags.
+- **A response whose target depends on a request header must send `Vary`.**
+  While `/` negotiated on `Accept-Language`, next-intl's 307 carried
+  `cache-control: public` and no `Vary`, so Cloudflare could serve one visitor's
+  redirect to the next. Check such a header over HTTP in the browser suite — a
+  middleware header can be replaced further down the response path. (`/` no
+  longer negotiates; `e2e/locale-negotiation.spec.ts` now asserts *no* `Vary`.)
 
 ---
 
