@@ -16,10 +16,7 @@ func (r *UserRepository) GetMonthlyReport(ctx context.Context, year, month int) 
 		args = append(args, month)
 	}
 
-	// CONFIRMED only. A `transactions` row is not necessarily money that moved:
-	// a deposit request and — since FR-08 — a withdrawal notice both sit in this
-	// table as PENDING, and a withdrawal approved but not yet paid sits as
-	// PROCESSED. Summing without this filter reports intentions as income.
+	// CONFIRMED only (rule 6a).
 	queryCondition += " AND t.status = 'CONFIRMED'"
 
 	query := fmt.Sprintf(`

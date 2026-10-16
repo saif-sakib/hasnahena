@@ -13,13 +13,7 @@ import {
   serializeJsonLd,
 } from '@/lib/structured-data';
 
-/**
- * WO-79 — the structured data the site had none of.
- *
- * `grep -r "application/ld+json"` returned nothing before this order. These
- * tests exist for three separate failure modes, and the third is the one that
- * matters most to this project.
- */
+/** WO-79 — the site's JSON-LD. */
 
 /** The `org.*` rows as a seeded database actually holds them. */
 const SETTINGS: Record<string, string> = {
@@ -80,9 +74,7 @@ describe('every public page emits parseable JSON-LD', () => {
     const about = parse('en', '/about').json['@graph'].find((n) => n['@type'] === 'BreadcrumbList');
     const items = about?.itemListElement as { name: string; item: string }[];
     expect(items).toHaveLength(2);
-    // `/about`, not `/en/about` — English lost its prefix in WO-95, and a
-    // breadcrumb pointing at a URL that 301s elsewhere is a breadcrumb a
-    // crawler discards.
+    // Canonical (unprefixed English) URLs.
     expect(items[1].item).toBe(`${siteOrigin}/about`);
     expect(items[1].name).toBe('About');
   });
@@ -100,19 +92,12 @@ describe('every public page emits parseable JSON-LD', () => {
 });
 
 describe('the organisation is described from settings, never hardcoded', () => {
-  /**
-   * The point of WO-79 that is easy to get wrong: an admin edits `org.*` on the
-   * settings screen, and a value hardcoded here would be the second copy —
-   * WO-67's failure, except quieter, because nobody reads the JSON-LD to notice
-   * it has gone stale.
-   */
+  /** Claims come from settings, never hardcoded. */
   it('carries the settings it was given', () => {
     const org = organizationSchema(SETTINGS);
 
     expect(org.name).toBe('Hasnahena Foundation');
-    // The Bengali name comes from the settings; the Latin-script variants are
-    // SITE_NAME_VARIANTS, so a crawler attaches "hasna hena foundation" to this
-    // entity rather than to an organisation it has never heard of.
+    // Bengali name from settings; Latin variants from SITE_NAME_VARIANTS.
     expect(org.alternateName).toContain('হাসনাহেনা ফাউন্ডেশন');
     expect(org.alternateName).toEqual(expect.arrayContaining([...SITE_NAME_VARIANTS]));
     // `alternateName` means "also called". Repeating `name` inside it is noise.
@@ -125,12 +110,7 @@ describe('the organisation is described from settings, never hardcoded', () => {
   });
 
   it('describes the foundation in English, falling back to Bengali only if it must', () => {
-    // The defect this pins, live on the deployed site until 2026-08-25: the
-    // node is English by contract — it is what crawlers and assistants read,
-    // in both locales — and it took the single `org.description` box, which a
-    // Bengali-first foundation had naturally filled in in Bengali. So the
-    // English home page published a Bengali self-description beside an English
-    // WebSite node saying the same thing correctly.
+    // English description in the English node, never the Bengali box.
     const bengali = 'একটি কর্দ আল-হাসান সমবায় সংস্থা';
     const english = 'An interest-free cooperative finance society in Jashore.';
 
@@ -138,9 +118,7 @@ describe('the organisation is described from settings, never hardcoded', () => {
     expect(organizationSchema({ 'org.description': bengali, 'org.descriptionEn': english }).description)
       .toBe(english);
 
-    // Only the Bengali box filled — which is every database that has not been
-    // touched since. A description in the wrong script still describes this
-    // foundation; a hardcoded English sentence describes a generic one.
+    // Only Bengali filled: still this foundation's own words.
     expect(organizationSchema({ 'org.description': bengali }).description).toBe(bengali);
 
     // Neither: the site's own copy, not an empty string.
@@ -152,9 +130,7 @@ describe('the organisation is described from settings, never hardcoded', () => {
     // holding nothing but its own @type is not an address.
     const org = organizationSchema({ 'org.nameEn': 'Hasnahena Foundation' });
 
-    // `alternateName` survives with no settings at all — SITE_NAME_VARIANTS is
-    // a fact about how people search, not a value an admin supplies. What must
-    // not survive is the Bengali name nobody set.
+    // No settings: the variants stay; no invented Bengali name.
     expect(org.alternateName).toEqual([...SITE_NAME_VARIANTS]);
     expect(org).not.toHaveProperty('identifier');
     expect(org).not.toHaveProperty('contactPoint.telephone');
@@ -183,14 +159,7 @@ describe('the organisation is described from settings, never hardcoded', () => {
 });
 
 describe('the schema type does not misrepresent an interest-free cooperative', () => {
-  /**
-   * Rule 3 is not only about the code. `FinancialService` and
-   * `BankOrCreditUnion` are the types a search engine would suggest for
-   * something that lends money, and both carry `interestRate`,
-   * `annualPercentageRate` and `feesAndCommissionsSpecification`. Publishing one
-   * of them describes this foundation, in the one place a machine reads, as
-   * something that charges interest. `NGO` extends `Organization` and is honest.
-   */
+  /** Never a FinancialService-style type — they carry interestRate and fees (rule 3). */
   const FORBIDDEN_TYPES = ['FinancialService', 'BankOrCreditUnion', 'LoanOrCredit', 'Bank'];
   const FORBIDDEN_PROPERTIES = [
     'interestRate',
@@ -246,13 +215,7 @@ describe('the payload cannot break out of its own script tag', () => {
 });
 
 describe('every public page actually renders it', () => {
-  /**
-   * The builders above can be perfect and emit nothing, because nothing calls
-   * them. This walks the ten paths in `publicPagePaths` to the page file that
-   * serves each one and reads it — the same enumerating shape as
-   * `routes.contract.test.ts`, so adding an eleventh public page fails here
-   * until it is wired up.
-   */
+  /** Every public page actually renders the structured data. */
   const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
   const pageFile = (path: string) =>
     path === '/' ? 'app/[locale]/page.tsx' : `app/[locale]${path}/page.tsx`;

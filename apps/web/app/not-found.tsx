@@ -5,35 +5,9 @@ import Image from 'next/image';
 import './globals.css';
 
 /**
- * The page a visitor gets for a URL that does not exist.
- *
- * There was no `not-found.tsx` anywhere in this app until T-10, so every bad URL
- * — a mistyped address, a stale link from a printed leaflet, an old `/en/donate`
- * bookmark — was answered by Next's built-in default: black Helvetica on white
- * reading `404 | This page could not be found.`, with no logo, no navigation, no
- * way back and no Bengali. On a site whose whole job is to look like an
- * institution people can trust with their savings, that was the worst-looking
- * page on it, and it was the one shown to somebody already lost.
- *
- * **Why it lives at the root and not under `app/[locale]/`.** A segment's
- * `not-found.tsx` only catches `notFound()` thrown *from inside that segment*.
- * An unmatched URL never reaches the segment at all, so a
- * `app/[locale]/not-found.tsx` renders for nothing — checked, on all three
- * shapes this site can produce: `/nonexistent`, `/bn/nonexistent` and `/fr`
- * (an unknown locale, where the layout itself calls `notFound()`) all land
- * here. That file was written first and deleted rather than kept as decoration.
- *
- * **Why the copy is inline, against rule 5.** This renders outside
- * `app/[locale]/layout.tsx`, which is where next-intl's provider lives — so
- * there is no `useTranslations` and, more to the point, **no locale to
- * translate into**. Next generates a bare root layout for this route. The same
- * constraint `global-error.tsx` documents, and the same answer: say it in both
- * languages, because a 404 is the one page that does not know who is reading.
- *
- * `globals.css` is imported directly so the Tailwind classes below resolve. The
- * `--font-sans` variable is set by `next/font` in the locale layout and is
- * absent here, so the stack falls back — deliberately accepted rather than
- * loading a webfont for an error page.
+ * The 404 for unmatched URLs. At the ROOT: a segment's not-found.tsx only
+ * catches notFound() thrown inside it. Copy is inline in both languages (rule 5
+ * exception): this renders outside the locale layout, with no locale to know.
  */
 export default function RootNotFound() {
   return (
@@ -67,14 +41,7 @@ export default function RootNotFound() {
         ঠিকানাটি ভুল হতে পারে, অথবা পাতাটি সরে গিয়ে থাকতে পারে। হোম পেজ থেকে সাইটের সবকিছুতেই যাওয়া যায়।
       </p>
 
-      {/*
-        Plain <a>, not next/link, and `no-html-link-for-pages` is disabled at
-        the top of the file for the same reason global-error.tsx disables it:
-        this page renders outside the app's own root layout, so a client-side
-        navigation would be asking a tree that never fully mounted to render the
-        next page. A full document load rebuilds it from scratch, which is the
-        point — and the router context a <Link> needs is exactly what is missing.
-      */}
+      {/* Plain <a>: outside the root layout there is no router context for <Link>. */}
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         <a
           href="/"

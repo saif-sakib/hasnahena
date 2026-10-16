@@ -18,10 +18,7 @@ function errorResponse(request: Request | null, message: string, details: string
   );
 }
 
-/**
- * Writing to the gallery is an admin action. Without this the public gallery of
- * a charity's site was rewritable by anyone who could reach the URL (SEC-03).
- */
+/** Writing to the gallery is admin-only (SEC-03). */
 async function requireAdmin(request: Request) {
   const auth = await authenticateRequest(request);
   if (!auth.ok) {
@@ -40,9 +37,7 @@ export async function OPTIONS(request: NextRequest) {
 // The gallery is public content — GET stays unauthenticated.
 export async function GET(request: NextRequest) {
   try {
-    // WO-75. Named columns, not the row: `createdAt` and `updatedAt` are on
-    // every gallery item and are read by nothing — not this route's admin
-    // caller, not the public pages, not the documents.
+    // Named columns (WO-75).
     const items = await prisma.galleryItem.findMany({
       orderBy: { date: 'desc' },
       select: {
@@ -143,9 +138,7 @@ export async function DELETE(request: NextRequest) {
       return errorResponse(request, 'ID required', 'Missing id parameter', 400);
     }
 
-    // The key is a sequence now (ADR-044), so a query string that is not a
-    // number names nothing. Rejected here rather than handed to Prisma, which
-    // would report a caller's typo as a 500.
+    // The key is a sequence (ADR-044): a non-number is a 400, not a Prisma 500.
     const numericId = Number(id);
     if (!Number.isInteger(numericId)) {
       return errorResponse(request, 'ID invalid', 'id must be a whole number', 400);

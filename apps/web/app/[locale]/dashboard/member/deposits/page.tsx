@@ -78,10 +78,7 @@ export default function DepositsPage() {
     [pageData],
   );
 
-  // The courtesy notice period, in days (ADR-030). `fetchSettings` is the only
-  // way the browser may read this — it attaches the token, and without one the
-  // member tier is silently narrowed to the anonymous subset and this key comes
-  // back undefined.
+  // Courtesy notice period in days (ADR-030), via fetchSettings (token required).
   const { data: settings } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
     () => fetchSettings(),
@@ -361,13 +358,7 @@ export default function DepositsPage() {
         )}
       </div>
 
-      {/* How to withdraw.
-          ADR-030. A member used to give notice here — a form that filed a
-          PENDING withdrawal and started a clock, and the money could not be
-          paid until it ran out. Both are gone: staff pay when the member asks.
-          What replaces the form is the one thing the member still needs from
-          this screen, which is how much warning to give. It is not a rule the
-          app enforces, so it is written as the request it is. */}
+      {/* How to withdraw: the notice the foundation asks for, not a rule (ADR-030). */}
       {noticePeriodDays > 0 && (
         <div className="border border-gray-200 bg-white">
           <div className="flex items-start gap-3 p-4">

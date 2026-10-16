@@ -4,28 +4,10 @@ import { createContext, useContext } from 'react';
 import { usePathname } from 'next/navigation';
 
 /**
- * Which dashboard a screen is being rendered inside.
- *
- * Why this exists
- * ---------------
- * The worker dashboard and the admin dashboard are the same screens. They were
- * not, and the drift was expensive: `dashboard/worker/deposits` and
- * `dashboard/admin/deposits` were two files that listed the same postings with
- * different columns, different filters and different bugs, while
- * `dashboard/worker/approvals` was a one-line re-export of the admin page that
- * called an admin-only endpoint and answered 403 for every worker who opened it.
- *
- * So there is now one component per screen, in `components/dashboard/screens`,
- * and it asks *which dashboard am I in* to decide what to show. What it must
- * never do is treat that answer as authorisation: this is presentation only.
- * Every endpoint those screens call is gated in the Go router
- * (`cmd/server/main.go`) or in the Next handler, and that gate is the one that
- * counts. Hiding a button the API would refuse is courtesy; the refusal is the
- * security.
- *
- * The value is pinned to the URL segment, and `proxy.ts` pins the URL segment to
- * the caller's role — a worker who types `/dashboard/admin/settings` is
- * redirected rather than served an admin shell whose every request 403s.
+ * Which dashboard a screen is rendered inside. Worker and admin share one
+ * component per screen (components/dashboard/screens), which asks this to
+ * decide what to SHOW. Presentation only — the Go router and Next handlers
+ * authorise; proxy.ts pins the URL segment to the caller's role.
  */
 export type DashboardRole = 'member' | 'worker' | 'admin';
 
@@ -48,13 +30,7 @@ export function dashboardRoleFromPath(pathname: string | null): DashboardRole {
   return 'member';
 }
 
-/**
- * The dashboard the current screen belongs to.
- *
- * The context is the fast path; the pathname is the fallback, so a screen
- * rendered outside the layout in a test still gets the right answer instead of
- * silently defaulting to the least-privileged one.
- */
+/** The current dashboard: context first, pathname as fallback (never defaulting silently). */
 export function useDashboardRole(): DashboardRole {
   const fromContext = useContext(DashboardRoleContext);
   const pathname = usePathname();

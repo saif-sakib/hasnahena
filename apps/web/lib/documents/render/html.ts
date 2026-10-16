@@ -1,10 +1,6 @@
 /**
- * HTML renderer — on-screen preview and the browser print path.
- *
- * Print-first: A4 `@page` geometry, repeating table headers, and break-avoid
- * rules, so the browser's own "Save as PDF" also produces real selectable text.
- * The downloadable PDF is drawn separately by `render/pdf.ts`; both consume the
- * same document model, so the two outputs cannot drift apart.
+ * HTML renderer — on-screen preview and the browser print path (A4 @page,
+ * repeating headers), sharing the document model with render/pdf.ts.
  */
 
 import { esc } from '../format';

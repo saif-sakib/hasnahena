@@ -3,41 +3,11 @@
 import * as React from 'react';
 
 /**
- * A figure that counts up from zero when it comes into view.
- *
- * Restored on the owner's instruction (2026-08-26): the hero's statistics used
- * to animate and the animation was the thing that made the panel feel alive.
- *
- * ## Why it takes a **string**, not a number
- *
- * These figures are `system_config` values an admin types, in two scripts:
- * `১৩৫+`, `৳২৫ লক্ষ+`, `135+`, `৳3.5 Lakh+`. There is no number to hand this
- * component — there is a sentence with a number in it, and the `+`, the `৳` and
- * the word "লক্ষ" are as much a part of what the foundation is claiming as the
- * digits are. So it finds the number inside the string, animates that, and puts
- * the rest back exactly as written.
- *
- * It also means an admin can type something with no number in it at all
- * (`many`, `—`), and the right thing happens: the string renders, unanimated.
- *
- * ## Bengali digits
- *
- * `২৫` is U+09E6…U+09EF, not ASCII. Both are read, and each frame is formatted
- * back through `Intl` in the reader's own locale, so the count runs `০ ১ ২ …`
- * for a Bengali reader and the lakh grouping stays lakh grouping.
- *
- * Grouping is only applied if the admin's own string had a separator in it. A
- * typed `1500` counts up to `1500` and not to `1,500`: this renders what the
- * foundation wrote, and a component that quietly re-punctuates its input is a
- * component nobody can predict.
- *
- * ## What it renders before it animates
- *
- * The **finished** value, always — server-side, on first client render, and for
- * a reader who has asked for reduced motion. The animation is an enhancement
- * layered on afterwards, so a crawler, a no-JS reader and a screen reader all
- * get the figure rather than a zero, and there is no hydration mismatch to
- * reconcile.
+ * A figure that counts up when it comes into view. It takes the admin's STRING
+ * (`৳২৫ লক্ষ+`, `135+`), finds the number inside — Bengali or ASCII digits —
+ * animates it in the reader's locale, and puts the rest back as written; no
+ * number means no animation. Grouping only if the admin's string had it. The
+ * finished value renders server-side and for reduced motion.
  */
 interface CountUpProps {
   /** The admin's string, e.g. `৳২৫ লক্ষ+`. */
@@ -135,9 +105,7 @@ export function CountUp({ value, locale, delay = 0, className }: CountUpProps) {
       frame = requestAnimationFrame(step);
     };
 
-    // Only once it is on screen. The hero's figures are above the fold and start
-    // immediately; the same component further down a page waits its turn rather
-    // than finishing before anybody has scrolled to it.
+    // Start only once on screen.
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
@@ -170,11 +138,7 @@ export function CountUp({ value, locale, delay = 0, className }: CountUpProps) {
 
   return (
     <span ref={ref} className={className}>
-      {/*
-        The finished figure for assistive technology, once, and the tick-over
-        for the eye. Announcing the animation would read a different number
-        sixty times a second; announcing both would read the figure twice.
-      */}
+      {/* Screen readers get the finished figure once; the ticking digits are aria-hidden. */}
       <span className="sr-only">{value}</span>
       <span aria-hidden="true">{shown}</span>
     </span>

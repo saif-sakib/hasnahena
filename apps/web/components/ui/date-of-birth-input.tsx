@@ -3,31 +3,10 @@
 import { useMemo, useState } from 'react';
 
 /**
- * Three dropdowns, not a calendar.
- *
- * `<input type="date">` renders the platform date picker, which on Android opens
- * on **this month** and asks the user to travel to 1985. On a low-end phone that
- * is between forty and five hundred taps depending on the vendor's picker, and
- * several of them do not offer a year list at all until you find the small
- * caret beside the month name. It is the correct control for "when is your next
- * appointment" and the wrong one for "when were you born": a calendar is for
- * dates near today, and a birthday is never near today.
- *
- * Day / Month / Year selects are what every registration form settles on in the
- * end. Three taps, no travel, each list short enough to scan, and the year list
- * starts at the oldest plausible member rather than at the current one — because
- * somebody joining a village cooperative is far more likely to be sixty than
- * eighteen, and a list that opens at the wrong end is the same problem again.
- *
- * The value in and out is the ISO `YYYY-MM-DD` the form and the API already use,
- * so nothing downstream changes: `registerApiSchema`, `dateOfBirthProblem` and
- * the age floor all see exactly what they saw before.
- *
- * **Impossible days are not offered.** The day list is the length of the chosen
- * month, so 31 February cannot be selected — the native picker's one real
- * advantage, kept. Changing the month or the year to one that is too short
- * clears the day rather than silently moving it: a form that quietly turns your
- * 31st into the 28th is worse than one that asks again.
+ * Day / month / year selects, not a calendar — Android's date picker opens on
+ * this month and makes a sixty-year-old travel decades. Value in and out is
+ * the same ISO `YYYY-MM-DD`. Days the month does not have are not offered;
+ * changing month/year to a shorter one clears the day rather than moving it.
  */
 
 const MONTHS = {
@@ -56,11 +35,7 @@ export interface DateOfBirthInputProps {
   /** ISO `YYYY-MM-DD`, or empty. */
   value: string;
   onChange: (value: string) => void;
-  /**
-   * Put on the day select, so `focusField('dateOfBirth')` still lands here — and
-   * `${id}Month` / `${id}Year` on the other two, because a control made of three
-   * elements is otherwise addressable only by its translated label.
-   */
+  /** On the day select (so focusField lands here); `${id}Month`/`${id}Year` on the others. */
   id: string;
   locale: 'en' | 'bn';
   invalid?: boolean;
@@ -81,18 +56,9 @@ export function DateOfBirthInput({
   const isBn = locale === 'bn';
 
   /**
-   * The three parts are **local state**, not derived from `value`.
-   *
-   * Deriving them was the first version and it does not work: a complete date is
-   * the only thing that can be represented as `YYYY-MM-DD`, so the moment
-   * somebody picks a day and nothing else the value is empty — and on the next
-   * render the day they just picked is gone. Picking day, then month, then year,
-   * in the order the boxes are arranged, therefore ended with an empty field and
-   * a form that refused to advance while showing all three selections filled in.
-   *
-   * So the parts are held here and `onChange` fires with the ISO string when all
-   * three are set, and with `''` while they are not — which keeps the field
-   * invalid until it is complete, exactly as an empty date input was.
+   * The parts are LOCAL state: a partial date has no ISO form, so deriving them
+   * from `value` erased each pick. onChange sends the ISO string when complete,
+   * '' until then.
    */
   const parse = (iso: string): [number, number, number] => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? '');
@@ -100,14 +66,8 @@ export function DateOfBirthInput({
   };
   const [[year, month, day], setParts] = useState<[number, number, number]>(() => parse(value));
 
-  // A value set from outside — a restored draft, a reset form — wins.
-  //
-  // Adjusted **during render** against the previous prop rather than in an
-  // effect. React documents this as the way to reset state when a prop changes;
-  // an effect that calls `setState` renders once with the stale value and then
-  // again, which is both a flash and a cascading-render lint warning. It never
-  // fights a half-finished selection, because while the user is mid-way the
-  // composed value is `''` and so is the parent's.
+  // An outside value (restored draft, reset) wins — adjusted during render
+  // against the previous prop, not in an effect.
   const [lastValue, setLastValue] = useState(value);
   if (value !== lastValue) {
     setLastValue(value);
@@ -115,9 +75,7 @@ export function DateOfBirthInput({
   }
 
   const thisYear = new Date().getFullYear();
-  // The newest year anybody eligible could have been born in. A 18-year floor in
-  // 2026 means the list starts at 2008 — offering 2025 would be offering a
-  // refusal.
+  // The newest eligible birth year.
   const newestYear = thisYear - Math.max(0, minimumAge);
   const years = useMemo(
     () => Array.from({ length: OLDEST_YEARS }, (_, i) => newestYear - i),
@@ -131,9 +89,7 @@ export function DateOfBirthInput({
   );
 
   const emit = (y: number, m: number, d: number) => {
-    // A day that no longer exists in the month or year just chosen is dropped
-    // rather than clamped. See the note above: silently turning a 31st into a
-    // 28th is worse than asking again.
+    // A day that no longer exists is dropped, not clamped.
     const dayIsReal = !y || !m || !d || d <= daysInMonth(y, m);
     const nextDay = dayIsReal ? d : 0;
     setParts([y, m, nextDay]);
@@ -145,10 +101,7 @@ export function DateOfBirthInput({
   };
 
   const selectClass = [
-    // `pr-1`, not `px-2`. A native select paints its arrow inside the padding
-    // box, so every pixel of right padding is taken from the text before the
-    // browser will clip it — and the month names are the only options on this
-    // control long enough to notice.
+    // pr-1: a native select's arrow eats right padding, clipping month names.
     'h-11 w-full rounded-sm border bg-white pl-2 pr-1 text-sm',
     // 16px on the phone, because anything smaller makes iOS zoom the viewport on
     // focus and Android renders the option list at a size nobody can read.
@@ -158,19 +111,8 @@ export function DateOfBirthInput({
 
   return (
     <div
-      /*
-       * Not `grid-cols-3`. Three equal thirds gives the month the same width as
-       * a two-digit day, and the month is the only one of the three whose text
-       * is a word: at the width this control gets inside the form's two-column
-       * row, "September" — and "সেপ্টেম্বর", which is longer still — lost its
-       * last character to the select's clip. Day needs two digits, year four,
-       * month a nine- or ten-glyph word, and the tracks now say so.
-       *
-       * `minmax(0, …)` on each rather than a bare `fr`, because a grid item's
-       * automatic minimum is its min-content width, and Chrome reports a
-       * select's min-content as its longest option — which would let the month
-       * push the row wider than its container instead of taking its share of it.
-       */
+      /* Unequal minmax(0,…) tracks: the month is a word (and wider in Bengali);
+      minmax(0) stops a select's min-content widening the row. */
       className={`grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)_minmax(0,1.1fr)] gap-2 ${className ?? ''}`}
     >
       <select

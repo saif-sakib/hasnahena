@@ -28,11 +28,8 @@ interface DeleteGalleryResult {
 
 /** Revalidate all gallery-related paths */
 function revalidateGalleryPaths() {
-  // WO-73: the homepage and /gallery both read through `getPublicGalleryItems`,
-  // which is cached under this tag. Without the bust an admin uploads a photo,
-  // sees nothing on the homepage, and uploads it again.
-  // updateTag, not revalidateTag: this runs in a Server Action, where the
-  // admin who just uploaded the image is the very next reader of the page.
+  // The homepage and /gallery read through the cached getPublicGalleryItems
+  // (WO-73). updateTag: the uploader is the very next reader.
   updateTag(GALLERY_TAG);
   revalidatePath('/gallery');
   revalidatePath('/[locale]/gallery');
@@ -41,15 +38,7 @@ function revalidateGalleryPaths() {
   revalidatePath('/[locale]/dashboard/worker/content');
 }
 
-/**
- * Upload gallery image server action.
- *
- * Staff, not admins. The gallery is a field worker's tool — they are the ones at
- * the distribution with a phone — and it is one of the two management screens a
- * worker was given. Nothing else on Content & Media is theirs: the public copy
- * and the brand assets go through `PUT /api/v1/settings`, which is admin-only,
- * and the screen hides those sections rather than letting them 403.
- */
+/** Upload a gallery image. Staff, not admins — workers photograph distributions. */
 export async function uploadGalleryAction(
   formData: FormData
 ): Promise<UploadGalleryResult> {
@@ -132,10 +121,7 @@ export async function uploadGalleryAction(
   }
 }
 
-/**
- * Delete gallery item server action
- * Deletes from database and Cloudinary
- */
+/** Delete a gallery item from the database and Cloudinary. */
 export async function deleteGalleryAction(
   id: number,
   authTokenFromClient?: string
@@ -194,9 +180,7 @@ export async function deleteGalleryAction(
   }
 }
 
-/**
- * Update gallery item with new image
- */
+/** Replace a gallery item's image. */
 export async function updateGalleryImageAction(
   id: number,
   formData: FormData

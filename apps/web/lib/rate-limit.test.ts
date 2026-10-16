@@ -4,10 +4,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 const { callerAddress } = await import('./rate-limit');
 
-// TEST-07. `callerAddress` is the key the rate limiter counts against. If a
-// caller can choose it, they get a fresh bucket per request and the limiter is
-// decorative — which matters here because the endpoint it guards is the
-// membership-enumeration oracle SEC-08 was opened for.
+// TEST-07: a caller must not be able to choose its rate-limit key.
 
 const req = (headers: Record<string, string>) =>
   new Request('https://example.test/api/v1/registrations', { headers });
@@ -25,10 +22,7 @@ describe('callerAddress', () => {
   });
 
   it('takes the RIGHTMOST x-forwarded-for entry, not the leftmost', () => {
-    // The rightmost entry is the one the nearest trusted proxy appended.
-    // Everything to its left is whatever the caller claimed, so keying on the
-    // leftmost — which is the common mistake, and what chi's RealIP does — lets
-    // one caller mint unlimited buckets by varying a header they control.
+    // The rightmost entry, never the caller-controlled leftmost.
     expect(callerAddress(req({ 'x-forwarded-for': '9.9.9.9, 203.0.113.9' }))).toBe('203.0.113.9');
   });
 

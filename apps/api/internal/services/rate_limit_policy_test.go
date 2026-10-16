@@ -15,18 +15,8 @@ import (
 // WO-85 — the revocation marker must outlive the tokens it revokes
 // ---------------------------------------------------------------------------
 
-// This test CANNOT be made red without changing a config default, and that is
-// the point of writing it down.
-//
-// The marker used to be written with a hardcoded `INTERVAL '24 hours'`, which is
-// exactly JWT_EXPIRY_SECONDS' default of 86400. It was safe only by coincidence:
-// a marker is always created after the token it revokes, so it outlived it by
-// the gap between the two. Raise JWT_EXPIRY_SECONDS past 86400 — a one-line
-// change in a Render dashboard, with nothing anywhere warning against it — and
-// revoked tokens come back to life when the marker expires first, silently, on
-// both backends at once.
-//
-// Deriving the lifetime from the token lifetime is what removes the coincidence.
+// The marker lifetime is derived from JWT_EXPIRY_SECONDS, so raising the token
+// lifetime cannot resurrect revoked tokens.
 func TestTheRevocationMarkerOutlivesTheLongestIssuableToken(t *testing.T) {
 	expiries := []int64{
 		0,
@@ -101,11 +91,8 @@ func TestRemainingTriesResetsAfterEachLockout(t *testing.T) {
 	}
 }
 
-// The tension WO-89 names, pinned in both directions. The counter keyed on the
-// identifier alone is reachable by anybody who knows a member's phone number, so
-// it must never grow into something that keeps that member out of their own
-// savings for an hour. The pair must, or a sustained attack costs the attacker
-// nothing.
+// Only the identifier+address pair escalates; the identifier alone never
+// locks a member out for long.
 func TestOnlyTheIdentifierAndAddressPairEscalates(t *testing.T) {
 	flat := rateLimitPolicies[RateLimitActionLogin]
 	if len(flat.Steps) != 1 {
@@ -170,10 +157,7 @@ func goFilesUnder(t *testing.T, root string) []string {
 	return files
 }
 
-// A rate limit is only as good as the policy behind it, and an action nobody
-// named gets defaultRateLimitPolicy — five attempts and a flat thirty seconds —
-// whatever the endpoint actually needs. A string literal at the call site is how
-// that happens without anyone deciding it, so it is not allowed past this test.
+// Every action passed to the limiter is a declared constant with a policy.
 func TestEveryRateLimitedActionIsDeclared(t *testing.T) {
 	fset := token.NewFileSet()
 

@@ -7,13 +7,7 @@ import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/utils';
 import { getAccessToken } from '@/lib/api';
 
-/**
- * The guarantor's half of FR-11.
- *
- * The endpoint behind this has existed and worked since WO-29; until 2026-08-17
- * nothing in the app called it, so a nominated guarantor had no way to accept or
- * decline and every application sat in PENDING_GUARANTOR forever.
- */
+/** The guarantor's half of FR-11: accept or decline a nomination. */
 
 export interface GuarantorRequestItem {
   id: string;
@@ -80,9 +74,7 @@ export function GuarantorRequests({ requests, onResolved }: Props) {
       </header>
 
       <div className="space-y-3 px-4 py-3">
-        {/* Stated before the buttons, not after: accepting puts this member's own
-            savings behind someone else's debt, and the default waterfall will
-            take them. */}
+        {/* Stated before the buttons: accepting puts this member's savings behind the debt. */}
         <p className="flex items-start gap-2 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
           <span>{t('guarantorRequestsIntro')}</span>

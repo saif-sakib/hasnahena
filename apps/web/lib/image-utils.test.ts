@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { validateImageFile, UPLOAD_TYPES, formatFileSize, getInitials } from './image-utils';
 import { REGISTRATION_UPLOAD_LIMITS } from './validation/registration';
 
-// WO-55. The registration documents are NID scans, member photos and
-// signatures — regulatory records, in a third-party account with no export
-// (DATA-06). This is the gate they pass through, and it had no test.
-//
-// A file of the wrong type does not fail loudly at Cloudinary: it uploads as
-// the wrong resource type and is unrecoverable in the same way a wrong balance
-// is.
+// WO-55: the upload type/size gate for registration documents.
 
 function fileOf(type: string, sizeBytes = 1024): File {
   const file = new File([new Uint8Array(1)], 'document', { type });

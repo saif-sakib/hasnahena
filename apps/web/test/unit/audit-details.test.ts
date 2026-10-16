@@ -1,16 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readableDetails, isRetiredId } from "@/lib/audit-details";
 
-/**
- * The real row, from production, 2026-09-01 14:09 — reported by the owner as
- * "Why Instalment still showing gibberish value?".
- *
- * The migration that made every id its own document number (ADR-044) remapped
- * the `entityId` column and could not touch `details`, because `audit_logs`
- * refuses UPDATE and the one suspension of that trigger was a single sanctioned
- * statement block. So the row names one loan twice: once as the number it has
- * now, once as the key it had then.
- */
+/** A real pre-ADR-044 audit row that names one loan by its new number and its old key. */
 const REAL_ROW = {
   entityId: "LOAN-2026-000002",
   details:
@@ -27,9 +18,7 @@ describe("a retired identifier in an older audit sentence", () => {
   });
 
   it("leaves the identifiers that are already readable alone", () => {
-    // The account number and the receipt are not retired shapes and must
-    // survive untouched — this is the assertion that stops a broad regex from
-    // eating the parts of the sentence that were always correct.
+    // Current identifiers must survive untouched.
     const out = readableDetails(REAL_ROW.details, REAL_ROW.entityId)!;
     expect(out).toContain("ACC-KH-33003");
     expect(out).toContain("REP-2026-000002");

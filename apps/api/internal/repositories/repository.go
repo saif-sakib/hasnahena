@@ -1,8 +1,7 @@
 package repositories
 
-// The repository type itself and the helpers every other file here leans on:
-// audit and notification inserts that must run inside the caller's transaction,
-// id and document-number allocation, and the system_config readers.
+// The repository type and shared helpers: in-transaction audit/notification
+// inserts, id and document-number allocation, system_config readers.
 
 import (
 	"context"
@@ -28,18 +27,8 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-// disbursedLoanStatuses names the loans whose principal actually left the fund.
-//
-// Interpolated into SQL rather than passed as a parameter because it is a fixed
-// set of enum labels, not user input; `enum-literals.test.ts` checks that every
-// label here is one this schema declares.
-//
-// It exists because three places counted "disbursed" three ways: the admin
-// dashboard summed every row (so a REJECTED application counted as lending),
-// GetLoanStats summed ACTIVE/COMPLETED/DEFAULTED but forgot SETTLED (so a loan
-// closed against a member's savings vanished from both the total and the
-// recovery rate), and the loans screen used all four. Three answers to "how
-// much has the foundation lent?" on three screens a worker can open at once.
+// disbursedLoanStatuses: loans whose principal left the fund — the one
+// definition every screen uses. Labels checked by enum-literals.test.ts.
 const disbursedLoanStatuses = `('ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED')`
 
 func normalizedRolePtr(role string) *string {
@@ -50,12 +39,8 @@ func normalizedRolePtr(role string) *string {
 	return &normalized
 }
 
-// insertAuditLogTx appends an audit row inside the caller's transaction.
-//
-// Every balance change must leave one (CLAUDE.md rule 2), and it must share the
-// posting's transaction: an audit row written separately can survive a rollback
-// and describe money that never moved. audit_logs is append-only — a correction
-// appends a second row, it never edits the first (rule 6).
+// insertAuditLogTx appends an audit row inside the posting's transaction
+// (rules 2 and 6).
 func (r *UserRepository) insertAuditLogTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -65,8 +50,7 @@ func (r *UserRepository) insertAuditLogTx(
 	performedBy string,
 	details string,
 ) error {
-	// No `id`. The key is a sequence the database owns (ADR-044) — a log is read
-	// in the order it happened, and the key is what says what that order is.
+	// No id: the key is a database sequence (ADR-044).
 	_, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", details, "createdAt")
 		VALUES ($1, $2, $3, $4, $5, NOW())
@@ -98,10 +82,8 @@ func newID(prefix string) (string, error) {
 	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(b)), nil
 }
 
-// nextDocumentNumber allocates the next receipt, withdrawal, loan or repayment
-// number in its series. It must be called with the same transaction as the
-// posting it identifies: the number is then only consumed if the money actually
-// moves, and concurrent postings can never share a number.
+// nextDocumentNumber allocates the next number in a series. Call it with the
+// posting's transaction so a number is consumed only if money moves.
 func (r *UserRepository) nextDocumentNumber(ctx context.Context, tx pgx.Tx, series string) (string, error) {
 	year := utils.CurrentSequenceYear()
 
@@ -129,24 +111,8 @@ func (r *UserRepository) generateNextAccountNo(ctx context.Context, tx pgx.Tx) (
 	return utils.FormatAccountNo(nextSequence), nil
 }
 
-// A note on the Tx variants below, which matters more than it looks.
-//
-// The plain readers use r.db, so calling one *while holding a transaction*
-// takes a SECOND connection out of the pool. Under concurrency that deadlocks:
-// with N goroutines and a pool of N, every connection is held by an open
-// transaction and every transaction is waiting for a free connection to read a
-// config key. Nothing times out, because nothing is doing anything wrong — the
-// pool is simply empty and stays empty.
-//
-// This was latent for a long time. `AddMemberWithdrawal` already read
-// `loan.allowActiveLoanWithdrawal` from the pool inside its transaction, and
-// only escaped because `activeLoan > 0 &&` short-circuits it away in the common
-// case. Adding an unconditional read hung TestConcurrentWithdrawalsCannotOverdraw
-// immediately and permanently.
-//
-// **Inside a transaction, use the Tx variant.** It also reads the value the
-// transaction can see, which is the correct answer rather than an incidentally
-// similar one.
+// Inside a transaction, use the Tx readers: the plain ones take a second pool
+// connection and deadlock under concurrency (ADR-017).
 func (r *UserRepository) getSystemConfigInt64Tx(ctx context.Context, tx pgx.Tx, key string, defaultValue int64) int64 {
 	raw, ok := scanSystemConfigTx(ctx, tx, key)
 	if !ok {
@@ -171,16 +137,7 @@ func (r *UserRepository) getSystemConfigBoolTx(ctx context.Context, tx pgx.Tx, k
 	return parsed
 }
 
-// The withdrawal notice period used to be read here, twice — once through the
-// pool and once inside a transaction — because FR-08 gated both the admin's
-// approval and the worker's payout on it. It gates neither any more: staff pay
-// a withdrawal at the desk when the member asks, and `loan.noticePeriodDays` is
-// now the *courtesy* period a member is asked to give, published to them and
-// enforced by nobody. Nothing in this backend reads it; the member's savings
-// screen and the FAQ do. See ADR-030.
-
-// getMissedPaymentsForDefaultTx is the default threshold, read inside the
-// caller's transaction.
+// getMissedPaymentsForDefaultTx is the default threshold, read in-transaction.
 func (r *UserRepository) getMissedPaymentsForDefaultTx(ctx context.Context, tx pgx.Tx) int {
 	missed := int(r.getSystemConfigInt64Tx(ctx, tx, "loan.missedPaymentsForDefault", 3))
 	if missed < 1 {
@@ -250,22 +207,9 @@ func (r *UserRepository) getLoanPolicy(ctx context.Context) (int64, int64, int) 
 	return minDepositRequired, maxLoanMultiplier, maxInstallmentMonths
 }
 
-// attachLoanSchedule writes the three schedule fields every loan list shows,
-// from the one calculation in internal/money.
-//
-// Before this, "next due date" was whatever column the query nearest to hand
-// happened to have, and the answers disagreed by design: the worker's loan list
-// sent `installmentStartDate` (always in the past on an active loan) and every
-// borrower rendered as overdue; the admin's sent nothing and none did. The two
-// staff dashboards are one component now, so the same four loans read "4
-// overdue" and "0 overdue" depending only on which URL fetched them.
-//
-// `isOverdue` is decided here rather than in the browser for the same reason
-// `matured` is decided here for a withdrawal notice: a second implementation of
-// a policy rule eventually disagrees with the one that acts on it.
-//
-// A loan that is not ACTIVE has no arrears to report — a pending application
-// has no schedule, and a completed or defaulted loan's schedule is over.
+// attachLoanSchedule writes the schedule fields every loan list shows from
+// internal/money, so the browser never re-derives isOverdue. Non-ACTIVE loans
+// report no arrears.
 func attachLoanSchedule(
 	loan map[string]interface{},
 	status string,

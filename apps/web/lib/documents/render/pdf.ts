@@ -1,13 +1,6 @@
 /**
- * PDF renderer — draws the document model with real PDF text primitives.
- *
- * Because documents are English only (ADR-012) there is no complex-script
- * shaping to do, so nothing has to be rasterised. Everything here is vector:
- * the output is selectable, searchable, sharp at any zoom, and a fraction of
- * the size of a captured bitmap. Pagination is explicit — a block that will not
- * fit before `CONTENT_BOTTOM` starts a new page — so content can never be
- * clipped by the page edge, and the footer is painted per page once the total
- * page count is known.
+ * PDF renderer — real vector text (English only, ADR-012, so no shaping).
+ * Explicit pagination before CONTENT_BOTTOM; footers painted per page last.
  */
 
 import jsPDF from 'jspdf';
@@ -220,11 +213,7 @@ class PdfWriter {
     this.y += 8;
   }
 
-  /**
-   * Footers are painted last: the page total is only known once every block has
-   * been laid out. Drawing them here also guarantees the footer sits at a fixed
-   * offset from the page edge on every page, so it can never be clipped.
-   */
+  /** Footers are painted last, once the page total is known. */
   private paintFooters(): void {
     const total = this.doc.getNumberOfPages();
     const org = getOrgNameEn(this.model.org);
@@ -570,8 +559,7 @@ class PdfWriter {
     const count = block.signatures.length;
     if (count === 0) return;
 
-    // A signature row split across a page break is worthless, so it is always
-    // kept whole — including the space above it that makes room for a pen.
+    // A signature row is never split across pages.
     const height = 26;
     this.ensure(height);
     this.y += 12;
@@ -629,11 +617,7 @@ class PdfWriter {
   }
 }
 
-/**
- * Strip glyphs the standard fonts cannot encode, everywhere in the model at
- * once. Doing it here rather than at each `text()` call means no future block
- * type can forget to do it.
- */
+/** Strip unencodable glyphs everywhere in the model at once. */
 function sanitize<T>(value: T): T {
   if (typeof value === 'string') return toPdfSafe(value) as unknown as T;
   if (Array.isArray(value)) return value.map(sanitize) as unknown as T;

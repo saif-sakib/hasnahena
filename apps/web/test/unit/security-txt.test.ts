@@ -26,10 +26,7 @@ describe('/.well-known/security.txt', () => {
     getPublicSettings.mockResolvedValue({ 'org.email': 'contact@hasnahenafoundation.com' });
   });
 
-  // RFC 9116 §2.5.3: a parser must reject a file with no Contact, and §2.5.5
-  // makes Expires mandatory too. A security.txt missing either is not a weaker
-  // disclosure channel, it is an invalid file — which is worse than none,
-  // because it looks like one from the outside.
+  // RFC 9116: Contact and Expires are mandatory.
   it('carries every field RFC 9116 requires', async () => {
     const text = await body();
 
@@ -41,9 +38,7 @@ describe('/.well-known/security.txt', () => {
     expect(field(text, 'Preferred-Languages')).toBe('en, bn');
   });
 
-  // The reason this is generated rather than a file in public/: a date somebody
-  // has to remember to move is a date that stops being true, and nothing here
-  // would have failed when it did.
+  // Generated so the expiry never lapses.
   it('expires in the future, and says so in UTC', async () => {
     const expires = field(await body(), 'Expires');
 

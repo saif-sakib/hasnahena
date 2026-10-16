@@ -18,7 +18,7 @@ system applied no notice period at all — the settings page even carried a labe
 saying so. A control that reports a policy the system does not apply is worse
 than no control, because it eventually gets trusted.
 
-Two shapes were considered. [go-live.md](../go-live.md) suggested a *policy field
+Two shapes were considered. The go-live plan (since folded into [runbook.md](../runbook.md)) suggested a *policy field
 on the withdrawal*: `noticeGivenAt` and the applied period stamped on each
 `transactions` row. That is a migration plus a place for a worker to type a date
 somebody told them.

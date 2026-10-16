@@ -9,48 +9,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Ledger reconciliation — WO-82 (OPS-07).
-//
-// A wrong balance looks exactly like a correct balance until somebody adds it
-// up. Every other control in this codebase guards the moment money moves: the
-// CHECK constraints reject an impossible row, the concurrency tests prove a
-// relative write cannot lose an update, the audit log records who did what.
-// None of them can tell you that the totals still agree *today*, because none of
-// them ever reads the ledger as a whole.
-//
-// That is what this does. It sums the transactions, compares them to the stored
-// balances, and reports what disagrees. It is the one control that would have
-// caught LEDGER-01 the night it landed rather than in an audit months later.
-//
-// ── It never corrects anything ───────────────────────────────────────────────
-//
-// Not as a simplification — as a rule. An automated correction to a ledger is a
-// second defect written on top of the first, and it destroys the evidence needed
-// to understand the first. `audit_logs` is append-only for the same reason
-// (CLAUDE.md rule 6). This function returns a report. A human decides.
-//
-// ── Which statuses mean "money moved" ────────────────────────────────────────
-//
-// ADR-016 says only `CONFIRMED` moved money, and for aggregates over *requests*
-// that is right: a `PENDING` withdrawal is a member's notice and a `PENDING`
-// deposit is a request, and counting either as income was the defect that ADR
-// exists to fix.
-//
-// Reconciliation needs one refinement. `PATCH /member/transactions/{id}/dispute`
-// flips a **CONFIRMED** posting to `DISPUTED` and changes no balance — the
-// dispute is a member's claim that the amount was wrong, not a reversal. So a
-// disputed posting is money that moved, and a reconciliation that only counted
-// `CONFIRMED` would report drift on every open dispute: alarms that are always
-// firing, which is the same as no alarm at all.
-//
-// `REJECTED` and `REVERSED` are the statuses that mean the money did not move,
-// and neither is in this list.
+// Ledger reconciliation (WO-82): sums the transactions, compares them to the
+// stored balances and reports what disagrees. It NEVER corrects (ADR-027).
+// Settled = CONFIRMED plus DISPUTED: a dispute changes no balance (ADR-026).
 const settledStatuses = `('CONFIRMED','DISPUTED')`
 
 // Drift is one disagreement between what the ledger says and what it adds up to.
 type Drift struct {
-	// Check is the stable identifier of the invariant that failed. It is a
-	// metric label, so it is a fixed vocabulary rather than a message.
+	// Check is a stable metric label.
 	Check string
 	// Entity is what to go and look at: ACCOUNT, LOAN or TRANSACTION.
 	Entity   string
@@ -60,9 +26,7 @@ type Drift struct {
 	Actual   int64
 }
 
-// Delta is how far off the stored value is, in whole taka. Positive means the
-// stored balance is larger than the transactions justify — money that exists
-// nowhere but in the balance column.
+// Delta is stored minus expected, in whole taka.
 func (d Drift) Delta() int64 { return d.Actual - d.Expected }
 
 func (d Drift) String() string {
@@ -73,10 +37,8 @@ func (d Drift) String() string {
 // ReconciliationReport is one pass over the whole ledger.
 type ReconciliationReport struct {
 	Drifts []Drift
-	// Scanned is how many rows each check considered. A check that examined
-	// nothing has not passed — it has abstained, and on an empty database that
-	// is the correct and uninteresting answer. On a populated one it means the
-	// query stopped matching and the check has been silently switched off.
+	// Scanned per check: zero on a populated database means the query stopped
+	// matching and the check is silently off.
 	Scanned  map[string]int64
 	Duration time.Duration
 }
@@ -95,9 +57,7 @@ func (r ReconciliationReport) DriftsFor(check string) []Drift {
 // Balanced reports whether the ledger agrees with itself.
 func (r ReconciliationReport) Balanced() bool { return len(r.Drifts) == 0 }
 
-// The check names. Exported because they are metric label values and the
-// integration tests assert on them; a typo in one would silently create a second
-// time series that nobody alerts on.
+// Check names; metric label values asserted by the integration tests.
 const (
 	CheckSavingsBalance  = "savings_balance"
 	CheckLoanBalance     = "loan_balance"
@@ -105,15 +65,8 @@ const (
 	CheckSavingsSnapshot = "savings_snapshot"
 )
 
-// CheckHasAmount says whether a check's drift is measurable in taka.
-//
-// All of them are, now. `transaction_owner` was the exception — it compared a
-// posting's `userId` against the owner of the `accountId` beside it, and the
-// answer was a member's name rather than a number of taka. That check is gone
-// with the column it read: ADR-044 made the account's key the member's own id,
-// so a posting names one person and there is no longer a second column for it to
-// disagree with. An invariant the schema now makes unrepresentable is better
-// than one a job re-checks every hour.
+// CheckHasAmount: every check is measurable in taka (transaction_owner went
+// away with ADR-044).
 func CheckHasAmount(string) bool { return true }
 
 // AllChecks is every invariant this reconciles, in report order.
@@ -124,18 +77,9 @@ var AllChecks = []string{
 	CheckSavingsSnapshot,
 }
 
-// savingsMovement is the signed effect of one transaction row on the account's
-// savings balance, and it has to match what the writers actually do:
-//
-//	DEPOSIT    credits (transaction_repository.go, ApproveWithdrawal/AddMemberDeposit)
-//	DONATION   credits the donation pool's own account (RecordDonation)
-//	WITHDRAWAL debits, including the two waterfall recovery rows
-//
-// LOAN_DISBURSEMENT moves no savings — the cash is handed over, and only
-// `loanBalance` records it. FEE is the donation pool absorbing a defaulted
-// loan; it is written against the borrower's account for traceability and
-// changes no balance at all, which is why it is 0 here and counted in
-// CheckLoanRemaining instead.
+// savingsMovement is the signed effect of a row on savingsBalance, matching
+// the writers: DEPOSIT and DONATION credit, WITHDRAWAL debits (incl. waterfall
+// rows). LOAN_DISBURSEMENT and FEE move no savings; FEE counts in CheckLoanRemaining.
 const savingsMovement = `
 	CASE
 		WHEN t.type IN ('DEPOSIT','DONATION') THEN t.amount
@@ -143,10 +87,7 @@ const savingsMovement = `
 		ELSE 0
 	END`
 
-// Reconcile reads the whole ledger and reports every disagreement.
-//
-// Read-only by construction: there is no UPDATE, no INSERT and no transaction in
-// this function. The caller writes the audit row.
+// Reconcile reports every disagreement. Read-only by construction.
 func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, error) {
 	started := time.Now()
 	report := ReconciliationReport{Scanned: map[string]int64{}}
@@ -171,10 +112,7 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 			`,
 		},
 		{
-			// The account's loanBalance is the sum of what its open loans still
-			// owe. A loan that is COMPLETED, SETTLED or REJECTED owes nothing;
-			// a DEFAULTED one still does, after whatever the waterfall
-			// recovered.
+			// Sum of what open loans still owe (DEFAULTED still owes).
 			name:    CheckLoanBalance,
 			entity:  "ACCOUNT",
 			scanned: `SELECT COUNT(*) FROM accounts`,
@@ -188,12 +126,8 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 			`,
 		},
 		{
-			// Zero interest is an invariant, not a policy setting: a loan can
-			// never owe more than it was lent, minus everything paid against
-			// it. LOAN_REPAYMENT is the member paying; WITHDRAWAL and FEE with
-			// this loanId are the waterfall drawing on savings and on the
-			// donation pool. LOAN_DISBURSEMENT carries the same loanId and is
-			// the principal itself, so it is excluded.
+			// Zero interest: owed = principal − repayments − waterfall draws
+			// (WITHDRAWAL/FEE with this loanId). Disbursement excluded.
 			name:    CheckLoanRemaining,
 			entity:  "LOAN",
 			scanned: `SELECT COUNT(*) FROM loans WHERE status IN ('ACTIVE','DEFAULTED','COMPLETED','SETTLED')`,
@@ -215,15 +149,8 @@ func (r *UserRepository) Reconcile(ctx context.Context) (ReconciliationReport, e
 			`,
 		},
 		{
-			// The one that catches a lost update *retrospectively*. `savingsAfter`
-			// is the balance as it stood when the posting was made, and it is
-			// what a reprinted passbook and every receipt are built from — so a
-			// snapshot that disagrees with the running total is a receipt in a
-			// member's hand that disagrees with their account.
-			//
-			// Rows with no snapshot are skipped rather than failed: the loan
-			// disbursement and waterfall rows legitimately record only
-			// `loanAfter`, or nothing.
+			// savingsAfter vs the running total — the receipt in a member's hand
+			// vs their account. Rows without a snapshot are skipped.
 			name:    CheckSavingsSnapshot,
 			entity:  "TRANSACTION",
 			scanned: `SELECT COUNT(*) FROM transactions WHERE "savingsAfter" IS NOT NULL`,
@@ -280,17 +207,8 @@ func collectDrifts(rows pgx.Rows, check, entity string) ([]Drift, error) {
 	return out, rows.Err()
 }
 
-// RecordDrift appends one audit row per check that disagreed.
-//
-// One row per check rather than one per drifting account: a lost update on a
-// popular account can produce thousands of drifting snapshots, and a job that
-// writes thousands of audit rows every ten minutes turns the append-only log
-// into the thing nobody can read. The row names the check, the count, the total
-// taka and the first few entities.
-//
-// `performedBy` is NULL — no human did this, and inventing a system user id
-// would put a row in the log attributing an action to somebody who does not
-// exist.
+// RecordDrift appends one audit row per drifting check (not per account), with
+// performedBy NULL — no human did this.
 func (r *UserRepository) RecordDrift(ctx context.Context, report ReconciliationReport) error {
 	for _, check := range AllChecks {
 		drifts := report.DriftsFor(check)

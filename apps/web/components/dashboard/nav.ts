@@ -18,17 +18,8 @@ import type { LucideIcon } from "lucide-react";
 import type { DashboardRole } from "./role";
 
 /**
- * The one description of what each dashboard contains.
- *
- * The sidebar renders it — one list, so a screen that exists for a role is
- * reachable or it is not. Before this there were four hand-maintained lists —
- * two nav arrays and two grids of `<Link>` cards — and they had already
- * diverged: the worker overview linked to five screens, the worker sidebar
- * listed six, and neither mentioned the two management tools a worker is
- * supposed to have. The overview's copy of the list is gone entirely; the
- * `blurb` fields it rendered went with it.
- *
- * `roles` is presentation only. See the note in role.tsx: the API decides.
+ * The one description of what each dashboard contains; the sidebar renders it.
+ * `roles` is presentation only — the API decides (role.tsx).
  */
 export interface DashboardNavItem {
   /** Stable key, and the suffix of the route under `/dashboard/{role}`. */

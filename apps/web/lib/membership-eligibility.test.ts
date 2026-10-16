@@ -10,19 +10,7 @@ import {
   minimumAgeYears,
 } from '@/lib/membership-eligibility';
 
-/**
- * The age floor on membership.
- *
- * Until 2026-08-26 `dateOfBirth` was checked only for "parses" and "not in the
- * future", so **a date of birth of yesterday created a pending member**.
- * Members enter a financial contract and can borrow against their savings.
- *
- * The floor is a setting rather than a constant (the owner's decision), which
- * makes two things worth testing rather than one: the arithmetic, and what
- * happens when the setting is missing, blank or nonsense — because a
- * misconfiguration here refuses every applicant, and the message they see is
- * three screens from the cause.
- */
+/** The membership age floor: the arithmetic, and a missing or nonsense setting. */
 
 const AS_OF = new Date('2026-08-26T12:00:00Z');
 
@@ -44,9 +32,7 @@ describe('minimumAgeYears', () => {
   });
 
   it('refuses a value outside the bounds instead of applying it', () => {
-    // A mistyped `180` would refuse every applicant alive, with a message about
-    // their age and no hint that a settings box is the cause. Falling back is
-    // the safe direction: the foundation gets the ordinary rule, not a wall.
+    // A nonsense setting falls back to the default rather than refusing everyone.
     for (const value of ['0', '-5', '180', '1000']) {
       expect(minimumAgeYears({ 'membership.minimumAgeYears': value }))
         .toBe(DEFAULT_MINIMUM_AGE_YEARS);
@@ -61,19 +47,14 @@ describe('minimumAgeYears', () => {
 
 describe('ageInYears', () => {
   it('counts by the calendar, not by dividing elapsed milliseconds', () => {
-    // Someone whose birthday has not yet arrived this year is a year younger
-    // than the arithmetic version says. This number decides whether a person may
-    // hold a financial account, so the off-by-one is not academic: it admits
-    // seventeen-year-olds for up to a year each.
+    // A birthday not yet reached this year counts as a year younger.
     expect(ageInYears('2008-08-25', AS_OF)).toBe(18); // birthday yesterday
     expect(ageInYears('2008-08-26', AS_OF)).toBe(18); // birthday today
     expect(ageInYears('2008-08-27', AS_OF)).toBe(17); // birthday tomorrow
   });
 
   it('handles a 29 February birthday', () => {
-    // 2008 was a leap year; 2026 is not. On 26 August the anniversary has
-    // passed either way, so the answer is 18 whichever convention is used for
-    // the non-leap-year birthday itself.
+    // Leap-day birthday in a non-leap year.
     expect(ageInYears('2008-02-29', AS_OF)).toBe(18);
   });
 

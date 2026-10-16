@@ -4,37 +4,16 @@ import { hasDatabase, seedAccounts, disconnect } from "./fixtures/accounts";
 import { loginAs, waitForContent } from "./fixtures/session";
 
 /**
- * WO-74 — how many requests one open dashboard tab makes in a minute.
- *
- * The number this replaces was measured, not estimated: the shell ran three
- * intervals — notifications at 20 s, support signals at 10 s, and threads plus
- * the open thread's messages at 7 s — which is about 26 requests a minute, per
- * tab, forever, whether or not anything had changed. One full browser-suite run
- * counted 288 requests to `/v1/dashboard/notifications` and 144 to
- * `/v1/dashboard/support/threads`; that measurement was that code.
- *
- * At twenty concurrent members it was ~500 requests/minute against a free
- * Render instance and a free Neon compute, for data that changes a few times an
- * hour.
- *
- * This spec is slow on purpose. There is no way to observe a polling interval
- * except by waiting one, and a threshold measured over ten seconds would pass
- * on a 20-second interval it was meant to catch.
+ * WO-74 — requests one open dashboard tab makes in a minute (once ~26/min/tab).
+ * Slow on purpose: a polling interval can only be observed by waiting it out.
  */
 
 /** The window we count over. Long enough to catch a 60 s interval firing once. */
 const WINDOW_MS = 70_000;
 
 /**
- * What one tab may ask for in that window.
- *
- * The polls run at three minutes each since the 2026-08-27 cost pass, so over a
- * seventy-second window each endpoint fires at most once — usually not at all.
- * Six is left as the ceiling rather than tightened to one: this exists to catch
- * a poll that has crept back to seconds, and a bound that fails when somebody
- * legitimately moves an interval from 180 s to 120 s is a bound that gets
- * deleted. The gap that matters is against the ~30 the original intervals
- * produced over the same window.
+ * Per-endpoint ceiling over the window. Polls run every 3 min; 6 catches a
+ * poll creeping back to seconds without failing on a reasonable change.
  */
 const MAX_REQUESTS_PER_ENDPOINT = 6;
 
@@ -51,14 +30,7 @@ test.describe("dashboard background traffic", () => {
     await disconnect();
   });
 
-  /**
-   * Both roles, because they poll different sets.
-   *
-   * This measured a MEMBER only, and a member's shell does not subscribe to the
-   * approvals queue at all — so the sidebar's pending-approvals badge, which is
-   * staff-only, was a fourth poll that no budget could see. A guard that cannot
-   * observe the thing most likely to grow is not guarding it.
-   */
+  /** Both roles — staff poll the approvals badge, which a member does not. */
   for (const role of ["MEMBER", "ADMIN"] as const) {
     test(`an idle ${role.toLowerCase()} tab is quiet for a minute`, async ({
       page,
@@ -114,18 +86,8 @@ test.describe("dashboard background traffic", () => {
     });
 
     /**
-     * Hiding the tab, by hand.
-     *
-     * The obvious version — open a second page and `bringToFront()` — does not
-     * work, and finding that out is worth recording: in headless Chromium the
-     * first page's `document.visibilityState` stays `'visible'`, so the spec
-     * measured a *foreground* tab and reported its ordinary 60-second polls as
-     * a failure of the thing it was meant to prove.
-     *
-     * Redefining the property and dispatching the event drives exactly what the
-     * browser drives, and exactly what `usePageVisible` subscribes to. It is a
-     * simulation of a hidden tab rather than a real one, and that is the honest
-     * limit of this assertion.
+     * Hide the tab by redefining visibilityState and dispatching the event —
+     * headless Chromium keeps a backgrounded page "visible". A simulation, honestly.
      */
     await page.evaluate(() => {
       Object.defineProperty(document, "hidden", {
@@ -160,16 +122,7 @@ test.describe("dashboard background traffic", () => {
   }) => {
     test.setTimeout(120_000);
 
-    /**
-     * The half of WO-74 that a request count cannot show.
-     *
-     * `GET /v1/dashboard/support/stream` and its ticket endpoint had existed
-     * for some time and had never been called: `EventSource` appeared nowhere
-     * in `apps/web`, and the popup refetched threads *and* the open thread's
-     * messages every 7 seconds instead. Lowering the interval would have looked
-     * like the same improvement in the counts above while leaving the stream
-     * unused, so this asserts the mechanism rather than the symptom.
-     */
+    /** The SSE stream is actually used (the mechanism, not just lower counts). */
     const requests: string[] = [];
     page.on("request", (request) => {
       const url = request.url();

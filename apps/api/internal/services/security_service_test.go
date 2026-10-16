@@ -5,10 +5,7 @@ import (
 	"time"
 )
 
-// The first-login flow changes the temporary password (which revokes every
-// token for that user) and then signs in again a few hundred milliseconds
-// later. The new token must survive, or the member logs in to a dashboard that
-// 401s on every call.
+// First login re-signs ms after revoking; the new token must survive.
 func TestTokenIssuedBeforeRevocation(t *testing.T) {
 	// A fixed instant with a sub-second component, which is what NOW() gives.
 	revokedAt := time.Date(2026, 8, 15, 12, 0, 5, 400_000_000, time.UTC)

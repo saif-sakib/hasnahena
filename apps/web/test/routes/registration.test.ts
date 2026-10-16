@@ -1,18 +1,6 @@
-// WO-59 and WO-55 — the registration success path, and the compensation that
-// undoes it.
-//
-// This route is the only place in the application that writes a user row and
-// then does more work that can fail. It already handles that carefully: it
-// records each Cloudinary public id the moment it lands, deletes them all if a
-// later upload throws, deletes the user row, and answers 503. What was missing
-// was any test of it — so "careful" was a reading of the code, not a fact about
-// its behaviour.
-//
-// Cloudinary is stubbed at the module boundary. CI must never touch the real
-// account: it holds members' NID scans.
-//
-//   scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// WO-59 / WO-55 — the registration success path and its compensation (uploads
+// and the user row undone on a later failure). Cloudinary is stubbed — CI must
+// never touch the real account. Needs a database.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
@@ -53,11 +41,7 @@ const cloudinary = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/cloudinary', async (importOriginal) => {
-  // `personFolder` is pure — it turns an account number into the folder path —
-  // so it comes from the real module rather than being restated here. Only the
-  // two functions that talk to Cloudinary over the network are replaced. A
-  // hand-listed mock silently loses any export the route later starts using,
-  // which is how adding `personFolder` turned four passing tests into a 503.
+  // Real module, network functions replaced — a hand-listed mock loses new exports.
   const actual = await importOriginal<typeof import('@/lib/cloudinary')>();
   return {
     ...actual,
@@ -124,13 +108,7 @@ async function removeApplicant() {
   }
 }
 
-/**
- * Forget every registration attempt this address has made.
- *
- * `consumeRateLimit` keys on the action and the caller's address; the harness
- * sends no forwarded-for header, so every request in this file shares one
- * bucket.
- */
+/** Reset this address's submission rate limit (the harness shares one bucket). */
 async function clearSubmissionRateLimit() {
   // `rate_limits.id` is the composite key `action:identifier` — there is no
   // separate action column.
@@ -153,10 +131,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     cloudinary.reset();
     vi.clearAllMocks();
     await removeApplicant();
-    // The submission throttle added 2026-08-26 counts every POST from one
-    // address, and this suite makes far more than five. Cleared per test rather
-    // than raised, so the limit stays exactly what production uses — and so the
-    // test below, which asserts it actually fires, is testing the real number.
+    // Cleared per test, so the limit stays the production number.
     await clearSubmissionRateLimit();
   });
 
@@ -172,11 +147,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
       include: { documents: true, nominee: true, account: true },
     });
     expect(user?.status).toBe('PENDING');
-    // **No account number.** It is allocated when the application is approved,
-    // by `ApproveRegistration` and nowhere else. Allocating it here meant
-    // refusing the first applicant consumed `ACC-KH-33001` for ever and handed
-    // the next one `002` — a hole in the foundation's register, punched by a
-    // public form. What the applicant gets is their application's own number.
+    // No account number until approval (ADR-039).
     expect(user?.accountNo).toBeNull();
     expect(user?.formNumber).toMatch(/^APP-\d{4}-\d{6}$/);
     expect(body.user?.formNumber).toBe(user?.formNumber);
@@ -191,15 +162,8 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     // has somewhere to deposit the moment they are approved.
     expect(user?.account?.savingsBalance).toBe(BigInt(0));
 
-    // WO-59. This notification used to be started and never awaited, so on a
-    // platform that freezes the function at the response it might never be
-    // written — and no admin would know a registration was waiting.
-    //
-    // Verified: this assertion passes against the un-awaited version too,
-    // because Node settles the promise anyway. It pins the contract — one
-    // registration, one admin notification, which nothing checked before — and
-    // the regression guard for the floating promise itself is the census in
-    // test/unit/floating-promises.test.ts, which was seen to fail against it.
+    // One registration, one admin notification (the floating-promise census is
+    // test/unit/floating-promises.test.ts).
     const notification = await testPrisma().notification.findFirst({
       where: { type: 'NEW_REGISTRATION', targetRole: 'ADMIN', message: { contains: user!.nameEn } },
     });
@@ -218,18 +182,13 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
     const res = await registrations.POST(submission());
     expect(res.status).toBe(503);
 
-    // No user row. Leaving one behind is worse than failing: the phone and
-    // email are then taken, and the member's second attempt is refused with
-    // "already exists" — a dead end only an admin can clear, caused by an
-    // image host being briefly unavailable.
+    // No user row left behind (email and phone would stay taken).
     const user = await testPrisma().user.findFirst({
       where: { OR: [{ phone: APPLICANT.phone }, { email: APPLICANT.email }] },
     });
     expect(user).toBeNull();
 
-    // No orphaned assets either. These are NID scans in an account with no
-    // export (DATA-06), so an orphan is a document nobody can find and nobody
-    // can delete.
+    // No orphaned assets.
     expect(cloudinary.uploaded.length).toBeGreaterThan(0);
     expect([...cloudinary.deleted].sort()).toEqual([...cloudinary.uploaded].sort());
   });
@@ -281,12 +240,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
   // -------------------------------------------------------------------------
 
   it('throttles submissions from one address', async () => {
-    // The GET beside this route has been throttled since SEC-08; the POST had
-    // no limit at all, while being the far more expensive of the two — a user
-    // row, four Cloudinary uploads, and a **global** advisory lock to allocate
-    // an account number. Unthrottled that is an approvals queue anybody can
-    // flood and, because the lock is global, a way to serialise every genuine
-    // registration behind a script.
+    // The POST is throttled per address.
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       const res = await registrations.POST(submission({
         phone: `019555091${String(attempt).padStart(2, '0')}`,
@@ -310,9 +264,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
   });
 
   it('refuses an applicant below the minimum age, and says what the limit is', async () => {
-    // The rule this route had was "the date parses and is not in the future",
-    // so a date of birth of *yesterday* created a pending member. Members enter
-    // a financial contract and can borrow.
+    // The age floor applies.
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
@@ -335,9 +287,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
   });
 
   it('refuses an applicant who nominates themselves', async () => {
-    // A nominee is who receives the account if the member dies. The same NID in
-    // both boxes was accepted and produced a nomination that can never be acted
-    // on.
+    // A member cannot be their own nominee.
     const res = await registrations.POST(submission({ nomineeNid: payload().nidNumber }));
     const body = (await res.json()) as { field?: string; code?: string };
 
@@ -348,10 +298,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
   });
 
   it('refuses a second live member holding the same NID, and names that field', async () => {
-    // NID was not unique at all: the one document proving two applicants are
-    // different people. The old conflict branch compared phone and called
-    // everything else "email", so this would have told the applicant their
-    // email was taken.
+    // A duplicate NID is refused, naming the NID.
     expect((await registrations.POST(submission())).status).toBe(201);
 
     const res = await registrations.POST(submission({
@@ -368,10 +315,7 @@ describe.skipIf(skip)('POST /api/v1/registrations', () => {
   });
 
   it('lets a rejected applicant apply again with the same email, phone and NID', async () => {
-    // The owner's ruling, and the reason uniqueness is scoped to live rows.
-    // What this replaces: rejection overwrote the applicant's email and phone
-    // on the spot to free the unique constraint — which is precisely why
-    // nothing could tell them they had been rejected.
+    // A rejected applicant may reapply with the same details.
     const first = await registrations.POST(submission());
     expect(first.status).toBe(201);
     const created = (await first.json()) as { user: { id: string } };

@@ -22,34 +22,10 @@ interface GalleryProps {
 }
 
 /**
- * The public photo gallery, on the home page and on `/gallery`.
- *
- * Two things this used to do that it does not any more, both found by the T-09
- * audit:
- *
- *  1. **A Like button that liked nothing.** No endpoint in either backend
- *     accepts a like — `likes` is a column an admin sets and nothing else
- *     writes. The heart filled, the count went up by one in the DOM, and a
- *     reload discarded it. For a signed-out visitor it went further and raised
- *     a red "Login Required" toast, advertising a members' feature that does
- *     not exist. A control that does nothing is worse than no control, because
- *     it will eventually be trusted — the same rule
- *     `UNIMPLEMENTED_CONFIG_KEYS` states for settings.
- *  3. **A lightbox that only escaped its page by luck.** `fixed inset-0 z-50`
- *     spans the viewport only when no ancestor has made itself the containing
- *     block or opened a stacking context. On `/gallery` nothing does, so it
- *     worked. On the home page the same component sits inside
- *     `<section class="relative overflow-hidden">` > `<div class="relative
- *     z-10">`, and that `z-10` is a stacking context: the overlay's `z-50`
- *     became 50-within-10, so the `fixed z-50` header painted over it and the
- *     section's `overflow-hidden` clipped what was left. It is rendered into
- *     `document.body` through a portal now, which is the only version that
- *     cannot be broken by whatever a page wraps the grid in.
- *  2. **A lightbox reachable only by mouse.** The card was a `<div>` with an
- *     `onClick`, so nothing opened it from a keyboard; once open there was no
- *     Escape, and the close, previous and next buttons were icons with no
- *     accessible name. `accessibility.spec.ts` could not see any of it, because
- *     it can only inspect what is rendered and the lightbox starts closed.
+ * The public photo gallery (home page and /gallery). The lightbox is portalled
+ * into document.body (a parent stacking context once trapped it under the
+ * header), keyboard-operable with named controls. No like button — nothing
+ * stores likes.
  */
 export function Gallery({ items, locale }: GalleryProps) {
   const t = useTranslations("gallery");
@@ -77,13 +53,7 @@ export function Gallery({ items, locale }: GalleryProps) {
     [items.length],
   );
 
-  // Escape closes, the arrow keys move. Without this the only way out of the
-  // lightbox on a keyboard was the browser's back button, which leaves the
-  // page — and on a phone the hardware back button does the same thing, so this
-  // is not only a desktop concern.
-  // Hold the page still while the lightbox is up. Without this a phone scrolls
-  // the gallery underneath the overlay, and closing it leaves the reader
-  // somewhere they never chose to be.
+  // Escape closes and arrows move; the page underneath is held still.
   useEffect(() => {
     if (selectedImage === null) return;
     const previous = document.body.style.overflow;
@@ -127,13 +97,7 @@ export function Gallery({ items, locale }: GalleryProps) {
             key={item.id}
             className="overflow-hidden group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-700"
           >
-            {/*
-              A real <button> around the image, not an onClick on the card. It
-              is what makes the lightbox reachable by keyboard and by a switch
-              device, and it is what gives the control a name for a screen
-              reader — the caption, which is the only thing that distinguishes
-              one photo from the next.
-            */}
+            {/* A real <button>: keyboard- and screen-reader-reachable, named by the caption. */}
             <button
               type="button"
               className="block w-full text-left cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
@@ -173,13 +137,7 @@ export function Gallery({ items, locale }: GalleryProps) {
         ))}
       </div>
 
-      {/* Lightbox — rendered into document.body, see the note above. */}
-      {/*
-        No mounted flag is needed to make the portal safe for the server:
-        selectedImage starts null, so this renders on the server and through
-        hydration as nothing, and only a click can reach createPortal — by
-        which point there is a document to portal into.
-      */}
+      {/* Lightbox, portalled; selectedImage starts null, so SSR renders nothing here. */}
       {selectedImage !== null &&
         createPortal(
           <div
@@ -229,13 +187,7 @@ export function Gallery({ items, locale }: GalleryProps) {
               </Button>
             )}
 
-            {/*
-              The image area needs a definite height because next/image `fill`
-              is absolutely positioned and contributes none. dvh rather than vh:
-              on Android the address bar makes vh taller than what is actually
-              on screen, which pushed the caption off the bottom of the phone
-              this site is mostly read on.
-            */}
+            {/* Definite height for next/image `fill`; dvh, since Android's vh includes the address bar. */}
             <div
               className="relative w-full max-w-5xl overflow-hidden rounded-sm border border-white/10 bg-slate-950/80 shadow-2xl"
               onClick={(e) => e.stopPropagation()}

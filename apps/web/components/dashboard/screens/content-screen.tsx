@@ -49,31 +49,9 @@ import {
 } from '@/app/actions/upload-settings-image';
 
 /**
- * Content & Media.
- *
- * Everything the public site *shows*, in one place: the gallery, the copy on the
- * landing, donate and login pages, and the brand images. It replaces the old
- * `dashboard/admin/gallery` screen and absorbs the "Landing" tab that had grown
- * inside Settings — where a hero photo and a partner logo sat next to the loan
- * multiplier and the bKash number, which are not the same job.
- *
- * What stayed behind on Settings is in `SETTINGS_CONFIG_KEYS`: who the
- * foundation is, what its money rules are, where a donor sends money, and how
- * long support chats are kept.
- *
- * Roles: none. A worker sees and edits exactly what an admin does here — the
- * gallery, the public copy and the brand images alike. The first cut gave a
- * worker the gallery tab only, on the theory that public copy is an admin's
- * job; in a foundation this size the person who photographs a distribution is
- * the person who writes the caption under it and the line on the landing page
- * about it, and a worker who can post a photograph to the public site but not
- * fix the typo beside it has to go and find an admin to press one key.
- *
- * The API agrees rather than being worked around. `PUT /api/v1/settings` takes
- * a worker **only** when every key in the body is in `CONTENT_CONFIG_KEYS`; the
- * money and policy rows in `SETTINGS_CONFIG_KEYS` stay admin-only, and Settings
- * is still an admin-only screen. What a page shows is content; what the
- * foundation does with money is not.
+ * Content & Media: everything the public site SHOWS — gallery, page copy,
+ * brand images. Workers and admins edit the same things; the API accepts a
+ * worker only for CONTENT_CONFIG_KEYS. Money and policy stay on Settings.
  */
 
 type SettingImageType =
@@ -118,8 +96,7 @@ export default function ContentScreen() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   // ---- Gallery ------------------------------------------------------------
-  // WO-27 — SWR, not an effect. The gallery is a Next route rather than the Go
-  // API, so it fetches directly instead of going through useApi.
+  // SWR (WO-27); the gallery is a Next route, fetched directly.
   const {
     data: galleryData,
     error: galleryLoadError,
@@ -149,9 +126,7 @@ export default function ContentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ---- Site content -------------------------------------------------------
-  // WO-27 — SWR, not an effect. This screen *edits* what it fetches, so the
-  // server value stays derived and only the admin's edits are state; see
-  // useDraft in lib/use-api.ts.
+  // SWR; only edits are state (useDraft, WO-27).
   const {
     data: settingsData,
     isLoading: isSettingsLoading,
@@ -186,9 +161,7 @@ export default function ContentScreen() {
   const handleSaveContent = async () => {
     setIsSaving(true);
     try {
-      // Only the content keys are posted. The settings screen owns the rest, and
-      // the two lists are a partition — see lib/system-config.ts — so neither
-      // screen can quietly overwrite the other's rows with a stale copy.
+      // Only content keys — Settings owns the rest (partition).
       const payload = Object.fromEntries(
         CONTENT_CONFIG_KEYS.map((key) => [key, content[key] ?? '']),
       );
@@ -361,22 +334,9 @@ export default function ContentScreen() {
       : undefined;
 
   /**
-   * Every brand image, with the one thing this screen never said: **where it
-   * shows up**.
-   *
-   * Seven upload boxes labelled "Site Logo", "Dashboard Logo", "Favicon" and
-   * three numbered partner slots, and nothing on the screen distinguished them.
-   * An admin had no way to tell which one the header uses, whether the favicon
-   * was the browser tab or something else, or that leaving a partner slot empty
-   * simply removes that logo from the row rather than leaving a gap. So each
-   * field now states the page it appears on, the shape it should be, and what
-   * happens when it is empty.
-   *
-   * `preset` is the compression applied in the browser before the file is sent,
-   * and it is not cosmetic: without it these uploads exceeded the Server Action
-   * body limit and failed with no message. `fit` is `contain` for everything
-   * with a shape of its own, because a cropped preview makes an admin crop the
-   * source to compensate.
+   * A brand image field that states where it appears, its shape, and what
+   * happens when empty. `preset` compresses before upload (Server Action body
+   * limit); `fit: contain` so the preview never crops.
    */
   const imageField = (
     key: SettingImageType,
@@ -389,9 +349,7 @@ export default function ContentScreen() {
     <div className="space-y-2">
       <Label>{label}</Label>
       <ImageUpload
-        // The field already has its own <Label> above; ImageUpload's default
-        // "Upload Image" underneath it made every one of the seven read
-        // "Site Logo / Upload Image / Shows in the header…".
+        // The field has its own <Label> above.
         label=""
         currentImage={content[key] || undefined}
         onUpload={handleImageUpload(key)}
@@ -452,18 +410,8 @@ export default function ContentScreen() {
   );
 
   /**
-   * A **pair** of boxes for one piece of public prose — T-11.
-   *
-   * Every field here used to be a single box, labelled in English, whose value
-   * was rendered to both audiences. An admin writing for their own members put
-   * Bengali on the English home page and had no way to tell: nothing over the
-   * source can see a string that lives in the database, and the end-to-end
-   * language check strips admin-typed values on purpose so it never goes red on
-   * content.
-   *
-   * It is the same shape as the organisation's name and address — the bare key
-   * is Bengali, the `…En` twin is English — and `lib/localized-settings.ts` is
-   * the one place that resolves them.
+   * A PAIR of boxes (Bengali + `…En`) for one piece of public prose (T-11);
+   * resolved by lib/localized-settings.ts.
    */
   const localizedField = (
     key: string,

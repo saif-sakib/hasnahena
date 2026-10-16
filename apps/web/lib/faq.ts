@@ -1,36 +1,15 @@
 /**
- * The questions on `/faq`, in one place.
- *
- * WO-79 needs these twice — once as the page's visible content and once inside
- * the `FAQPage` structured data — and Google treats a rich result whose answer
- * differs from the answer on the page as a policy violation, not a typo. Two
- * copies kept equal by hand is the ADR-023 shape; there is one copy.
- *
- * These live here rather than in `messages/{en,bn}.json` because they are not
- * interface copy: the JSON-LD builder is a plain function with no next-intl
- * context to read from, and giving it one would make every schema an async
- * server call. If they ever need to be editable by an admin they belong in
- * `system_config` with a key per question, not in a component.
- *
- * One answer is already parameterised that way. "Can I withdraw?" used to say
- * "a minimum 3-month prior notice is required" — a rule that was enforced in
- * code until ADR-030 and is now a request, and a number an admin can change on
- * the settings screen. It is rendered from `loan.noticePeriodDays` so the page
- * and the policy cannot drift, and the *page* and the *structured data* are
- * still one string: Google treats a rich result whose answer differs from the
- * one on the page as a policy violation.
+ * The /faq questions, in one place: the page and its FAQPage JSON-LD must be
+ * the same string (Google treats a mismatch as a policy violation). Not in
+ * messages because the JSON-LD builder has no next-intl context. The
+ * withdrawal answer is rendered from loan.noticePeriodDays.
  */
 
 import type { Locale } from '@/i18n';
 
 export type FaqEntry = { q: string; a: string };
 
-/**
- * What the withdrawal answer says when no notice period is configured, or the
- * setting is missing. It promises no number rather than inventing one — the
- * previous hardcoded "3 months" was exactly the fallback that outlived its
- * rule.
- */
+/** The withdrawal answer when no notice period is set — it promises no number. */
 const NO_NOTICE_PERIOD: Record<Locale, string> = {
   en: 'Yes. Tell your field worker when you would like to withdraw and they will arrange it.',
   bn: 'হ্যাঁ। কবে টাকা তুলতে চান তা আপনার মাঠকর্মীকে জানান, তিনি ব্যবস্থা করবেন।',
@@ -53,8 +32,7 @@ const FAQ: Record<Locale, readonly FaqEntry[]> = {
       q: 'Do I have to pay interest on loans?',
       a: 'No. All loans are fully interest-free under Qard al-Hasan principles.',
     },
-    // The answer is supplied by withdrawalAnswer(); this placeholder is
-    // replaced in faqEntries and never rendered.
+    // Filled in by faqEntries; never rendered as-is.
     { q: 'Can I withdraw my deposited funds?', a: '' },
     {
       q: 'How is loan eligibility determined?',
@@ -78,14 +56,7 @@ const FAQ: Record<Locale, readonly FaqEntry[]> = {
   ],
 };
 
-/**
- * The questions for a locale, with the withdrawal answer filled in from
- * `loan.noticePeriodDays`.
- *
- * `noticePeriodDays` defaults to 0, which renders the no-number answer. That is
- * the honest default for a caller that has no settings map to hand — better a
- * true sentence with no figure than a figure nobody set.
- */
+/** The questions for a locale; noticePeriodDays 0 renders the no-number answer. */
 export function faqEntries(locale: Locale, noticePeriodDays = 0): readonly FaqEntry[] {
   return FAQ[locale].map((entry) =>
     entry.a === '' ? { q: entry.q, a: withdrawalAnswer(locale, noticePeriodDays) } : entry,
@@ -93,15 +64,8 @@ export function faqEntries(locale: Locale, noticePeriodDays = 0): readonly FaqEn
 }
 
 /**
- * `loan.noticePeriodDays` out of a settings map, as a whole number of days.
- *
- * One parser rather than one per caller. The FAQ page renders the answer and
- * `<StructuredData>` renders the same answer into JSON-LD; if those two read the
- * setting differently, Google sees a rich result that disagrees with the page,
- * which is a policy violation rather than a cosmetic difference.
- *
- * Anything unparseable, negative or absent is 0, which renders the answer that
- * quotes no figure.
+ * loan.noticePeriodDays as whole days (0 if unparseable). One parser, so the
+ * page and the JSON-LD cannot disagree.
  */
 export function noticePeriodDaysFrom(settings: Record<string, string> | undefined): number {
   const parsed = Number(settings?.['loan.noticePeriodDays']);

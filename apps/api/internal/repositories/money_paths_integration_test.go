@@ -1,27 +1,9 @@
 //go:build integration
 
 // TEST-11 and TEST-14 — every method that changes a balance, under concurrency
-// and against CLAUDE.md rule 2.
-//
-// The enumeration is not a judgement call. Eight methods write to
-// `accounts."savingsBalance"` or `accounts."loanBalance"`:
-//
-//	ApproveLoan            loan_repository.go
-//	CreateMemberLoan       loan_repository.go
-//	AddMemberLoanPayment   loan_repository.go
-//	waterfallRecoveryTx    loan_repository.go  (reached via MarkLoanDefaulted)
-//	ApproveWithdrawal      transaction_repository.go
-//	AddMemberDeposit       transaction_repository.go
-//	AddMemberWithdrawal    transaction_repository.go
-//	RecordDonation         transaction_repository.go
-//
-// Each gets the same two questions: does one call leave exactly one audit row,
-// and do N simultaneous calls leave N postings' worth of money? The 2026-08-17
-// audit found a lost update by asking the second question of four of them
-// (ADR-015); the other four had never been asked.
-//
-// TestBalanceWritersAreEnumerated below re-derives that list from the source on
-// every run, so a ninth method cannot be added without this file noticing.
+// and against rule 2: one call leaves exactly one audit row, and N concurrent
+// calls leave N postings' worth of money (ADR-015). TestBalanceWritersAreEnumerated
+// re-derives the writer list from source on every run.
 package repositories
 
 import (
@@ -53,13 +35,8 @@ var balanceWriters = map[string]bool{
 	"AddLoanTopUp":         true,
 }
 
-// TestBalanceWritersAreEnumerated reads the repository source and fails if any
-// method writes a balance without being on the list above.
-//
-// Without this, "every balance-touching method is covered" is a claim that was
-// true on the day it was written. With it, adding a ninth writer fails the
-// suite until someone decides what its concurrency and audit story is — which
-// is the moment to decide it, not six months later.
+// TestBalanceWritersAreEnumerated fails if a method writes a balance without
+// being on the list above.
 func TestBalanceWritersAreEnumerated(t *testing.T) {
 	methodStart := regexp.MustCompile(`(?m)^func \(r \*UserRepository\) (\w+)`)
 	balanceWrite := regexp.MustCompile(`"(savingsBalance|loanBalance)"\s*=`)
@@ -132,13 +109,8 @@ func auditRowCount(t *testing.T) int {
 	return n
 }
 
-// TestEveryPostingWritesExactlyOneAuditRow walks each balance writer through a
-// successful call and checks the count.
-//
-// "At least one" is not the assertion. Two rows for one posting is its own
-// defect: the log is what a reconciliation reads, and a duplicated entry is
-// indistinguishable from a duplicated posting when someone is trying to work
-// out where money went.
+// TestEveryPostingWritesExactlyOneAuditRow: exactly one — a duplicate entry is
+// indistinguishable from a duplicate posting.
 func TestEveryPostingWritesExactlyOneAuditRow(t *testing.T) {
 	t.Run("AddMemberDeposit", func(t *testing.T) {
 		repo := newTestRepo(t)
@@ -222,9 +194,7 @@ func TestEveryPostingWritesExactlyOneAuditRow(t *testing.T) {
 		if err := repo.MarkLoanDefaulted(ctx, loanID, admin, "audit"); err != nil {
 			t.Fatalf("default: %v", err)
 		}
-		// Two here is correct and deliberate: MARK_LOAN_DEFAULTED records the
-		// decision, WATERFALL_RECOVERY records which savings were taken to
-		// settle it. They answer different questions and both are needed.
+		// Two is correct: the decision and the recovery are separate facts.
 		if got := auditRowsSince(t, before); got != 2 {
 			t.Fatalf("default wrote %d audit rows, want 2 (the decision and the recovery)", got)
 		}
@@ -237,9 +207,7 @@ func TestEveryPostingWritesExactlyOneAuditRow(t *testing.T) {
 	})
 }
 
-// TestARefusedPostingWritesNoAuditRow is the other half of rule 2. An audit row
-// that outlives its transaction describes money that never moved, which is
-// worse than no row at all: it is a record that disagrees with the ledger.
+// TestARefusedPostingWritesNoAuditRow: an audit row must not outlive its transaction.
 func TestARefusedPostingWritesNoAuditRow(t *testing.T) {
 	cases := []struct {
 		name string
@@ -299,12 +267,7 @@ func TestARefusedPostingWritesNoAuditRow(t *testing.T) {
 // TEST-11 — concurrency, extended to the methods the first pass missed
 // ---------------------------------------------------------------------------
 
-// TestConcurrentDonationsAllLand is the pool's version of the lost update.
-//
-// RecordDonation takes FOR UPDATE on the pool account and then credits it
-// relatively, so this should hold — but the pool is the single row every
-// donation in the system contends on, which makes it the most likely place for
-// a regression to show and the least likely place for anyone to notice.
+// TestConcurrentDonationsAllLand: the pool row is contended by every donation.
 func TestConcurrentDonationsAllLand(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -361,12 +324,7 @@ func TestConcurrentDonationsAllLand(t *testing.T) {
 	}
 }
 
-// TestConcurrentLoanPaymentsCannotOverpay drives AddMemberLoanPayment from
-// several goroutines at once against a loan that can only absorb some of them.
-//
-// The failure this guards against is a loan going negative: each payment reads
-// the remaining balance, decides it fits, and writes back — so without a lock
-// they all decide it fits.
+// TestConcurrentLoanPaymentsCannotOverpay: a loan must never go negative.
 func TestConcurrentLoanPaymentsCannotOverpay(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -428,18 +386,8 @@ func TestConcurrentLoanPaymentsCannotOverpay(t *testing.T) {
 	}
 }
 
-// TestConcurrentLoanTopUpsAllLand is LEDGER-01 in the newest place it could
-// happen.
-//
-// AddLoanTopUp writes three balances in one transaction — the loan's principal,
-// its remaining amount, and the account's loanBalance — and every one of them is
-// written relatively (ADR-015). Reading any of the three and writing back an
-// absolute total would lose one of two concurrent top-ups, and the loss would be
-// invisible: the loan would simply say it owed less than was lent, which looks
-// exactly like a repayment nobody can find.
-//
-// The three must also still agree with each other afterwards. That is the
-// assertion a per-column check would miss.
+// TestConcurrentLoanTopUpsAllLand: three balances written relatively, which
+// must all land and still agree with each other.
 func TestConcurrentLoanTopUpsAllLand(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -499,9 +447,7 @@ func TestConcurrentLoanTopUpsAllLand(t *testing.T) {
 	}
 }
 
-// The borrowing ceiling is measured against what the member will owe in TOTAL,
-// not against the increment. Checking the increment alone would let five
-// 10,000-taka top-ups do what one 50,000-taka loan is refused.
+// The ceiling is measured on the TOTAL owed, not the increment.
 func TestATopUpPastTheBorrowingCeilingIsRefused(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -533,10 +479,7 @@ func TestATopUpPastTheBorrowingCeilingIsRefused(t *testing.T) {
 	}
 }
 
-// A top-up re-spreads the outstanding balance over the payments that are LEFT,
-// and does not move the end date. Spreading it over the full original count
-// would quietly reduce what a borrower six payments in has to pay each month,
-// and the loan would outlive its own schedule.
+// A top-up re-spreads over the payments LEFT and keeps the end date.
 func TestATopUpRaisesTheInstalmentAndKeepsTheEndDate(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -583,11 +526,7 @@ func TestATopUpRaisesTheInstalmentAndKeepsTheEndDate(t *testing.T) {
 	}
 }
 
-// TestConcurrentDepositAndWithdrawalOnOneAccount mixes the two directions.
-//
-// Each in isolation is covered. Together they contend for the same row from
-// opposite sides, which is the shape that survives a lock on one path and not
-// the other.
+// TestConcurrentDepositAndWithdrawalOnOneAccount: both directions on one row.
 func TestConcurrentDepositAndWithdrawalOnOneAccount(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

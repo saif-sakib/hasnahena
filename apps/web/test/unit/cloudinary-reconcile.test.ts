@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import * as script from '../../scripts/cloudinary-reconcile.mjs';
 
-/**
- * The script is a plain `.mjs` — it runs under `node` with no TypeScript
- * loader, like everything else in that directory — so its exports arrive
- * untyped and the shapes are stated here instead. Writing them out is the point
- * as much as the convenience: this is the contract the plan is read against
- * before anything is deleted from a live account.
- */
+/** The .mjs exports arrive untyped; these shapes are the contract the plan is read against. */
 type Asset = {
   publicId: string;
   resourceType: string;
@@ -38,18 +32,8 @@ const planRepairs = (script as unknown as { planRepairs: (input: PlanInput) => P
   .planRepairs;
 
 /**
- * The plan the reconciliation script would apply, checked without an account.
- *
- * `planRepairs` is pure and exported for exactly this reason: the script's
- * decisions are the dangerous part — what gets deleted from an account holding
- * real members' NID photographs — and they must be testable without Cloudinary
- * credentials, which CI does not have and must not have.
- *
- * Every case below is drawn from the state the account was actually in on
- * 2026-09-02: assets renamed into `people/` that the Media Library still filed
- * under `applications/`, 44 test pixels sitting beside real documents under the
- * same names, and thirteen folders for applications that were either admitted
- * long ago or never existed.
+ * planRepairs is pure, so the dangerous decisions are testable without
+ * Cloudinary credentials. Cases mirror the account's real 2026-09-02 state.
  */
 
 const asset = (publicId: string, over: Record<string, unknown> = {}) => ({
@@ -116,10 +100,7 @@ describe('planRepairs', () => {
   });
 
   it('finds the reference wherever the URL is stored', () => {
-    // system_config holds the logo, the favicon and each partner; gallery_items
-    // holds the photographs. The haystack is every stored value, so a new place
-    // to keep an image URL is covered the day it is added rather than the day
-    // somebody remembers to widen a query.
+    // Every stored value is the haystack.
     const logo = asset('hasnahena/settings/logo/brand');
     const { orphans, unreferencedElsewhere } = plan({
       assets: [logo],
@@ -130,9 +111,7 @@ describe('planRepairs', () => {
   });
 
   it('never proposes deleting outside applications/, however unreferenced', () => {
-    // A member's own folder, a gallery photograph and a branding asset. An
-    // unreferenced file in any of them is a question for a person: the row may
-    // be the thing that is missing.
+    // Outside applications/: reported for a person, never deleted.
     const elsewhere = [
       asset('hasnahena/people/ACC-KH-33001/nid-front'),
       asset('hasnahena/gallery/2026-05-14-61g0po'),
@@ -184,9 +163,7 @@ describe('planRepairs', () => {
   });
 
   it("creates the folder entry a member without an avatar never got", () => {
-    // A rename does not create a folder, so a member whose documents were filed
-    // in and who has never uploaded a profile picture has assets under
-    // `people/ACC-KH-33003` and no folder anybody can open.
+    // A rename creates no folder entry; create it.
     const { createFolders } = plan({
       assets: [asset('hasnahena/people/ACC-KH-33003/nid-front')],
       folders: ['hasnahena/people/ACC-KH-33001'],

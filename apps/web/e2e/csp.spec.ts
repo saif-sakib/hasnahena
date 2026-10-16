@@ -4,22 +4,9 @@ import { hasDatabase, seedAccounts, disconnect } from './fixtures/accounts';
 import { loginAs, PAGES, waitForContent } from './fixtures/session';
 
 /**
- * WO-76 — the CSP is present, and it is not too tight to use.
- *
- * The header assertion is the cheap half and lives in the unit suite. This is
- * the half that cannot be faked: a policy is only correct if a real browser
- * renders every page under it without reporting a violation, and the failure
- * mode a header test cannot see is the one that matters — a directive that
- * blocks the application's own scripts, styles or fetches.
- *
- * Chromium reports every violation to the console, in both enforcing and
- * report-only mode, which is what makes this observable without a collector
- * endpoint. There is no `report-uri` in the policy precisely because there is
- * nowhere to send reports; the console and this spec are the collection.
- *
- * The two tiers are asserted separately, because they are genuinely different
- * policies and a spec that swept them together would pass while one of them was
- * doing nothing. See lib/csp.ts for why there are two.
+ * WO-76 — a real browser renders every page under the CSP without a violation
+ * (Chromium logs them to the console; no collector). Both tiers asserted
+ * separately (lib/csp.ts).
  */
 
 /** A CSP violation, as Chromium words it. */
@@ -76,11 +63,7 @@ test.describe('Content-Security-Policy', () => {
           "frame-ancestors 'none'",
         );
 
-        // `waitForContent`, not `networkidle`. This dashboard polls three
-        // endpoints on intervals, so the network is never idle and the wait
-        // times out at 30 s — which reads as a broken page rather than a busy
-        // one. The fixture already carries that lesson; see WO-74 for the
-        // polling itself.
+        // waitForContent, not networkidle — the dashboard polls.
         await waitForContent(page);
       });
 
@@ -141,10 +124,7 @@ test.describe('Content-Security-Policy', () => {
   });
 
   test('the dashboard is sent a fresh nonce on every request', async ({ page }) => {
-    // A nonce reused across requests is not a nonce: an attacker who reads one
-    // page's HTML learns the value that will let their injected script run on
-    // the next. Nothing in Next guarantees this — the proxy generates it — so
-    // it is asserted rather than assumed.
+    // A fresh nonce per request.
     const nonces = new Set<string>();
     for (let i = 0; i < 3; i++) {
       const response = await page.goto('/login');

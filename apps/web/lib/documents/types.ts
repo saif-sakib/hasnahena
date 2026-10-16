@@ -1,14 +1,6 @@
 /**
- * Types for Hasnahena official documents.
- *
- * Two layers live here:
- *  1. The *data* a caller supplies (ReceiptData, StatementData, …).
- *  2. The *document model* a builder produces — a renderer-independent
- *     description of the page, consumed by both the HTML and the PDF renderer
- *     so the printed and downloaded copies can never drift apart.
- *
- * All money values are whole taka (BigInt in the database) — never paisa.
- * Official documents are English only; see ADR-012.
+ * Types for official documents: the input DATA, and the renderer-independent
+ * document MODEL both HTML and PDF draw from. Whole taka; English only (ADR-012).
  */
 
 // ---------------------------------------------------------------------------

@@ -9,17 +9,9 @@ import (
 	"hasnahena/apps/api/internal/metrics"
 )
 
-// Metrics records request rate, latency and status for every request.
-//
-// Kept separate from Logging rather than folded into it. They look like the
-// same job — both wrap the handler and both want status and duration — but
-// they fail differently: a metric label is a cardinality decision that costs
-// memory forever, while a log field is written once and forgotten. Keeping the
-// route-pattern logic here means that decision lives in one place.
-//
-// Register it INSIDE Logging (so the access log still wraps everything) but
-// OUTSIDE the route handlers, so a panic converted to a 500 by Recoverer is
-// still counted as a 500 rather than dropped.
+// Metrics records request rate, latency and status. Separate from Logging
+// because labels are a cardinality decision. Register INSIDE Logging, outside
+// the handlers, so a recovered panic counts as a 500.
 func Metrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -35,11 +27,8 @@ func Metrics(next http.Handler) http.Handler {
 				status = http.StatusOK
 			}
 
-			// Read the pattern AFTER the handler: chi fills it in as it walks
-			// the tree, so before ServeHTTP it is empty. The pattern is the
-			// template ("/v1/dashboard/worker/members/{memberUserId}/deposit"), not
-			// the resolved path — one time series per endpoint instead of one
-			// per member.
+			// Read the pattern AFTER the handler (chi fills it in); one series
+			// per endpoint, not per member.
 			route := ""
 			if rctx := chi.RouteContext(r.Context()); rctx != nil {
 				route = rctx.RoutePattern()

@@ -8,13 +8,8 @@ import (
 )
 
 func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
-	// The whole limiter rests on this. X-Forwarded-For grows left to right, so
-	// with one real proxy in front only the RIGHTMOST entry was added by
-	// infrastructure; everything left of it is whatever the caller typed.
-	//
-	// If this ever regresses to reading the leftmost entry, a single client can
-	// mint a fresh quota per request by varying a header and the limiter becomes
-	// decorative — with no failing test and no visible symptom.
+	// Only the RIGHTMOST X-Forwarded-For entry is infrastructure's; the rest
+	// is caller-typed.
 	tests := []struct {
 		name            string
 		xff             string
@@ -60,11 +55,7 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 			want:           "203.0.113.7",
 		},
 
-		// CF-Connecting-IP. The count was wrong twice in one week — 1 after the
-		// DNS moved to Cloudflare, then 2 — and each time the answer was a
-		// well-formed address belonging to the wrong party, which is why no
-		// test and no alert caught it. This header does not move when a hop is
-		// added in front.
+		// CF-Connecting-IP does not move when a hop is added.
 		{
 			name:            "cloudflare trusted: the header wins over the count",
 			xff:             "9.9.9.9, 198.51.100.4, 10.0.0.9",
@@ -94,9 +85,7 @@ func TestClientIPIgnoresSpoofedForwardedFor(t *testing.T) {
 			want:            "203.0.113.7",
 		},
 		{
-			// The flag is the whole of the trust decision. Off, the header is
-			// just something a caller sent — which is exactly what it is on any
-			// route that does not pass through the zone.
+			// Without the flag the header is just caller input.
 			name:           "cloudflare NOT trusted: the header is ignored even when present",
 			xff:            "9.9.9.9, 203.0.113.7, 10.0.0.9",
 			cfConnectingIP: "1.2.3.4",

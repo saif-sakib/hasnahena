@@ -1,16 +1,7 @@
 //go:build integration
 
-// WO-53 / RUN-06 — proof that the sweep sweeps.
-//
-// `startCleanupLoop` deletes expired `token_blacklist` and `rate_limits` rows
-// every CLEANUP_INTERVAL. **A sweep that stops sweeping is completely silent**:
-// no error, no log line worth noticing, just two write-heavy tables growing
-// until a query gets slow months later. It is also the exact shape RUN-06 was
-// written to fix — CleanupExpiredTokens and CleanupExpiredRateLimits sat
-// written-and-never-called for months and looked like working code.
-//
-//	scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//	cd apps/api && go test ./internal/services/ -tags=integration
+// WO-53 / RUN-06 — the expired token_blacklist / rate_limits sweep actually
+// deletes, and deletes only what has expired.
 package services
 
 import (
@@ -55,9 +46,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// newTestSecurityService clears the two swept tables and returns a service over
-// them. Only these two: other suites share this database and clearing their
-// fixtures is how a test starts failing on package ordering.
+// newTestSecurityService clears only the two swept tables (shared database).
 func newTestSecurityService(t *testing.T) *SecurityService {
 	t.Helper()
 	if testPool == nil {
@@ -140,9 +129,7 @@ func TestTheSweepRemovesExpiredRowsAndOnlyThose(t *testing.T) {
 		t.Errorf("swept %d rate limit rows, want 1", limits)
 	}
 
-	// A sweep that deletes too much is worse than one that deletes nothing: a
-	// live blacklist row is a revoked session, and deleting it un-revokes a
-	// token someone logged out — or an admin revoked.
+	// A live blacklist row is a revoked session; deleting it un-revokes a token.
 	if got := remainingIDs(t, "token_blacklist"); len(got) != 1 || got[0] != "tkn-live" {
 		t.Errorf("token_blacklist after sweep = %v, want [tkn-live]", got)
 	}
@@ -176,9 +163,7 @@ func TestTheSweepIsHarmlessWhenThereIsNothingToSweep(t *testing.T) {
 	}
 }
 
-// The loop wraps each pass in a one-minute context so a stuck delete cannot
-// stack up behind the ticker. A cancelled context must therefore be an ordinary
-// error — not a panic, and not a partial delete.
+// A cancelled sweep is an ordinary error, never a partial delete.
 func TestACancelledSweepDeletesNothing(t *testing.T) {
 	security := newTestSecurityService(t)
 

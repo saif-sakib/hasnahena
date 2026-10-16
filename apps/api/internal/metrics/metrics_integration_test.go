@@ -1,11 +1,6 @@
 //go:build integration
 
-// The business gauges are aggregate SQL over `transactions` and `loans`, and
-// SQL that nothing exercises is SQL that silently stops meaning what it says.
-// The 48-hour boundary in particular is the kind of thing a later refactor
-// rounds off without noticing.
-//
-//	TEST_DATABASE_URL=... go test ./... -tags=integration
+// The business gauges' aggregate SQL, especially the 48-hour boundary.
 package metrics
 
 import (
@@ -73,9 +68,7 @@ func TestBusinessSnapshotCountsWhatItClaims(t *testing.T) {
 		t.Fatalf("seed account: %v", err)
 	}
 
-	// Two stale, one fresh. The fresh one is the whole test: a posting made an
-	// hour ago is not a backlog, and counting it would make the alert cry wolf
-	// every single day.
+	// Two stale, one fresh — the fresh one must not count.
 	if _, err := testPool.Exec(ctx, `
 		INSERT INTO transactions (id, type, amount, description, status, "processedAt", "createdAt", "userId")
 		VALUES

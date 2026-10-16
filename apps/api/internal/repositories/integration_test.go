@@ -9,11 +9,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// The money lifecycle. This is the regression guard for the defect that broke
-// all four flows at once: document_sequences."updatedAt" is NOT NULL and
-// `prisma db push` strips its default, so every posting that allocates a
-// document number failed. Because these tests run against a db-push'd schema,
-// they would have caught it.
+// The money lifecycle (also guards document_sequences."updatedAt" having no
+// DB default).
 // ---------------------------------------------------------------------------
 
 func TestMoneyLifecycleEndToEnd(t *testing.T) {
@@ -92,10 +89,7 @@ func TestMoneyLifecycleEndToEnd(t *testing.T) {
 	}
 }
 
-// Scenario 1 (the audit half): every balance change leaves a traceable row.
-// CLAUDE.md rule 2 requires it, and it must share the posting's transaction so
-// a rolled-back posting cannot leave an audit row describing money that never
-// moved.
+// Scenario 1: every balance change leaves an audit row in its transaction (rule 2).
 func TestEveryBalanceChangeWritesAnAuditRow(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -479,9 +473,7 @@ func TestWithdrawalBlockedBeyondBalance(t *testing.T) {
 	member := seedMember(t, "m1", "ACC-KH-33001", 5000)
 	worker := seedStaff(t, "w1", "WORKER")
 
-	// One notice covering the larger figure: "covers the amount" means at least
-	// it, so the same notice serves both attempts and the refusal below is the
-	// balance check rather than a missing notice.
+	// One notice covers both attempts, so the refusal is the balance check.
 	fileWithdrawalRequest(t, member, 5001, 12)
 
 	if _, err := repo.AddMemberWithdrawal(ctx, member, worker, 5001, "one taka too far"); err == nil {
@@ -577,9 +569,7 @@ func TestDocumentNumbersAreSequentialAndUnique(t *testing.T) {
 	}
 }
 
-// The donation pool must deplete as it is drawn on. It previously summed only
-// DONATION rows, so the same taka could settle an unlimited number of defaults
-// — the pool showed the same balance no matter how many loans it had covered.
+// The donation pool depletes as it is drawn on.
 func TestDonationPoolDepletesAcrossDefaults(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

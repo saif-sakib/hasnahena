@@ -51,16 +51,7 @@ interface Transaction {
   id: string;
   accountNo: string;
   memberName: string;
-  /**
-   * The **English** name, for the document.
-   *
-   * `memberName` above is what the screen shows, and both payloads prefer the
-   * Bengali one where it exists. Generated documents are English only
-   * ([ADR-012](../../../docs/decisions.md)) and the PDF sanitiser strips every
-   * glyph the standard fonts cannot encode — so feeding a Bengali name to
-   * `buildReceipt` prints a bare `-` on the Name line of a member's receipt.
-   * Both payloads carry `memberName` at the top level and it is always `nameEn`.
-   */
+  /** The English name, for documents (English only, ADR-012). */
   memberNameEn: string;
   memberPhone: string;
   type: TransactionType;
@@ -74,13 +65,8 @@ interface Transaction {
 }
 
 /**
- * Every posting, filterable — one screen for both staff dashboards.
- *
- * The scope differs because the queries do: an admin reads the foundation's
- * ledger (`/admin/deposits?types=all`, where `types=all` widens it past savings
- * movements to disbursements and repayments too), a worker reads the postings
- * they processed. The two payload shapes — nested member, flat member — are
- * normalised into one row here.
+ * Every posting, filterable, for both staff dashboards: admin reads the ledger
+ * (`types=all`), a worker their own postings; both payloads normalised.
  */
 export default function TransactionsScreen() {
   const locale = useLocale();
@@ -108,11 +94,7 @@ export default function TransactionsScreen() {
         accountNo: String(member.accountNo ?? item.accountNo ?? ''),
         memberName: String(member.name ?? item.memberName ?? ''),
         memberNameEn: String(item?.memberName ?? member.name ?? ''),
-        // Nested first, flat second — the same two payload shapes the rest of
-        // this mapper reconciles. The admin ledger sends the member as an
-        // object and the worker's own postings send the fields flat, and only
-        // the flat one was read: every receipt printed from the ADMIN
-        // transactions screen had a blank Mobile line.
+        // Nested (admin) first, then flat (worker).
         memberPhone: String(member.phone ?? item.memberPhone ?? ''),
         processedBy: item.processedBy ? String(item.processedBy) : undefined,
         type: String(item.type ?? '').toUpperCase() as TransactionType,
@@ -120,9 +102,7 @@ export default function TransactionsScreen() {
         status: String(item.status ?? 'CONFIRMED').toUpperCase() as TransactionStatus,
         date: String(item.processedDate ?? item.date ?? new Date().toISOString()),
         balanceAfter: Number(item.balanceAfter ?? 0),
-        // The member's OWN reference — a bKash TrxID — not the receipt number,
-        // which is `id`. The two lived in one column until ADR-044 and this read
-        // whichever of the pair the payload happened to carry.
+        // The member's own bKash TrxID — `id` is the receipt number (ADR-044).
         reference: item.externalReference ? String(item.externalReference) : undefined,
         notes: item.notes
           ? String(item.notes)

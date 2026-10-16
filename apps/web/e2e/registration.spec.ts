@@ -1,20 +1,11 @@
 import { test, expect, devices, type Page } from '@playwright/test';
 
 /**
- * Registration, exercised the way members actually reach it: on a phone.
- *
- * The bug these pin down was reported as "at the last page it shows form needs
- * attention but there is no error". Both halves were true. The form moved the
- * member to the step holding the bad field but never scrolled, so on a handset
- * they stayed parked at the buttons they had just pressed while the message sat
- * several screens above; and the only durable feedback was a toast that named
- * no field and then disappeared.
- *
- * So the assertions here are deliberately about *visibility*, not just about
- * state: an error that exists in the DOM and cannot be seen is the bug.
+ * Registration on a phone. Assertions are about VISIBILITY: an error that is in
+ * the DOM but off-screen is the bug.
  */
 
-// A mid-range Android, which is what this cooperative's members carry.
+// A mid-range Android.
 test.use({ ...devices['Pixel 7'] });
 
 const REQUIRED_DOCUMENT_KEYS = [
@@ -54,21 +45,7 @@ async function fillPersonal(page: Page) {
   await fillDateOfBirth(page);
 }
 
-/**
- * Three selects, not a text input.
- *
- * The date of birth stopped being `<input type="date">` when it became
- * `components/ui/date-of-birth-input.tsx` — a calendar opens on *this* month, and
- * a member born in 1990 is then asked to travel there on a low-end Android. This
- * helper kept calling `page.fill('#dateOfBirth', '1990-04-12')`, which resolves
- * to the **day** select and fails with "Element is not an <input>".
- *
- * That took eight assertions in this file down with it — every phone-registration
- * guarantee that has to reach the documents step first — and they stayed down,
- * because a helper that throws fails the tests rather than the form, and the
- * form was fine. A red suite over working code gets read as "the suite is
- * broken" exactly once before it stops being read at all.
- */
+/** The date of birth is three selects (date-of-birth-input.tsx), not a date input. */
 async function fillDateOfBirth(page: Page) {
   const [year, month, day] = VALID.dateOfBirth.split('-');
   await page.selectOption('#dateOfBirth', String(Number(day)));
@@ -91,13 +68,8 @@ async function fillNominee(page: Page) {
 }
 
 /**
- * Wait until react-hook-form is actually driving the page.
- *
- * Until React hydrates, Playwright can click and type into the server-rendered
- * markup and none of it reaches the form: the DOM changes, the form state does
- * not, and the next step never opens. Probing a value React *derives* — the
- * children-count field is disabled from the watched marital status — is the
- * only reliable signal. The probe restores what it changed.
+ * Wait for react-hook-form to drive the page: probe a DERIVED value (children
+ * disabled by marital status), then restore it.
  */
 async function waitForHydration(page: Page) {
   await expect(async () => {
@@ -170,37 +142,16 @@ test.describe('registration on a phone', () => {
   });
 
   /**
-   * Reported by the owner: "in the registration last page it automatically
-   * takes us to the bottom, so someone easily missed there is a document
-   * section to submit" — together with an error naming the Documents step while
-   * standing on it.
-   *
-   * Two causes, both fixed, and the first is the surprising one.
-   *
-   * **The step submitted itself on arrival.** React reuses the nav button's DOM
-   * node when "Next" becomes "Complete Registration" — same component, same
-   * slot — so it only mutates `type`. `nextStep` is async, and its continuation
-   * runs as a microtask, *before* the browser performs the click's default
-   * action. One ordinary click therefore advanced to this step and then
-   * submitted it. Against the pre-fix page this test counted **three** alerts
-   * here; the fix is a `key` on each branch.
-   *
-   * **Then the error scrolled past the uploads.** React Hook Form's
-   * `shouldFocusError` defaults to true and focuses the first errored field,
-   * which on this step is the agreement checkbox — the LAST control, below the
-   * rules and the pledge — so the four upload slots went off the top.
+   * Arriving at the documents step shows the uploads: no self-submit on arrival
+   * (the reused Next/Submit node — fixed with keys) and no scroll past the slots
+   * (shouldFocusError focusing the bottom checkbox).
    */
   test('arriving at the documents step shows the uploads, not the bottom of the page', async ({
     page,
   }) => {
     await reachDocumentsStep(page);
 
-    // Nothing was submitted on the way in, so there is nothing to complain
-    // about yet. Filtered to alerts that actually say something: Next injects an
-    // always-empty `__next-route-announcer__` live region on every page, and
-    // counting it would make this assertion impossible to satisfy — the same
-    // class of framework false positive the accessibility suite excludes
-    // `nextjs-portal` for.
+    // Nothing submitted yet. Ignore Next's always-empty route-announcer alert.
     await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0);
 
     // The thing the member is here to do has to be on screen.
@@ -217,18 +168,12 @@ test.describe('registration on a phone', () => {
     // first time they press the button.
     await page.getByRole('button', { name: 'Complete Registration' }).click();
 
-    // Both problems named at once. Reporting only the agreement sent the member
-    // round again to discover the photos, which is the round trip that made the
-    // upload section easy to miss in the first place.
+    // Both problems named at once.
     const banner = page.getByRole('alert').first();
     await expect(banner).toContainText(/NID front image/i);
     await expect(banner).toContainText(/Agreement/i);
 
-    // The assertion that fails against the old code: shouldFocusError put the
-    // caret in #agreeToTerms and the browser scrolled it into view, which is
-    // several screens below this. Asserted on the heading rather than on a slot
-    // id, so the locator exists in both versions and a red run says what it
-    // means.
+    // Fails against shouldFocusError's scroll to the bottom checkbox.
     await expect(page.getByRole('heading', { name: 'Required Documents' })).toBeInViewport();
 
     // All four flagged, not one at a time.
@@ -280,9 +225,7 @@ test.describe('registration on a phone', () => {
     // last step being told a field three steps back is taken.
     await expect(page.locator('#phone')).toBeVisible();
     await expect(page.locator('#phone')).toBeFocused();
-    // Two alerts carry this, and both are wanted: the summary at the top of the
-    // card explains why the submit did nothing, and the message under the input
-    // says which value to change.
+    // Both the summary and the field message say it.
     await expect(
       page.locator('div[role="alert"]').filter({ hasText: /already registered/i }),
     ).toBeVisible();
@@ -380,9 +323,7 @@ test.describe('registration on a phone', () => {
 
     await page.selectOption('#maritalStatus', 'MARRIED');
     await page.fill('#childrenCount', '3');
-    // Switching back must clear the count, because the input is then disabled —
-    // a leftover 3 would fail the "must be 0 when unmarried" rule in a field
-    // the member is no longer allowed to touch.
+    // Back to Unmarried clears the (disabled) count.
     await page.selectOption('#maritalStatus', 'UNMARRIED');
     await expect(page.locator('#childrenCount')).toBeDisabled();
     await expect(page.locator('#childrenCount')).toHaveValue('0');

@@ -1,46 +1,14 @@
 version: 2
 
-# Application dependencies are NOT tracked here. That is deliberate.
-#
-# This repository ran Dependabot version-updates for npm and Go for one month.
-# In that month it caused two production incidents and zero fixed
-# vulnerabilities:
-#
-#   1. Three major bumps merged together broke the Vercel build. `tailwindcss`
-#      3 -> 4 is a rewrite that moves configuration into CSS and needs a
-#      different PostCSS plugin; this repository is configured for v3.
-#   2. Merging several PRs in sequence produced a `pnpm-lock.yaml` that no
-#      longer matched `package.json`, and Vercel — which installs frozen —
-#      refused to build at all. Every Dependabot PR rewrites the lockfile, and
-#      merging them one after another does not re-resolve the result.
-#
-# Neither is Dependabot behaving badly. Both are what a *reviewed* update flow
-# exists to catch, and a one-maintainer project does not have one. An update
-# stream that gets merged unread is worse than no update stream: it carries the
-# same risk as a code change with none of the scrutiny.
-#
-# What replaces it:
-#
-#   * GitHub's Dependabot **security** updates stay ON. They are a repository
-#     setting (Settings -> Advanced Security), not this file, and they only open
-#     a PR when there is an actual advisory. That is the signal worth having.
-#   * CI runs `pnpm audit` on every push, so a new advisory shows up as a failed
-#     check rather than as a pull request nobody reads.
-#   * Scheduled updates are done by hand, deliberately, with `pnpm outdated` —
-#     see docs/setup.md ("Keeping dependencies current").
-#
-# After merging ANY dependency PR — security ones included — run `pnpm install`
-# and commit the regenerated `pnpm-lock.yaml`, or Vercel will fail exactly as it
-# did in incident 2 above.
+# Application dependencies are NOT tracked here: a month of version-update PRs
+# caused two production incidents (a major-bump build break, a lockfile Vercel
+# refused). Instead: Dependabot SECURITY updates stay on (a repo setting), CI
+# runs `pnpm audit`, and updates are done by hand with `pnpm outdated`
+# (docs/setup.md). After merging ANY dependency PR, run `pnpm install` and
+# commit pnpm-lock.yaml or Vercel fails.
 updates:
-  # GitHub Actions only, and majors ARE allowed here.
-  #
-  # An action major is a tag rewrite rather than a change to our code, and
-  # GitHub retires the Node runtime under old action majors on its own
-  # schedule. Pinning them is how a workflow that worked last month starts
-  # warning, and then fails, at a time nobody chose. These PRs touch nothing
-  # that can reach production — they cannot break the build or the app, only
-  # CI — so they are safe to merge on sight.
+  # GitHub Actions only, majors allowed: they touch only CI, and old majors
+  # get retired on GitHub's schedule.
   - package-ecosystem: github-actions
     directory: /
     schedule:

@@ -21,13 +21,7 @@ function stubClient(rows: Array<{ counter: bigint }>) {
 }
 
 describe('nextDocumentNumber', () => {
-  // The regression this guards. `document_sequences."updatedAt"` is NOT NULL,
-  // and Prisma applies @updatedAt in the client rather than as a database
-  // default — so a raw INSERT that does not name the column violates the
-  // constraint. Only the *first* allocation of a series in a year takes the
-  // INSERT path, and because it could never land, the ON CONFLICT path was
-  // never reached either: loan applications failed with a 500 indefinitely.
-  // The Go allocator names both columns; this one did not until 2026-08-17.
+  // Prisma's @updatedAt has no DB default, so the INSERT path must name it.
   it('writes createdAt and updatedAt explicitly on the insert path', async () => {
     const { client, seen } = stubClient([{ counter: BigInt(1) }]);
     await nextDocumentNumber(SERIES.loan, client);

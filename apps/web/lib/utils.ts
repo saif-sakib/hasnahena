@@ -24,18 +24,9 @@ export function formatDate(date: string | Date, locale: string = 'en') {
 }
 
 /**
- * Whole taka, or nothing (rule 1).
- *
- * The one parser every amount box on a money form goes through. It returns null
- * for anything that is not a positive whole number — it does **not** round.
- *
- * Rounding is the failure this replaced. Three screens ran
- * `Math.round(Number.parseFloat(value))`, so a worker who typed 1500.75 posted
- * 1501 and was told it worked. Silently changing an amount somebody said out
- * loud is the one thing a money form must not do, and it cannot be caught
- * afterwards: the ledger, the receipt and the audit row all agree on the wrong
- * figure. Pair it with `step="1"` on the input so the control does not invite
- * the paisa in the first place.
+ * Whole taka, or null (rule 1). The one parser for every money amount box; it
+ * never rounds — silently changing a spoken amount cannot be caught later.
+ * Pair with `step="1"` on the input.
  */
 export function parseWholeTaka(value: string): number | null {
   const trimmed = value.trim();
@@ -44,14 +35,7 @@ export function parseWholeTaka(value: string): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-/**
- * Weekly/monthly/full quick-fill amounts for loan repayment (installmentAmount
- * is per month).
- *
- * Every figure here is whole taka (rule 1). These write into an amount box the
- * member submits, and the screens round again on the way out — so a fractional
- * preset would show one number and post another. WO-56.
- */
+/** Weekly/monthly/full quick-fill repayment amounts, whole taka (WO-56). */
 export function getLoanRepaymentPresets(installmentAmount: number, remainingAmount: number) {
   const wholeTaka = (amount: number) => (Number.isFinite(amount) ? Math.max(Math.trunc(amount), 0) : 0);
 
@@ -65,18 +49,14 @@ export function getLoanRepaymentPresets(installmentAmount: number, remainingAmou
   };
 }
 
-/**
- * Decodes a base64url-encoded string (browser-compatible using atob)
- */
+/** Decode a base64url string (browser atob). */
 export function decodeBase64Url(value: string): string {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
   return atob(`${normalized}${padding}`);
 }
 
-/**
- * Parses JWT payload without verification (for client-side use only)
- */
+/** Parse a JWT payload WITHOUT verification (client-side display only). */
 export function parseJwtPayload<T = Record<string, unknown>>(token: string): T | null {
   try {
     const parts = token.split('.');
@@ -88,9 +68,7 @@ export function parseJwtPayload<T = Record<string, unknown>>(token: string): T |
   }
 }
 
-/**
- * Checks if a JWT token is expired
- */
+/** Whether a JWT is expired. */
 export function isJwtExpired(token: string): boolean {
   const payload = parseJwtPayload<{ exp?: number }>(token);
   if (!payload || typeof payload.exp !== 'number') return true;

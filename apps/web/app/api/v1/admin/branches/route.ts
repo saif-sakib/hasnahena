@@ -6,29 +6,14 @@ import { createAuditLog } from '@/lib/audit';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 
 /**
- * WO-72. Branches, as a thing an admin can actually manage.
- *
- * The `branches` table existed from the beginning and nothing read or wrote it,
- * while `users.assignedBranch` held a free-text office name with no link to it.
- * Two homes for one fact, connected by nothing — so renaming an office left
- * every worker pointing at the old name, and a typo created a branch that
- * existed on exactly one row.
- *
- * A note on the branch *code*: since 2026-08-27 it **is** the primary key, so
- * `users.assignedBranchId` reads `KH` rather than a cuid. The request body still
- * calls it `code`, because that is the word for the thing an admin types; the
- * row calls it `id`, because that is what it is. It is the human-readable prefix
- * (`KH`), but
- * member IDs are **not** generated from it. They come from the hardcoded
- * `utils.AccountNoPrefix` ("ACC-KH-33") in the Go API, because that identifier is
- * read aloud and written into paper passbooks and its format is fixed
- * (ADR-008). Adding a branch here does not change how member IDs are issued.
+ * Branches (WO-72). The code IS the primary key (ADR-041); the body calls it
+ * `code`, the row `id`. Account numbers are NOT derived from it — they use the
+ * fixed ACC-KH-33 prefix (ADR-008).
  */
 
 const branchSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  // Uppercase and short, because it is the human-readable half of an office's
-  // identity and it appears next to the name in every picker.
+  // Short and uppercase; shown beside the name in every picker.
   code: z.string().trim().min(1).max(12).regex(/^[A-Za-z0-9-]+$/, 'Letters, digits and hyphens only'),
   address: z.string().trim().max(300).optional().nullable(),
   phone: z.string().trim().max(40).optional().nullable(),
@@ -44,14 +29,7 @@ const BRANCH_SELECT = {
   phone: true,
   isActive: true,
   createdAt: true,
-  // Members and staff counted apart.
-  //
-  // A branch's `users` are everyone attached to it since 2026-08-27, and the two
-  // numbers answer different questions: how many people bank here decides
-  // whether the office matters, how many work here decides whether it can be
-  // closed. One combined count would have quietly changed what the existing
-  // "N staff" label on the screen meant the moment members started carrying a
-  // branch — the same number, a different fact, no code change to notice.
+  // Members and staff are counted separately below.
   _count: { select: { users: true } },
 } as const;
 
@@ -84,8 +62,7 @@ function fail(error: unknown, fallback: string) {
   return NextResponse.json({ ok: false, error: fallback }, { status: 500 });
 }
 
-/** Every branch, newest office last. Member and staff counts come along so the
- *  admin can see what deactivating one would affect. */
+/** Every branch, with member and staff counts (what deactivating would affect). */
 export async function GET(req: Request) {
   try {
     const auth = await requireActiveAuth(req);
@@ -95,10 +72,7 @@ export async function GET(req: Request) {
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     });
 
-    // One grouped query for every branch rather than two per branch. There will
-    // be a handful of offices and hundreds of members, and this list is loaded
-    // by an admin screen against a metered database — 2N round trips for a
-    // number is the shape of query that is fine until it is not.
+    // One grouped query, not two per branch.
     const grouped = await prisma.user.groupBy({
       by: ['assignedBranchId', 'role'],
       where: { assignedBranchId: { not: null } },
@@ -150,9 +124,7 @@ export async function POST(req: Request) {
 
     const created = await prisma.branch.create({
       data: {
-        // The code is the key. There is no `@default(cuid())` to fall back on,
-        // which is deliberate: a branch with an invented identifier is exactly
-        // the opaque row this replaced.
+        // The code is the key; no cuid default (ADR-041).
         id: code,
         name: parsed.data.name,
         address: parsed.data.address || null,
@@ -198,11 +170,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: 'Branch not found' }, { status: 404 });
     }
 
-    // Renaming the code renames the key, and every member and worker attached to
-    // this office follows: the foreign key is `ON UPDATE CASCADE`. That is the
-    // whole reason it is safe to let an admin correct a typo in an office code
-    // — the alternative, with a surrogate key, was a code that could be changed
-    // freely and a row nobody could find by it.
+    // Renaming the code cascades to every attached user (ON UPDATE CASCADE).
     const code = changes.code ? changes.code.toUpperCase() : undefined;
     if (code && code !== existing.id) {
       const clash = await prisma.branch.findUnique({ where: { id: code }, select: { id: true } });
@@ -247,17 +215,8 @@ export async function PUT(req: Request) {
 }
 
 /**
- * Deactivates rather than deletes when **anyone** is attached.
- *
- * `User.assignedBranch` is `onDelete: SetNull`, so deleting a branch with people
- * on it silently unassigns them — a quiet loss of information that nothing in
- * the UI would report. Deactivating keeps the history and takes the branch out
- * of the picker, which is what "close an office" actually means.
- *
- * Members count for this as of 2026-08-27, and they are the more important half:
- * unassigning a worker is an administrative annoyance, while unassigning three
- * hundred members silently detaches every one of them from the office holding
- * their passbook.
+ * Deactivates rather than deletes when anyone (member or staff) is attached —
+ * a delete would silently unassign them (onDelete: SetNull).
  */
 export async function DELETE(req: Request) {
   try {

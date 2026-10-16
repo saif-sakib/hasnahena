@@ -1,18 +1,7 @@
 //go:build integration
 
-// TEST-33 — failure injection. Every failure must fail *closed* and leave no
-// orphan.
-//
-// The interesting failures are not the ones a handler checks for. They are the
-// ones that happen halfway: the member's phone loses signal after the request is
-// sent, the pooler drops the connection between the balance update and the
-// ledger insert, the process is killed mid-deploy. In each case there are two
-// acceptable outcomes — the whole posting happened, or none of it did — and one
-// unacceptable one, which is half.
-//
-// A rolled-back posting that left an audit row behind is worse than a failed
-// posting, because the log then describes money that never moved and nothing
-// says which record to believe.
+// TEST-33 — failure injection. A posting happens wholly or not at all, and a
+// rollback leaves no audit row, notification or receipt number behind.
 package repositories
 
 import (
@@ -52,13 +41,7 @@ func readLedgerState(t *testing.T, member string) ledgerState {
 	return s
 }
 
-// TestACancelledPostingLeavesNothingBehind cuts the context while the posting is
-// in flight.
-//
-// A cancelled context is how every real mid-flight failure reaches pgx: an HTTP
-// client disconnecting, a request deadline expiring, the process draining on
-// SIGTERM. pgx aborts the transaction, and the question this answers is whether
-// anything escaped it.
+// TestACancelledPostingLeavesNothingBehind cuts the context mid-flight.
 func TestACancelledPostingLeavesNothingBehind(t *testing.T) {
 	repo := newTestRepo(t)
 	member := seedMember(t, "m1", "ACC-KH-95001", 10_000)
@@ -79,9 +62,7 @@ func TestACancelledPostingLeavesNothingBehind(t *testing.T) {
 		ctx, cancelLater := context.WithTimeout(context.Background(), delay)
 		_, err := repo.AddMemberDeposit(ctx, member, worker, 5_000, "timeout")
 		cancelLater()
-		// Either outcome is legitimate — what matters is that whichever
-		// happened, it happened completely. The reconciliation below is the
-		// assertion, not the error.
+		// Either outcome is fine if complete; the reconciliation is the assertion.
 		_ = err
 	}
 
@@ -109,13 +90,7 @@ func TestACancelledPostingLeavesNothingBehind(t *testing.T) {
 	}
 }
 
-// TestAFailedPostingConsumesNoReceiptNumber covers a subtler orphan.
-//
-// `nextDocumentNumber` increments a counter inside the posting's transaction, so
-// a rollback should give the number back. If it did not — if the allocator ran
-// on its own connection, say — every failed posting would burn a receipt number
-// and the sequence a member sees on paper would have gaps nobody could explain
-// during an audit.
+// TestAFailedPostingConsumesNoReceiptNumber: rollback returns the number.
 func TestAFailedPostingConsumesNoReceiptNumber(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -170,12 +145,7 @@ func TestAFailedPostingConsumesNoReceiptNumber(t *testing.T) {
 	}
 }
 
-// TestARolledBackDefaultRecoversNothing is the same property on the path with the
-// most moving parts.
-//
-// The waterfall touches the loan, the borrower's account, the guarantor's
-// account, the transactions table and two audit rows. If any of that can outlive
-// a rollback, a member's savings are gone and no record explains why.
+// TestARolledBackDefaultRecoversNothing: the waterfall leaves nothing behind.
 func TestARolledBackDefaultRecoversNothing(t *testing.T) {
 	repo := newTestRepo(t)
 	borrower := seedMember(t, "m1", "ACC-KH-95003", 20_000)
@@ -204,16 +174,9 @@ func TestARolledBackDefaultRecoversNothing(t *testing.T) {
 	}
 }
 
-// TestTheEmailServiceBeingDownDoesNotBlockMoney is the third-party case.
-//
-// Brevo is not on the money path and must not become one. A worker standing at a
-// member's door with no mail service still has to be able to record the deposit;
-// the notification is a courtesy, the posting is the record.
+// TestTheEmailServiceBeingDownDoesNotBlockMoney: Brevo is not on the money path.
 func TestTheEmailServiceBeingDownDoesNotBlockMoney(t *testing.T) {
-	// The repository takes no email service at all, which is the strongest form
-	// of this guarantee: it cannot depend on one. This test exists to *hold*
-	// that — if a posting ever grows an email call, it will need this nil and
-	// will fail here rather than in production during an outage.
+	// The repository takes no email service at all; keep it that way.
 	repo := newTestRepo(t)
 	ctx := context.Background()
 	member := seedMember(t, "m1", "ACC-KH-95005", 1_000)
@@ -242,11 +205,7 @@ func TestTheEmailServiceBeingDownDoesNotBlockMoney(t *testing.T) {
 	}
 }
 
-// TestAnUnreachableDatabaseFailsClosed is the "database gone" case.
-//
-// A pool of its own, closed deliberately: that is what a Neon restart or a
-// pooler eviction looks like from the application's side. The shared testPool
-// cannot be used because closing it would break every test after this one.
+// TestAnUnreachableDatabaseFailsClosed uses its own closed pool.
 func TestAnUnreachableDatabaseFailsClosed(t *testing.T) {
 	newTestRepo(t)
 	member := seedMember(t, "m1", "ACC-KH-95006", 5_000)

@@ -4,35 +4,14 @@ import { prisma } from '@/lib/prisma';
 import { AuthError, requireAuthDetailed, type VerifiedToken } from '@/lib/auth';
 
 /**
- * Token revocation for the Next route handlers — SEC-11.
- *
- * The Go API has checked `token_blacklist` on every request since SEC-01. The
- * Next handlers did not: they verified the HS256 signature and `exp` and
- * stopped there. So after **logout**, after a **password change**, and after an
- * **admin revokes a user**, the old token still worked against every Next
- * endpoint — including `PUT /api/v1/settings`, which sets loan policy.
- *
- * Revocation is advertised in the README and in architecture.md. It was
- * half-true: it bound on one backend of two.
- *
- * Two mechanisms, matching `internal/services/security_service.go` exactly. If
- * the two implementations ever disagree, a token is revoked on one surface and
- * live on the other, which is worse than neither checking.
- *
- *  1. **Per-token.** A row keyed by the SHA-256 of the token itself. Written on
- *     logout. The token is hashed rather than stored so the table is not a
- *     collection of working credentials.
- *  2. **Revoke-all.** One row per user keyed `all:<userId>`, written on password
- *     change and admin revoke. Any token issued before the marker is dead.
- *
- * The `iat` comparison truncates the marker to whole seconds, and that is
- * load-bearing rather than sloppy: a JWT `iat` is whole seconds while the
- * marker's `createdAt` carries microseconds. Comparing them raw rejects a token
- * issued in the *same second* as the revocation — which is precisely what first
- * login does, changing the temporary password and signing in again ~200 ms
- * later. That token would be born revoked and every request would 401. The cost
- * is a sub-second window in which an older token survives; the alternative is a
- * broken first login for every member.
+ * Token revocation for the Next route handlers (SEC-11), matching
+ * internal/services/security_service.go exactly — if they disagree a token is
+ * revoked on one backend and live on the other.
+ *   1. Per-token: SHA-256 of the token, written on logout.
+ *   2. Revoke-all: `all:<userId>`, written on password change and admin revoke;
+ *      any token issued before it is dead.
+ * The iat comparison truncates to whole seconds, or first login (which
+ * re-signs ~200ms after revoking) would be born revoked.
  */
 
 function hashToken(token: string): string {
@@ -44,24 +23,15 @@ export function revocationMarker(userId: string): string {
   return `all:${userId}`;
 }
 
-/**
- * How far a revoke-all marker must outlive the longest token it can revoke.
- * `revocationMargin` in `apps/api/internal/services/auth_service.go`.
- */
+/** How far a revoke-all marker outlives the longest token (Go: revocationMargin). */
 export const REVOCATION_MARGIN_SECONDS = 3600;
 
 /** The token lifetime both backends issue against, when nothing overrides it. */
 export const DEFAULT_JWT_EXPIRY_SECONDS = 86400;
 
 /**
- * The marker's lifetime, derived from the token lifetime so the two cannot be
- * configured apart — `revocationTTLFor` in Go, and it must stay equal to it.
- *
- * `JWT_EXPIRY_SECONDS` is set on Render, where tokens are minted. It is read
- * here too, defaulting to the same 86400, because a marker that expires before
- * the tokens it revokes brings those tokens back to life. Raising it on Render
- * alone would do exactly that on this half — which is why `setup.md` now lists
- * the variable against both hosts.
+ * Marker lifetime from JWT_EXPIRY_SECONDS (Go: revocationTTLFor). The variable
+ * must be set on BOTH hosts, or markers expire before tokens on this half.
  */
 export function revocationTtlSeconds(): number {
   const raw = Number(process.env.JWT_EXPIRY_SECONDS);
@@ -70,22 +40,9 @@ export function revocationTtlSeconds(): number {
 }
 
 /**
- * End every session an account has open — WO-91.
- *
- * Takes the transaction client so it runs in the *same* transaction as whatever
- * made the sessions invalid. Dismissing a worker and revoking their token are
- * one fact; two statements with a crash in between leave a dismissed worker
- * holding a staff token that can post deposits and process withdrawals.
- *
- * The row is written to match `revokeAllUserTokensSQL` in
- * `apps/api/internal/repositories/auth_repository.go` exactly — the same key,
- * the same upsert-on-conflict, the same derived lifetime. If the two ever
- * disagree, a token is revoked on one backend and live on the other, which is
- * worse than neither checking (the reason at the top of this file).
- *
- * `createdAt` is set explicitly on the update branch and that is load-bearing:
- * it is the timestamp every `iat` is compared against, so a repeat revocation
- * that left it alone would revoke nothing issued since the first one.
+ * End every session an account has open (WO-91), inside the caller's
+ * transaction. Must match revokeAllUserTokensSQL in auth_repository.go row for
+ * row. createdAt is set on update too — it is what every iat is compared to.
  */
 export async function revokeAllTokens(
   tx: Prisma.TransactionClient,
@@ -154,12 +111,8 @@ export async function checkRevocation(
 }
 
 /**
- * Verify a request and refuse a revoked token.
- *
- * Fails **closed**: if the revocation lookup itself errors, the request is
- * rejected. That is the opposite of the rate limiter's fail-open, and
- * deliberately so — letting a few extra availability checks through during a
- * database blip is cheap, and honouring a revoked admin token is not.
+ * Verify a request and refuse a revoked token. Fails CLOSED on a lookup error,
+ * unlike the rate limiter.
  */
 export async function requireActiveAuth(req: Request): Promise<VerifiedToken['user']> {
   const { user, token, issuedAt } = requireAuthDetailed(req);

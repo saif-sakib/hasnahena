@@ -9,15 +9,8 @@ import {
   type DocumentModel,
 } from './index';
 
-// TEST-23 — the four document builders against golden models.
-//
-// Members keep this paper. A wrong number here is argued about at a counter,
-// months later, against a printout the foundation cannot reproduce — so these
-// tests assert the *content*, not that a function returned something.
-//
-// Golden by structure rather than by snapshot: a snapshot of a whole model
-// changes whenever anyone touches a label, and a test everyone re-blesses is a
-// test nobody reads. What is pinned here is what a member would dispute.
+// TEST-23 — the four document builders, asserting what a member would dispute
+// (structure, not a snapshot everyone re-blesses).
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,9 +115,7 @@ describe('buildReceipt', () => {
   });
 
   it('uses the receipt number as the document id rather than prefixing it again', () => {
-    // DEP-2026-000123 is already a document number from `document_sequences`
-    // (ADR-013). RCPT-DEP-2026-000123 would be a second identifier for one
-    // posting, and the two would be quoted interchangeably at a counter.
+    // Already a document number (ADR-013); no second prefix.
     expect(buildReceipt(RECEIPT).documentId).toBe('DEP-2026-000123');
   });
 
@@ -257,10 +248,8 @@ const LOAN = {
 
 describe('buildLoanAgreement', () => {
   it('states zero interest, and the one office-expense payment, explicitly', () => {
-    // An interest-free loan document that does not say so is worthless as
-    // evidence of Shariah compliance (rule 3). The ৳500 office expense is the
-    // owner's ruling (ADR-045): flat, paid at application, never part of the
-    // loan — so it is printed as exactly that, beside a total equal to the principal.
+    // Zero interest stated (rule 3); the ৳500 office expense is separate and the
+    // total equals the principal (ADR-045).
     const model = buildLoanAgreement(LOAN);
     expect(fieldValue(model, 'Interest rate')).toBe('0% — Qard al-Hasan');
     expect(fieldValue(model, 'Office expense')).toBe(
@@ -308,9 +297,7 @@ describe('buildLoanAgreement', () => {
     expect(terms.items.join(' ')).toContain(
       'the borrower’s own savings, then the guarantor’s savings, then the donation pool',
     );
-    // The late fee is denied, not omitted (T-05, 2026-08-25). This clause used
-    // to reserve one "as set by foundation policy" — a policy that never
-    // existed. The member's copy is where the ruling has to be legible.
+    // The late fee is denied, not omitted (T-05).
     expect(terms.items.join(' ')).toContain('No late fee, penalty, or additional charge');
   });
 
@@ -395,16 +382,7 @@ describe.each(ALL)('every document (%s)', (_name, build) => {
 // ADR-023 — a member is identified once per document.
 // ---------------------------------------------------------------------------
 
-/**
- * The statement used to print the member id twice: once as "Member ID" and
- * again as "Account No", because `accounts.accountNumber` held a copy of
- * `users.accountNo`. The membership certificate did the same. The column is
- * gone, but the shape of the mistake is easy to reintroduce — anything that
- * derives a second "number" from the member id and gives it its own label.
- *
- * So this asserts the outcome rather than the absence of a column: whatever a
- * document calls the member, the member's id appears on it exactly once.
- */
+/** ADR-023: whatever a document calls the member, it uses one name for the id. */
 describe('a document identifies the member exactly once', () => {
   const ACCOUNT_NO = 'ACC-KH-33001';
 
@@ -423,12 +401,7 @@ describe('a document identifies the member exactly once', () => {
     return labels;
   }
 
-  // The invariant is about *names*, not counts. A document may repeat the id —
-  // the statement carries it in the header reference and again in the account
-  // holder block, which is normal for a printed statement. What it must never do
-  // is call it two different things, because a member comparing two labelled
-  // rows has no way to know they are the same number and reasonably concludes
-  // one of them is something else they were never told about.
+  // About names, not counts: the id may repeat, but under one label.
   it('the statement gives it a single name', () => {
     const labels = occurrencesOfAccountNo(buildStatement({ ...STATEMENT, accountNo: ACCOUNT_NO }));
     expect(labels.length).toBeGreaterThan(0);
@@ -441,10 +414,7 @@ describe('a document identifies the member exactly once', () => {
     expect([...new Set(labels)]).toEqual(['Account No']);
   });
 
-  // ADR-029. The other two documents always used one name — but they used the
-  // *other* one, and that is exactly how the statement's pair came to exist. All
-  // four are pinned now, so "Member ID" cannot come back on the two that were
-  // never part of the original defect.
+  // ADR-029: all four documents pinned to the same name.
   it('the receipt gives it a single name', () => {
     const labels = occurrencesOfAccountNo(buildReceipt({ ...RECEIPT, accountNo: ACCOUNT_NO }));
     expect(labels.length).toBeGreaterThan(0);

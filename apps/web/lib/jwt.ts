@@ -42,12 +42,7 @@ export function verifyHs256Jwt(token: string, secret: string): JwtClaims {
   const expectedSig = base64UrlEncode(crypto.createHmac('sha256', secret).update(signingInput).digest());
   const expectedBuf = Buffer.from(expectedSig);
   const providedBuf = Buffer.from(encodedSignature);
-  // `timingSafeEqual` throws a RangeError on buffers of different lengths, so a
-  // truncated or empty signature used to escape as a RangeError instead of
-  // reaching the rejection below — and callers, which classify by message text,
-  // turned that into a 500. Length is not a secret: it is visible in the token
-  // the caller sent. Comparing it first is safe and keeps the equal-length path
-  // constant-time.
+  // Compare lengths first: timingSafeEqual throws on a mismatch. Length is not secret.
   if (
     expectedBuf.length !== providedBuf.length
     || !crypto.timingSafeEqual(expectedBuf, providedBuf)

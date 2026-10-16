@@ -2,19 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-// WO-59. Three notification writes were started and never awaited:
-//
-//   prisma.notification.create({ … }).catch((err) => console.error(err));
-//   return NextResponse.json({ ok: true, user: created }, { status: 201 });
-//
-// On Vercel the function can be frozen the moment the response is returned, so
-// a promise that has not settled is not "background work" — it is work that may
-// simply never happen, with no error, no retry and no log. The admin was never
-// told a registration was waiting, and the member waited for an approval nobody
-// knew to give.
-//
-// `.catch()` on the end makes it look handled. It is not: it handles the
-// rejection, not the truncation.
+// WO-59: no un-awaited Prisma call in a route handler — Vercel may freeze the
+// function at the response, so the work may never happen. `.catch()` handles
+// the rejection, not the truncation.
 
 const WEB = process.cwd();
 const API = join(WEB, 'app', 'api');
@@ -30,12 +20,8 @@ function routeFiles(dir: string): string[] {
 }
 
 /**
- * A call is floating when it starts a statement.
- *
- * The distinction that matters is with a call passed as an argument —
- * `await Promise.all([ prisma.a.count(), prisma.b.count() ])` — which is
- * awaited collectively and is the common shape in these routes. An argument's
- * previous line ends in `[`, `(` or `,`; a statement's ends in `;`, `{` or `}`.
+ * A call is floating when it STARTS a statement (previous line ends `;`, `{` or
+ * `}`), unlike an argument to Promise.all.
  */
 function floatingCalls(source: string): string[] {
   const lines = source.split('\n');

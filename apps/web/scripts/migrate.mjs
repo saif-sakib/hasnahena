@@ -1,20 +1,14 @@
 #!/usr/bin/env node
 
-// Thin wrapper around `prisma migrate` that points it at a direct connection.
-//
-// The reason this exists rather than a plain package.json script: DATABASE_URL
-// is a Neon *pooler* endpoint. `prisma migrate` takes a session-level advisory
-// lock to serialise concurrent deploys, and PgBouncer in transaction mode does
-// not keep a session long enough to hold one. The failure is a hang or an
-// opaque P1002, not a message that says "you used the wrong host".
+// `prisma migrate` against the DIRECT (non-pooler) URL: migrate needs a
+// session advisory lock that PgBouncer transaction mode cannot hold.
 //
 //   pnpm db:migrate           apply pending migrations (production, CI)
 //   pnpm db:migrate:dev       create a migration from schema.prisma changes
 //   pnpm db:migrate:status    what is applied and what is not
 //   pnpm db:migrate:check     does the migrated database match schema.prisma?
 //   pnpm db:migrate:baseline  one-time, for a database built by `db push`
-//   pnpm db:migrate:adopt     rebuild the history table for a database whose
-//                             schema is already current
+//   pnpm db:migrate:adopt     rebuild the history table for a current schema
 
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -23,9 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveDirectDatabaseUrl, redactUrl } from './lib/env.mjs';
 import { isEntrypoint } from './lib/guard.mjs';
 
-// This file is a script, not a module: everything below runs on load and ends
-// in process.exit. Importing it applied migrations to whatever DATABASE_URL
-// happened to point at, so importing it is now an error rather than an action.
+// A script, not a module: importing it is an error, never an action.
 if (!isEntrypoint(import.meta.url)) {
   throw new Error('migrate.mjs is a script — run it with node, do not import it');
 }
@@ -34,51 +26,19 @@ const MODES = {
   deploy: ['migrate', 'deploy'],
   dev: ['migrate', 'dev'],
   status: ['migrate', 'status'],
-  // Records 0_init as already applied without executing it. Every existing
-  // database was built by `prisma db push` and already has these tables;
-  // running the migration would fail on the first CREATE TABLE. This marks
-  // history as caught-up so future migrations apply normally.
+  // Marks 0_init applied without running it (databases built by `db push`).
   baseline: ['migrate', 'resolve', '--applied', '0_init'],
-  // WO-54. Compares the *migrated database* against schema.prisma and exits 2
-  // when they differ.
-  //
-  // Nothing else checks this. An edit to schema.prisma with no generated
-  // migration is one keystroke away, and the two then disagree until a column
-  // is missing in production — which surfaces as a runtime error on a money
-  // path, at the worst possible moment. This is the guard that makes ADR-014
-  // true: `db push` is retired so the migrations are the truth, and that only
-  // holds if something checks.
-  //
-  // The `audit_logs` immutability trigger (DATA-08) lives in a migration and is
-  // not modelled by Prisma. Verified 2026-08-18 against a freshly migrated
-  // database: `migrate diff` does not report it, because it compares the
-  // objects Prisma models rather than the whole catalogue.
+  // WO-54: diff the migrated database against schema.prisma; exit 2 on drift.
+  // Blind to the audit_logs trigger and CHECK constraints (not Prisma-modelled).
   drift: ['migrate', 'diff'],
-  // Marks **every** migration as applied, without running any of them.
-  //
-  // For one situation, and it is not a rare one: `_prisma_migrations` has been
-  // emptied — by hand in a database console, by a restore that missed it, by
-  // copying a database without it — while the schema itself is fully up to date.
-  // Prisma has no memory of the migrations then, so `migrate deploy` tries to
-  // replay them from the beginning and fails on the first `CREATE TABLE`, with
-  // an error about a table that already exists rather than about the history it
-  // actually lost.
-  //
-  // `baseline` above solves the same shape of problem for `0_init` alone, which
-  // was the one-time move off `db push`. This is its general form.
-  //
-  // **It changes no data and no schema** — every `migrate resolve --applied` is
-  // a row inserted into `_prisma_migrations`. So the precondition is the whole
-  // risk: the database must already *be* at the latest schema. Run
-  // `pnpm db:migrate:check` first, which is the thing that can tell you, and
-  // this mode runs it for you and refuses if it disagrees.
+  // Mark EVERY migration applied, running none — for an emptied
+  // `_prisma_migrations` on a current schema (runbook §5b). Changes no data;
+  // refuses unless db:migrate:check passes first.
   adopt: null,
 };
 
 const mode = process.argv[2];
-// `in`, not truthiness: `adopt` has no fixed argument list — it is handled
-// below — and a `null` entry read as "unknown mode" is a usage error printed
-// for a mode that exists.
+// `in`, not truthiness: `adopt` is null but valid.
 if (!(mode in MODES)) {
   console.error(`usage: node scripts/migrate.mjs <${Object.keys(MODES).join('|')}>`);
   process.exit(1);
@@ -95,10 +55,7 @@ if (mode === 'adopt') {
     .map((entry) => entry.name)
     .sort();
 
-  // The precondition, checked rather than trusted. Marking migrations applied
-  // against a schema that is *behind* leaves a database Prisma believes is
-  // current and that is missing columns — the exact failure this mode exists to
-  // repair, made permanent and invisible.
+  // The precondition is checked, never trusted.
   const drift = spawnSync(
     'pnpm',
     ['exec', 'prisma', 'migrate', 'diff', '--from-url', url,

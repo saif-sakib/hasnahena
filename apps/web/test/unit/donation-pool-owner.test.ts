@@ -3,18 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * ADR-023. The donation pool is located by its owner's user id, and that id is
- * written down in two places in two languages: `pnpm db:seed` creates the row,
- * and the Go repository locks it.
- *
- * If they ever disagree, nothing fails until the foundation records its first
- * donation — and then it fails as `ErrDonationPoolMissing`, telling an admin to
- * run a seed that has, in fact, already run. That is the same failure DATA-05
- * cost a day on when the account did not exist at all; the difference is that a
- * mismatch would be invisible in both files, each of which looks correct alone.
- *
- * Cheap to check, so it is checked. No database and no network — both files are
- * read off disk.
+ * The donation pool owner id must match in seed.mjs, the Go repository and
+ * db:clear (ADR-023) — a mismatch fails only at the first donation.
  */
 
 const seedSource = readFileSync(
@@ -54,9 +44,7 @@ describe('the donation pool owner id agrees across the codebase', () => {
   });
 
   it('the clear script preserves the same owner', () => {
-    // `pnpm db:clear` is meant to leave a *working* environment behind. If it
-    // preserves a different id than the one the seed created, it deletes the
-    // pool and the next donation fails.
+    // db:clear must preserve the same id.
     expect(jsConstant(clearSource, 'DONATION_OWNER_ID')).toBe(
       jsConstant(seedSource, 'DONATION_OWNER_ID'),
     );

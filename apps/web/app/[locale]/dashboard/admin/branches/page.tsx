@@ -11,21 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from '@/hooks/use-toast';
 
 /**
- * WO-72. Branch management.
- *
- * The `branches` table shipped in the first migration and nothing ever read or
- * wrote it, while `users.assignedBranch` held a free-text office name with no
- * link to it — and the staff list displayed a *third* thing entirely, the
- * permanent-address district. Three notions of "which office", none of them
- * connected. This screen is the missing half: branches are rows, and a worker is
- * assigned to one by id.
- *
- * The code IS the branch's primary key since 2026-08-27, so the "Code" column
- * below renders `branch.id` — there is no second column holding the same fact.
- * Note that a branch code does **not** drive member IDs. Those come from the
- * hardcoded `utils.MemberIDPrefix` ("ACC-KH-33") in the Go API, because the
- * identifier is read aloud and written into paper passbooks and its format is
- * fixed (ADR-008). Adding a branch here does not change how members are numbered.
+ * Branch management (WO-72). The "Code" column is branch.id (ADR-041). Codes do
+ * NOT drive account numbers (fixed ACC-KH-33 prefix, ADR-008).
  */
 
 interface Branch {
@@ -150,9 +137,7 @@ export default function BranchesPage() {
   const remove = async (branch: Branch) => {
     setBusy(true);
     try {
-      // The endpoint deactivates instead of deleting when staff are assigned,
-      // and says so — deleting would silently unassign them, which is a quiet
-      // loss of information nothing in this screen would report.
+      // The endpoint deactivates instead of deleting when people are attached.
       const payload = await request<{ deactivated: boolean; message?: string }>(
         `/api/v1/admin/branches?id=${encodeURIComponent(branch.id)}`,
         'DELETE',

@@ -1,7 +1,5 @@
 # Architecture
 
-## Shape
-
 ```
 Browser ──┬─→ Next.js (Vercel)  apps/web
           │     ├─ [locale] pages, SSR + client components
@@ -9,112 +7,81 @@ Browser ──┬─→ Next.js (Vercel)  apps/web
           │                                            ├→ PostgreSQL (Neon)
           └─→ Go API (Render)  apps/api                │
                 └─ /v1/*  chi handlers → pgx ──────────┘
-                     └─→ Brevo (email), Cloudinary (files)
+                     └─→ Brevo (email); Cloudinary is reached from Next only
 ```
 
-Two backends share one database. That is deliberate but bounded — see [ADR-001](decisions.md).
+Two backends share one database, deliberately and boundedly ([ADR-001](decisions.md)).
 
 ## Which backend owns what
 
 | Concern | Owner | Why |
 |---|---|---|
-| Login, logout, password reset/change | **Go** | JWT is minted and blacklisted there |
-| All dashboard reads (member/worker/admin) | **Go** | one repository, one SQL layer |
-| Deposits, withdrawals, loans, repayments, donations, approvals, reports | **Go** | financial writes must be transactional + audited |
-| Support chat (incl. SSE stream) | **Go**, proxied through Next at `/api/v1/dashboard/support/*` | avoids mixed-content/CORS on the stream |
-| Public registration submit | **Next** | needs Cloudinary upload + Prisma in one request |
-| Content & Media (gallery + public copy + brand images) — **staff, incl. workers** | **Next** | CMS-style publishing, no ledger impact. `PUT /api/v1/settings` gates by *key*: a worker writes `CONTENT_CONFIG_KEYS` and is refused the rest |
-| System settings, audit-log viewer, worker CRUD, branches — **admin only** | **Next** | identity, money policy, staff accounts |
-| Transaction dispute, loan application, guarantor approval | **Next** | status transitions only, no balance mutation |
+| Login, logout, password reset/change | **Go** | JWTs are minted and revoked there |
+| All dashboard reads | **Go** | one SQL layer |
+| Deposits, withdrawals, loans, repayments, donations, approvals, reports | **Go** | transactional and audited |
+| Support chat (incl. SSE) | **Go**, proxied by Next at `/api/v1/dashboard/support/*` | same-origin stream |
+| Public registration | **Next** | Cloudinary upload + Prisma in one request |
+| Content & Media (gallery, public copy, brand images) — staff incl. workers | **Next** | no ledger impact; `PUT /api/v1/settings` gates by key |
+| Settings, audit viewer, worker CRUD, branches, erasure, staff-assisted reset, retention — admin | **Next** | policy, staff, Cloudinary deletes |
+| Dispute, loan application, guarantor approval | **Next** | status transitions only |
 
-Rule of thumb: **if it changes a balance, it belongs in Go.**
+**If it changes a balance, it belongs in Go** (two Next handlers that broke this were removed).
 
-That rule was broken twice and both handlers were removed: a worker-process
-route that mutated balances *and* wrote a display name into
-`transactions.processedBy` — a foreign key to `users.id`, so every call 500'd —
-and a member-confirm route carrying a lost update. Neither had a caller. If you
-are adding a balance write to Next, the answer is Go.
+## Request path
 
-## Request path from the browser
-
-`apps/web/lib/api.ts` is the only client. `getApiBaseUrl()` returns `NEXT_PUBLIC_API_URL` (default `http://localhost:8081`). Paths starting `/v1/dashboard/support` are rewritten to the same-origin Next proxy; everything else goes cross-origin to the Go API with `Authorization: Bearer <jwt>`. The proxy forwards an allow-list of the six support routes `main.go` mounts and nothing else — a census test holds the two against each other ([ADR-021](decisions.md)).
-
-Response envelope (Go): `{ success, data }` or `{ success: false, error: { message } }`. The client unwraps `data` and throws on `success !== true`. Next route handlers predate this and return bare JSON — see [ADR-005](decisions.md).
+`apps/web/lib/api.ts` is the only browser client: `NEXT_PUBLIC_API_URL` (default `http://localhost:8081`) with `Authorization: Bearer <jwt>`, except `/v1/dashboard/support*`, rewritten to the same-origin Next proxy, which forwards an allow-list matching `main.go` (census-tested, [ADR-021](decisions.md)). Go answers `{ success, data }` / `{ success: false, error }`; the client unwraps `data`. Next handlers return bare JSON ([ADR-005](decisions.md)).
 
 ## Auth
 
-- Login posts to Go `/v1/auth/login`; on success the JWT is stored in the `hn_access_token` cookie and read client-side by `lib/client-auth.ts`.
-- `apps/web/proxy.ts` (named `middleware.ts` before Next 16) guards `/dashboard/**` and `/bn/dashboard/**` — English has no prefix since [ADR-034](decisions.md), so the locale segment is optional and the section index is derived rather than counted. Missing or expired token → redirect to that locale's `/login`, and a role asking for a section it does not own → redirect to the one it does (`MEMBER`→member, `WORKER`→worker, `ADMIN`/`SUPER_ADMIN`→admin or worker, since an admin may cover a round). That second redirect is UX, not authorisation — it stops a worker being handed an admin shell whose every fetch 403s, which became worth preventing once both dashboards started rendering from the same components. It only decodes `exp`; it does **not** verify the signature — that is the server's job. It also issues the per-request CSP nonce and attaches the policy — two policies, one per route tier, because a nonce and a prerendered page cannot coexist ([ADR-024](decisions.md)). Report-only until `CSP_ENFORCE=1`.
-- Go verifies HS256 with `JWT_SECRET` and checks the `token_blacklist` table (logout, password change, admin revoke).
-- Next route handlers verify the same secret via `lib/server-auth.ts` / `lib/auth.ts`. **Web and API must share one `JWT_SECRET`.**
-- **Revocation is platform-wide.** Both surfaces consult `token_blacklist` on every authenticated request — Go directly, Next through `lib/auth-revocation.ts`, which **fails closed**: if the lookup errors, the request is refused. Both truncate `iat` to whole seconds, without which a first-login token is born revoked.
-- `security_service.go` handles login lockout via the `rate_limits` table, keyed on `middleware.ClientIP` — the one function that decides a caller's address ([ADR-019](decisions.md)). Never read `X-Forwarded-For` in a handler. Every throttled action is a named `RateLimitAction` constant with a policy beside it; login uses **two** buckets, escalating on the identifier+address pair and staying flat on the identifier alone, so an attacker cannot lock a named member out of their own savings ([ADR-032](decisions.md)).
-- **A password change revokes every session, on both paths.** The revoke-all marker is written by `repositories.UserRepository` rather than by `SecurityService`, because a forgot-password reset has to write it inside the same transaction as the password ([ADR-031](decisions.md)); the read side stays in the service. Its lifetime is derived from `JWT_EXPIRY_SECONDS`, never hardcoded.
-- **So does dismissing a worker, and erasing a member.** `status` is read at **login and nowhere else** — neither backend re-reads the user per request, deliberately, because that is a second lookup on every call — so the revoke-all marker is the *only* thing that takes a deactivated worker's staff token away (WO-91). All three endings write it inside the transaction that ends the account: `PATCH → INACTIVE`, `DELETE → archive`, `DELETE → hard delete`, and the same for FR-23's member erasure. The Next half is `revokeAllTokens` in `lib/auth-revocation.ts`, written to match `revokeAllUserTokensSQL` row for row; `test/unit/revocation-contract.test.ts` reads the Go source so the two cannot part.
-- **Two background loops, both on `runCtx`.** `startReconciliationLoop` sums the ledger hourly ([ADR-027](decisions.md)); `startRetentionSweepLoop` clears a rejected applicant's identity data daily once it is past `security.rejectedRetentionDays` ([ADR-033](decisions.md)). Neither may write a balance, and `cmd/server/wiring_test.go` reads the source to enforce both halves of that: the loop is started, and it is started with the context that outlives boot.
-- The **global** limiter (`middleware.RateLimit`, in memory) keys on the **member** when their token verifies and on the address otherwise. `middleware.Identity` does that verification — signature and expiry, no database — before the limiter runs, and `RequestUserID(r)` reads the answer back ([ADR-025](decisions.md)). It attributes a request; it never authorises one.
+- Login posts to Go; the JWT goes in the `hn_access_token` cookie and localStorage (`lib/client-auth.ts`).
+- `apps/web/proxy.ts` gates `/dashboard/**` and `/bn/dashboard/**` (English unprefixed, [ADR-034](decisions.md)): missing/expired token → that locale's `/login`; a role asking for another's section → its own (admin may open worker). UX, not authorisation — it decodes `exp` only. It also mints the per-request CSP nonce and attaches one of two policies by route tier ([ADR-024](decisions.md)), report-only until `CSP_ENFORCE=1`.
+- Go verifies HS256 with `JWT_SECRET`; Next verifies the same secret (`lib/server-auth.ts`, `lib/auth.ts`) — **one shared `JWT_SECRET`**.
+- **Revocation is platform-wide**: both check `token_blacklist` on every request (Next via `lib/auth-revocation.ts`, failing closed), comparing `iat` in whole seconds (or first login is born revoked).
+- **Every ending revokes every session**, inside the transaction that causes it: password change and forgot-password reset (the marker is written by `UserRepository` for that reason, [ADR-031](decisions.md)), worker deactivation/archive/delete and member erasure (WO-91 — `status` is read only at login). The Next writer matches `revokeAllUserTokensSQL` row for row (`revocation-contract.test.ts`); the marker TTL derives from `JWT_EXPIRY_SECONDS`.
+- Login lockout lives in `rate_limits` (`security_service.go`), keyed on `middleware.ClientIP` — the only source of a caller's address ([ADR-019](decisions.md)); two buckets, escalating only on identifier+address ([ADR-032](decisions.md)). Every throttled action is a declared constant with a policy.
+- The global in-memory limiter keys on the **member** when `middleware.Identity` verified their token (signature + expiry, no DB), else the address; `RequestUserID(r)` attributes, never authorises ([ADR-025](decisions.md)).
+- **Background loops on `runCtx`** (`wiring_test.go` enforces it): token/rate-limit cleanup, ledger reconciliation (daily, reports only, [ADR-027](decisions.md)), and the rejected-application retention sweep (daily, [ADR-033](decisions.md)). None writes a balance.
 
 ## Frontend structure
 
 ```
 app/[locale]/(marketing)   home, about, activities, gallery, faq, contact, donate, privacy, terms
 app/[locale]/(auth)        login, register, forgot-password, reset-password
-app/[locale]/dashboard/    member/ worker/ admin/   — one folder per role. Every staff route file
-                           is a one-line re-export of a screen; there is no page logic under app/
-components/ui              shadcn-style primitives (button, card, dialog, table, toast, …)
-components/layout          header, footer, dashboard-layout
-components/dashboard       screens/  ONE component per staff screen, shared by worker and admin
-                           nav.ts    what each dashboard contains — sidebar and action cards
-                           role.tsx  useDashboardRole(); presentation only, the API decides
-                           money-actions.tsx  the ONE deposit/withdrawal/instalment/loan form
-                           profile-editor, loan-application-form, guarantor-requests
-lib/                       api client, auth, prisma, validation, receipt PDF, cloudinary, seo
-messages/{en,bn}.json      all copy — next-intl. **English has no URL prefix** and Bengali does:
-                           `/faq` and `/bn/faq`. `/` is a real English page that neither
-                           negotiates nor redirects, and `/en/*` 301s to the unprefixed form
-                           (ADR-034). Every internal URL is built by lib/locale-path.ts —
-                           a hand-written `/${locale}/…` produces a link that redirects
+app/[locale]/dashboard/    member/ worker/ admin/ — staff route files are one-line re-exports
+components/ui              shadcn-style primitives
+components/layout          header, footer, dashboard-layout, legal-document
+components/dashboard       screens/ (one component per staff screen, both dashboards) · nav.ts ·
+                           role.tsx (useDashboardRole, presentation only) · money-actions.tsx (THE money form)
+lib/                       api client, auth, prisma, validation, documents, cloudinary, seo, csp
+messages/{en,bn}.json      all copy (next-intl). `/faq` English, `/bn/faq` Bengali; `/en/*` 301s;
+                           every internal URL via lib/locale-path.ts
 ```
 
-### Documents
+**Documents** (`lib/documents/`, English only, [ADR-012](decisions.md)): statement, receipt, loan agreement, certificate. A builder produces a renderer-independent `DocumentModel`; `render/html.ts` (preview/print) and `render/pdf.ts` (vector download) both consume it. Import from `@/lib/documents`; amounts print `BDT 1,25,000`.
 
-`lib/documents/` generates the member-facing paperwork — account statement, deposit/withdrawal receipt, loan agreement, membership certificate. Documents are **English only** ([ADR-012](decisions.md)).
-
-A builder turns caller data into a renderer-independent `DocumentModel` (a list of blocks: fields, tiles, table, terms, signatures…), and two renderers consume it, so print and download can never drift apart:
-
-```
-types → format → theme → builders/*  →  render/html.ts   (preview + print, real text)
-                                     →  render/pdf.ts    (download, vector text, paginated)
-                         export.ts   →  printDocument / downloadDocumentPDF / downloadDocumentHTML
-```
-
-Import from `@/lib/documents`. Add a document as one builder plus one export line; add a *kind of* content as a new `Block` variant handled in both renderers. Amounts print as `BDT 1,25,000` — the `৳` sign cannot be encoded by the PDF's standard fonts.
-
-### UI tokens
-
-Tailwind + CSS variables in `app/globals.css`, light and `.dark`. Brand primary is emerald `hsl(160 84% 39%)` (dark: `45%`), radius `0.625rem`. Use semantic classes (`bg-primary`, `text-muted-foreground`, `border-border`) — never hardcoded hex. Status colours are centralised in `lib/status-styles.ts`; extend that file rather than inlining badge colours.
+**UI tokens**: CSS variables in `app/globals.css` (light and `.dark`), primary emerald `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`; semantic classes only; status colours in `lib/status-styles.ts`.
 
 ## Go API structure
 
 ```
-cmd/server/main.go        config, pool, DI, mountRoutes + mountMiddleware — the routing table
-internal/config           env loading (walks up for .env), fails fast if JWT_SECRET < 32 chars
-internal/middleware       the global stack, mounted by mountMiddleware: CORS (allow-list from
-                          CORS_ORIGINS), caller identity, rate limiting, NUL-byte rejection, request logging, and
-                          ClientIP — the ONLY place that decides a caller's address
+cmd/server/main.go        config, pool, DI, mountMiddleware + mountRoutes — the routing table
+internal/config           env loading (walks up for .env); refuses JWT_SECRET < 32 chars
+internal/middleware       CORS, ClientIP, Identity, rate limiting, NUL-byte rejection, logging, metrics
 internal/handlers         auth_handler.go, dashboard_handler.go (HTTP shape only)
-internal/services         auth (JWT, bcrypt), security (rate limit, blacklist), email (Brevo)
-internal/repositories     all SQL and business calculation, split by domain:
-                          repository.go (shared helpers), transaction_ (deposits/withdrawals/
-                          donations), loan_, member_, worker_, admin_, auth_, support_, report_
-internal/money            pure loan/installment/waterfall arithmetic — no DB. New money maths goes HERE
-internal/notify           every member- and staff-facing notification string. Nothing else builds one
-internal/utils            response envelope, validation, id + document-number generators
+internal/services         auth (JWT, bcrypt), security (lockout, blacklist), email (Brevo)
+internal/repositories     all SQL and business rules, split by domain (see CLAUDE.md Map)
+internal/money            pure loan/instalment/waterfall/schedule arithmetic — new money maths here
+internal/notify           every notification string
+internal/metrics          Prometheus exposition (/metrics), business gauges
+internal/observability    Sentry (slog bridge, recoverer)
+internal/utils            response envelope, validation, id and document-number generators
 ```
 
-`pgx` runs in `QueryExecModeSimpleProtocol` because Neon's pgBouncer pooler conflicts with server-side prepared statements. Keep it.
+`pgx` runs in `QueryExecModeSimpleProtocol` (Neon's PgBouncer conflicts with server-side prepared statements) — keep it. The Go side issues **no DDL**; migrations are the only schema definition (`schema_ownership_test.go`). Sessions pin `timezone=UTC`.
 
-The Go side touches **no** DDL. It used to create the support-chat tables at boot with `CREATE TABLE IF NOT EXISTS`, alongside the migration that also creates them — two definitions that disagreed ([WO-70](changelog.md)). Migrations are the only definition now, and `schema_ownership_test.go` fails if a repository issues DDL again.
+## Balance writes
+
+Every statement changing `accounts."savingsBalance"`/`"loanBalance"` writes **relatively** (`SET "savingsBalance" = "savingsBalance" + $1`) or reads the row `FOR UPDATE` in the same transaction ([ADR-015](decisions.md)); a census fails the build when a new writer lacks a concurrency test. A race makes the `savingsAfter`/`loanAfter` snapshots — the reprintable passbook — disagree with the balance.
 
 ## Environments
 
@@ -122,32 +89,4 @@ The Go side touches **no** DDL. It used to create the support-chat tables at boo
 |---|---|---|
 | Web | `:3000` | Vercel → hasnahenafoundation.com |
 | API | `:8081` | Render → api.hasnahenafoundation.com |
-| DB | Docker postgres `:5432` | Neon (pooled URL at runtime, direct URL for migrations and `pg_dump`) |
-
-## Balance writes — the one rule the SQL must follow
-
-Every statement that changes `accounts."savingsBalance"` or `"loanBalance"` must
-either write **relatively**:
-
-```sql
-SET "savingsBalance" = "savingsBalance" + $1   -- Postgres does the arithmetic
-```
-
-or read the row **inside the same transaction with `FOR UPDATE`** before
-computing a new total in Go. Reading from the pool and writing back an absolute
-figure is a lost update — it has been written twice here and destroyed money both
-times ([ADR-015](decisions.md)), and a source census now fails the build when a
-new balance writer appears without a concurrency test.
-
-The reason to care is specific to this domain: `Transaction` rows carry
-`savingsAfter` / `loanAfter` snapshots so a passbook can be reprinted. When the
-balance races, the snapshots and the balance disagree, and the printed passbook
-becomes evidence against the account.
-
-## Known structural debt
-
-Tracked in [tasks.md](tasks.md): legacy `PENDING`/`APPROVED` loan statuses kept
-beside the spec-aligned ones (and `PENDING` is still the schema default), and
-`GET /api/v1/admin/audit-logs`, which has no caller because its viewer UI does
-not exist (OBS-08). Everything else that was listed here has been built or
-removed.
+| DB | Docker postgres `:5432` | Neon (pooled at runtime, direct for migrations and `pg_dump`) |

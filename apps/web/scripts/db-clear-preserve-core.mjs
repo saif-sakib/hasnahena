@@ -116,9 +116,7 @@ async function main() {
     throw new Error('DATABASE_URL is not set. Set it in the shell or in .env/.env.local.');
   }
 
-  // This script deletes every member. Three separate things must now be true
-  // before it does: it must be the file node was asked to run (see
-  // lib/guard.mjs), the database must be local, and --confirm must be present.
+  // Entry point, local database, and --confirm — all three required.
   refuseRemoteTarget(process.env.DATABASE_URL);
 
   const prisma = new PrismaClient();
@@ -149,20 +147,13 @@ async function main() {
     }
 
     await prisma.$transaction(async (tx) => {
-      // DATA-08: audit_logs carries a trigger that rejects UPDATE always and
-      // DELETE unless a transaction opts in. This script is the one legitimate
-      // caller — it resets a test environment. SET LOCAL scopes the permission
-      // to this transaction and this connection, so it cannot leak to the
-      // application's own queries running on a neighbouring pooled connection.
+      // DATA-08: opt in to deleting audit rows, scoped by SET LOCAL.
       await tx.$executeRawUnsafe("SET LOCAL hasnahena.allow_audit_purge = 'on'");
 
       await tx.user.update({
         where: { id: admin.id },
         data: {
-          // Nothing to detach for the addresses: both are rows of one table
-          // keyed on the person and the kind (ADR-044), so deleting them below
-          // covers both. `approvedBy` is still a self-reference on `users` and
-          // still has to be cleared first.
+          // Addresses go below with the user (one table, ADR-044); clear approvedBy first.
           approvedBy: null,
         },
       });
@@ -172,13 +163,7 @@ async function main() {
       await tx.notification.deleteMany({});
       await tx.transaction.deleteMany({});
       await tx.loan.deleteMany({});
-      // The donation pool account survives, at a zero balance. It is
-      // infrastructure rather than data: RecordDonation locks this exact row,
-      // so a cleared environment without it cannot record a donation at all,
-      // and the failure is an opaque 500 rather than anything that points at
-      // the missing row. `pnpm db:seed` recreates it, but this script is meant
-      // to leave a *working* environment behind, not one that needs a second
-      // command to be usable.
+      // The donation pool survives at zero — RecordDonation needs it.
       await tx.account.deleteMany({
         where: { userId: { not: DONATION_OWNER_ID } },
       });
@@ -193,11 +178,7 @@ async function main() {
       await tx.passwordResetToken.deleteMany({});
       await tx.tokenBlacklist.deleteMany({});
       await tx.rateLimit.deleteMany({});
-      // NOT branches. An office is configuration, not test data: Vekutia is the
-      // base branch and every worker assigned to it names it. Deleting it meant
-      // re-creating it by hand after every clear, which is the kind of step that
-      // gets skipped once and then debugged for an hour. The workers that
-      // pointed at it are gone, which is simply a branch with no staff.
+      // Branches survive: they are configuration.
 
       await tx.user.deleteMany({
         where: {

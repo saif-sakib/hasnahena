@@ -12,24 +12,9 @@ import {
 } from '@/lib/cloudinary';
 
 /**
- * Every image this application accepts is compressed in the browser first.
- *
- * The failure this exists to stop has no error message, which is why it needs a
- * test rather than a note. Content & Media's brand uploader validated a file up
- * to 5 MB and posted it, uncompressed, into a **Server Action** — and Next caps
- * a Server Action request body at 1 MB by default. So every logo an admin
- * picked off a phone or exported from a design tool was rejected by the
- * framework *before* `uploadSettingsImageAction` was entered: nothing in the
- * action ran, nothing logged, and the screen reported a Server Action failure
- * naming no size and no field. The same ceiling sat under the avatar uploader.
- *
- * Two halves have to stay true, and each is useless without the other:
- *
- *   - the browser shrinks the file, so it fits with room to spare
- *   - `next.config.js` declares a body limit above what the validators allow,
- *     so a file that the compressor legitimately declined (an animated GIF, a
- *     decoder failure) still reaches the server and gets a real error back
- *     rather than a silent framework rejection
+ * Every image is compressed in the browser first, AND next.config.js declares a
+ * Server Action body limit above every validator — otherwise an oversize file is
+ * a silent framework rejection rather than a real error.
  */
 
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
@@ -63,11 +48,7 @@ describe('the Server Action body limit is above what the uploaders accept', () =
     const limitMb = parseSizeToMb(declared as string);
     const largestUpload = Math.max(...Object.values(UPLOAD_SIZE_LIMITS));
 
-    // Every validator, with no exemptions. The gallery's used to be 10 MB
-    // against a 1 MB framework cap and a 4.5 MB platform cap, so two thirds of
-    // what it claimed to accept could never arrive. What must never be true
-    // again is a body limit *below* a validator, which is what turned "your
-    // file is too big" into no message at all.
+    // Every validator, no exemptions: never a body limit below a validator.
     expect(
       limitMb,
       `bodySizeLimit is ${limitMb}MB but a validator accepts up to ${largestUpload}MB — ` +
@@ -114,9 +95,7 @@ describe('every uploader compresses before it sends', () => {
 
 describe('the compression presets', () => {
   it('keeps transparency for everything drawn over a background', () => {
-    // A logo, a favicon and a partner mark are transparent PNGs. Flattened onto
-    // white — which is what a JPEG encode does — each gets a white rectangle
-    // behind it on every coloured header it sits in.
+    // Transparent assets must not be flattened (JPEG would add a white box).
     for (const name of ['logo', 'favicon', 'partner'] as const) {
       expect(IMAGE_PRESETS[name].alpha, `${name} must keep its alpha channel`).toBe(true);
     }
@@ -127,9 +106,7 @@ describe('the compression presets', () => {
   });
 
   it('keeps an NID legible', () => {
-    // An NID card is 8.6cm wide, so 1600px across it is ~470dpi. Dropping this
-    // makes a scan an approver cannot read, and the approver has no way to ask
-    // for a better one after the fact.
+    // ~470dpi across an 8.6cm NID — legible for an approver.
     expect(IMAGE_PRESETS.document.maxEdge).toBeGreaterThanOrEqual(1600);
   });
 });
@@ -138,19 +115,14 @@ describe('a settings image replaces its predecessor rather than orphaning it', (
   it('derives a stable public id from the settings key', () => {
     expect(settingsImagePublicId('branding.logo')).toBe('branding-logo');
     expect(settingsImagePublicId('hero.partnerLogo1')).toBe('hero-partnerlogo1');
-    // Stability is the whole point: the same key must map to the same asset
-    // every time, or `overwrite` overwrites nothing and the account grows a
-    // copy per upload.
+    // Stable: same key, same asset, or overwrite overwrites nothing.
     expect(settingsImagePublicId('branding.favicon')).toBe(
       settingsImagePublicId('branding.favicon'),
     );
   });
 
   it('never deletes the asset it has just written', () => {
-    // With a fixed public id the old id and the new id are the same string, so
-    // the pre-existing "delete the previous image" step would destroy the
-    // upload seconds after storing its URL — a setting pointing at a 404, with
-    // the upload reported as successful.
+    // With fixed ids, deleting the "previous" image would delete the new one.
     const action = read('app', 'actions', 'upload-settings-image.ts');
     expect(action).toMatch(/oldPublicId\s*!==\s*uploadResult\.publicId/);
   });
@@ -178,42 +150,22 @@ describe('a settings image replaces its predecessor rather than orphaning it', (
 });
 
 describe('every asset is stored under a name a human can look up', () => {
-  /**
-   * The asset tree is the only description of the image host that survives
-   * leaving it. `hasnahena/profiles/super_admin/cmob97efh00003zynz0as5knq/bqs94z5ywwgjchofjrs1`
-   * — a role, a cuid and a random string — names nothing: finding out whose
-   * avatar that is needs a database query, and after a migration off Cloudinary
-   * it needs a mapping somebody remembered to keep. This is what makes the move
-   * to a VPS an `rsync` and a prefix rewrite rather than a reconciliation.
-   */
+  /** People are filed by account number, so the tree is readable without the database. */
   it('files a person under their account number, not their row id', () => {
     expect(personFolder('ACC-KH-33001', 'cmob97efh00003zynz0as5knq')).toBe('people/ACC-KH-33001');
-    // One folder per person and not per role: a member later hired as a field
-    // worker keeps their number and their folder, where keying on the role would
-    // move their files and orphan the URL already stored on their row.
+    // Per person, not per role (a hired member keeps their folder).
     expect(personFolder('STF-0001', 'x')).toBe('people/STF-0001');
   });
 
   it('still files somebody with no account number somewhere', () => {
-    // The fallback is so a row that somehow has no number gets a file rather
-    // than an exception — not the intended path. Every upload into `people/`
-    // happens after the account number exists: staff get one at creation, a
-    // member at approval, which is also the first moment they can have an avatar.
+    // Fallback only for a row with no number.
     expect(personFolder(null, 'cmob97efh0000')).toBe('people/cmob97efh0000');
     expect(personFolder('   ', 'cmob97efh0000')).toBe('people/cmob97efh0000');
   });
 
   /**
-   * Registration documents are filed under the **application**, not the person.
-   *
-   * An applicant has no account number — that is issued if they are admitted —
-   * so `people/` had nothing meaningful to name a folder with, and the fallback
-   * put four NID scans under a cuid. The application's own number is the
-   * identifier that exists at the moment the files arrive.
-   *
-   * It is also the unit that gets deleted: one prefix per application means a
-   * refused applicant's scans go in one call, including anything a half-finished
-   * upload left behind that no `documents` row knows about.
+   * Registration documents go under the APPLICATION number (no account number
+   * exists yet); one prefix per application is the unit a refusal deletes.
    */
   it('files registration documents under the application number', () => {
     expect(applicationFolder('APP-2026-000001', 'cmob97efh0000')).toBe(
@@ -236,20 +188,7 @@ describe('every asset is stored under a name a human can look up', () => {
     expect(registrations).toContain('preserveOriginal: true');
   });
 
-  /**
-   * An admitted member's files end up in **one** folder.
-   *
-   * They cannot start there: the four documents are uploaded by a public form,
-   * before anybody is a member and therefore before `ACC-KH-33001` exists — it
-   * is issued at approval and nowhere else (ADR-039). So the upload names the
-   * folder after the application, and the approval moves it.
-   *
-   * Left split, a member's files are their avatar under `people/…` and their
-   * NID scans under `applications/…`, with nothing in either name saying they
-   * are the same person. "Delete everything you hold about this member" then
-   * depends on the database still holding the join — which is precisely what an
-   * erasure destroys.
-   */
+  /** An admitted member's documents move into their own folder (ADR-040). */
   it('moves an admitted member’s documents into their own folder', () => {
     const filing = read('lib', 'application-documents.ts');
     expect(filing).toContain('export async function fileApplicationDocuments');
@@ -262,9 +201,7 @@ describe('every asset is stored under a name a human can look up', () => {
     // Idempotent. This runs from a browser after an approval and again from the
     // nightly sweep, so "already filed" has to be an outcome, not a failure.
     expect(filing).toMatch(/alreadyFiled/);
-    // Nothing is deleted while anything is unaccounted for. `deleteEmptyFolder`
-    // refuses a folder with contents; calling `deleteFolder` here instead would
-    // finish a half-completed move by destroying the half that did not move.
+    // Never deleteFolder here — deleteEmptyFolder refuses a half-moved folder.
     expect(filing).toContain('deleteEmptyFolder(');
     expect(
       /deleteFolder\(applicationFolder\([^)]*\)\)/.test(
@@ -281,9 +218,7 @@ describe('every asset is stored under a name a human can look up', () => {
   });
 
   it('has a backstop for the filing call that never arrived', () => {
-    // The approvals screen fires it from a browser, so a closed tab between the
-    // approval and the follow-up would otherwise leave the documents where they
-    // were, permanently, with nobody looking at an asset tree to notice.
+    // The nightly sweep backstops a closed tab.
     const retention = read('app', 'api', 'v1', 'admin', 'retention', 'route.ts');
     expect(retention).toContain('fileApplicationDocuments');
     // Matched on the URL, because the URL is the fact — a row whose `url` still
@@ -299,11 +234,7 @@ describe('every asset is stored under a name a human can look up', () => {
 
 describe('the favicon accepts whatever shape it is given', () => {
   it('pads to a square rather than limiting to one', () => {
-    // Every browser and every Android launcher draws a favicon in a square box,
-    // so a 3:1 lockup handed to this field is squashed or cropped by whoever
-    // renders it — a different wrong answer per surface. `pad` centres it on a
-    // square canvas and fills the rest with transparency, which means an admin
-    // does not have to own a problem the image host can solve.
+    // The favicon is padded to a transparent square.
     const steps = settingsImageTransformation('branding.favicon');
     const resize = steps.find((step) => 'crop' in step);
     expect(resize?.crop).toBe('pad');
@@ -313,14 +244,7 @@ describe('the favicon accepts whatever shape it is given', () => {
 });
 
 describe('the two brand keys that had no reader', () => {
-  /**
-   * `settings-keys-read.test.ts` asks whether a declared key is *named*
-   * anywhere in the source, and both of these were — in the uploader that
-   * writes them. A key vouching for itself through its own writer passes that
-   * census while nothing renders it, which is what these two did: an admin
-   * uploaded a favicon and a dashboard logo, saw them stored, and watched the
-   * browser tab and the sidebar keep the shipped asset for ever.
-   */
+  /** Both keys must be RENDERED, not merely named by their own uploader. */
   it('renders branding.favicon in the document head', () => {
     const layout = read('app', '[locale]', 'layout.tsx');
     expect(layout).toContain("settings['branding.favicon']");
@@ -337,12 +261,7 @@ describe('the two brand keys that had no reader', () => {
   });
 
   it('reads that key without a token, so it can never end a session', () => {
-    // The first attempt read this in the dashboard's server layout. Awaiting
-    // there delayed the shell's mount enough to trip a pre-existing race in its
-    // effects — a fetch landing without a token, a 401, and the 401 handler
-    // clearing the session — so every dashboard navigation bounced the user to
-    // the login page. Keeping the key PUBLIC is what makes this fetch unable to
-    // participate in that: it needs no token and its failure is a missing logo.
+    // PUBLIC, so the sidebar fetch needs no token and cannot trip the shell's 401 race.
     expect(PUBLIC_CONFIG_KEYS as readonly string[]).toContain('branding.dashboardLogo');
     expect(PUBLIC_CONFIG_KEYS as readonly string[]).toContain('branding.favicon');
   });

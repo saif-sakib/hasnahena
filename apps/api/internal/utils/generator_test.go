@@ -74,13 +74,7 @@ func TestCurrentSequenceYearIsPlausible(t *testing.T) {
 	}
 }
 
-// Guards the regression described on NextDocumentNumberQuery: the timestamps
-// must be written by the query, never left to a database default. Prisma's
-// `db push` strips the DEFAULT from "updatedAt" (it models it as @updatedAt,
-// which the client applies), and without these columns the first allocation of
-// a series fails a NOT NULL check — which breaks every deposit, withdrawal,
-// loan and repayment, because they all allocate a number inside their
-// transaction.
+// The query writes its own timestamps; Prisma's @updatedAt has no DB default.
 func TestNextDocumentNumberQueryWritesItsOwnTimestamps(t *testing.T) {
 	insertColumns := NextDocumentNumberQuery[:strings.Index(NextDocumentNumberQuery, "VALUES")]
 

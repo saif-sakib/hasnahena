@@ -12,20 +12,8 @@ import {
 import { getLocalizedPath } from '@/lib/seo';
 
 /**
- * WO-94 / WO-95 — English is the default, and the default has no prefix.
- *
- * `/` used to 307 to a negotiated locale, which is why Search Console reported
- * *"Duplicate, Google chose different canonical than user"* on `/bn` with a
- * Google-selected canonical of `/`: Google merges a redirecting root with
- * whatever it lands on and keeps the shorter URL. `/` is a real English page
- * now.
- *
- * Two kinds of assertion here, and the second is the one that lasts. The first
- * pins the rule; the second is a **census** over `app/` and `components/` that
- * fails when somebody writes `` `/${locale}/faq` `` again. Under the old
- * `always` scheme that was merely repetitive — now it produces a URL that 301s,
- * so every hand-built link costs a redirect and tells a crawler the href is not
- * the real one.
+ * WO-94 / WO-95 — English is the default and unprefixed. Plus a census: no
+ * hand-built `/${locale}/…` URL (it would 301).
  */
 
 const WEB = resolve(new URL('.', import.meta.url).pathname, '..', '..');
@@ -74,9 +62,7 @@ describe('reading a locale back out of a path', () => {
     expect(localeFromPath('/')).toBe('en');
     expect(localeFromPath('/bn/faq')).toBe('bn');
     expect(localeFromPath('/bn')).toBe('bn');
-    // Not a locale segment. `/enrolment` is the case a `startsWith('/en')`
-    // check gets wrong, and it is why this splits on `/` rather than matching a
-    // prefix.
+    // `/enrolment` is not a locale segment.
     expect(localeFromPath('/enrolment')).toBe('en');
     expect(localeFromPath('/bnp-office')).toBe('en');
   });
@@ -101,10 +87,7 @@ describe('reading a locale back out of a path', () => {
   });
 });
 
-/**
- * The census. A list of the files that were fixed on 2026-08-25 would be
- * satisfied and then stale; what has to fail is the *next* one.
- */
+/** The census: what has to fail is the NEXT hand-built URL. */
 describe('no page builds a locale URL by hand', () => {
   function sourceFiles(): string[] {
     const roots = ['app', 'components', 'lib'].map((d) => join(WEB, d));
@@ -140,9 +123,7 @@ describe('no page builds a locale URL by hand', () => {
     for (const file of FILES) {
       if (file.endsWith(join('lib', 'locale-path.ts'))) continue;
       const source = readFileSync(file, 'utf8');
-      // The shape being banned: a template literal that opens with a slash and
-      // interpolates something locale-ish. Narrow on purpose — `${locale}`
-      // elsewhere in a string is fine, and so is a path with no interpolation.
+      // A template literal opening `/${…locale…}`.
       for (const match of source.matchAll(/`\/\$\{\s*(\w*[Ll]ocale\w*)\b/g)) {
         offenders.push(`${file.slice(WEB.length + 1)} — \`/\${${match[1]}}…\``);
       }
@@ -159,25 +140,11 @@ describe('no page builds a locale URL by hand', () => {
   });
 
   /**
-   * The other way a locale URL gets built by hand: string surgery on the
-   * current pathname.
-   *
-   * `pathname.replace(localePath(locale), otherPrefix)` reads like "swap the
-   * locale segment" and is not. For English `localePath('en')` is `/`, so on
-   * `/dashboard/admin` it replaced the **first slash** and produced
-   * `/bndashboard/admin` — a 404 reachable from the language button on every
-   * staff screen. `pathname.replace('/en', '/bn')` is the same family: it
-   * matches `/enrolment`, and it cannot add a prefix to a path that has none.
-   *
-   * There is no correct spelling of this with `replace`, because under
-   * `as-needed` one of the two locales has no segment to replace at all.
-   * Banning the shape is the fix; `switchLocalePath` is the only sanctioned way.
+   * No pathname.replace() locale surgery (it produced /bndashboard/admin);
+   * switchLocalePath is the only sanctioned way.
    */
   it('rewrites no locale with replace(), because there is no correct way to', () => {
-    // `router.replace(localePath(locale, '/login'))` is Next's navigation, and
-    // four files legitimately do it. The lookbehind is what keeps this census
-    // about string surgery on a path rather than about routing — without it the
-    // check fails on the correct code and gets deleted by the next person.
+    // router.replace(...) is navigation, not string surgery.
     const NOT_A_ROUTER = String.raw`(?<!\brouter)`;
     const BANNED: Array<{ pattern: string; what: string }> = [
       { pattern: String.raw`pathname\s*\.replace\s*\(`, what: 'pathname.replace(…)' },

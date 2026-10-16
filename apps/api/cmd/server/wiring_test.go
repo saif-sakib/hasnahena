@@ -9,17 +9,9 @@ import (
 	"testing"
 )
 
-// WO-53 / RUN-06. `CleanupExpiredTokens` and `CleanupExpiredRateLimits` existed,
-// were exported, were correct, and were called by nothing for months. They
-// looked exactly like working code, and `token_blacklist` and `rate_limits`
-// grew the whole time. The behaviour of the sweep is proved in
-// internal/services/cleanup_integration_test.go; what that cannot prove is that
-// anything starts it.
-//
-// Reading the source rather than the runtime is deliberate: starting the real
-// loop in a test means owning its lifetime, and a loop nobody cancels hangs the
-// package. The failure this guards against is a deleted call, which is a
-// syntactic fact.
+// WO-53 / RUN-06: background loops must actually be started from main().
+// Checked on the source (a deleted call is a syntactic fact), since starting
+// the real loop in a test would hang the package.
 func mainFunc(t *testing.T) *ast.FuncDecl {
 	t.Helper()
 
@@ -62,10 +54,7 @@ func TestCleanupLoopIsStarted(t *testing.T) {
 			"for the life of the deployment, with no error and no log line saying so (RUN-06)")
 	}
 
-	// A startup context is not a background context. main.go's startupCtx is a
-	// ten-second timeout; a loop handed that one runs its first pass, returns,
-	// and never ticks again — silently, which is indistinguishable from a
-	// system with nothing to sweep.
+	// Must be runCtx: a loop given the 10s startupCtx runs once and stops.
 	ctxArg, ok := args[0].(*ast.Ident)
 	if !ok {
 		t.Fatalf("startCleanupLoop's context argument is %T, expected an identifier", args[0])
@@ -79,9 +68,7 @@ func TestCleanupLoopIsStarted(t *testing.T) {
 	}
 }
 
-// The same class of defect, one layer up: the middleware stack is now built by
-// mountMiddleware, and a stack nobody mounts is a process with no rate limiter,
-// no access log and no CORS — none of which fails a request.
+// A stack nobody mounts has no limiter, access log or CORS — and fails nothing.
 func TestMiddlewareAndRoutesAreMounted(t *testing.T) {
 	for _, fn := range []string{"mountMiddleware", "mountRoutes"} {
 		if callInMain(t, fn) == nil {
@@ -90,11 +77,7 @@ func TestMiddlewareAndRoutesAreMounted(t *testing.T) {
 	}
 }
 
-// WO-82. The reconciliation job is the strongest guard the ledger has, and it
-// is also the easiest one to lose: nothing fails when it stops running. Every
-// balance still reads correctly, every request still returns 200, and the
-// gauges keep their last value — which is why `hasnahena_ledger_reconciled_
-// timestamp_seconds` exists and why this test does.
+// WO-82: nothing fails when the reconciliation job stops running.
 func TestReconciliationLoopIsStarted(t *testing.T) {
 	args := callInMain(t, "startReconciliationLoop")
 	if args == nil {
@@ -116,13 +99,7 @@ func TestReconciliationLoopIsStarted(t *testing.T) {
 	}
 }
 
-// The job's whole value is that it reports rather than repairs. An automated
-// correction to a ledger is a second defect written on top of the first, and it
-// destroys the evidence needed to understand the first — so the loop, and the
-// query layer under it, must contain no write to a balance.
-//
-// Reading the source rather than the behaviour is deliberate: proving "it never
-// writes" from the outside means enumerating every path it could take.
+// The reconciliation loop and its query layer contain no balance write (ADR-027).
 func TestReconciliationNeverCorrects(t *testing.T) {
 	for _, file := range []string{"main.go", "../../internal/repositories/reconcile_repository.go"} {
 		source, err := os.ReadFile(file)
@@ -155,10 +132,7 @@ func TestReconciliationNeverCorrects(t *testing.T) {
 	}
 }
 
-// WO-93. The retention sweep is the whole of FR-23's second half: nothing else
-// removes a rejected applicant's NID number, and nobody would notice it had
-// stopped, because "no rows swept" and "the loop is not running" produce the
-// same silence.
+// WO-93: a stopped retention sweep looks exactly like nothing to sweep.
 func TestRetentionSweepLoopIsStarted(t *testing.T) {
 	args := callInMain(t, "startRetentionSweepLoop")
 	if args == nil {
@@ -180,10 +154,7 @@ func TestRetentionSweepLoopIsStarted(t *testing.T) {
 	}
 }
 
-// The sweep touches `users`, which is one row away from `accounts`. It must
-// never touch a balance, for the same reason reconciliation must not: a
-// background job with no operator watching is the worst possible place for a
-// write to money to happen.
+// The sweep must never touch a balance.
 func TestRetentionSweepNeverTouchesMoney(t *testing.T) {
 	for _, file := range []string{"main.go", "../../internal/repositories/retention_repository.go"} {
 		source, err := os.ReadFile(file)
@@ -220,17 +191,8 @@ func TestRetentionSweepNeverTouchesMoney(t *testing.T) {
 	}
 }
 
-// A fatal error must reach Sentry before the process ends.
-//
-// os.Exit skips deferred functions, so `defer flushSentry()` in main covers an
-// orderly shutdown and nothing else — and the errors that end the process are
-// the ones most worth reporting: the database unreachable, the port taken.
-// Sentry's transport is asynchronous, so an unflushed event is simply lost.
-//
-// Source-level, like the loop checks above, because the failure guarded against
-// is a deleted call and that is a syntactic fact. Reading main.go as text
-// rather than as an AST is deliberate too: what matters is the *order* of three
-// statements, which is easier to see in the lines than in the tree.
+// A fatal error must flush Sentry before os.Exit, which skips defers. Read as
+// text: what matters is the order of three statements.
 func TestFatalErrorsFlushSentryBeforeExiting(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {
@@ -245,9 +207,8 @@ func TestFatalErrorsFlushSentryBeforeExiting(t *testing.T) {
 			continue
 		}
 
-		// The three lines above an exit are the error that caused it. An exit
-		// with no error logged near it is a deliberate status code, not a
-		// fault, and has nothing to report.
+		// The lines above an exit are its error; an exit without one is a
+		// deliberate status code.
 		start := i - 3
 		if start < 0 {
 			start = 0

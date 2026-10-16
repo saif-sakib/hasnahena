@@ -1,21 +1,8 @@
-// Block Y — WO-90, WO-91, WO-92, WO-93.
-//
-// Four rules that the application was keeping by convention, or not keeping at
-// all, and that the database or the request path now keeps for it:
-//
-//   WO-90  one contact is one account, whatever case it is typed in — and a
-//          collision is the caller's problem, named, not a 500
-//   WO-91  a dismissed worker's token stops working when they are dismissed,
-//          not when it expires
-//   WO-92  a notification belongs to a user, and goes when they do
-//   WO-93  a member can be erased, and erasure keeps the money and the decision
-//          while losing the person (FR-23, ADR-033)
-//
-// Needs a database, like every file in this directory. Skips cleanly without
-// one.
-//
-//   scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// Block Y — identity integrity (needs a database; skips without one):
+//   WO-90  one contact = one account, case-insensitively; a collision is a named 409
+//   WO-91  dismissing a worker revokes their token immediately
+//   WO-92  a notification belongs to a user and goes with them
+//   WO-93  erasure keeps the money and the decision, loses the person (FR-23, ADR-033)
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -43,13 +30,7 @@ import { PENDING_APPROVAL_PASSWORD_HASH } from '@/lib/rejected-application';
 
 const skip = !hasTestDatabase();
 
-/**
- * Namespaced to this suite. Every Go suite truncates the tables between its own
- * tests and this one shares the database with all of them, so a fixture that
- * borrows a neighbour's phone number is a test that passes or fails on package
- * ordering — which is exactly what `withdrawal_status_integration_test.go` did
- * for weeks by hardcoding a number `route-harness.ts` also seeds.
- */
+/** Namespaced to this suite (the database is shared with every Go suite). */
 const NS = 'blocky-';
 const EMAIL_DOMAIN = '@blocky.test';
 const phone = (n: number) => `019333000${String(n).padStart(2, '0')}`;
@@ -98,25 +79,12 @@ async function seedWorker(suffix: string, n: number): Promise<{ id: string; toke
       motherName: '-',
     },
   });
-  // Issued a minute ago, not this instant. `issuedBeforeRevocation` compares
-  // the marker truncated to whole seconds, so a token minted in the *same
-  // second* as the revocation deliberately survives it — that sub-second window
-  // is what keeps first login from being born revoked, and it is documented in
-  // `lib/auth-revocation.ts`. A test that minted at `now` would be measuring
-  // that window rather than the revocation.
+  // A minute ago: same-second tokens deliberately survive revocation (first login).
   const issuedAtSeconds = Math.floor(Date.now() / 1000) - 60;
   return { id, token: mintToken({ sub: id, role: 'WORKER', issuedAtSeconds }) };
 }
 
-/**
- * What a worker's token still buys.
- *
- * `GET /api/v1/admin/audit-logs` is the cleanest probe there is for this,
- * because it separates the two failures instead of collapsing them: a live
- * worker token is authenticated and then refused for its **role** (403), and a
- * revoked one never reaches the role check at all (401). So 403 means "the
- * session works", and that is the assertion a revocation test actually needs.
- */
+/** Probe via audit-logs: 403 = session alive (role refused), 401 = revoked. */
 async function sessionStatus(token: string): Promise<number> {
   const res = await auditLogs.GET(routeRequest('/api/v1/admin/audit-logs', { token }));
   return res.status;
@@ -132,11 +100,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     await seedRoleUsers();
     adminToken = tokenFor('ADMIN');
 
-    // POST /api/v1/admin/workers asks the Go API to send the welcome email and
-    // treats a failure as fatal, so without a stub every create in this file
-    // would answer 500 for a reason that has nothing to do with what is under
-    // test. Stubbed rather than started: the email itself is the Go suite's
-    // subject, not this one's.
+    // Stub the Go welcome-email call; a create treats its failure as fatal.
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -164,12 +128,8 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     it('refuses two accounts whose email addresses differ only in case', async () => {
       await seedWorker('case-a', 11);
 
-      // Deliberately NOT through the route. Both route paths lowercase before
-      // writing, so the route can never produce this row — and that was the
-      // whole defect: the constraint was a convention two handlers happened to
-      // share. A seed script, a migration, or a support fix applied by hand at
-      // the psql prompt is what this guards against, and that is what this
-      // insert imitates.
+      // Deliberately NOT through the route (which lowercases): imitates a seed,
+      // migration or manual fix.
       const collide = db().user.create({
         data: {
           id: `${NS}case-b`,
@@ -233,30 +193,14 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     });
 
     /**
-     * The scenario the owner hit, verbatim: apply as a member, be rejected,
-     * then be hired.
-     *
-     * A **rejected application owns nothing** — that is the entire point of
-     * scoping uniqueness to live rows, and it is what makes a rejection email
-     * possible at all (the applicant's real address survives). The three
-     * partial unique indexes agree: `users_email_live_key` and
-     * `users_phone_live_key` both carry `NOT (…rejected…)` in their predicate,
-     * so the database would have accepted this insert.
-     *
-     * The application-level pre-check did not, and it ran first. So the screen
-     * said "that email address is already in use" about a row the constraint
-     * does not consider to hold it, and the only way out was for an admin to go
-     * into the database. The check was stricter than the constraint it exists to
-     * anticipate, which is the worst way for the two to disagree: the stricter
-     * one is invisible and always wins.
+     * Apply, be rejected, then be hired: a rejected application owns nothing, so
+     * the pre-check must not be stricter than the partial unique indexes.
      */
     it('lets a rejected applicant be hired with their own email and phone', async () => {
       const email = `${NS}rejected-then-hired${EMAIL_DOMAIN}`;
       const theirPhone = phone(21);
 
-      // A refused application, in the shape rejection actually leaves behind:
-      // status INACTIVE, never approved, and the password-hash sentinel that
-      // distinguishes an application from a deactivated member.
+      // A refused application as rejection leaves it.
       await db().user.create({
         data: {
           id: `${NS}refused`,
@@ -290,9 +234,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           `phone, which no live row holds. Response: ${JSON.stringify(json)}`,
       ).toBe(200);
 
-      // Both rows exist, and only one of them is live — which is the state the
-      // partial indexes are built to allow and nothing else in the system may
-      // treat as a conflict.
+      // Both exist; only one is live.
       const rows = await db().user.findMany({
         where: { email },
         select: { role: true, status: true },
@@ -306,13 +248,8 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     });
 
     /**
-     * The other direction, and the reason the filter is `NOT (all four
-     * conjuncts)` rather than `status <> 'INACTIVE'`.
-     *
-     * A **deactivated member** is not a rejected application: they have a real
-     * password hash and an `approvedAt`, and they keep their identifiers. Freeing
-     * those would hand the next person given that phone number somebody else's
-     * account history.
+     * A DEACTIVATED member (real hash, approvedAt) keeps their identifiers — hence
+     * NOT(all four conjuncts), not `status <> 'INACTIVE'`.
      */
     it('still refuses a contact that a deactivated member holds', async () => {
       const email = `${NS}deactivated${EMAIL_DOMAIN}`;
@@ -357,11 +294,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           routeRequest('/api/v1/admin/workers', { token: adminToken, method: 'POST', body }),
         );
 
-      // Both read-then-write pairs are in flight together, so both `findFirst`
-      // pre-checks miss and the loser's `create` raises P2002 — the exact
-      // sequence WO-90(b) describes. If the timing happens to serialise them
-      // the loser is caught by the pre-check instead and the answer is the same
-      // 409, which is why this assertion is stable either way.
+      // Concurrent creates: the loser gets 409 either via P2002 or the pre-check.
       const [a, b] = await Promise.all([post(), post()]);
       const statuses = [a.status, b.status].sort();
 
@@ -425,10 +358,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       const marker = await markerFor(worker.id);
       const lifetimeSeconds = (marker!.expiresAt.getTime() - marker!.createdAt.getTime()) / 1000;
 
-      // A marker that expires before the tokens it revokes brings them back to
-      // life, silently. Derived from JWT_EXPIRY_SECONDS on both backends
-      // (`revocationTTLFor` in Go), never hardcoded — that is WO-85's finding,
-      // and this half must not drift from it.
+      // The marker lifetime is derived from JWT_EXPIRY_SECONDS (WO-85).
       expect(lifetimeSeconds).toBeGreaterThanOrEqual(revocationTtlSeconds() - 5);
       expect(lifetimeSeconds).toBeLessThanOrEqual(revocationTtlSeconds() + 5);
     });
@@ -477,9 +407,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       expect(res.status).toBe(200);
       expect(await db().user.findUnique({ where: { id: worker.id } })).toBeNull();
 
-      // Deleting the row is not revocation: neither backend reads the user on a
-      // request, only the signature, the expiry and the blacklist. A deleted
-      // worker's token verifies exactly as well as it did the day before.
+      // Deleting the row is not revocation — tokens are never checked against users.
       expect(await sessionStatus(worker.token)).toBe(SESSION_REVOKED);
     });
 
@@ -544,10 +472,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     });
 
     it('still allows a notification addressed to a whole role', async () => {
-      // `targetUserId` is nullable and stays nullable: staff-wide notifications
-      // carry a role and no user, and a foreign key on a NULL column is not
-      // checked. Pinned because "add the FK" and "make it required" look like
-      // the same change.
+      // targetUserId stays nullable (role-wide notifications).
       const created = await db().notification.create({
         data: {
           type: 'NEW_REGISTRATION',
@@ -567,21 +492,8 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
 
   describe('ADR-043/044 — a rename does not rewrite the trail', () => {
     /**
-     * Admission moves a person's id from `APP-2026-000001` to `ACC-KH-33001`.
-     * Audit rows written before that keep the id they were written with, because
-     * `audit_logs` is append-only at the database level and its trigger refuses
-     * UPDATE unconditionally — the escape hatch covers DELETE only.
-     *
-     * That refusal is right, and a migration that tried to work around it was
-     * rejected by the database on live data. So the *reader* resolves instead —
-     * and since ADR-044 it does so with no mapping table at all: the value those
-     * rows hold is the applicant's own form number, and `users.formNumber` still
-     * holds exactly that string. `user_id_history` was a third copy of a fact
-     * two columns already recorded.
-     *
-     * The old id here is therefore a **real** application number, not an opaque
-     * string, which is the other half of what changed: there is nothing left in
-     * this table that a person cannot read.
+     * Pre-admission audit rows keep the APP- id (append-only); the reader
+     * resolves them via users.formNumber (ADR-044).
      */
     const OLD_ID = 'APP-2026-096001';
     const NEW_ID = `${NS}rename-new`;
@@ -665,10 +577,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           nameBn: 'ব্লক ওয়াই',
           fatherName: 'Father Name',
           motherName: 'Mother Name',
-          // Distinct per member. Shared until 2026-08-26, when `users_nid_live_key`
-          // made two live members holding one NID impossible — this fixture
-          // seeds two members in the guarantor case and was the first thing the
-          // new constraint caught, which is the constraint doing its job.
+          // Distinct per member (users_nid_live_key).
           nidNumber: `19901${String(n).padStart(8, '0')}`,
           bloodGroup: 'B+',
           profession: 'Farmer',
@@ -688,9 +597,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
           nominee: { create: { name: 'Nominee', relationship: 'Brother', nidNumber: '1990987654321', phone: phone(n + 40) } },
         },
       });
-      // The support conversation. This is the most narrative thing the platform
-      // holds about a member — free text they typed about their circumstances —
-      // and it used to survive an erasure that cleared their name.
+      // The support conversation must not survive erasure.
       const thread = await db().supportThread.create({
         data: {
           id: `${id}-thread`,
@@ -728,9 +635,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
         await db().document.create({
           data: {
             type: DOC_TYPES[i % DOC_TYPES.length],
-            // Not a Cloudinary host on purpose: the route's asset loop then has
-            // nothing of ours to delete and reports it as such, so the test
-            // exercises the loop without needing Cloudinary credentials.
+            // Not a Cloudinary host, so the asset loop runs without credentials.
             url: `https://example.test/${id}-${i}.jpg`,
             fileName: `${id}-${i}.jpg`,
             mimeType: 'image/jpeg',
@@ -809,11 +714,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
       expect(await db().supportThread.count({ where: { memberUserId: m.id } })).toBe(0);
       expect(await db().supportMessage.count({ where: { senderUserId: m.id } })).toBe(0);
 
-      // The five that were quietly left behind: gender, marital status, number
-      // of children, language and office are facts about a human being, on a row
-      // whose only remaining purpose is to own a number in the ledger. Enums are
-      // NOT NULL with a default, so "not recorded" is the default — which is
-      // what they already mean on a row nobody filled in.
+      // The less obvious personal facts are reset too (enums to their default).
       const rest = await db().user.findUniqueOrThrow({
         where: { id: m.id },
         select: {
@@ -835,14 +736,8 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
     });
 
     /**
-     * Every column on `users`, enumerated — because "erase everything" is a
-     * promise that decays one schema change at a time.
-     *
-     * The first version of this erasure cleared the name, the NID and the
-     * address and left five other facts about the person standing. Nothing
-     * failed; nobody could have noticed without reading the row. So the model is
-     * the list, and a column that is neither cleared by the route nor named
-     * below as a deliberate survivor fails here rather than in a year.
+     * Every column on `users`, enumerated: one neither cleared by the route nor
+     * listed as a survivor fails here.
      */
     it('leaves nothing on the row that describes the person', () => {
       const schema = readFileSync(
@@ -910,9 +805,7 @@ describe.skipIf(skip)('Block Y — identity and deletion integrity', () => {
 
       await erase(m.id, { confirmAccountNo: m.accountNo, reason: 'member request 2026-08-25' });
 
-      // Exactly one row was added — asserted as a delta, because audit_logs is
-      // append-only (DATA-08) and rows this suite wrote on previous runs cannot
-      // be cleaned up. For the same reason the row under test is the newest one.
+      // Asserted as a delta — audit_logs is append-only.
       expect(await db().auditLog.count({ where: { entityId: m.id } })).toBe(before + 1);
       const rows = await db().auditLog.findMany({
         where: { entityId: m.id, action: 'MEMBER_ERASED' },

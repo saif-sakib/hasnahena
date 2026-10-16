@@ -3,16 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { endStreamOnUpstreamFailure } from '@/lib/sse-stream';
 
 /**
- * The Sentry issue this exists for is `failed to pipe response`, unhandled and
- * ongoing on `GET /api/v1/dashboard/support/[...path]`. Next throws it from
- * `pipeToNodeResponse` when a streamed body errors with anything that is not an
- * abort — and the piping happens after the route handler has returned, so the
- * route cannot catch it. The only place to fix it is the stream itself.
- *
- * So the assertions are about the *shape of the ending*: a stream that fails
- * upstream must end the way a stream that finished normally ends, because that
- * is the ending Next pipes without throwing and the ending EventSource
- * reconnects from.
+ * An upstream failure must end the stream the way a normal finish does — the
+ * ending Next pipes without throwing and EventSource reconnects from.
  */
 
 const encoder = new TextEncoder();
@@ -46,14 +38,8 @@ describe('endStreamOnUpstreamFailure', () => {
   });
 
   it('ends cleanly when the upstream errors mid-stream, keeping what arrived', async () => {
-    // `TypeError: terminated` is what undici raises when the socket under a
-    // fetch body goes away — a redeploy of the Go API, a proxy's idle timeout,
-    // a phone losing signal. Unwrapped, this is the error Next reports.
-    //
-    // The failure is raised from `pull`, one read after a chunk was delivered,
-    // because that is the sequence a dying socket produces: bytes arrive, then
-    // the connection breaks. (`controller.error()` from `start` models
-    // something else — it discards the queue, so nothing was ever delivered.)
+    // `TypeError: terminated` from `pull`, one read after a chunk — the
+    // sequence a dying socket produces.
     let pulls = 0;
     const upstream = new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -90,10 +76,7 @@ describe('endStreamOnUpstreamFailure', () => {
   });
 
   it('cancels the upstream when the client goes away', async () => {
-    // The member closing the tab has to reach the Go API, or the connection
-    // stays open there for the life of the process — the leak `signal:
-    // req.signal` was added to close. Wrapping the body puts a reader of our
-    // own in the middle, so the cancel has to be forwarded explicitly.
+    // A client cancel must be forwarded to the upstream.
     let cancelledWith: unknown = 'not cancelled';
     const upstream = new ReadableStream<Uint8Array>({
       start(controller) {

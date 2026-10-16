@@ -87,14 +87,7 @@ interface MemberDetails {
   totalDeposited: number;
   totalWithdrawn: number;
   isGuarantorForActiveLoan: boolean;
-  /**
-   * Withdrawal requests this member has outstanding and unpaid.
-   *
-   * Not a precondition of anything since ADR-030 — a payout needs no request
-   * behind it and waits out no period. They are here so a worker at the desk
-   * can see that ৳5,000 was already asked for and settle *that* rather than pay
-   * it twice. Nothing creates new ones; the list empties as they are paid.
-   */
+  /** Outstanding unpaid withdrawal requests — informational since ADR-030. */
   pendingWithdrawals?: PendingWithdrawal[];
   loanEligibility: {
     eligible: boolean;
@@ -150,16 +143,9 @@ export default function MemberDetailScreen() {
   const params = useParams();
   const memberUserId = params.id as string;
 
-  /**
-   * FR-23 / WO-93 / ADR-033. Erasure is the only irreversible action on this
-   * screen, and an admin decision by policy — a worker must not see it. This is
-   * presentation only: `/api/v1/admin/members/[id]/erase` refuses a worker's
-   * token regardless, which is the gate that counts (see `role.tsx`).
-   */
+  /** Erasure is admin-only (FR-23); presentation only — the route refuses a worker. */
   const isAdmin = useIsAdmin();
-  // Staff-assisted password reset. Most members have no email address, so the
-  // self-service `forgot-password` path does not exist for them — see the note
-  // on app/api/v1/admin/members/[id]/reset-password/route.ts.
+  // Staff-assisted password reset (ADR-036).
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -172,9 +158,7 @@ export default function MemberDetailScreen() {
   const [erasing, setErasing] = useState(false);
   const [eraseError, setEraseError] = useState<string | null>(null);
 
-  // WO-27 — SWR, not an effect. `memberUserId` is read from the route, so the key
-  // is null until it exists: that is how "not yet" is expressed to a hook that
-  // cannot be called conditionally.
+  // SWR (WO-27); a null key until memberUserId exists.
   const {
     data: detailsData,
     error,
@@ -186,9 +170,7 @@ export default function MemberDetailScreen() {
     loans: Loan[];
   }>(memberUserId ? `/v1/dashboard/worker/members/${memberUserId}` : null);
 
-  // Carries the token: `loan.allowActiveLoanWithdrawal` is not in the anonymous
-  // tier (WO-77). `loan.maxInstallmentMonths` is read by MoneyActionDialog,
-  // which needs it to bound the loan form.
+  // fetchSettings attaches the token (WO-77).
   const { data: settings } = useSWR<Record<string, string> | null>(
     '/api/v1/settings',
     () => fetchSettings(),
@@ -209,15 +191,7 @@ export default function MemberDetailScreen() {
   );
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  /**
-   * Which money action is open, if any.
-   *
-   * Four forms used to live in this file — deposit, withdrawal, loan
-   * application, loan instalment — and two of them existed a second time on the
-   * Deposits and Loans screens, with different rules. They are all
-   * `MoneyActionDialog` now; see the note there for what the copies disagreed
-   * about.
-   */
+  /** Which money action is open — all go through MoneyActionDialog. */
   const [moneyAction, setMoneyAction] = useState<{
     action: MoneyAction;
     loanId?: string;
@@ -397,21 +371,8 @@ export default function MemberDetailScreen() {
   };
 
   /**
-   * Erase this member — anonymise if they have postings, delete if they do not.
-   *
-   * The route decides which by counting; nothing here chooses, and nothing here
-   * is told to. All this screen owns is the confirmation: the account number is
-   * echoed by hand because this action cannot be undone and the page is reached
-   * from a list.
-   */
-  /**
-   * Issue this member a temporary password, to be read to them at the desk.
-   *
-   * Everything that makes it safe is on the server — the role check, the
-   * account-number confirmation, revoking their live sessions, the audit row.
-   * All this owns is showing the result **once**: the password is in the
-   * response and nowhere else, so leaving this dialog without writing it down
-   * means doing the reset again.
+   * Issue a temporary password to read to the member at the desk. The server
+   * does the safety work; this only shows the result ONCE.
    */
   const handleResetPassword = async () => {
     setResetting(true);
@@ -575,9 +536,7 @@ export default function MemberDetailScreen() {
         )}
       </div>
 
-      {/* FR-23. Separated from the quick actions above and shown to admins only:
-          every button up there can be corrected by another posting, and this one
-          cannot be undone at all. */}
+      {/* FR-23, admins only — the one action here that cannot be corrected. */}
       {isAdmin && (
         <div className="flex flex-wrap justify-end gap-2">
           <Button
@@ -686,18 +645,7 @@ export default function MemberDetailScreen() {
         </div>
       )}
 
-      {/*
-        Outstanding withdrawal requests.
-
-        A panel on the page rather than a list inside the withdrawal form, which
-        is where it used to be: a member asking "when can I take my money out?"
-        is a question you answer before you open anything.
-
-        The panel now hides itself when there is nothing in it. Under FR-08 an
-        empty list was the answer to "may I pay this member?" and had to be
-        shown; since ADR-030 the answer is always yes, so an empty card would be
-        a permanent reminder of a rule that no longer exists.
-      */}
+      {/* Outstanding withdrawal requests; hidden when empty (ADR-030). */}
       {member.status === 'ACTIVE' && pendingWithdrawals.length > 0 && (
         <Card className="rounded-sm">
           <CardHeader className="pb-3">
@@ -989,11 +937,7 @@ export default function MemberDetailScreen() {
                               {locale === 'bn' ? 'পরিশোধ' : 'Pay'}
                             </Button>
                           )}
-                          {/* Adding to a loan that is already running. It lives
-                              on the loan rather than beside "New Loan" because
-                              it needs a loan to act on, and because a member
-                              with an active loan is refused a new one — which
-                              is the whole reason this exists. */}
+                          {/* Top-up lives on the loan: an active borrower cannot take a new one. */}
                           {loan.status === 'ACTIVE' && (
                             <Button
                               variant="outline"

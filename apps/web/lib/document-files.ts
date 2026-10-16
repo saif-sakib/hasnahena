@@ -1,6 +1,4 @@
-// From its own module, NOT from `@/lib/documents`: that barrel re-exports
-// `renderPDF`, and importing through it pulled jsPDF into every screen that
-// only wanted to save a photograph.
+// Not via `@/lib/documents`, whose barrel pulls in jsPDF.
 import { saveBlob } from '@/lib/save-blob';
 
 const IMAGE_FILE_PATTERN = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:$|\?)/i;
@@ -44,14 +42,8 @@ export function guessFileNameFromUrl(url: string, fallback = 'document'): string
 }
 
 /**
- * Save a member's uploaded document — an NID scan, a photograph — under a name
- * that says what it is.
- *
- * The `fetch` is what makes that possible and is also the fragile part: the
- * asset lives on Cloudinary, so this is a cross-origin read and `connect-src`
- * has to name that host. It did not, while `img-src` did, so every one of these
- * buttons rejected here while the preview beside it rendered perfectly
- * (`lib/csp.ts`). A caller that swallows the rejection shows nothing at all.
+ * Save an uploaded document (NID scan, photo) under a descriptive name. The
+ * cross-origin fetch needs Cloudinary in connect-src (lib/csp.ts).
  */
 export async function downloadDocumentFile(url: string, preferredFileName?: string): Promise<void> {
   const response = await fetch(url, {

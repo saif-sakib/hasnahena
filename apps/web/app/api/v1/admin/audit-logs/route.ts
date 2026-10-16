@@ -16,57 +16,18 @@ import {
 } from '@/lib/audit-actions';
 
 /**
- * The audit trail, for the screen that reads it.
- *
- * ---
- *
- * **What this is not.** The admin overview has a "Recent Activity" list, and it
- * is not this. That list is a `UNION` over `users`, `loans` and `transactions`
- * that *reconstructs* events from current state, so it can only ever show things
- * that left a row behind: it cannot show a sign-in, a password reset, a member
- * erasure, a branch closure, a lockout, or a ledger drift, and it cannot show
- * anything about a record that has since been deleted. It also cannot be wrong
- * in a useful way — reconstructing history from state means history changes when
- * state does. `audit_logs` is append-only at the database level (DATA-08) and is
- * the actual record.
- *
- * **Three things every row needs and only one of which was here before:**
- *
- *   1. *who* — the actor. Was already resolved.
- *   2. *what* — including `details`, the human-readable sentence each writer
- *      composes. **It was not selected.** Every row came back without the one
- *      field that says what happened, which is most of why nothing could be
- *      built on this endpoint.
- *   3. *to whom* — `entityId` is a cuid. On its own it is unreadable, and an
- *      audit trail whose subject has to be looked up by hand in another table is
- *      one nobody uses twice. Resolved below, per entity type.
- *
- * **Searching.** `q` matches the details text, the action, the actor's name and
- * — the case that matters — an **account number, receipt number or loan
- * number**. An admin investigating something has one of those in their hand, not
- * a cuid, so the search resolves them to ids first and then matches rows where
- * that id is either the actor or the subject.
+ * The audit trail for the admin screen — the real append-only record, unlike
+ * the overview's "Recent Activity", which reconstructs events from current
+ * state. Each row carries who, what (`details`) and to whom (entityId resolved
+ * to a readable label). `q` matches details, action, actor name, and account,
+ * receipt or loan numbers.
  */
 
 const MAX_LIMIT = 100;
 
 /**
- * How far ahead the pager is allowed to count.
- *
- * Numbered pages need a total, and a plain `COUNT(*)` is what this route was
- * built without: it scans every matching row, on every keystroke of the search
- * box, against a database that bills for being awake (ADR-035), to render the
- * word "of". That reasoning has not changed.
- *
- * What changed is the requirement — an admin needs to jump to page 7, not press
- * Next seven times. So the count is **bounded**: it asks for at most this many
- * matching rows and reports "at least this many" when it hits the ceiling. The
- * cost is O(cap), not O(table), so it cannot grow into the scan the original
- * decision was avoiding however long the trail gets — and the trail only grows,
- * because `audit_logs` is append-only and most of it is kept permanently.
- *
- * 2,000 rows is 100 pages at the default size, which is more jumping than the
- * filters make useful; past that the pager shows `100+` and Next still works.
+ * A BOUNDED count for the numbered pager: at most this many ids, O(cap) not
+ * O(table), since the trail only grows. Past it the pager shows `100+`.
  */
 const COUNT_CEILING = 2_000;
 
@@ -75,12 +36,7 @@ interface Subject {
   kind: string;
 }
 
-/**
- * Turn each row's `entityId` into something a person can read.
- *
- * Batched per entity type rather than per row: a page of fifty rows was fifty
- * round trips to a database that bills for being awake (ADR-035).
- */
+/** Resolve each row's entityId to a readable label, batched per entity type. */
 async function resolveSubjects(
   rows: Array<{ entityType: string; entityId: string }>,
 ): Promise<Map<string, Subject>> {
@@ -100,16 +56,7 @@ async function resolveSubjects(
   const loanIds = [...(byType.get('LOAN') ?? [])];
   const txIds = [...(byType.get('TRANSACTION') ?? [])];
 
-  /**
-   * All four lookups at once.
-   *
-   * They were awaited one after another, which is four sequential round trips
-   * to a database in another region — the functions are pinned to `sin1` beside
-   * Neon now (deployment.md), but "four in a row" is a cost that should not
-   * exist at any latency. Nothing here depends on anything else here; they were
-   * sequential only because they were written in the order the types occurred to
-   * somebody. An empty list resolves without a query at all.
-   */
+  /** All four lookups in parallel; an empty list makes no query. */
   const [userRows, accountRows, loanRows, txRows] = await Promise.all([
     userIds.length
       ? prisma.user.findMany({
@@ -138,21 +85,10 @@ async function resolveSubjects(
   ]);
 
   if (userIds.length) {
-    // **`id` OR `formNumber`, in one query.**
-    //
-    // A person's id moves once, at admission, from `APP-2026-000001` to
-    // `ACC-KH-33001` (ADR-043), and rows written before that keep the id they
-    // were written with — `audit_logs` is append-only at the database level and
-    // its trigger refuses UPDATE. That refusal is right, and since ADR-043 it
-    // costs nothing: the value those rows hold is the applicant's own form
-    // number, which is readable, and which `users.formNumber` still holds for
-    // its own reasons. There is no mapping table to consult (ADR-044 removed
-    // `user_id_history`); the column that already records the fact answers it.
+    // Match `id` OR `formNumber`: rows written before admission hold the
+    // application number (ADR-043/044).
     for (const u of userRows) {
-      // The account number first, because that is what the office says out loud.
-      // An applicant has none, so their application number stands in — and
-      // somebody erased has neither name nor number worth printing beyond what
-      // the erasure left, which is deliberately just the account number.
+      // Account number first; an applicant's application number stands in.
       const identifier = u.accountNo || u.formNumber || '';
       const subject: Subject = {
         label: identifier ? `${u.nameEn} (${identifier})` : u.nameEn,
@@ -164,9 +100,7 @@ async function resolveSubjects(
     }
   }
 
-  // An account row is one member's, so it reads better as the member — and
-  // since ADR-044 the account's key *is* the member's, so this is a lookup by
-  // the number that was already printed on the row.
+  // An account reads better as its member; its key is the member's id (ADR-044).
   if (accountIds.length) {
     for (const a of accountRows) {
       out.set(key('ACCOUNT', a.userId), {
@@ -188,8 +122,7 @@ async function resolveSubjects(
   if (txIds.length) {
     for (const t of txRows) {
       out.set(key('TRANSACTION', t.id), {
-        // Whole taka, formatted by the reader — this is a label, not money the
-        // screen does arithmetic on, so it is a string by the time it leaves here.
+        // A label, not arithmetic.
         label: `${t.id} — ${t.user.nameEn} — ৳${t.amount.toString()}`,
         kind: t.type,
       });
@@ -199,27 +132,12 @@ async function resolveSubjects(
   return out;
 }
 
-/**
- * Which user ids a free-text query names.
- *
- * An admin searches for `ACC-KH-33001`, `Rahim`, `DEP-2026-000042` — never for a
- * cuid. Without this step the search box silently matches nothing for exactly
- * the inputs somebody would actually type.
- */
+/** Which user ids a free-text query names (account/application numbers, names). */
 async function idsMatchingQuery(q: string): Promise<{ userIds: string[]; entityIds: string[] }> {
   const [users, loans, transactions] = await Promise.all([
     prisma.user.findMany({
-      // Identifiers and names only — deliberately **not** phone, email or NID.
-      //
-      // Two reasons, and the second is the real one. A rejected applicant and a
-      // live member may share a phone number (uniqueness is scoped to live rows),
-      // so matching on one here would silently pull a second person's history
-      // into a search an admin is about to draw a conclusion from. And a search
-      // box that accepts a national ID number turns the audit screen into a way
-      // of asking "is this person a member", which is the question
-      // `rejected-application.ts` and ADR-032 both exist to stop being
-      // answerable. `accountNo`, the application number and the name cover every
-      // search anybody actually performs.
+      // Identifiers and names only — never phone, email or NID: those can match
+      // a second person, and an NID search would make this a membership oracle.
       where: {
         OR: [
           { accountNo: { contains: q, mode: 'insensitive' } },
@@ -242,11 +160,7 @@ async function idsMatchingQuery(q: string): Promise<{ userIds: string[]; entityI
       take: 50,
     }),
   ]);
-  // Searching `ACC-KH-33001` must also find what that person did while they were
-  // `APP-2026-000001`. Without this, admission is a hole in their own history —
-  // and the application period is exactly the part somebody investigating a
-  // registration wants to read. The form number is on the row itself, so this
-  // needs no second query and no history table.
+  // Also match rows from when the person was still an applicant.
   const allUserIds = users.flatMap((u) => (u.formNumber ? [u.id, u.formNumber] : [u.id]));
   return {
     userIds: allUserIds,
@@ -287,8 +201,7 @@ export async function GET(req: Request) {
       filters.push({ action });
     } else if (category) {
       const names = actionsInCategory(category);
-      // An empty category would produce `IN ()`, which matches nothing and looks
-      // to the reader exactly like "there is no history here".
+      // An empty category must not become `IN ()`.
       if (names.length) filters.push({ action: { in: names } });
     } else if (severity) {
       const names = AUDIT_ACTION_NAMES.filter(
@@ -297,10 +210,7 @@ export async function GET(req: Request) {
       if (names.length) filters.push({ action: { in: names } });
     }
 
-    // The default view answers "what would need explaining", so the high-volume
-    // routine actions are out unless asked for. Never applied when the reader has
-    // named an action or a category — asking for sign-ins and being shown none
-    // is the kind of filter interaction that makes a screen untrustworthy.
+    // Default view hides noise — unless an action or category is named.
     if (!includeNoise && !action && !category) {
       filters.push({ action: { notIn: NOISE_ACTIONS } });
     }
@@ -323,21 +233,7 @@ export async function GET(req: Request) {
 
     const where: Prisma.AuditLogWhereInput = filters.length ? { AND: filters } : {};
 
-    // **One page, and one row past it.** There is no `count()` here on purpose.
-    //
-    // The screen shows the most recent entries and loads more when the reader
-    // asks. A total needs a second query that scans every row the filter
-    // matches — on every keystroke of the search box, against a database that
-    // bills for being awake (ADR-035) — to produce a number whose only use is
-    // the word "of". Asking for `limit + 1` rows answers the question the
-    // button actually needs, which is whether there is anything after this.
-    /**
-     * The page, and how many pages there are — in parallel.
-     *
-     * The count selects `id` only and stops at the ceiling, so what comes back
-     * is at most 2,000 integers off the same index the page query uses. It is
-     * not a `COUNT(*)`: it cannot read the whole table.
-     */
+    // The page and the bounded count (ids only, capped), in parallel.
     const [rows, countRows] = await Promise.all([
       prisma.auditLog.findMany({
       where,
@@ -349,8 +245,7 @@ export async function GET(req: Request) {
         action: true,
         entityType: true,
         entityId: true,
-        // The sentence the writer composed. Not selected before this, which is
-        // why every row arrived saying nothing.
+        // The sentence the writer composed.
         details: true,
         oldValue: true,
         newValue: true,
@@ -368,8 +263,7 @@ export async function GET(req: Request) {
     const hasMore = rows.length > limit;
     const logs = hasMore ? rows.slice(0, limit) : rows;
 
-    // `countCapped` says the total is a floor rather than a fact, so the pager
-    // can render `100+` instead of claiming a number it did not finish counting.
+    // The total is a floor, so the pager can render `100+`.
     const countCapped = countRows.length > COUNT_CEILING;
     const matched = countCapped ? COUNT_CEILING : countRows.length;
     const totalPages = Math.max(1, Math.ceil(matched / limit));
@@ -394,9 +288,7 @@ export async function GET(req: Request) {
         action: log.action,
         entityType: log.entityType,
         entityId: log.entityId,
-        // The sentence as written, with a retired identifier resolved to the
-        // name the row itself already carries. The stored row is untouched —
-        // see lib/audit-details.ts.
+        // Retired identifiers resolved at render time (lib/audit-details.ts).
         details: readableDetails(log.details, log.entityId),
         oldValue: log.oldValue,
         newValue: log.newValue,
@@ -411,8 +303,7 @@ export async function GET(req: Request) {
               accountNo: actor.accountNo,
             }
           : // A null actor is the platform itself — the retention sweep, the
-            // reconciliation pass. Named rather than left blank, because "who did
-            // this" with no answer reads as missing data.
+            // Named rather than blank.
             null,
         subject: subject ?? null,
       };

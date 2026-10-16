@@ -8,33 +8,12 @@ import (
 	"testing"
 )
 
-// ADR-044. Every posting and every loan is identified by the number printed on
-// the document, and nothing else.
-//
-// `transactions.id` used to be a `cuid()` beside a **nullable** `receiptNumber`,
-// and `loans.id` a `cuid()` beside a `loanNumber`. Two identifiers for one
-// thing, of which the readable one was the one the database did not require —
-// so four inserts in loan_repository.go wrote no receipt at all, and the audit
-// screen printed the other one.
-//
-// There is one column now, and it has no default, so an insert that forgets it
-// fails on a NOT NULL primary key. What the compiler cannot catch is an insert
-// that *supplies* one from somewhere other than the allocator:
-// `gen_random_uuid()::text` compiles, satisfies the key, and puts an opaque
-// string back on a member's receipt. Every one of these inserts used to do
-// exactly that, so this is a regression that has already happened once at every
-// call site simultaneously.
-//
-// This reads the source rather than a database because that is where the
-// mistake is visible: an integration test posting one deposit passes whatever
-// the id looks like.
+// ADR-044 — a posting or loan is identified by its document number only. An
+// INSERT must take the id from the allocator, never e.g. gen_random_uuid().
+// Source-level: an integration test passes whatever the id looks like.
 
 var (
-	// To the end of the enclosing raw string literal, not to the end of the
-	// column list. The first version of this stopped at the `)` that closes the
-	// columns — so it read every INSERT in the package, matched nothing in any
-	// of them, and passed against a deliberately planted `gen_random_uuid()`.
-	// The values are the whole point: that is where the id comes from.
+	// To the end of the raw string, so the VALUES are read too.
 	postingInsert = regexp.MustCompile("(?is)INSERT\\s+INTO\\s+(transactions|loans)\\b[^`]*")
 	// The id has to come from somewhere. These are the ways it must not.
 	opaqueID = regexp.MustCompile(`(?i)gen_random_uuid\(\)|uuid_generate|md5\(|random\(\)`)
@@ -73,21 +52,13 @@ func TestPostingsAndLoansAreNumbered(t *testing.T) {
 		}
 	}
 
-	// Guards the walk. A regex that matches nothing passes silently, which is
-	// the failure mode that let the audit-action census go blind when the
-	// anchor it searched for was removed.
+	// Guards the walk: a regex matching nothing passes silently.
 	if inserts < 8 {
 		t.Fatalf("only found %d posting/loan inserts — the scan is broken, not the code", inserts)
 	}
 }
 
-// Every series a posting can be filed under has a name, and the name is not
-// "FEE".
-//
-// The enum label on a donation-pool recovery is `FEE` because that is the
-// TransactionType this schema has. The *document* must not say so: this
-// platform charges no fee of any kind (rule 3), and a receipt headed
-// `FEE-2026-000001` is a written statement that it does.
+// No document series is named "FEE" — the platform charges none (rule 3).
 func TestNoDocumentSeriesIsNamedFee(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Clean("../utils/generator.go"))
 	if err != nil {

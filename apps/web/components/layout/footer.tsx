@@ -19,10 +19,7 @@ export function Footer({ settings }: FooterProps) {
   // One reader for all four surfaces that show these — see
   // lib/contact-details.ts for what they used to disagree about.
   const { address, phone, email } = contactDetails(settings, locale);
-  // The foundation names itself, in the reader's language, rather than a
-  // literal in a message file. `footer.copyright` held "© 2024 Hasnahena" and
-  // had done since 2024 — a stale year at the bottom of every public page, on
-  // the live site, in both languages.
+  // The foundation's own name in the reader's language (the only copyright).
   const name = orgName(settings, locale) || 'Hasnahena Foundation';
 
   return (
@@ -63,9 +60,7 @@ export function Footer({ settings }: FooterProps) {
                 { href: localePath(locale), label: tNav('home') },
                 { href: localePath(locale, '/about'), label: tNav('about') },
                 { href: localePath(locale, '/activities'), label: tNav('activities') },
-                // The one anchor left in the footer, and deliberately: "How it
-                // works" is a section of the home page and not a page, so it is
-                // linked as what it is rather than promoted to the menu.
+                // "How it works" is a home-page section, so an anchor.
                 { href: localePath(locale, '/#how-it-works'), label: tNav('howItWorks') },
                 { href: localePath(locale, '/contact'), label: tNav('contact') },
               ].map((item) => (

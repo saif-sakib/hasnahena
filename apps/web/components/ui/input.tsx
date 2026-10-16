@@ -4,17 +4,7 @@ import { cn } from '@/lib/utils';
 export interface InputProps
   extends React.InputHTMLAttributes<HTMLInputElement> {}
 
-/**
- * `data-no-native-password-toggle` used to be handled here, by setting
- * `-webkit-text-security: disc` on an input that was already `type="password"`.
- * That is a no-op — the property only masks text inputs — so the browser's own
- * reveal control was never suppressed and every password field in this
- * application showed **two** eyes on Edge: ours and the platform's.
- *
- * It is one CSS rule in `app/globals.css` now (`input::-ms-reveal`), applied to
- * every password field there has ever been and every one there will be, rather
- * than to whichever ones somebody remembered to mark.
- */
+/** The native password reveal is hidden by one rule in app/globals.css (input::-ms-reveal). */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type, ...props }, ref) => {
     return (

@@ -10,21 +10,8 @@ import (
 	"hasnahena/apps/api/internal/money"
 )
 
-// The two staff loan lists must answer the same question the same way.
-//
-// They are one screen now — components/dashboard/screens/loans-screen.tsx,
-// re-exported by both dashboards — and the only thing that differs between an
-// admin opening it and a worker opening it is which endpoint fetches the rows.
-// So a disagreement between these two queries is not a discrepancy in a report;
-// it is the same page showing two different numbers to two people looking at it
-// together.
-//
-// It did. `/worker/loans` sent `installmentStartDate` as `nextDueDate`, which is
-// behind every active loan by construction, so the browser's
-// `nextDueDate < now` marked all four seeded loans overdue. `/admin/loans` sent
-// no due date at all, so it marked none. Both now carry `isOverdue` and
-// `missedInstallments` from money.MissedInstallments — the same arithmetic that
-// decides whether a loan may be defaulted.
+// The worker and admin loan lists are one screen and must agree on arrears
+// (isOverdue/missedInstallments from money.MissedInstallments).
 func TestBothLoanListsAgreeOnArrears(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -54,11 +41,7 @@ func TestBothLoanListsAgreeOnArrears(t *testing.T) {
 	admin := byLoanID(t, adminRows)
 	worker := byLoanID(t, workerRows)
 
-	// Same rows, not merely the same answers about the rows they share. The
-	// worker's query used to filter `status IN (…)` and omit APPROVED and
-	// REJECTED, so the one Loans component reported a different number of loans
-	// depending on which dashboard opened it — and a rejected application is
-	// what a member is most likely to ask a field worker about.
+	// Same rows, including APPROVED and REJECTED.
 	for id := range admin {
 		if _, ok := worker[id]; !ok {
 			t.Errorf("loan %s (status %v) is in the admin list and not the worker's",
@@ -105,10 +88,7 @@ func TestBothLoanListsAgreeOnArrears(t *testing.T) {
 	}
 }
 
-// A due date must be the NEXT instalment, not the schedule's start and not its
-// end. Both were shipped: the worker's list sent the start, the member's own
-// loan history sent `expectedEndDate`, which told somebody on instalment 2 of
-// 24 that nothing was due for two years.
+// A due date is the NEXT instalment — not the start, not the end.
 func TestNextDueDateIsTheNextInstalment(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

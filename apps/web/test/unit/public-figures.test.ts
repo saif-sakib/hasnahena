@@ -3,31 +3,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * **The public site does not read the ledger.**
- *
- * This is a rule that was *removed*, and a removed rule needs a test asserting
- * its absence or nothing stops it coming back (traps.md § Deleting a rule).
- *
- * For one day the four figures beside the home page headline were counted out
- * of the database — `SELECT count(*)` for members, the sum of confirmed
- * deposits, the disbursed principal, the confirmed donations. It is the nicer
- * engineering answer by every measure a developer applies: true by
- * construction, never stale, no admin work. The owner's ruling on 2026-08-26
- * was that it is the wrong product: **the fund's real member count and real
- * balances are not for publication.** A cooperative is entitled to describe its
- * scale without opening its books to anyone who loads a page, and a headline
- * figure that moves every time somebody makes a deposit is not a headline.
- *
- * So the figures are `system_config` values the foundation states and can
- * correct, and `lib/public-stats.ts` was deleted rather than left switched off.
- * The next person to look at four hand-maintained numbers next to a database
- * that knows all four will reach for exactly the change that was reverted, and
- * they will be right about everything except the part that matters. This test
- * is where they find out.
- *
- * It is deliberately about **aggregates over people and money**, not about
- * Prisma. A public page reads `system_config` and `galleryItem` — that is what
- * those tables are for.
+ * The public site does NOT read the ledger (owner's ruling): the hero figures
+ * are stated system_config values. A removed rule needs a test asserting its
+ * absence. About aggregates over people and money, not Prisma generally.
  */
 
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
@@ -95,9 +73,7 @@ describe('the marketing pages state the foundation’s figures rather than count
   });
 
   it('the home page still shows the four figures it is supposed to', () => {
-    // The other half of the rule: refusing the ledger must not have quietly
-    // left the hero with nothing in it, which is the state that started the
-    // whole sequence.
+    // …and the hero still shows the four figures.
     const page = readFileSync(resolve(WEB_ROOT, 'app/[locale]/page.tsx'), 'utf8');
     for (const key of ['stats.members', 'stats.deposits', 'stats.loans', 'stats.charity']) {
       expect(page, `the home page no longer renders ${key}`).toContain(`'${key}'`);

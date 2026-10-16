@@ -7,14 +7,7 @@ import {
   TEMPORARY_PASSWORD_ALPHABET,
 } from './api-utils';
 
-// WO-61. Both serialisers used a truthiness guard on a BigInt:
-//
-//   amount: tx.amount ? Number(tx.amount) : null
-//
-// `BigInt(0)` is falsy, so every legitimate zero became `null`. A fully repaid
-// loan reported `remainingAmount: null`; a withdrawal that emptied an account
-// reported `savingsAfter: null` — and `savingsAfter` exists so the printed
-// passbook can show a running balance. A blank is not a balance.
+// WO-61: a BigInt zero must serialise as 0, not null (truthiness guard).
 
 const TRANSACTION_MONEY = ['amount', 'balanceAfter', 'savingsAfter', 'loanAfter', 'disputeCorrectAmount'] as const;
 const LOAN_MONEY = [
@@ -124,23 +117,12 @@ describe('generateTemporaryPassword', () => {
   });
 });
 
-// WO-65. The old generator indexed a random byte with `% alphabet.length`.
-// 256 = 4×62 + 8, so eight of the 62 characters landed on five byte values each
-// and the other 54 on four — those eight came up 21% more often than uniform,
-// and they are a known prefix of the alphabet.
-//
-// The mirror of apps/api/internal/utils/random_test.go, including the old
-// implementation, so the statistic is shown to separate the two rather than
-// merely passing on the new one.
+// WO-65: the temporary password generator is uniform. Mirrors
+// apps/api/internal/utils/random_test.go, including the old biased version.
 describe('generateTemporaryPassword is unbiased', () => {
   const ALPHABET = TEMPORARY_PASSWORD_ALPHABET;
 
-  /**
-   * Distance from uniform, pooled over every symbol. Under uniformity this has
-   * mean 61 and standard deviation ~11 for a 62-symbol alphabet, so a threshold
-   * of 200 sits about 12 standard deviations out: it will not flake, and the
-   * biased generator scores over a thousand.
-   */
+  /** Chi-square distance; threshold 200 is ~12σ above the mean of 61. */
   function chiSquare(sample: string): number {
     const counts = new Map<string, number>();
     for (const ch of sample) counts.set(ch, (counts.get(ch) ?? 0) + 1);

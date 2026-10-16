@@ -1,12 +1,6 @@
 //go:build integration
 
-// TEST-31 and TEST-32 — load, and the query cost of a read.
-//
-// Phase 2 proved a single posting is correct and that concurrent postings do not
-// lose money. What neither answers is what happens over a *sustained* run: a
-// lost update that shows up once in a thousand postings is invisible to a test
-// that posts twenty, and an N+1 query that is fine against fifty rows is a
-// timeout against five thousand.
+// TEST-31 and TEST-32 — sustained load, and the query cost of a read.
 package repositories
 
 import (
@@ -27,17 +21,8 @@ import (
 // TEST-31 — sustained load, and the ledger must still balance
 // ---------------------------------------------------------------------------
 
-// TestSustainedPostingsKeepTheLedgerBalanced runs a long mixed workload and then
-// reconciles.
-//
-// The assertion is the one an auditor would make, not a performance number:
-// after everything settles, `accounts."savingsBalance"` must equal the opening
-// balance plus the sum of every confirmed transaction. Any drift means a posting
-// changed a balance without a matching ledger row, or the reverse.
-//
-// Deliberately mixed and deliberately contended: several workers posting to the
-// *same* member is the shape that found LEDGER-01, and it stays the shape most
-// likely to find its successor.
+// TestSustainedPostingsKeepTheLedgerBalanced: after a long, contended mixed
+// workload, savingsBalance must equal opening balance + confirmed postings.
 func TestSustainedPostingsKeepTheLedgerBalanced(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -109,14 +94,8 @@ func TestSustainedPostingsKeepTheLedgerBalanced(t *testing.T) {
 		}
 	}
 
-	// And every posting left exactly one audit row, which is the invariant most
-	// likely to slip under contention: an audit insert outside the transaction
-	// would show up here as a mismatch.
-	//
-	// The action names are DEPOSIT_POSTED / WITHDRAWAL_POSTED. This first went in
-	// guessing `_ADDED`, matched nothing, and reported "240 postings but 0 audit
-	// rows" — a test that looked like it had found rule 2 broken under load when
-	// it had found a typo. Read the strings out of the source, do not recall them.
+	// Exactly one audit row per posting. Action names are read from source
+	// (DEPOSIT_POSTED / WITHDRAWAL_POSTED) — do not recall them.
 	var auditRows int
 	if err := testPool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM audit_logs WHERE action IN ('DEPOSIT_POSTED', 'WITHDRAWAL_POSTED')
@@ -134,12 +113,8 @@ func TestSustainedPostingsKeepTheLedgerBalanced(t *testing.T) {
 		t.Fatalf("%d confirmed postings but %d audit rows — rule 2 broke under load", confirmed, auditRows)
 	}
 
-	// Receipt numbers are handed to members on paper; two postings sharing one
-	// is a reconciliation nobody can finish. Since ADR-044 the receipt number IS
-	// the primary key, so a collision under load is a *failed insert* rather
-	// than two rows agreeing — which is why this now checks that every posting
-	// got one and that they are all well formed, rather than counting duplicates
-	// the database can no longer store.
+	// The receipt number IS the primary key (ADR-044): check every posting got
+	// a well-formed one.
 	var numbered, malformed int
 	if err := testPool.QueryRow(ctx, `
 		SELECT COUNT(*),
@@ -160,11 +135,7 @@ func TestSustainedPostingsKeepTheLedgerBalanced(t *testing.T) {
 // TEST-32 — query counts, so an N+1 fails the build
 // ---------------------------------------------------------------------------
 
-// countingTracer records every query a pool executes.
-//
-// pgx exposes this properly through QueryTracer, which is far better than
-// reading pg_stat_statements: it counts what *this* call issued, not what the
-// database has seen since it started.
+// countingTracer records every query this pool executes (pgx QueryTracer).
 type countingTracer struct {
 	mu      sync.Mutex
 	queries []string
@@ -225,12 +196,8 @@ func tracedRepo(t *testing.T) (*UserRepository, *countingTracer) {
 	return NewUserRepository(pool), tracer
 }
 
-// TestListReadsDoNotScaleWithRowCount is the N+1 guard.
-//
-// The property is not "few queries" but "the same number of queries for ten rows
-// as for a hundred". An N+1 is invisible on a seeded test database and is a
-// timeout on a real one, and it is the single most common way a page that worked
-// in Jashore stops working once the cooperative has grown.
+// TestListReadsDoNotScaleWithRowCount is the N+1 guard: the same number of
+// queries for ten rows as for a hundred.
 func TestListReadsDoNotScaleWithRowCount(t *testing.T) {
 	reads := []struct {
 		name string
@@ -328,23 +295,8 @@ func TestMemberDashboardQueryCountIsFlat(t *testing.T) {
 // WO-75 — the hot reads name their columns
 // ---------------------------------------------------------------------------
 
-// TestHotReadsDoNotSelectStar is the payload half of the two guards above.
-//
-// The query-count tests answer "how many round trips"; this answers "how much
-// comes back on each". They are different failures with the same cause — a read
-// written quickly and never looked at again — and only one of them is visible
-// in a timing.
-//
-// `SELECT *` on this schema is not a small waste. `users` carries the address,
-// both parents' names, the NID number and the photo URL; the member dashboard
-// needs a name and a balance. Every one of those columns crosses an ocean from
-// Neon on every page view, and the day someone adds a column to `users` the
-// payload of every read that never named its columns grows with it, silently.
-//
-// Deliberately a *pattern* check rather than a column budget. A budget would
-// need updating whenever a screen legitimately needs one more field, so it
-// would be raised rather than examined. "Name your columns" needs no
-// maintenance and fails only on the thing that is actually wrong.
+// TestHotReadsDoNotSelectStar: hot reads name their columns (users carries
+// NID, addresses, photo URL). A pattern check, not a column budget.
 func TestHotReadsDoNotSelectStar(t *testing.T) {
 	ctx := context.Background()
 
@@ -406,13 +358,8 @@ func TestHotReadsDoNotSelectStar(t *testing.T) {
 	}
 }
 
-// selectsEveryColumn reports whether a statement contains a `SELECT *` or a
-// `SELECT t.*` projection.
-//
-// Deliberately narrow. `COUNT(*)` is not a wide payload and is the right way to
-// count rows; `EXISTS(SELECT 1 ...)` is fine; and a `*` inside a string literal
-// or a comment is not a projection. Matching those would make this test
-// something people work around rather than fix.
+// selectsEveryColumn reports a `SELECT *` or `SELECT t.*` projection —
+// not COUNT(*), EXISTS(SELECT 1 …), or a `*` in a literal or comment.
 func selectsEveryColumn(statement string) bool {
 	lowered := strings.ToLower(statement)
 	for _, marker := range []string{"select *", "select\n\t*", "select all *"} {
@@ -424,18 +371,11 @@ func selectsEveryColumn(statement string) bool {
 	return aliasedStar.MatchString(lowered)
 }
 
-// `select` … `<alias>.*`, allowing for a leading DISTINCT and arbitrary
-// whitespace. Anchored on the projection so a `*` in a WHERE clause or a
-// multiplication does not match.
+// Anchored on the projection, so a `*` in WHERE or arithmetic does not match.
 var aliasedStar = regexp.MustCompile(`select\s+(distinct\s+)?([a-z_][a-z0-9_]*\s*,\s*)*[a-z_][a-z0-9_]*\.\*`)
 
-// TestSelectStarDetectorItself guards the guard.
-//
-// The check above is a regex over SQL, and a regex over SQL is exactly the kind
-// of thing that quietly stops matching. Worse, it fails *open*: a pattern that
-// matches nothing makes every subtest above pass while checking nothing at all.
-// The false-positive cases matter as much as the true ones — a check that
-// flagged `COUNT(*)` would be worked around rather than obeyed.
+// TestSelectStarDetectorItself guards the guard — a regex that matches
+// nothing fails open.
 func TestSelectStarDetectorItself(t *testing.T) {
 	cases := []struct {
 		sql  string

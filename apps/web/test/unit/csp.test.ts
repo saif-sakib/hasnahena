@@ -5,14 +5,8 @@ import { join, relative, resolve } from 'node:path';
 import { buildCsp, isSessionRoute } from '@/lib/csp';
 
 /**
- * WO-76. The policy is a string, and a string is easy to get subtly wrong in
- * ways no page visibly fails on: a directive spelled slightly off is silently
- * ignored, a trailing slash turns an origin into a path prefix, and one
- * unparseable source makes a browser discard the *entire* policy — which looks
- * exactly like having no CSP, and is.
- *
- * The browser half is `e2e/csp.spec.ts`, which is the only thing that can catch
- * a policy that parses perfectly and blocks the application's own scripts.
+ * WO-76: the policy strings. A misspelt directive is ignored and one bad source
+ * voids the whole policy. The browser half is e2e/csp.spec.ts.
  */
 
 const directive = (policy: string, name: string): string => {
@@ -30,9 +24,7 @@ describe('the strict policy, for pages that carry a session', () => {
   const policy = buildCsp({ nonce: 'abc123', apiOrigin: 'https://api.example.com' });
 
   it('refuses inline scripts', () => {
-    // The single assertion this file exists for. `'unsafe-inline'` in
-    // script-src is the difference between a CSP that stops an XSS and one that
-    // decorates the response headers.
+    // The assertion this file exists for.
     expect(directive(policy, 'script-src')).not.toContain("'unsafe-inline'");
   });
 
@@ -50,9 +42,7 @@ describe('the strict policy, for pages that carry a session', () => {
   });
 
   it('pins the things an injected tag would otherwise repoint', () => {
-    // An injected <base> silently rewrites every relative URL on the page,
-    // including the ones the app posts to; form-action stops a form being
-    // aimed somewhere else.
+    // base-uri stops an injected <base>; form-action pins form targets.
     expect(directive(policy, 'base-uri')).toBe("'self'");
     expect(directive(policy, 'form-action')).toBe("'self'");
     expect(directive(policy, 'object-src')).toBe("'none'");
@@ -66,15 +56,7 @@ describe('the strict policy, for pages that carry a session', () => {
   });
 
   it('lets the browser READ a Cloudinary asset, not just render one', () => {
-    // These two directives are about the same file and are not the same
-    // permission. `img-src` is what puts a member's NID scan on the approvals
-    // screen; `connect-src` is what lets the Download button beside it fetch
-    // the bytes into a Blob so they can be saved under a real filename.
-    //
-    // Only the first was granted, so the preview worked and the button did
-    // nothing at all — the fetch rejects, and the handler logs it to a console
-    // that nobody has open on a phone. A screen that is half-blocked looks
-    // exactly like a screen with a broken click handler.
+    // img-src shows an NID scan; connect-src lets Download fetch it as a Blob.
     expect(directive(policy, 'img-src')).toContain('https://res.cloudinary.com');
     expect(
       directive(policy, 'connect-src'),
@@ -121,17 +103,13 @@ describe('the content policy, for pages that are prerendered', () => {
   const policy = buildCsp({ apiOrigin: 'https://api.example.com' });
 
   it('tolerates inline scripts, because a prerendered page has no nonce', () => {
-    // Stated as an assertion rather than left implicit: this is a deliberate,
-    // documented weakening (see lib/csp.ts), and if it ever becomes possible to
-    // remove it this test is what will fail and say so.
+    // The documented content-tier weakening (lib/csp.ts).
     expect(directive(policy, 'script-src')).toContain("'unsafe-inline'");
     expect(directive(policy, 'script-src')).not.toContain('nonce-');
   });
 
   it('is otherwise exactly as strict as the session policy', () => {
-    // The weakening is confined to one directive. Everything that limits where
-    // a page can send data, be framed, or post a form is identical — which is
-    // what keeps the second tier worth having.
+    // …confined to script-src; everything else is identical to the strict policy.
     const strict = buildCsp({ nonce: 'abc123', apiOrigin: 'https://api.example.com' });
     for (const name of [
       'default-src',
@@ -176,12 +154,8 @@ describe('the API origin', () => {
 
 describe('report-only mode', () => {
   it('drops upgrade-insecure-requests, which does nothing there', () => {
-    // Not cosmetic. Chromium writes "'upgrade-insecure-requests' is ignored
-    // when delivered in a report-only policy" to the console on every single
-    // page load, and the browser spec collects violations by reading the
-    // console — so leaving it in would have meant either a permanently noisy
-    // console or a matcher with a special case that could hide a real
-    // violation later.
+    // Report-only drops it: Chromium logs a notice on every load, which the
+    // browser spec would read as a violation.
     expect(has(buildCsp({ reportOnly: true }), 'upgrade-insecure-requests')).toBe(false);
     expect(has(buildCsp({}), 'upgrade-insecure-requests')).toBe(true);
   });
@@ -208,20 +182,10 @@ describe('development', () => {
 
 describe('which routes get which policy', () => {
   /**
-   * The routing decision, not the policy. Getting it wrong in one direction
-   * serves a nonce policy to a prerendered page, which stops hydrating the day
-   * enforcement is switched on; in the other it serves the weaker policy to the
-   * dashboard, which is where the money is.
-   *
-   * `scripts/assert-static-routes.mjs` enforces the other side of this pairing:
-   * every route named here must actually be dynamic in the build output.
+   * Routing: nonce policy for dynamic routes only (assert-static-routes.mjs
+   * checks the build side). Unprefixed paths are English (WO-95).
    */
   it.each([
-    // The unprefixed forms are English since WO-95, and they are the ones a
-    // real request now carries. A regex that still required a locale segment
-    // would serve the *marketing* policy — `'unsafe-inline'`, no nonce — to
-    // every English dashboard and login page, and nothing would say so until
-    // CSP_ENFORCE was switched on and the pages stopped hydrating.
     ['/dashboard/member', true],
     ['/dashboard', true],
     ['/login', true],
@@ -256,21 +220,7 @@ describe('which routes get which policy', () => {
 
 
 describe('the XSS-sink census ADR-024 depends on', () => {
-  /**
-   * The content tier of the CSP keeps `'unsafe-inline'` in `script-src`, because
-   * a prerendered page has no nonce. `lib/csp.ts` states the residual risk and
-   * then states what holds it down: these pages render every admin-controlled
-   * string through React's escaping, so there is nowhere for injected markup to
-   * land.
-   *
-   * WO-79 added the first exception. JSON-LD cannot be written as a text child —
-   * React HTML-escapes it and entities are not decoded inside a `<script>`, so
-   * the payload arrives unparseable — and Next's own guide specifies
-   * `dangerouslySetInnerHTML` with `<` escaped. One sink now exists.
-   *
-   * A sentence in a comment claiming "there is only one" decays the first time
-   * somebody adds a second. This counts them.
-   */
+  /** Counts the raw-HTML sinks: exactly one (structured data, WO-79), escaping `<`. */
   const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 
   /** The one file allowed to hold it, and the escape that makes it safe. */

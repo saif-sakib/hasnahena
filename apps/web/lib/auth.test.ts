@@ -2,14 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 import { requireAuth, authErrorStatus, isAuthError, AuthError } from './auth';
 
-// TEST-06. The defect this pins: route handlers decided the HTTP status by
-// searching the error message for the word "authorization". Only two of the
-// eight failures this module produces contain it, so six — **including an
-// expired token** — answered 500. A member whose session ran out was told the
-// server had failed, so the client never knew to send them to log in.
-//
-// The rule these tests encode: anything the caller could fix is 401; only a
-// server misconfiguration is 500. Nothing depends on message text.
+// TEST-06: anything the caller could fix is 401; only server misconfiguration
+// is 500. Nothing depends on message text.
 
 const SECRET = 'test-secret-at-least-thirty-two-characters';
 

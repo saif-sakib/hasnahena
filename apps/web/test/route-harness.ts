@@ -1,16 +1,8 @@
-// TEST-03 — the harness Phase 3 needs to drive the Next route handlers.
-//
-// A route handler in the App Router is just an exported async function taking a
-// `Request`. Nothing about it requires a browser, a server, or Next itself —
-// only a token that verifies and a database the Prisma client can reach. That
-// is what this file supplies, so a route test reads:
+// TEST-03 — drive Next route handlers directly: a token that verifies and a
+// reachable database, no server or browser.
 //
 //   const res = await POST(jsonRequest('/api/v1/loans/applications', { … }, { as: 'MEMBER' }));
 //   expect(res.status).toBe(401);
-//
-// Deliberately not built during Phase 0: the auth work needed the `lib/`
-// modules directly and a harness with no caller is scaffolding. It arrives with
-// its first user, which is TEST-16 next door.
 
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
@@ -27,14 +19,7 @@ const b64url = (input: Buffer | string) =>
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-/**
- * Mint a token the same way the Go login endpoint does: HS256 over
- * `{sub, role, iat, exp}` with the shared secret.
- *
- * Minting rather than logging in is the point. A test that has to log in first
- * cannot easily produce the interesting tokens — expired, forged, for a deleted
- * user — and those are most of what an authorization test is about.
- */
+/** Mint a token as the Go login does (HS256 {sub, role, iat, exp}) — so expired or forged ones are easy. */
 export function mintToken(opts: {
   sub: string;
   role?: string;
@@ -71,13 +56,7 @@ type RequestOptions = {
   raw?: string;
 };
 
-/**
- * Build a `Request` the way Next would hand one to a route handler.
- *
- * The absolute origin matters: handlers call `new URL(req.url)` to read query
- * parameters, and that throws on a relative URL — which surfaces as a 500 and
- * looks like a handler bug rather than a test one.
- */
+/** A Request as Next would pass it; absolute, since handlers call new URL(req.url). */
 export function routeRequest(path: string, options: RequestOptions = {}): Request {
   const { token, method = 'GET', headers = {}, body, raw } = options;
 
@@ -98,11 +77,7 @@ export function routeRequest(path: string, options: RequestOptions = {}): Reques
   return new Request(`http://localhost:3000${path}`, init);
 }
 
-/**
- * Read a handler's response without caring whether it answered JSON.
- * An unhandled throw inside a route often produces an HTML error page, and
- * `await res.json()` on that fails with a parse error that hides the status.
- */
+/** Read a response whether or not it is JSON (a crash answers HTML). */
 export async function readBody(res: Response): Promise<{ status: number; text: string; json: unknown }> {
   const text = await res.text();
   let json: unknown = null;
@@ -151,13 +126,7 @@ const ROLE_PHONES: Record<TestRole, string> = {
   SUPER_ADMIN: '01955500004',
 };
 
-/**
- * Create (once) an ACTIVE user of each role, plus an account for the member.
- *
- * Upserted rather than truncated: this suite shares a database with the Go
- * integration tests, and a test that clears tables out from under a
- * neighbouring suite is a test that fails depending on execution order.
- */
+/** Upsert one ACTIVE user per role (+ the member's account); never truncate — the database is shared. */
 export async function seedRoleUsers(): Promise<Record<TestRole, string>> {
   const db = testPrisma();
   for (const role of Object.keys(ROLE_IDS) as TestRole[]) {

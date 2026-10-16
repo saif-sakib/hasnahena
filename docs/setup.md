@@ -2,426 +2,176 @@
 
 ## Prerequisites
 
-Node 24+, pnpm 8+, Go 1.25+ (pgx v5.10 requires it), and either Docker or a local PostgreSQL 15+. Nothing else — no Java, no Redis.
+Node 24+, pnpm 8+, Go 1.25+ (pgx v5.10), and Docker or a local PostgreSQL 15+. No Java, no Redis.
 
 ## Run it
 
 ```bash
 pnpm install                      # postinstall runs prisma generate
-cp .env.example .env.local        # then fill in the values below
+cp .env.example .env.local        # then fill in the values
 docker compose up -d postgres     # or point DATABASE_URL at your own instance
 pnpm db:migrate                   # creates the schema
-pnpm db:seed                      # first admin — see "First admin" below
-pnpm dev                          # web :3000 + api :8081
-```
-
-`pnpm dev` runs both apps. To run them separately:
-
-```bash
-pnpm dev:web
-pnpm dev:api        # or: cd apps/api && go run cmd/server/main.go
+pnpm db:seed                      # first admin — see Seeding below
+pnpm dev                          # web :3000 + api :8081 (or pnpm dev:web / pnpm dev:api)
 ```
 
 Verify: `curl localhost:8081/v1/health` → `{"success":true,"data":{"status":"ok",…}}`, then open http://localhost:3000.
 
 ## Run it in containers
 
-The pnpm workflow above is the fast one and stays the default for day-to-day
-work. The container path exists for a clean-machine reproduction, for onboarding
-someone without a Go or Node toolchain, and as the thing that makes a host
-migration boring rather than exciting.
+For a clean-machine reproduction or a host move; the pnpm workflow stays the daily one.
 
 ```bash
 docker compose --env-file .env.local up --build
 ```
 
-That builds three images and starts four services: Postgres, a one-shot
-`migrate` container that applies migrations and seeds the first admin, then the
-Go API on :8081 and the web app on :3000. The API waits for `migrate` to
-*complete*, so the app never starts against a schema that is not there yet.
-
-**`--env-file .env.local` is not optional.** Compose reads a file called `.env`
-by default, and this repo does not have one at the root — the local file is
-`.env.local`. Without the flag, `SEED_ADMIN_PASSWORD` arrives empty and the
-`migrate` container stops with "refusing to invent an admin password", which is
-the seed script doing its job. Every service in the file also has a working
-default for local use, so the only variable you genuinely must supply is that
-password.
-
-Compose services connect to Postgres on the hostname `postgres`, not
-`localhost` — the value in `.env.local` is overridden per service in
-`docker-compose.yml` for exactly that reason, so pointing your local
-`DATABASE_URL` at Neon does not make the containers talk to production.
-
-`docker compose up -d postgres` still does only what it always did — nothing in
-this file requires you to run the whole stack.
+Starts Postgres, a one-shot `migrate` container (migrations + first admin; the API waits for it to **complete**), the API on :8081 and the web app on :3000. **`--env-file .env.local` is required** — there is no root `.env`, and without it `SEED_ADMIN_PASSWORD` is empty and `migrate` refuses. Services reach Postgres as `postgres`; `DATABASE_URL` is hard-coded per service so a Neon URL in `.env.local` never reaches the containers.
 
 | Image | Base | On disk | Compressed |
 |---|---|---|---|
 | `apps/api/Dockerfile` | `gcr.io/distroless/static-debian12:nonroot` | 26.9 MB | 6.0 MB |
 | `apps/web/Dockerfile` | `node:24-bookworm-slim` | 488 MB | 113.8 MB |
 
-Both columns are real, measured from built images. `docker images` reports the
-uncompressed on-disk size; what actually crosses the network on a push or pull
-is the compressed figure. WO-20's "<20 MB" target is met on the wire and missed
-on disk — the gap is almost entirely the 15 MB Go binary, which compresses well.
-
-Three things about these images that are easy to get wrong:
-
-- **Both build from the repository root**, not from `apps/*`. The pnpm lockfile
-  and workspace manifest live at the root, and `--frozen-lockfile` needs them:
-  `docker build -f apps/web/Dockerfile -t hasnahena-web .`
-- **`NEXT_PUBLIC_*` values are build arguments, not runtime environment.** They
-  are compiled into the browser bundle. Changing the API URL means rebuilding
-  the web image, not restarting it.
-- **The web image must stay on a glibc base.** Prisma loads a query engine
-  matched to the runtime's libc; on bookworm that is
-  `debian-openssl-3.0.x`, which is what the build traces in. Moving to Alpine
-  needs `binaryTargets = ["linux-musl-openssl-3.0.x"]` in `schema.prisma`, or
-  the container starts cleanly and then fails on the first query.
-
-Base images are pinned by digest, not by tag, so a rebuild six months from now
-produces the same image. Refresh them deliberately — roughly quarterly, or when
-an advisory lands:
-
-```bash
-docker pull node:24-bookworm-slim && docker inspect --format='{{index .RepoDigests 0}}' node:24-bookworm-slim
-```
-
-Paste the new digest into the Dockerfile, rebuild, and check the app still boots.
+- **Build from the repository root**: `docker build -f apps/web/Dockerfile -t hasnahena-web .` (the lockfile lives there).
+- **`NEXT_PUBLIC_*` are build arguments** compiled into the bundle — changing the API URL means rebuilding.
+- **The web image stays on glibc**: Prisma's engine is `debian-openssl-3.0.x`; Alpine needs `binaryTargets = ["linux-musl-openssl-3.0.x"]` or it dies on the first query.
+- Base images are pinned by digest; refresh roughly quarterly: `docker pull node:24-bookworm-slim && docker inspect --format='{{index .RepoDigests 0}}' node:24-bookworm-slim`, paste the digest, rebuild, check it boots.
 
 ## Environment
 
-**Three places, and they share almost nothing.** This is the single most common
-source of "it works locally but not in production".
+**Three stores that share almost nothing** — the most common cause of "works locally, not in production".
 
-| Where | File / store | Who reads it |
+| Where | Store | Read by |
 |---|---|---|
-| Local dev | `.env.local` at the repo root | **both** apps — the Go loader walks up from `apps/api`, and `apps/web/.env` is a **symlink** to it |
-| Go API in production | Render → Environment tab | Go API only |
-| Web app in production | Vercel → Environment Variables | Next app only |
+| Local | `.env.local` at the root ([.env.example](../.env.example)) | **both** apps — the Go loader walks up; `apps/web/.env` is a symlink to it (`ln -s ../../.env.local apps/web/.env` if missing) |
+| Go API in production | Render → Environment ([.env.render.example](../.env.render.example)) | Go API only |
+| Web in production | Vercel → Environment Variables ([.env.vercel.example](../.env.vercel.example)) | Next app only |
 
-Templates, one per destination — copy the values, never the file:
+Nothing in the repo reaches Render or Vercel (every `.env*` is gitignored); the examples are checklists. **`JWT_SECRET` and `DATABASE_URL` must be byte-identical on both hosts** — a mismatched secret means every login succeeds and every following request 401s.
 
-- [.env.example](../.env.example) → copy to `.env.local` for local work
-- [.env.render.example](../.env.render.example) → paste into Render
-- [.env.vercel.example](../.env.vercel.example) → paste into Vercel
+**Build-time vs runtime (PKG-08).** Every `NEXT_PUBLIC_*` is read at `next build` — changing one needs a **redeploy**, even for server code, and in Docker it is a `--build-arg` (passing it to `docker run` does nothing). It ships to every browser, so never a secret. Everything else is runtime: restart the service.
 
-### The two that must match
+| Variable | Render | Vercel | Local | Notes |
+|---|:--:|:--:|:--:|---|
+| `DATABASE_URL`, `JWT_SECRET` (32+ chars) | ✅ | ✅ | ✅ | **must match** |
+| `JWT_EXPIRY_SECONDS` | ✅ | ✅ | ✅ | 86400; Render mints tokens, Vercel sizes the revoke-all marker — change both or neither (WO-85) |
+| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL` | — | ✅ | ✅ | build-time |
+| `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | — | ✅ | ✅ | build-time |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | — | ✅ | — | optional source maps |
+| `CORS_ORIGINS` | ✅ | ✅ | ✅ | both backends check it |
+| `CLOUDINARY_*`, `CRON_SECRET`, `CSP_ENFORCE` | — | ✅ | ✅ | uploads; nightly sweep (unset = never runs); CSP report-only unless `1` |
+| `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | ✅ | — | ✅ | unset = email disabled (`emailConfigured:false`) |
+| `METRICS_TOKEN`, `SENTRY_DSN`, `ENVIRONMENT` | ✅ | — | — | unset token ⇒ `/metrics` 404s |
+| `ENABLE_HSTS`, `TRUSTED_PROXIES`, `TRUST_CLOUDFLARE_CLIENT_IP`, `RATE_LIMIT_*` | ✅ | — | — | see below |
+| `LOG_LEVEL`, `SERVER_*`, `DB_*`, `CLEANUP_INTERVAL`, `RECONCILE_INTERVAL`, `RETENTION_SWEEP_INTERVAL` | ✅ | — | ✅ | defaults below |
+| `API_PORT` | — | — | ✅ | Render injects `PORT` — never set `API_PORT` there |
+| `BACKUP_DATABASE_URL`, `BACKUP_PASSPHRASE`, `BACKUP_S3_*`, `AWS_*` | — | — | — | GitHub repository secrets |
+| `SEED_ADMIN_*`, `KEEP_ADMIN_EMAIL`, `E2E_*`, `TEST_DATABASE_URL` | — | — | ✅ | scripts and tests only |
 
-Render and Vercel are isolated stores. Exactly **two** values exist in both and
-must be byte-identical:
+Defaults and effects (Render unless noted):
 
-| Variable | Why a mismatch hurts |
+| Variable | Default / effect |
 |---|---|
-| `JWT_SECRET` | The Next route handlers verify tokens the Go API signed. Mismatched, every login *succeeds* and then every following request 401s — which looks like a session bug, not a config bug |
-| `DATABASE_URL` | Otherwise the two halves of the app are looking at different data |
+| `NEXT_PUBLIC_SITE_URL` (Vercel) | base of every canonical, `hreflang`, OG URL, sitemap and robots; falls back to `NEXT_PUBLIC_APP_URL`, then `VERCEL_PROJECT_PRODUCTION_URL`/`VERCEL_URL`; a production build with none **fails** (WO-80) |
+| `DB_MAX_CONNS` / `DB_MIN_CONNS` / `DB_MAX_CONN_IDLE_TIME` / `DB_MAX_CONN_LIFETIME` / `DB_HEALTH_CHECK_PERIOD` | 25 / **0** / 60s / 30m / 5m — the idle end lets Neon suspend (ADR-035) |
+| `LOG_LEVEL` | `info` (`debug`/`info`/`warn`/`error`), JSON to stdout |
+| `SERVER_READ_HEADER_TIMEOUT` / `READ` / `WRITE` / `IDLE` | 10s / 30s / 60s / 120s (SSE opts out of write) |
+| `SERVER_SHUTDOWN_TIMEOUT` | 30s locally; **25s on Render** (must be under its 30s stop grace) |
+| `CLEANUP_INTERVAL` | 24h — expired `token_blacklist`/`rate_limits` sweep; `0` disables |
+| `RECONCILE_INTERVAL` | 24h — ledger reconciliation (WO-82), reports, never corrects (ADR-027); `0` only temporarily |
+| `RETENTION_SWEEP_INTERVAL` | 24h — clears rejected applications past `security.rejectedRetentionDays` (ADR-033); `0` keeps refused applicants' NIDs indefinitely — a decision, not tuning |
+| `ENABLE_HSTS` | off locally, **on** in production (SEC-09) |
+| `TRUSTED_PROXIES` | `0` locally; **3** in production (origin, Cloudflare, Render) — the fallback when `CF-Connecting-IP` is absent. Verify from a log line on a path not under `/v1/dashboard/support/*` ([deployment.md](deployment.md#dns-cloudflare)) |
+| `TRUST_CLOUDFLARE_CLIENT_IP` | `true` in production only, while every route passes through Cloudflare (ADR-019) |
+| `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW` | 60 / 1m per client, mutating requests only (RUN-07) |
 
-Everything else belongs to one host only. Setting a Render variable on Vercel
-does nothing, and vice versa.
+**Aliases.** The Go API accepts ~14 names for the public site URL — **set only `NEXT_PUBLIC_APP_URL`** (the resolver takes the first non-empty in its own order; default `https://www.hasnahenafoundation.com`). `BREVO_SENDER_EMAIL`/`EMAIL_SENDER`/`FROM_EMAIL` alias `EMAIL_FROM`; `SENDINBLUE_API_KEY` aliases `BREVO_API_KEY`.
 
-### Build-time vs runtime (PKG-08)
+**Dead variables** — delete on sight; nothing reads them: `CLERK_*`, `REDIS_*`, `SPRING_DATASOURCE_*`, `LEDGER_SERVICE_*`, `SMS_*`, `PORICHOY_*`, `SESSION_SECRET`, `SESSION_MAX_AGE`, `JWT_EXPIRY`, `JWT_REFRESH_EXPIRY`, `FEATURE_*`, `LOG_FORMAT`, `APP_NAME`, `DATABASE_POOL_SIZE`, `SEED_DATABASE`, `DISABLE_HTTPS_REDIRECT`, `ENABLE_DEBUG_ENDPOINTS`.
 
-The other half of the contract, and the half with no error message. Every
-variable is read at one of two moments, and they behave completely differently
-when you change one.
-
-| Kind | Which | Read when | To change it you must |
-|---|---|---|---|
-| **Build-time** | every `NEXT_PUBLIC_*` | `next build` | **Redeploy.** Restarting changes nothing — the value is already inside the JavaScript that browsers downloaded |
-| **Runtime** | everything else, both apps | on each request or at boot | Restart the service. Render does this for you when you save a variable |
-
-Three consequences worth knowing before they cost you an afternoon:
-
-- **`NEXT_PUBLIC_*` is baked for server code too**, not just the browser bundle.
-  A Next route handler running on the server still sees the value from build
-  time. This is genuinely surprising and it is easy to misread as a caching bug.
-- **In Docker they are `--build-arg`, not `-e`.** `apps/web/Dockerfile` declares
-  them as `ARG`, and [images.yml](../.github/workflows/images.yml) passes the
-  production URLs. Passing one to `docker run` does nothing at all.
-- **`NEXT_PUBLIC_*` is public.** It ships to every visitor's browser. Nothing
-  secret can go in one — no API key, no token, no database URL. The prefix is the
-  entire access-control decision.
-
-### Who owns what
-
-| Variable | Render (Go) | Vercel (web) | Local | Kind |
-|---|---|---|---|---|
-| `DATABASE_URL` | ✅ | ✅ | ✅ | runtime — **must match** |
-| `JWT_SECRET` | ✅ | ✅ | ✅ | runtime — **must match** |
-| `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL` | — | ✅ | ✅ | **build-time** |
-| `NEXT_PUBLIC_SENTRY_DSN` | — | ✅ | ✅ | **build-time** |
-| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | — | ✅ | — | build-time (source-map upload; a build never fails without them) |
-| `CORS_ORIGINS`, `PORT`, `LOG_LEVEL`, `SERVER_*`, `DB_*`, `CLEANUP_INTERVAL`, `RECONCILE_INTERVAL` | ✅ | — | ✅ | runtime |
-| `ENABLE_HSTS`, `TRUSTED_PROXIES`, `RATE_LIMIT_*` | ✅ | — | — | runtime |
-| `METRICS_TOKEN` | ✅ | — | — | runtime — unset ⇒ `/metrics` 404s |
-| `BREVO_*`, `EMAIL_FROM` | ✅ | — | ✅ | runtime |
-| `CLOUDINARY_*` | — | ✅ | ✅ | runtime |
-| `BACKUP_DATABASE_URL`, `BACKUP_PASSPHRASE`, `BACKUP_S3_*` | — | — | — | GitHub **repository secrets**, not a host |
-| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | — | — | ✅ | runtime, `pnpm db:seed` only |
-
-**`BACKUP_PASSPHRASE` deserves its own warning.** Rotating it makes every
-existing dump undecryptable. Keep the old value for as long as you keep the
-dumps it encrypted, and store it somewhere that survives losing this GitHub
-account — otherwise the backups are files of noise.
-
-### Local: one file, one symlink
-
-`apps/web/.env` is a symlink to the root `.env.local`, so there is one file to
-edit and no chance of the two drifting apart. If it goes missing — fresh clone,
-or a filesystem without symlinks — recreate it:
-
-```bash
-ln -s ../../.env.local apps/web/.env
-```
-
-### Required
-
-| Variable | Local | Render | Vercel |
-|---|:--:|:--:|:--:|
-| `DATABASE_URL` | ✅ | ✅ | ✅ |
-| `JWT_SECRET` (min 32 chars) | ✅ | ✅ | ✅ |
-| `NEXT_PUBLIC_API_URL` | ✅ | — | ✅ |
-| `NEXT_PUBLIC_APP_URL` | ✅ | ✅ | ✅ |
-| `CORS_ORIGINS` | ✅ | ✅ | ✅ |
-| `API_PORT` | ✅ | — (Render injects `PORT`) | — |
-
-`CORS_ORIGINS` is on **both** hosts: the Go API checks it, and so do the Next
-handlers `/api/v1/gallery` and `/api/v1/settings` since the wildcard was
-removed.
-
-### Optional — all have working defaults
-
-| Variable | Host | Effect when unset |
-|---|---|---|
-| `BREVO_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` | Render | email disabled — approval and reset mails silently skipped (`/v1/health` reports `emailConfigured:false`) |
-| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Vercel | document/avatar upload fails; every other flow works |
-| `NEXT_PUBLIC_SITE_URL` | Vercel | the base of every canonical URL, `hreflang`, Open Graph URL, the sitemap and `robots.txt`. Falls back to `NEXT_PUBLIC_APP_URL`, then to Vercel's own `VERCEL_PROJECT_PRODUCTION_URL`/`VERCEL_URL` — a preview deploy claims its own hostname rather than production's. A production build with none of them **fails**, deliberately: WO-80 found the previous fallback was `hasnahena.org`, a domain this project does not own |
-| `CSP_ENFORCE` | Vercel | the Content-Security-Policy is sent **report-only**: violations reach the browser console and nothing is blocked. Set to `1` to enforce it, after a full `pnpm test:e2e` reports zero violations ([ADR-024](decisions.md)) |
-| `JWT_EXPIRY_SECONDS` | **Render *and* Vercel** | 86400 on both. Render mints the tokens; Vercel reads it only to size the revoke-all marker, which must outlive the longest token it can revoke (WO-85, WO-91). **Raising it on Render alone brings revoked tokens back to life on the Next half** when the marker expires first — so if you change it, change it in both places, or leave both at the default |
-| `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_IDLE_TIME`, `DB_MAX_CONN_LIFETIME`, `DB_HEALTH_CHECK_PERIOD` | Render | pgx pool defaults (25/2/5m/30m/1m) |
-| `LOG_LEVEL` | Render | `info`. Accepts `debug`, `info`, `warn`, `error`. The API logs JSON to stdout |
-| `SERVER_READ_HEADER_TIMEOUT`, `SERVER_READ_TIMEOUT`, `SERVER_WRITE_TIMEOUT`, `SERVER_IDLE_TIMEOUT` | Render | 10s / 30s / 60s / 120s. Raise `SERVER_WRITE_TIMEOUT` if a report endpoint starts timing out; the SSE stream opts out of it already |
-| `SERVER_SHUTDOWN_TIMEOUT` | Render | 30s. Must be **shorter** than Render's stop grace period (also 30s by default) or Render `SIGKILL`s mid-drain |
-| `CLEANUP_INTERVAL` | Render | 1h. How often expired `token_blacklist` and `rate_limits` rows are swept. `0` disables |
-| `RECONCILE_INTERVAL` | Render | 1h. How often the ledger is summed and compared to the stored balances (WO-82/OPS-07). On drift it writes an `audit_logs` row, logs an error and sets `hasnahena_ledger_drift_*`; **it never corrects anything** ([ADR-027](decisions.md)). `0` disables — a temporary measure only, while a known drift is being corrected by hand |
-| `RETENTION_SWEEP_INTERVAL` | Render | 24h. How often a rejected application past `security.rejectedRetentionDays` has its identity data cleared (WO-93, [ADR-033](decisions.md)). `0` disables — which means the NID numbers, addresses and parents' names of everyone the foundation has refused are kept indefinitely, so treat disabling it as a decision rather than a tuning knob. The **window** itself is a `system_config` key an admin edits in Settings, not this |
-| `ENABLE_HSTS` | Render | **off** locally, **on** in production (SEC-09). A browser remembers HSTS for the full `max-age` — sending it from a plain-HTTP localhost API pins `localhost` to HTTPS for two years, in every project on that machine |
-| `TRUSTED_PROXIES` | Render | `0` locally, and **the number of proxies actually in front** in production — `1` when Render was the only one, and **`3` since `api.` went behind Cloudflare** (measured 2026-09-03: the header arrives as origin, Cloudflare, Render). It picks which `X-Forwarded-For` entry the rate limiter, the lockout, the access log and every audit row believe. Too low and every caller behind the edge shares one bucket and one lockout; `0` makes the limiter key on a value the caller chooses, which makes it decorative. Both failures are silent, so **verify it from a real request's log line** — on a path that is *not* `/v1/dashboard/support/*`, which reports Vercel whether the count is right or not — see [deployment.md](deployment.md#the-proxy-count-changed-when-the-api-went-behind-cloudflare). Since 2026-09-03 this is the **fallback**; `TRUST_CLOUDFLARE_CLIENT_IP` is the answer |
-| `TRUST_CLOUDFLARE_CLIENT_IP` | Render | `true` in production, unset locally. Prefers `CF-Connecting-IP` over counting hops ([ADR-019](decisions.md)), because the count was wrong twice in one week and silently both times. Cloudflare sets that header to the address it accepted the connection from and **strips any copy the caller sent**, so it cannot be forged on a route through your own zone — and nothing about the header *proves* a request came that way, which is why it is an explicit flag rather than a default. Set it only while every route to the API passes through Cloudflare |
-| `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Render | 60 per 1m per client, on mutating methods only (RUN-07). `GET`/`HEAD`/`OPTIONS`, `/v1/health`, `/v1/ready` and `/metrics` are exempt |
-| `KEEP_ADMIN_EMAIL` | local | which admin `pnpm db:clear` preserves |
-| `E2E_BASE_URL`, `E2E_ADMIN_IDENTIFIER`, `E2E_ADMIN_PASSWORD` | local | `pnpm test:e2e` skips every spec unless the last two are set. Seeded **local** database only — the specs move money |
-
-### The public-URL aliases
-
-The Go API accepts about fourteen different variable names for the public site
-URL (`APP_URL`, `FRONTEND_URL`, `SITE_URL`, `WEB_URL`, `PUBLIC_URL`, …). They
-are a fallback chain, not separate settings.
-
-**Set `NEXT_PUBLIC_APP_URL` and ignore the rest.** Setting several is worse than
-setting one: the resolver takes the first non-empty name in its own order, which
-is not the order you would guess. With none set it falls back to
-`https://www.hasnahenafoundation.com`.
-
-The same applies to email: `BREVO_SENDER_EMAIL`, `EMAIL_SENDER` and `FROM_EMAIL`
-are aliases for `EMAIL_FROM`; `SENDINBLUE_API_KEY` is an alias for
-`BREVO_API_KEY`.
-
-### Things that are not variables any more
-
-If you see these in an old `.env`, delete them — no code reads them. They are
-left over from an architecture this project does not have (see CLAUDE.md):
-Clerk (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`), Redis
-(`REDIS_URL`, `REDIS_PASSWORD`), the Java ledger (`SPRING_DATASOURCE_*`,
-`LEDGER_SERVICE_*`), SMS (`SMS_*`), NID verification (`PORICHOY_*`), and a set
-of settings that were never wired up (`SESSION_SECRET`, `SESSION_MAX_AGE`,
-`JWT_EXPIRY`, `JWT_REFRESH_EXPIRY`, `RATE_LIMIT_*`, `FEATURE_*`, `LOG_FORMAT`,
-`APP_NAME`, `DATABASE_POOL_SIZE`, `SEED_DATABASE`, `DISABLE_HTTPS_REDIRECT`,
-`ENABLE_DEBUG_ENDPOINTS`).
+**`BACKUP_PASSPHRASE`**: rotating it makes existing dumps undecryptable — keep old values as long as their dumps, somewhere that survives losing this GitHub account.
 
 ## Tests
 
 ```bash
-pnpm test:unit         # web unit tests (vitest). No database, ~4 s
-pnpm test:go           # Go unit tests. Pure arithmetic, no database, fast
-pnpm test:integration  # Go against a real Postgres
-pnpm test:routes       # the Next route handlers against a real Postgres
-pnpm test:e2e          # Playwright. Needs the stack running
+pnpm test:unit         # web unit (vitest), no database
+pnpm test:go           # Go unit, no database
+pnpm test:integration  # Go against real Postgres
+pnpm test:routes       # Next route handlers against real Postgres
+pnpm test:e2e          # Playwright; needs the stack running
 ```
 
-The split is deliberate: the first two must stay fast enough to run on every
-save, so nothing needing a database belongs in them.
-
-**The database-backed suites need a database, and `pnpm test:stack` supplies
-it** — Postgres on a non-default port, migrated and seeded, optionally serving
-both apps:
+The database suites get their database from the test stack (never a development database — they truncate):
 
 ```bash
-scripts/test-stack.sh up          # database only
+scripts/test-stack.sh up          # migrated + seeded, port 55433 (up --serve adds both apps)
 eval "$(scripts/test-stack.sh env)"
 pnpm test:integration && pnpm test:routes
 scripts/test-stack.sh down        # destroys the volume
 ```
 
-**Never point these at a development database.** They truncate every table
-between tests, which is also why they can run in any order.
-
-The migrate step inside `up` is not incidental: these tests run against the
-schema that actually deploys, including the column defaults Prisma strips — that
-is what makes them catch the class of bug in
-[data-model.md](data-model.md#writing-sql-by-hand--two-traps).
-
-Install the browser once with
-`pnpm --filter @hasnahena/web exec playwright install chromium`.
-
-Where a new test goes, the fixture contract, and what is deliberately uncovered:
-[testing.md](testing.md).
+Install the browser once: `pnpm --filter @hasnahena/web exec playwright install chromium`. Where tests go: [testing.md](testing.md).
 
 ## Database work
 
 ```bash
 pnpm db:migrate           # apply pending migrations
-pnpm db:migrate:dev       # after editing schema.prisma: generate a migration
-pnpm db:migrate:status    # what is applied and what is not
-pnpm db:seed              # system_config defaults; creates the first admin only if none exists
-pnpm db:studio            # browse data
-pnpm db:clear             # delete everything except admin + gallery + system config
+pnpm db:migrate:dev       # after editing schema.prisma
+pnpm db:migrate:status
+pnpm db:seed
+pnpm db:studio
+pnpm db:clear             # local only, --confirm; keeps admin + gallery + config + donation pool
 ```
 
-Schema changes ship as migration files ([ADR-014](decisions.md)). `pnpm db:push`
-still exists for a throwaway database, but do not point it at anything shared —
-it writes schema without recording history, and the next `db:migrate` then sees
-drift it cannot reconcile. A database created before migrations existed needs
-`pnpm db:migrate:baseline` once; see [deployment.md](deployment.md#schema-changes).
-
-Migrations need a direct (non-pooled) connection. `pnpm db:migrate` strips
-`-pooler` from a Neon URL automatically and logs that it did; set
-`DIRECT_DATABASE_URL` to be explicit.
+Migrations, not `db:push` ([ADR-014](decisions.md)). A pre-migrations database needs `pnpm db:migrate:baseline` once ([deployment.md](deployment.md#schema-changes)). Migrations need a direct connection — `pnpm db:migrate` strips `-pooler` and says so; or set `DIRECT_DATABASE_URL`.
 
 ### Seeding
 
-`pnpm db:seed` has two modes, and which one runs depends on whether the database
-already has an admin.
-
-**First run, on an empty database** — the admin variables are required:
-
 ```bash
-SEED_ADMIN_EMAIL=admin@hasnahena.local \
-SEED_ADMIN_PASSWORD='choose-something-long' \
-pnpm db:seed
+SEED_ADMIN_EMAIL=admin@hasnahena.local SEED_ADMIN_PASSWORD='choose-something-long' pnpm db:seed   # first run
+pnpm db:seed                                                                                      # later: new config keys
 ```
 
-**Every run after that** — no variables needed:
-
-```bash
-pnpm db:seed        # ensures system_config, leaves the admin alone
-```
-
-This is the command to run after pulling a change that adds a config key
-(`loan.guarantorThresholdAmount` was the most recent). Requiring an admin
-password to write a settings row is how a routine re-seed turns into a hunt for
-credentials, so the admin step is skipped once one exists — and the skip is
-logged, not silent.
-
-It still **fails loudly** if there is no admin *and* no credentials: a database
-with seeded config and nobody who can log in looks seeded and is not.
-
-Creates one `SUPER_ADMIN` and the `system_config` rows the loan rules read
-(`loan.minDepositForLoan`, `loan.maxLoanMultiplier`, `loan.guarantorThresholdAmount`, …). It is idempotent: run
-it again and it changes nothing, and in particular it will **not** reset an
-existing admin's password. It refuses to invent a password, and rejects one
-under 12 characters.
-
-Optional: `SEED_ADMIN_PHONE` (default `01700000000`), `SEED_ADMIN_NAME`.
+Idempotent: creates one `SUPER_ADMIN` only if no loginable admin exists (never resets a password, refuses to invent one, rejects under 12 characters), ensures every `system_config` default, and fails loudly with no admin and no credentials. Optional `SEED_ADMIN_PHONE` (default `01700000000`), `SEED_ADMIN_NAME`.
 
 ## Checks before you call something done
 
 ```bash
-pnpm typecheck          # must be zero errors
-pnpm lint               # 6 warnings, 0 errors — do not let the count grow
+pnpm typecheck          # zero errors
+pnpm lint               # exactly 1 warning
 pnpm test:unit
 pnpm test:go
-cd apps/api && go build ./...
+cd apps/api && go build ./... && gofmt -l .
 ```
 
-If you touched money or SQL, also run `pnpm test:integration` against the test
-stack. If you touched `schema.prisma`, generate the migration
-(`pnpm db:migrate:dev`) — CI fails on drift.
+Money or SQL → `pnpm test:integration` on the test stack. `schema.prisma` → `pnpm db:migrate:dev` (CI fails on drift).
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| API exits: `JWT_SECRET must be at least 32 characters` | set a longer secret in `.env.local` |
+| `JWT_SECRET must be at least 32 characters` | longer secret in `.env.local` |
 | `port 8081 already in use` | `API_PORT=8082 pnpm dev` and update `NEXT_PUBLIC_API_URL` |
-| `relation "users" does not exist` | run `pnpm db:migrate` |
-| Browser "Failed to fetch" | API down, or the origin is missing from `CORS_ORIGINS` |
+| `relation "users" does not exist` | `pnpm db:migrate` |
+| Browser "Failed to fetch" | API down, or origin missing from `CORS_ORIGINS` |
 | 401 on every dashboard call | `JWT_SECRET` differs between web and api |
 | `prepared statement already exists` | Neon pooler — keep `QueryExecModeSimpleProtocol` in `main.go` |
-| `db:clear` fails with "Transaction already closed … 5000 ms" | pre-existing: it deletes everything in one interactive transaction, which exceeds Prisma's 5 s limit on a large database. Fine at real member volume; only bites on a load-test dataset |
-| `migrate` hangs or fails P1002 | it reached the Neon *pooler*; set `DIRECT_DATABASE_URL` to the host without `-pooler` |
-| `Following migration have not yet been applied` on an existing database | it predates migrations — run `pnpm db:migrate:baseline` once |
-| Prisma "could not find your schema" during install | expected in this monorepo; `prisma generate` runs from `apps/web` |
-
-## Which env file is which
-
-A recurring confusion, so plainly:
-
-| Where | What reads it | How it gets there |
-|---|---|---|
-| `.env.local` (repo root) | **local development only** — both apps | you edit it; it is gitignored and never deployed |
-| `apps/web/.env` | same file — it is a **symlink** to `../../.env.local` | exists only because Prisma looks there |
-| Render dashboard | the deployed Go API | you type them into Render → Environment |
-| Vercel dashboard | the deployed web app | you type them into Vercel → Settings → Environment Variables |
-
-**Nothing in the repo is read by Render or Vercel.** Every `.env*` file is
-gitignored, so it is not in the push and not in the build. The `.env.*.example`
-files are checklists for what to type into each dashboard, nothing more.
-
-The three stores are independent: a variable added to one is missing from the
-other two. `DATABASE_URL` and `JWT_SECRET` must match byte for byte across all
-three, or logins fail with a valid password.
+| `db:clear`: "Transaction already closed … 5000 ms" | one interactive transaction over a large load-test dataset; fine at real volume |
+| `migrate` hangs / P1002 | reached the pooler — set `DIRECT_DATABASE_URL` |
+| `Following migration have not yet been applied` on an existing DB | predates migrations — `pnpm db:migrate:baseline` once |
+| Prisma "could not find your schema" during install | expected; `prisma generate` runs from `apps/web` |
 
 ## Keeping dependencies current
 
-Run `pnpm audit` before a release. The policy behind the numbers it prints:
-
-**Dependabot does not track application dependencies.** It tracks GitHub
-Actions and nothing else. The reasoning is in `.github/dependabot.yml`: one
-month of automated npm and Go PRs produced two production incidents and zero
-fixed vulnerabilities. What replaces it:
-
-- **GitHub's Dependabot _security_ updates stay on.** That is a repository
-  setting (Settings → Advanced Security), not the config file, and it only opens
-  a PR when there is a real advisory.
-- **CI runs `pnpm audit` on every push**, so a new advisory is a visible check
-  rather than a PR in a list.
-- **Routine updates are done by hand**, below.
-
-**After merging any dependency PR, run `pnpm install` and commit the
-regenerated `pnpm-lock.yaml`.** Every such PR rewrites the lockfile, and merging
-two in a row leaves a lockfile that resolves neither. Vercel installs frozen and
-fails with `ERR_PNPM_LOCKFILE_MISSING_DEPENDENCY`. The pre-push hook checks this
-for you; `git push --no-verify` skips the check and the protection with it.
-
-To update deliberately:
+Dependabot tracks **GitHub Actions only** (`.github/dependabot.yml`: automated npm/Go PRs caused two incidents). Security updates stay on (a repository setting), CI runs `pnpm audit`, and routine updates are by hand:
 
 ```bash
-pnpm outdated              # what has moved
-pnpm update --latest       # minors and patches only, by default
+pnpm outdated
+pnpm update --latest       # minors and patches
 pnpm install               # regenerate the lockfile
 pnpm typecheck && pnpm build && pnpm test:go
 ```
 
-**Never take a major version this way.** A major is a migration: read its guide,
-do it on a branch, and check it by hand. That is how `tailwindcss` 3→4 broke the
-Vercel build — v4 moves configuration into CSS and needs a different PostCSS
-plugin, which no version bump can do for you.
-
-**Transitive vulnerabilities are pinned in `pnpm.overrides`** in the root
-`package.json`. When a dependency-of-a-dependency has an advisory and its parent
-has not updated, an override forces the patched version without waiting. Check
-whether an override is still needed when its parent updates; a stale one silently
-holds a package back.
-
+- **Never take a major this way** — a major is a migration (tailwind 3→4 broke the Vercel build).
+- **After merging any dependency PR, `pnpm install` and commit `pnpm-lock.yaml`** — Vercel installs frozen (`ERR_PNPM_LOCKFILE_MISSING_DEPENDENCY`); the pre-push hook checks it.
+- Transitive advisories are pinned in `pnpm.overrides` (root `package.json`); drop an override once its parent updates.

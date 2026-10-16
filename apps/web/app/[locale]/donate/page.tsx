@@ -9,13 +9,7 @@ import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 
-/**
- * WO-73. This page's content changes when an admin edits a setting, which is to
- * say almost never — so it is prerendered and served from the edge instead of
- * opening a Neon connection on every visit. `revalidateTag('system-config')` in
- * the settings `PUT` is what makes an edit appear immediately; this interval is
- * only the backstop.
- */
+/** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
@@ -63,22 +57,7 @@ export default async function DonatePage({ params }: PageProps) {
             </p>
           </div>
 
-          {/*
-            WO-67. Both cards render only when an admin has published the
-            details behind them.
-
-            They used to fall back to hardcoded literals — the bank card to the
-            account number `2050 0000 0000 0000`, the mobile card to
-            `+880 1700-000000` — and because none of the `bank.*` keys was in
-            SYSTEM_CONFIG_KEYS, those fallbacks were not fallbacks: the settings
-            endpoint rejects any key it does not declare, so no admin screen
-            could ever replace them. A donor reading this page was being given a
-            placeholder account number to send money to.
-
-            An empty state is the right failure here rather than a default. A
-            missing number is a question someone asks; a plausible wrong one is
-            money sent somewhere it cannot be recovered from.
-          */}
+          {/* Each card renders only when an admin has published its details (WO-67) — never a placeholder account number. */}
           {(() => {
             const bankAccountNo = settings['bank.accountNo']?.trim();
             const bankName = settings['bank.name']?.trim();

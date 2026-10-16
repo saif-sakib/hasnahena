@@ -1,7 +1,4 @@
-/**
- * Document output. Every entry point takes a document model, so the printed,
- * saved, and downloaded copies are always the same document.
- */
+/** Document output; every entry point takes the same document model. */
 
 import { saveBlob } from '@/lib/save-blob';
 
@@ -23,12 +20,7 @@ export function printDocument(model: DocumentModel): void {
   printWindow.focus();
 }
 
-/**
- * Download the document as a paginated, text-selectable A4 PDF.
- *
- * `output('blob')` rather than jsPDF's `save()` — see `saveBlob` for why the
- * difference decides whether the button works a second time.
- */
+/** Download as an A4 PDF via output('blob') + saveBlob, not jsPDF save(). */
 export async function downloadDocumentPDF(model: DocumentModel): Promise<void> {
   const pdf = await renderPDF(model);
   saveBlob(pdf.output('blob'), `${documentFilename(model.filename)}.pdf`);

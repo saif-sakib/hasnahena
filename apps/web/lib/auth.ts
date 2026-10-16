@@ -8,21 +8,8 @@ type AuthUser = {
 };
 
 /**
- * Why this class exists
- * ---------------------
- * Route handlers used to decide the status code by searching the error message:
- *
- *     if (msg.toLowerCase().includes('authorization')) return 401;
- *     return 500;
- *
- * Only two of the eight failures this module can produce contain that word, so
- * six of them — **including an expired token** — answered 500. A member whose
- * session ran out was told "Failed to create loan application" instead of being
- * sent to log in, and the client had no way to know it should re-authenticate,
- * because the server had claimed the fault was its own.
- *
- * The status now travels with the error instead of being re-derived from prose.
- * A message can be reworded without silently changing an HTTP contract.
+ * The status travels with the error, never re-derived from its message (that
+ * once answered an expired session with a 500).
  */
 export type AuthFailure =
   | 'missing_header'
@@ -49,12 +36,7 @@ export function isAuthError(err: unknown): err is AuthError {
   return err instanceof AuthError;
 }
 
-/**
- * Maps a thrown value to the status a route should answer with.
- *
- * Returns `null` when the error is not an authentication failure, so a caller
- * can fall through to its own handling rather than guessing.
- */
+/** The status a route should answer for a thrown value, or null if not an auth failure. */
 export function authErrorStatus(err: unknown): 401 | 500 | null {
   return isAuthError(err) ? err.status : null;
 }
@@ -69,10 +51,8 @@ function classifyJwtError(err: unknown): AuthError {
 }
 
 /**
- * Verified identity plus the two things a revocation check needs: the raw token
- * (to hash against `token_blacklist`) and `iat` (to compare against a
- * revoke-all marker). Kept separate from `requireAuth` so the common path never
- * carries the raw token around where it could be logged.
+ * Verified identity plus the raw token and iat a revocation check needs, kept
+ * apart from requireAuth so the raw token is not carried around.
  */
 export type VerifiedToken = {
   user: AuthUser;
@@ -115,9 +95,8 @@ export function requireAuthDetailed(req: Request): VerifiedToken {
 }
 
 /**
- * Signature and expiry only. **This does not check revocation** — see
- * `requireActiveAuth` in `lib/auth-revocation.ts` for that. Use this only where
- * a revoked token would be harmless.
+ * Signature and expiry only — NOT revocation (use requireActiveAuth). Only
+ * where a revoked token would be harmless.
  */
 export function requireAuth(req: Request): AuthUser {
   return requireAuthDetailed(req).user;

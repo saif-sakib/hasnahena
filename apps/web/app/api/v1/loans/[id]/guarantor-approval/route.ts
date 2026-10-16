@@ -17,11 +17,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const auth = await requireActiveAuth(req);
 
-    // Authorization before validation. The other order answered a WORKER's
-    // request with 400 and a list of the fields it wanted — telling someone who
-    // may not use this endpoint at all exactly how to call it, and giving the
-    // client a status that says "fix your request" when the answer is "not you"
-    // (TEST-16).
+    // Authorization before validation (TEST-16).
     const member = await prisma.user.findUnique({
       where: { id: auth.id },
       select: { id: true, role: true, nameEn: true },
@@ -31,17 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const payload = bodySchema.parse(await readJsonBody(req));
 
-    // No id-shape check here, deliberately. This route used to reject anything
-    // that did not match a UUID — but every id in this schema is `@default(cuid())`
-    // (14 models; `uuid()` appears zero times), so the regex matched nothing the
-    // database can produce and guarantor approval 400'd for every loan that has
-    // ever existed. FR-11 was dead from the day it was written.
-    //
-    // Validating the shape again with a cuid pattern would only move the trap:
-    // the id strategy is a schema decision, and this file would have to be
-    // revised the next time it changes. The lookup below already answers 404 for
-    // an id that does not resolve, which is the honest response for a malformed
-    // one too, and it cannot drift out of sync with the schema.
+    // No id-shape check: the lookup's 404 is the honest answer and cannot drift
+    // from the schema's id strategy (a UUID regex once broke FR-11 entirely).
 
     const loan = await prisma.loan.findUnique({
       where: { id },
@@ -60,9 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    // Awaited: an unsettled promise is not a background task, it is work the
-    // platform may simply never do (WO-59). Caught, because the guarantor's
-    // decision is recorded either way.
+    // Awaited (WO-59) but caught — the decision is recorded either way.
     await prisma.notification.create({
       data: {
         type: payload.accepted ? 'LOAN_REQUEST' : 'LOAN_REJECTED',

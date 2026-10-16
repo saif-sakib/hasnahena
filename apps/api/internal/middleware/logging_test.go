@@ -68,11 +68,7 @@ func TestSetRequestUserIDIsNoopWithoutMiddleware(t *testing.T) {
 	SetRequestUserID(httptest.NewRequest("GET", "/", nil).Context(), "nobody")
 }
 
-// WO-60. Every `http_request` line carries an "ip", and until this change that
-// was r.RemoteAddr *after* chi's RealIP had overwritten it with the leftmost
-// X-Forwarded-For entry — a value the caller supplies. An access log that
-// cannot be trusted to say where a request came from is not evidence, and in a
-// financial system answering "who did this" is the log's whole purpose.
+// WO-60: the access log records an address the caller cannot choose.
 func TestAccessLogRecordsTheAddressTheCallerCannotChoose(t *testing.T) {
 	const (
 		spoofed = "1.2.3.4"

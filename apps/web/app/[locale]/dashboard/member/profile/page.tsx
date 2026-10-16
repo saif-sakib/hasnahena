@@ -83,9 +83,7 @@ interface MemberTransaction {
   description?: string;
 }
 
-// Hoisted to module scope so they are stable identities. Declared inside the
-// component they were a fresh object every render, which is what made them a
-// missing `useMemo` dependency that could never be satisfied usefully.
+// Module scope, so they are stable identities.
 const emptyAddress: UserProfile['permanentAddress'] = {
   houseNo: '',
   village: '',
@@ -157,11 +155,8 @@ export default function ProfilePage() {
     };
   }, [profileData]);
 
-  // FR-06 is still a gap: nothing updates a nominee after signup, so "save"
-  // holds the edit on screen and writes nowhere. The override keeps that exact
-  // behaviour rather than quietly making the button do nothing visible — and it
-  // disappears on the next load, which is the honest signal that it did not
-  // persist. Delete this the moment there is an endpoint behind it.
+  // FR-06 gap: no endpoint updates a nominee, so "save" only holds the edit on
+  // screen until reload. Delete once an endpoint exists.
   const [savedNomineeOverride, setSavedNomineeOverride] = useState<Nominee | null>(null);
   const nominee = savedNomineeOverride ?? loadedNominee;
   const [editedNominee, setEditedNominee] = useState<Nominee>(emptyNominee);
@@ -323,9 +318,6 @@ export default function ProfilePage() {
             <div className="text-center sm:text-left text-white flex-1">
               <h2 className="text-2xl font-bold">{locale === 'bn' ? profile.nameBn : profile.nameEn}</h2>
               <p className="opacity-90">{profile.accountNo}</p>
-              {/* The account-number chip that used to sit here printed the
-                  member id a second time, one line below the line above it
-                  (ADR-023). */}
               <div className="mt-2 flex flex-wrap gap-2 justify-center sm:justify-start">
                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
                   profile.status === 'ACTIVE' ? 'bg-green-500' : 'bg-amber-500'

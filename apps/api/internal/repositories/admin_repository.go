@@ -24,27 +24,13 @@ type RegistrationApprovalCandidate struct {
 	Role      string
 	Status    string
 	AccountNo string
-	// The language the applicant filled the form in. The approval email used to
-	// be sent in the *admin's* dashboard language, so a Bengali applicant
-	// approved by an admin working in English received the one email carrying
-	// their temporary password in a language they may not read.
-	//
-	// Empty for anyone who registered before 2026-08-26, who fall back to the
-	// admin's locale as before rather than being guessed at.
+	// The applicant's form language, for the approval email. Empty for
+	// pre-2026-08-26 registrations (fall back to the admin's locale).
 	PreferredLocale string
 }
 
-// GetMembersList returns either the members or the field workers.
-//
-// `staffOnly` returns **workers**, and only workers. It used to return
-// `('WORKER', 'ADMIN')`, which put admin rows on the Workers screen — a list
-// whose whole purpose is the accounts an admin creates, edits, suspends and
-// deletes. None of those apply to an admin: the API refuses every one of them
-// on a non-worker target, and an admin account is made directly in the database
-// (see `app/api/v1/admin/workers/route.ts`). So the rows were unactionable, and
-// a list of things you cannot do anything about reads as a list of things that
-// are broken. SUPER_ADMIN was never in it either, so "who has the keys" was
-// never what this answered.
+// GetMembersList returns members, or with staffOnly only WORKERs — admin
+// accounts are not actionable on the Workers screen.
 func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]map[string]interface{}, error) {
 	roleFilter := "u.role = 'MEMBER'"
 	if staffOnly {
@@ -64,14 +50,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]
 			COALESCE((SELECT SUM(l."remainingAmount") FROM loans l WHERE l."borrowerId" = u.id AND l.status = 'ACTIVE'), 0)::bigint,
 			COALESCE(addr.district, ''),
 			u.role::text,
-			-- WO-72. Three different things were being called "area" here: this
-			-- district (which is what the staff list actually displayed), the
-			-- free-text users."assignedBranch" that only the Next create/update
-			-- responses ever read, and a branches table nothing touched at all.
-			-- The branch is now a row, and it is returned as one.
-			-- The id IS the code since 2026-08-27: branches carried both, which
-			-- was one fact in two required unique columns. Both fields are still
-			-- returned because the response shape has two and callers read each.
+			-- Branch is a row (WO-72); its id is its code, returned under both names.
 			COALESCE(b.id::text, ''),
 			COALESCE(b.name, ''),
 			COALESCE(b.id::text, '')
@@ -116,9 +95,7 @@ func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]
 			"activeLoan":     activeLoan,
 			"area":           area,
 			"role":           strings.ToUpper(role),
-			// `area` stays the permanent-address district, which is what it has
-			// always been and is the useful column for a member. `branch` is the
-			// staff member's assigned office and is null for members.
+			// `area` is the permanent-address district; `branch` is staff-only.
 			"branch":          branch,
 			"address":         area,
 			"lastActive":      createdAt.Format(time.RFC3339),
@@ -129,28 +106,18 @@ func (r *UserRepository) GetMembersList(ctx context.Context, staffOnly bool) ([]
 }
 
 func (r *UserRepository) GetAdminDashboard(ctx context.Context) (map[string]interface{}, error) {
-	// Every figure here is also shown on the worker's dashboard, on the loans
-	// screen or on the workers screen, and four of them used to be counted
-	// differently in each place — the same afternoon reading "Total Members 41"
-	// in one dashboard and "38" in the other, with nothing to say which was
-	// right. The definitions below are the ones those screens use.
+	// Definitions shared with the worker dashboard, loans and workers screens
+	// so the same figure never reads differently in two places.
 	query := `
 		SELECT
 			-- ACTIVE, as the worker's dashboard counts it. A PENDING registration
 			-- is an application, not a member.
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'MEMBER' AND status = 'ACTIVE'), 0)::bigint,
-			-- WORKER only, matching the Workers screen. Admin accounts are made in
-			-- the database and are not listed there, so counting them here made
-			-- the tally disagree with the list underneath it.
+			-- WORKER only, matching the Workers screen.
 			COALESCE((SELECT COUNT(*) FROM users WHERE role = 'WORKER'), 0)::bigint,
-			-- Rule 6a: a PENDING deposit is a *request*. Summing it reported money
-			-- nobody has handed over yet as income (ADR-016), and the worker's own
-			-- "today's deposits" filtered on CONFIRMED while this did not.
+			-- CONFIRMED only (rule 6a).
 			COALESCE((SELECT SUM(amount) FROM transactions WHERE type = 'DEPOSIT' AND status = 'CONFIRMED'), 0)::bigint,
-			-- "Loans Disbursed": money that actually left. This summed every row,
-			-- so a REJECTED application and one still awaiting a guarantor counted
-			-- as lending — and the loans screen's own total, over exactly these
-			-- four statuses, disagreed with it.
+			-- Money that actually left the fund.
 			COALESCE((SELECT SUM("principalAmount") FROM loans WHERE status IN ` + disbursedLoanStatuses + `), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'ACTIVE'), 0)::bigint,
 			COALESCE((SELECT COUNT(*) FROM loans WHERE status = 'DEFAULTED'), 0)::bigint,
@@ -463,10 +430,7 @@ func (r *UserRepository) GetPendingApprovals(ctx context.Context, includeRegistr
 	loanRows, err := r.db.Query(ctx, loanQuery)
 	if err == nil {
 		defer loanRows.Close()
-		// Derived per row rather than selected. The column this replaced
-		// (`accounts.maxLoanAmount`) was never updated after account creation, so
-		// every pending request on this screen carried `maxEligible: 0` — see the
-		// note in member_repository.GetMemberDashboardData.
+		// Derived per row; accounts.maxLoanAmount was never kept current.
 		_, maxLoanMultiplier, _ := r.getLoanPolicy(ctx)
 		loans := []map[string]interface{}{}
 		for loanRows.Next() {
@@ -590,29 +554,10 @@ func (r *UserRepository) GetRegistrationApprovalCandidate(ctx context.Context, u
 	return &candidate, nil
 }
 
-// renameUser moves a user row to a new primary key and carries with it every
-// reference that a foreign key does not.
-//
-// Two of those are rewritten here — `token_blacklist.userId` and
-// `notifications.data->>'userId'`. The other two are `audit_logs.entityId` and
-// `audit_logs.performedBy`, and they are **deliberately left alone**: that table
-// is append-only at the database level (DATA-08) and its trigger refuses UPDATE
-// unconditionally, with an escape hatch that covers DELETE only.
-//
-// That refusal is correct and is not worked around. An audit row saying who the
-// subject was called at the time is the more truthful record — and since
-// ADR-043 the name it holds is `APP-2026-000001`, the applicant's own form
-// number, which is a thing a person can read rather than a cuid. There is
-// nothing left to translate: the events recorded against it happened *before*
-// the account existed, so stamping the account number onto them would be less
-// true and no clearer.
-//
-// The admin's audit screen resolves those rows through `users.formNumber`,
-// which still holds exactly that string for exactly that reason. There is no
-// mapping table any more; `user_id_history` was one (see ADR-044).
-//
-// The self-referential `users.approvedBy` needs no special handling, because its
-// own FK cascades and this renames one row rather than the table.
+// renameUser moves a user row to a new primary key, carrying references a
+// foreign key does not: token_blacklist.userId and notifications.data->>'userId'.
+// audit_logs is deliberately left alone (append-only); the audit screen
+// resolves old rows through users.formNumber (ADR-044).
 func renameUser(ctx context.Context, tx pgx.Tx, oldID, newID string) error {
 	if oldID == newID {
 		return nil
@@ -628,32 +573,16 @@ func renameUser(ctx context.Context, tx pgx.Tx, oldID, newID string) error {
 		return err
 	}
 
-	// Last, so the statements above still match on the value they were written
-	// with. The cascade fires from here.
+	// Last, so the statements above still match the old value.
 	if _, err := tx.Exec(ctx, `UPDATE users SET id = $2 WHERE id = $1`, oldID, newID); err != nil {
 		return err
 	}
 	return nil
 }
 
-// ApproveRegistration activates a pending member and plants the first-login
-// marker whose existence is `mustChangePassword`.
-//
-// firstLoginSecret is the raw secret; it is hashed on the way in like every
-// other row of password_reset_tokens (WO-86). It used to arrive carrying a
-// "first-login-" prefix that this function validated and stored verbatim — the
-// prefix is a `scope` column now, so there is nothing left to validate beyond
-// the secret being present.
-// ApproveRegistration admits a pending applicant and **returns the account
-// number they have just been given**.
-//
-// Returned rather than read back by the caller, because the caller reads the
-// candidate row *before* this runs: `accountNo` is null on an application and is
-// allocated here, so a handler that fetched it beforehand would put an empty
-// string into the one email that tells a member their number.
-// ErrBranchNotAssignable is an expected refusal, not a fault (rule 2b): the admin
-// named an office that does not exist or has been closed. It reaches the caller
-// as a 400 naming the branch, rather than a 500 naming a foreign key.
+// ApproveRegistration admits a pending applicant, plants the first-login
+// marker (secret hashed, WO-86) and RETURNS the account number it allocates.
+// ErrBranchNotAssignable: a missing or closed branch — 400, not 500 (rule 2b).
 var ErrBranchNotAssignable = errors.New("branch is not available for assignment")
 
 func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approverID, notes, passwordHash, firstLoginSecret, branchID string) (string, error) {
@@ -711,24 +640,9 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		return "", errors.New("registration approval update failed")
 	}
 
-	// **This is where a member's account number comes from, and the only place.**
-	//
-	// It used to be allocated by the registration route the moment a public form
-	// was submitted, so refusing the first applicant consumed `ACC-KH-33001` for
-	// ever and the next applicant became `002` — a hole in the foundation's own
-	// register, punched by a form anybody can fill in. The applicant's reference
-	// is their `formNumber` (`APP-2026-000001`), which is allocated at submission
-	// and costs nothing to burn.
-	//
-	// `formNumber` is deliberately NOT touched here. It used to be overwritten
-	// with `FORM-<accountNo>`, which destroyed the number the applicant had been
-	// given, was quoting on the telephone, and whose value names the Cloudinary
-	// folder holding their four identity documents.
-	//
-	// The empty check stays rather than becoming unconditional: re-approving is
-	// refused above, but if a row somehow already has a number it keeps it —
-	// renumbering a member would orphan their files and break the one identifier
-	// they were told to write down (ADR-023).
+	// The ONLY place an account number is allocated — so a refused
+	// application never burns one (ADR-039). formNumber is NOT touched: it
+	// names the applicant's document folder. An existing number is kept (ADR-023).
 	if strings.TrimSpace(memberID) == "" {
 		generatedMemberID, err := r.generateNextAccountNo(ctx, tx)
 		if err != nil {
@@ -739,40 +653,16 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 			return "", err
 		}
 
-		// **And the row's id, which IS the account number** (ADR-043).
-		//
-		// This is the one moment in a member's life that their id changes, and
-		// it is deliberately this moment: until now they are an applicant known
-		// by `APP-2026-000001`, and nothing outside this database holds that
-		// value. An applicant's password hash is a sentinel bcrypt can never
-		// match, so they have never signed in — there is no token carrying the
-		// old id, no session to break, and no third party to tell.
-		//
-		// Every foreign key referencing `users.id` is ON UPDATE CASCADE, so the
-		// account, the addresses, the nominee and the documents follow in the
-		// same statement. The four columns that hold a user id *without* a
-		// foreign key are remapped by hand below — miss one and the audit trail
-		// silently loses the rows describing this person's own application,
-		// which is the trail's whole subject at this point.
+		// And the row's id, which IS the account number (ADR-043). Safe here:
+		// an applicant has never signed in. FKs cascade; renameUser remaps the rest.
 		if err := renameUser(ctx, tx, userID, memberID); err != nil {
 			return "", err
 		}
 		userID = memberID
 	}
 
-	// **Which office this member belongs to, decided by the admin admitting them.**
-	//
-	// Registration used to set it: the public form assigned the sole active
-	// branch and left it null once a second office existed, so a member's office
-	// was either a guess or nothing, and neither was anybody's decision. It is
-	// asked for on the approvals screen now, beside the approval itself, because
-	// that is the moment somebody who knows the answer is looking at the
-	// application.
-	//
-	// Empty is allowed and means "not yet" — a legitimate, visible state that the
-	// member list already renders as a dash. A named branch must exist and be
-	// active: assigning somebody to a closed office is a per-branch report that
-	// is quietly wrong rather than an error anybody sees.
+	// The member's office, chosen by the admitting admin. Empty means "not
+	// yet"; a named branch must exist and be active.
 	if branchID = strings.TrimSpace(branchID); branchID != "" {
 		var active bool
 		if err := tx.QueryRow(ctx, `SELECT "isActive" FROM branches WHERE id = $1`, branchID).Scan(&active); err != nil {
@@ -818,13 +708,7 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 			return "", err
 		}
 	}
-	// Nothing to re-sync when the account already exists. It used to carry an
-	// "accountNumber" that had to be kept equal to the member id — two columns
-	// holding one value, which is the redundancy ADR-023 removed.
-
-	// Parameterised rather than inlined in the SQL so the wording lives with
-	// every other notification in internal/notify and is covered by its census
-	// (WO-52). A string only the database sees is a string nothing tests.
+	// Wording lives in internal/notify (WO-52).
 	memberTitle, memberMessage := notify.RegistrationApproved()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO notifications (type, title, message, "targetUserId", "createdAt")
@@ -840,13 +724,7 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 		return "", err
 	}
 
-	// Inside the transaction, and checked.
-	//
-	// This used to run after the commit as `_, _ = r.db.Exec(...)`, so an
-	// approval could succeed with no record of who granted it. Admitting a
-	// member is exactly the kind of material action FR-19 exists for, and the
-	// audit row is what an investigation starts from. Written here, the
-	// approval and its record commit together or neither does.
+	// Audit row inside the transaction: approval and record commit together (FR-19).
 	const auditQuery = `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES ('APPROVE_REGISTRATION', 'USER', $1, $2, NOW(), $3)
@@ -861,36 +739,19 @@ func (r *UserRepository) ApproveRegistration(ctx context.Context, userID, approv
 	return memberID, nil
 }
 
-// ErrRegistrationNotPending is returned when the row named is not a pending
-// application — already decided, already a member, or not there at all.
-//
-// A sentinel rather than a message the handler greps for. This used to return
-// errors.New("registration not found") and the handler matched it with
-// strings.Contains(err.Error(), "not found"), which is the classification rule
-// 2b bans: every future error whose text happens to contain those words becomes
-// a 404, and rewording this one makes it a 500.
+// ErrRegistrationNotPending: already decided, already a member, or missing (rule 2b).
 var ErrRegistrationNotPending = errors.New("registration is not pending")
 
-// RejectedApplicant is what the caller needs in order to tell the applicant.
-//
-// Returned *because* the rejection no longer destroys it. Until 2026-08-26 this
-// function overwrote the email and phone in the same statement that recorded the
-// decision, to free the unique constraint for a re-application — so the
-// foundation held an application it had turned down and no address to explain it
-// to, and nothing else in the entry path told the applicant either. Uniqueness
-// is scoped to live rows now, so the details can simply stay.
+// RejectedApplicant is what the caller needs to tell the applicant; contact
+// details survive a rejection (uniqueness is scoped to live rows).
 type RejectedApplicant struct {
 	Email  string
 	NameEn string
 	Locale string
 }
 
-// RejectRegistration turns down a pending application, recording why.
-//
-// The reason is stored on the row as well as in the audit log. `audit_logs` is
-// append-only and no screen can read it, so a reason written only there is one
-// nobody can show the applicant or the next admin to open the application —
-// which is what "reject with reason" (FR-05) has to mean to be worth anything.
+// RejectRegistration turns down a pending application. The reason is stored
+// on the row too, since no screen reads audit_logs (FR-05).
 func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approverID, reasonCode, reasonNote string) (*RejectedApplicant, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -898,8 +759,7 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 	}
 	defer tx.Rollback(ctx)
 
-	// The contact details are read back, not overwritten. RETURNING rather than
-	// a second SELECT, so the row is read by the statement that changes it.
+	// Contact details are read back via RETURNING, not overwritten.
 	const updateQuery = `
 		UPDATE users
 		SET
@@ -923,13 +783,7 @@ func (r *UserRepository) RejectRegistration(ctx context.Context, userID, approve
 		return nil, err
 	}
 
-	// Inside the transaction, unlike the version this replaces.
-	//
-	// The audit row used to be written after the commit with its error
-	// discarded (`_, _ = r.db.Exec(...)`), so a rejection could commit leaving
-	// no record of who made it or why. FR-19 asks for an append-only log of
-	// every material action, and refusing somebody membership is material.
-	// Written here, the decision and its record commit together or neither does.
+	// Audit row inside the transaction (FR-19).
 	const auditQuery = `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt", details)
 		VALUES ('REJECT_REGISTRATION', 'USER', $1, $2, NOW(), $3)

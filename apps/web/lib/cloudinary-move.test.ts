@@ -1,24 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * `moveAsset` has to move **both halves** of an asset.
- *
- * This account is in Cloudinary's *dynamic folder* mode, where `public_id` — the
- * path in the URL — and `asset_folder` — the folder the Media Library draws —
- * are independent properties, and `uploader.rename` changes only the first.
- *
- * That is not a subtlety anybody would notice from the outside, and nothing
- * failed when it was wrong: for every member admitted before 2026-09-02 the four
- * registration documents were *served* from `people/ACC-KH-33001` and still
- * *filed* under `applications/APP-2026-000001`. The database was correct
- * throughout, every URL worked, and two things followed from it — the
- * `deleteEmptyFolder` ending each approval silently did nothing for ever
- * (the folder still held what had just been moved out of it), and when the
- * application numbers came round again after a restore, four of those folders
- * took a second set of files under the same four names.
- *
- * So this file mocks the SDK, unlike `cloudinary.test.ts` beside it, which
- * deliberately never touches it. The thing under test *is* the pair of calls.
+ * moveAsset must update BOTH public_id and asset_folder (dynamic folder mode;
+ * rename changes only the first). Mocks the SDK, unlike cloudinary.test.ts.
  */
 
 const { rename, update } = vi.hoisted(() => ({ rename: vi.fn(), update: vi.fn() }));
@@ -70,9 +54,7 @@ describe('moveAsset', () => {
   });
 
   it('still reports success when only the folder update fails', async () => {
-    // The bytes have moved and the URL is right; the asset is served correctly
-    // either way. Failing an approval over the librarian's view would be the
-    // wrong trade — `scripts/cloudinary-reconcile.mjs` finds what is left behind.
+    // Logged, not thrown — the URL is already right (cloudinary-reconcile.mjs repairs).
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
     update.mockRejectedValue(new Error('folder mode not enabled'));
 

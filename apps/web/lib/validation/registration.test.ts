@@ -9,9 +9,8 @@ import {
   getRegistrationFieldLabel,
 } from './registration';
 
-// These two decide who can become a member. They run on the signup form and
-// again in the route handler, and a member whose phone was accepted in the wrong
-// shape cannot log in — phone is a login identifier (FR-01).
+// These decide who can become a member; they run on the form and in the route.
+// Phone is a login identifier (FR-01).
 
 describe('bdPhoneRegex', () => {
   it('accepts every operator prefix in use', () => {
@@ -114,12 +113,8 @@ describe('registerApiSchema', () => {
     expect(registerApiSchema.safeParse(validPayload()).success).toBe(true);
   });
 
-  // The form navigates a member to the step that owns a failing field by
-  // matching the issue path against a per-step field list. An issue reported
-  // against a path that is not a single top-level field name has no step to go
-  // to, which is what produced a "form needs attention" message pointing at
-  // nothing. The page handles that case explicitly now; this pins the set of
-  // shapes it has to handle.
+  // Issues must be reported against a single top-level key, so the form can
+  // navigate to the owning step.
   it('reports field problems against a single top-level key', () => {
     const broken = registerApiSchema.safeParse(
       validPayload({ nameEn: 'A', phone: 'x', nidNumber: '12', profession: '' }),
@@ -135,9 +130,7 @@ describe('registerApiSchema', () => {
   });
 
   it('every field it can name has a human label in both languages', () => {
-    // The submit-time error banner lists failing fields by label. A field with
-    // no entry falls back to its raw key, which is how a member ends up being
-    // told to fix "permanentPoliceStation".
+    // Every field needs a label, or the banner shows a raw key.
     const broken = registerApiSchema.safeParse({});
     for (const path of issuePaths(broken)) {
       expect(getRegistrationFieldLabel(path, 'en')).not.toBe(path);
@@ -218,10 +211,7 @@ describe('registerApiSchema', () => {
     });
 
     it('treats an emptied number input as unanswered, not as invalid', () => {
-      // A cleared <input type="number"> registered with valueAsNumber yields
-      // NaN, and JSON.stringify turns NaN into null on the way to the server.
-      // Both have to mean "not answered" or a member who backspaces the field
-      // is blocked by an error on a box they deliberately left empty.
+      // A cleared number input yields NaN (null after JSON) — both mean "not answered".
       expect(registerApiSchema.safeParse(validPayload({ childrenCount: NaN })).success).toBe(true);
       expect(registerApiSchema.safeParse(validPayload({ childrenCount: null })).success).toBe(true);
     });
@@ -259,10 +249,8 @@ describe('registerApiSchema', () => {
   });
 
   it('rejects unknown keys outright', () => {
-    // The schema is strict, so a client sending an extra field is refused
-    // rather than having it silently dropped. The resulting issue carries an
-    // empty path — the one shape that maps to no step, which is why the form
-    // has a fallback branch for it.
+    // Strict schema: an extra field is refused, with an empty path (the form's
+    // fallback branch).
     const result = registerApiSchema.safeParse(validPayload({ isAdmin: true }));
     expect(result.success).toBe(false);
     expect(issuePaths(result)).toEqual(['']);

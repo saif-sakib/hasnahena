@@ -59,15 +59,8 @@ export function AvatarUpload({
     const picked = e.target.files?.[0];
     if (!picked) return;
 
-    // Compress before validating, and before sending.
-    //
-    // This is a **Server Action**, so the request body is capped at 4 MB by
-    // next.config.js and was capped at Next's default 1 MB before that — while
-    // this control accepted 5 MB. A member changing their profile photo from
-    // their phone was uploading a 3-8 MB camera file straight into that limit
-    // and getting a failure that named nothing. Cloudinary crops the result to
-    // 400x400 (AVATAR_TRANSFORMATION) regardless, so every one of those bytes
-    // was thrown away on arrival even when it did fit.
+    // Compress before validating and sending (Server Action body limit;
+    // Cloudinary crops to 400x400 anyway).
     const file = await compressImageFile(picked, IMAGE_PRESETS.avatar);
 
     // Validate

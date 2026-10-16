@@ -2,12 +2,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Tailwind 4 loads plugins from CSS, not from a config file. This one used to
-   be `plugins: [require('tailwindcss-animate')]` in tailwind.config.ts, which
-   the v4 codemod deleted — and it does not carry plugins across. Without this
-   line the utilities still compile away silently and every Radix dialog,
-   dropdown, select and toast loses its open/close animation: 81 uses of
-   animate-in, fade-in-*, zoom-in-* and slide-in-from-* across 17 files. */
+/* Tailwind 4 loads plugins from CSS; without this every Radix open/close animation silently disappears. */
 @plugin 'tailwindcss-animate';
 
 @utility container {
@@ -119,14 +114,7 @@
   }
 }
 
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
+/* Tailwind v4 defaults borders to currentcolor; this restores the v3 default. */
 @layer base {
   *,
   ::after,
@@ -320,21 +308,7 @@
   }
 }
 
-/*
- * One eye per password field.
- *
- * Every password input in this application draws its own show/hide button —
- * consistently placed, translated, and reachable by keyboard. Edge (and older
- * IE-derived engines) *also* draw a native reveal control inside the field, so a
- * user typing a new password saw two eyes side by side and had to guess which
- * one was ours.
- *
- * Hidden globally rather than per field, because the failure is per *browser*
- * and not per screen: any password input this application ever adds has the same
- * problem, and a rule somebody has to remember to apply is a rule that gets
- * missed on the next form. `::-ms-clear` goes for the same reason on text inputs
- * beside it — a second clear affordance next to a field that already has one.
- */
+/* One eye per password field: hide Edge's native reveal/clear controls globally. */
 input::-ms-reveal,
 input::-ms-clear {
   display: none;
@@ -343,41 +317,11 @@ input::-ms-clear {
 }
 
 /*
-  ---------------------------------------------------------------------------
-  Section reveal on the marketing pages.
-  ---------------------------------------------------------------------------
-
-  WHY THIS IS NOT `animation-timeline: view()` ANY MORE, having been exactly
-  that for two rounds of this work.
-
-  Scroll-driven CSS animations are the elegant answer: progress tied to the
-  element's position, run off the main thread, no observer, no listener, not one
-  byte of JavaScript. They are also, right now, a feature the reader may simply
-  not have — `animation-timeline` reached Safari in **26** and Firefox in 144 —
-  and the whole thing was written inside `@supports`, which means a browser
-  without it got *silently nothing*. It was reported twice, in the same words
-  both times: "everything is like static as the previous". Both reports were
-  correct, and neither of the two fixes in between could have helped, because on
-  that browser not one line of the block was ever applied.
-
-  A guard that degrades to nothing degrades to nothing SILENTLY. It looks
-  identical to the bug it was hiding, and it cannot be caught by testing in the
-  engine that supports the feature — which is the one a headless check runs in.
-
-  So: an IntersectionObserver and a CSS transition, which every browser this
-  site supports has had since about 2019. One code path, one behaviour, and the
-  entrance is time-based — which is what was actually asked for ("like the top
-  appears from left, likewise while I scroll down"), the hero's own entrance
-  repeated down the page.
-
-  IT STILL CANNOT FAIL CLOSED, and that property was the reason for the original
-  design, so it is preserved deliberately. Nothing here hides anything on its
-  own: the hidden state is scoped to `[data-reveal-js]`, an attribute that ONLY
-  `components/ui/scroll-reveal.tsx` sets, and only once it has an observer in
-  hand. No JavaScript, a thrown constructor, an old engine, a failed chunk — in
-  every one of those the attribute is never set, the rules below never match,
-  and the page renders finished. The resting state is still the finished state.
-*/
+Section reveal on the marketing pages: IntersectionObserver + CSS animation,
+not `animation-timeline: view()` (older Safari silently ignored it). It cannot
+fail closed: the hidden state is scoped to [data-reveal-js], set only by
+components/ui/scroll-reveal.tsx — no JS means a finished page.
+ */
 @keyframes reveal-fade {
   from {
     opacity: 0;
@@ -415,11 +359,7 @@ input::-ms-clear {
   }
 }
 
-/*
-  Cards arrive on the diagonal, from the lower left. A row that rises straight
-  up reads as a list settling; the same row drifting in from the left reads as
-  the hero's entrance happening again.
-*/
+/* Cards arrive on the diagonal from the lower left, echoing the hero. */
 @keyframes reveal-in {
   from {
     transform: translate3d(-26px, 28px, 0);
@@ -428,24 +368,10 @@ input::-ms-clear {
 
 @media (prefers-reduced-motion: no-preference) {
   /*
-    The waiting state.
-
-    `:not([data-revealed])` rather than a bare class, and `transition: none`,
-    and both are scars.
-
-    `transition: none` is there because the element's OWN transitions will
-    otherwise animate it into hiding. The activity and feature cards carry
-    Tailwind's `transition-all duration-300` for their hover lift, and
-    `transition-all` includes opacity — so the moment `data-reveal-js` landed on
-    an already-painted page, ten cards spent 300ms fading OUT before the reveal
-    had done anything. Measured at 0.41 opacity with no `data-revealed`
-    attribute on any of them, which is what finally named it: they were not
-    half-revealed, they were half-hidden.
-
-    `:not([data-revealed])` is there so the rule STOPS applying once the element
-    has arrived, which hands the card its own transitions back. A permanent
-    `transition: none` would have killed the hover lift it was written for.
-  */
+  Waiting state. `transition: none` stops the cards' own transition-all fading
+  them OUT when the attribute lands; `:not([data-revealed])` hands their hover
+  transitions back after arrival.
+   */
   [data-reveal-js] :is(.reveal, .reveal-left, .reveal-right, .reveal-soft):not([data-revealed]),
   [data-reveal-js] :is(.reveal-row, .reveal-row-4) > *:not([data-revealed]) {
     opacity: 0;
@@ -453,33 +379,11 @@ input::-ms-clear {
   }
 
   /*
-    Arrival — an ANIMATION, not a transition, for the same reason.
-
-    A transition is a property of the element and anything else that sets
-    `transition` on it is in a fight with this. An animation is its own thing,
-    runs once, and cannot be overridden by a utility class.
-
-    Two of them: the fade is short and linear, the movement is longer and
-    eased. That split is the "why are the hadith grey" lesson and it survives
-    every rewrite of the mechanism — a reader who stops to read stops in the
-    middle of the animation, so the text must be readable well before the
-    movement finishes.
-
-    `backwards`, NOT `both`. `backwards` holds the from-state through the
-    stagger delay, which is what stops a card flashing in at full opacity and
-    then dropping to zero when its turn comes. A forwards fill would hold the
-    to-state for ever, and a filling animation outranks ordinary declarations —
-    so anything that later sets `transform` on the same element would be
-    silently ignored. With no forwards fill the element lands on its natural
-    style, which is already the finished state.
-
-    (The cards' own `hover:-translate-y-1` is safe either way, and it is worth
-    knowing why: Tailwind 4 compiles translate utilities to the separate
-    `translate` property, not to `transform`. So the hover lift and this
-    animation never touch the same property. Checked, not assumed — the first
-    reading of it looked like a regression because `getComputedStyle().transform`
-    is `none` on a hovered card, which is correct and means nothing.)
-  */
+  Arrival is an ANIMATION (a utility's `transition` cannot override it): a
+  short linear fade (text readable early) plus a longer eased move. `backwards`
+  fill, not `both` — a forwards fill would outrank later `transform`s.
+  (Tailwind 4 hover lifts use the separate `translate` property, so no clash.)
+   */
   [data-reveal-js] .reveal[data-revealed] {
     animation:
       reveal-fade 480ms linear backwards,
@@ -511,14 +415,9 @@ input::-ms-clear {
   }
 
   /*
-    The cascade. One `animation-delay` applies to every animation in the list,
-    so the fade and the movement stay in step.
-
-    Two cycles because CSS cannot count a grid's columns: `reveal-row` for the
-    three- and six-card rows, `reveal-row-4` for the two that are four across.
-    Sharing the 3n cycle between them put card 4 back on card 1's delay, which
-    reads as one card failing to animate rather than as a stagger.
-  */
+  The stagger; one delay drives both animations. Separate cycles for 3- and
+  4-column rows (CSS cannot count columns).
+   */
   [data-reveal-js] .reveal-row > *:nth-child(3n + 2)[data-revealed] {
     animation-delay: 120ms;
   }
@@ -540,18 +439,7 @@ input::-ms-clear {
   }
 }
 
-/*
-  Somebody who has asked their system for less motion gets none of it.
-
-  The reveal above lives entirely inside `prefers-reduced-motion: no-preference`
-  — so for a reader who has asked for less, the rules never match, nothing is
-  ever hidden, and there is nothing to switch back on. `scroll-reveal.tsx`
-  checks the same query and returns without setting its attribute, so the
-  observer is never even constructed.
-
-  `scroll-behavior: auto` goes with it: a smooth-scrolled jump to an anchor is
-  motion too.
-*/
+/* Reduced motion: the reveal rules never match, and smooth scrolling is off too. */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -559,72 +447,23 @@ input::-ms-clear {
 }
 
 /*
-  ---------------------------------------------------------------------------
-  The ambient surface the marketing pages sit on.
-  ---------------------------------------------------------------------------
-
-  Every section of the home page below the hero used to be one of two flat
-  fills — white, or `bg-slate-50/50` — alternating down the page. That is a
-  defensible neutral and it is also the reason the page read as a stack of
-  boxes: past the hero there was nothing to look at that was not type.
-
-  What goes behind the type instead is the motif this site already owns. The
-  hero's fallback illustration (`components/ui/geometric-panel.tsx`) is an
-  eight-point *khatam* tessellation, and this is the same construction — two
-  overlaid squares, one turned 45° — tiled across a section at an opacity low
-  enough that it is texture rather than pattern. It is not a second visual
-  language bolted on beside the first.
-
-  Three properties make it affordable on the phones this site is actually read
-  on, which is the constraint that decided the technique:
-
-  - It is a data URI in the stylesheet, so it costs no request and cannot 404
-    the way `/patterns/grid.svg` did. It is about 400 bytes, once, shared by
-    every section that uses it.
-  - It is vector, so it is sharp at any density and weighs the same at 1x as at
-    3x. A raster texture that looked right on a Pixel would be a 200KB download
-    to look right on anything else.
-  - It is `background-image` on the section itself wherever it can be, not a
-    positioned overlay: no extra element, no stacking context to get wrong, and
-    nothing that can end up painted over the words. Only the hero uses
-    `lattice-tile` on a layer of its own, because the hero's ground is a
-    Tailwind gradient — `bg-linear-to-br` *is* a `background-image`, so a
-    section cannot have both that and this. Where a section's gradient was
-    decoration rather than structure it was deleted in favour of the blooms
-    below, which is one class fewer and the same picture.
-
-  The colour is a variable rather than baked into the two data URIs so that the
-  dark theme swaps one declaration instead of carrying a second copy of the
-  drawing. Emerald in light, a lighter emerald at lower opacity in dark: on a
-  near-black ground the same value reads roughly twice as strong.
-*/
+The ambient surface of the marketing pages: the khatam lattice (as in
+geometric-panel.tsx) as an inline SVG data URI at texture opacity — no
+request, vector, ~400 bytes — on each section's own background-image. The
+colour is a variable so dark mode swaps one declaration.
+ */
 @layer base {
   :root {
     --hn-lattice: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'%3E%3Cg fill='none' stroke='%23059669' stroke-opacity='.07' stroke-width='1'%3E%3Crect x='28' y='28' width='72' height='72'/%3E%3Crect x='28' y='28' width='72' height='72' transform='rotate(45 64 64)'/%3E%3C/g%3E%3Cpath d='M0 0 9 0 0 9Z M128 0 119 0 128 9Z M0 128 9 128 0 119Z M128 128 119 128 128 119Z' fill='%23059669' fill-opacity='.04'/%3E%3C/svg%3E");
 
-    /* The two blooms that keep a lattice from reading as graph paper: warm
-       emerald entering from the top left, cooler teal leaving at the bottom
-       right. Sized in `rem` so they scale with the page rather than with the
-       viewport — a `vw`-sized bloom is a dot on a phone and a wash on a
-       monitor. */
+    /* Two blooms so the lattice does not read as graph paper; sized in rem. */
     --hn-bloom-a: rgb(16 185 129 / 0.07);
     --hn-bloom-b: rgb(20 184 166 / 0.06);
 
     /*
-      The ground the marketing pages are printed on.
-
-      A warm off-white, not white. The page used to alternate `#ffffff` with
-      `slate-50` down its length — a cool grey against a pure white, which is
-      the default of every admin panel ever built and reads as a screen. One
-      warm ivory instead, held all the way down, and the CARDS are the pure
-      white: a card then lifts off the page instead of dissolving into it,
-      which is where the separation between sections now comes from. The
-      alternating fills are gone.
-
-      Warm rather than green-tinted, deliberately, even though the brand is
-      emerald. Green ink on ivory is a printed page; green ink on green paper
-      is a tint, and the emerald blooms above have nothing to sit against.
-    */
+    The ground: one warm ivory all the way down, with pure-white cards that
+    lift off it (replacing alternating white/slate bands).
+     */
     --hn-paper: 40 30% 98%;
   }
 
@@ -634,18 +473,12 @@ input::-ms-clear {
     --hn-bloom-a: rgb(16 185 129 / 0.10);
     --hn-bloom-b: rgb(20 184 166 / 0.08);
 
-    /* The dark theme's ground is already right — paper is a light-theme idea,
-       and a "warm" near-black is just a brown cast. Same value as
-       `--background`, so the two cannot drift apart. */
+    /* Dark theme ground = --background. */
     --hn-paper: 222.2 84% 4.9%;
   }
 }
 
-/*
-  A section with the lattice and both blooms. The layer order is the paint
-  order: blooms in front of the lattice, so the pattern is strongest where the
-  section is coolest and fades under the light.
-*/
+/* Lattice plus both blooms; blooms paint in front of the lattice. */
 @utility surface-lattice {
   background-image:
     radial-gradient(52rem 34rem at 8% -12%, var(--hn-bloom-a), transparent 62%),
@@ -657,24 +490,16 @@ input::-ms-clear {
 }
 
 /*
-  The lattice on its own, for a layer that is not the section's own background —
-  the hero, whose ground is a Tailwind gradient and therefore already owns
-  `background-image`. Used on an `absolute inset-0` div BEHIND the content, and
-  the content above it must establish its own stacking (`relative z-10`, which
-  the hero's container already had for its other decoration).
-*/
+The lattice on its own layer, for the hero (whose gradient already owns
+background-image). Content above needs its own stacking (`relative z-10`).
+ */
 @utility lattice-tile {
   background-image: var(--hn-lattice);
   background-repeat: repeat;
   background-size: 112px 112px;
 }
 
-/*
-  The blooms without the lattice, for a section that already has something to
-  look at — the gallery, where a pattern behind a grid of photographs is two
-  textures competing, and the quotation band, where it would sit under Bengali
-  script at 16px.
-*/
+/* Blooms without the lattice — for the gallery and the quotation band. */
 @utility surface-veil {
   background-image:
     radial-gradient(52rem 34rem at 12% -10%, var(--hn-bloom-a), transparent 60%),
@@ -682,19 +507,7 @@ input::-ms-clear {
   background-repeat: no-repeat;
 }
 
-/*
-  The seam between two sections.
-
-  A 1px border is the obvious way to separate them and the wrong one — it draws
-  a hard line across a page whose whole surface is now soft. This is a hairline
-  that fades out at both ends, so sections are *distinguished* without the page
-  acquiring rules.
-
-  `border-image` rather than a fourth background layer, deliberately: the
-  utilities above already own `background-image`, and a seam written as a
-  gradient background would silently replace the lattice on any section that
-  wanted both.
-*/
+/* A hairline seam that fades at both ends; border-image so it never replaces a background. */
 @utility surface-seam {
   border-top: 1px solid transparent;
   border-image: linear-gradient(
@@ -707,40 +520,18 @@ input::-ms-clear {
     1;
 }
 
-/*
-  The paper. Set once, on the marketing `<main>`, rather than per section.
-
-  Every section below the hero used to carry its own `bg-white` or
-  `bg-slate-50/50`, which is what made the page a stack of bands. They are
-  transparent now and this shows through all of them, so `surface-lattice` and
-  `surface-veil` layer their pattern and their blooms over one continuous
-  ground instead of over seven different ones.
-*/
+/* The paper, set once on the marketing <main>; sections are transparent over it. */
 @utility surface-paper {
   background-color: hsl(var(--hn-paper));
 }
 
-/*
-  What makes a white card read as ON the paper rather than as a hole in it.
-
-  Two shadows: a 1px contact shadow that does the work a border used to do, and
-  a wide, very soft drop that gives the card somewhere to sit. Both are nearly
-  colourless — a grey shadow on a warm ground goes muddy, so these are the
-  page's own ink colour at low alpha.
-
-  It is a resting shadow, which the cards on this page did not have: they had
-  `hover:shadow-lg` and nothing at all until you pointed at them, which is
-  fine on white and invisible on ivory.
-*/
+/* A resting shadow so a white card sits ON the ivory: a 1px contact shadow and a soft drop. */
 @utility card-raise {
   box-shadow:
     0 1px 2px rgb(16 24 40 / 0.04),
     0 10px 28px -14px rgb(16 24 40 / 0.12);
 
-  /* `@variant` nested INSIDE the utility, which is the Tailwind 4 form. At the
-     top level wrapping a bare `.card-raise { … }` it compiles to nothing, and a
-     shadow that silently does not exist is indistinguishable from one tuned too
-     low — on a near-black ground, exactly the place you would not notice. */
+  /* @variant nested inside the utility (Tailwind 4); at top level it compiles to nothing. */
   @variant dark {
     box-shadow:
       0 1px 2px rgb(0 0 0 / 0.35),

@@ -35,48 +35,24 @@ interface RootLayoutProps {
 }
 
 /**
- * WO-73. Without this, `[locale]` is a dynamic segment with no known values, so
- * **every** route under it is server-rendered on demand — all 50 of them, which
- * is what `next build` reported before this existed. Naming the two locales is
- * what lets a page that opts into caching actually be prerendered.
- *
- * It does not make anything static by itself: a page still becomes static only
- * if nothing in it reads a request. That is why `dashboard/` stays dynamic —
- * those pages are client components reading a token — and why the marketing
- * pages each carry their own `revalidate`.
+ * Names both locales so pages can be prerendered (WO-73); a page is static only
+ * if nothing reads the request, so dashboard/ stays dynamic.
  */
 export function generateStaticParams() {
   return locales.map((locale) => ({ locale }));
 }
 
 /**
- * `themeColor` colours the browser chrome on Android and the tab strip on
- * desktop Chrome — emerald, matching the mark.
- *
- * It belongs in the `viewport` export and NOT in `metadata`: Next moved it there
- * and warns on every build if it is left behind, and the `Metadata` type still
- * accepts the field, so typecheck does not catch the mistake.
+ * Browser-chrome colour. Belongs in `viewport`, not `metadata` (Next warns;
+ * the Metadata type still accepts it).
  */
 export const viewport: Viewport = {
   themeColor: '#059669',
 };
 
 /**
- * The tab icon, and the one an Android home-screen shortcut gets.
- *
- * `branding.favicon` had a control on Content & Media and **no reader anywhere**
- * — an admin could upload one, see it stored, and watch the tab keep the shipped
- * leaf forever. It is read here, which is the only place a document's `<head>`
- * is decided for every route on the site.
- *
- * Falls back to the files in `public/`. The fallback is not decoration: the
- * settings read can legitimately return `{}` (a fresh database, a transient Neon
- * blip — see getPublicSettings), and a site whose favicon disappears when the
- * database hiccups would be a strange thing to have built.
- *
- * The uploaded value goes in `shortcut` and `apple` as well as `icon` because
- * those are three separate `<link rel>`s and a browser that reads only one of
- * them would otherwise still show the old mark.
+ * Tab and home-screen icon from branding.favicon, falling back to public/ (the
+ * settings read may return {}). Set on icon, shortcut and apple — three <link>s.
  */
 function iconsFor(faviconUrl: string | undefined): Metadata['icons'] {
   const uploaded = faviconUrl?.trim();
@@ -113,10 +89,7 @@ export async function generateMetadata({ params }: RootLayoutProps): Promise<Met
     ...localizedMetadata,
     metadataBase: siteBaseUrl,
     title: {
-      // `%s | Hasnahena Foundation` rather than `%s | Hasnahena`. The full name
-      // is the one people search for, and a page title is one of the few places
-      // a search engine reads it on every route rather than only on the home
-      // page.
+      // The full name, the one people search for.
       template: `%s | ${SITE_NAME}`,
       default: siteTitle(activeLocale),
     },
@@ -136,13 +109,9 @@ export async function generateMetadata({ params }: RootLayoutProps): Promise<Met
     applicationName: SITE_NAME,
     authors: [{ name: 'Md Saif Ahmed' }],
     icons: iconsFor(settings['branding.favicon']),
-    // The manifest carries the icons a phone uses for a home-screen shortcut,
-    // and one more crawlable statement of the site's name. See app/manifest.ts.
+    // Home-screen icons and name (app/manifest.ts).
     manifest: '/manifest.webmanifest',
-    // Ownership tokens for Search Console and, the one that was missing
-    // entirely, Bing Webmaster Tools. Read from the environment: the value is
-    // issued to whoever proves they own the domain, so it cannot live in the
-    // repository, and unset it emits nothing — see siteVerification in lib/seo.
+    // Search Console / Bing verification from the environment (lib/seo).
     verification: siteVerification(),
   };
 }
@@ -158,9 +127,7 @@ export default async function RootLayout({
     notFound();
   }
 
-  // Required for static rendering: next-intl otherwise reads the locale from
-  // the request, which opts the whole subtree out of prerendering. It must run
-  // before getMessages().
+  // Required for static rendering, before getMessages().
   setRequestLocale(locale);
 
   const messages = await getMessages();

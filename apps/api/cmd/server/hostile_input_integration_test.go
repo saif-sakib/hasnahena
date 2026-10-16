@@ -1,10 +1,6 @@
 //go:build integration
 
-// TEST-17 and TEST-18 — what comes back, and what happens when the request is
-// not the one the handler was written for.
-//
-// Both run over the same route table as TEST-15, so neither can silently stop
-// covering a route: the enumeration comes from the router.
+// TEST-17 (response shape) and TEST-18 (hostile input), over TEST-15's route table.
 package main
 
 import (
@@ -25,9 +21,7 @@ import (
 // TEST-17 — response shape
 // ---------------------------------------------------------------------------
 
-// secretKeys are field names that must never appear in a response body, at any
-// depth. Every one of them has leaked out of some API at some point by being
-// included in a `SELECT *` or a struct that grew a field.
+// secretKeys must never appear in a response body, at any depth.
 var secretKeys = map[string]string{
 	"passwordhash":    "the bcrypt hash; enough to attack offline",
 	"password":        "never a response field under any circumstance",
@@ -85,10 +79,7 @@ func TestNoResponseLeaksACredential(t *testing.T) {
 	}
 }
 
-// TestEveryResponseIsTheEnvelope pins the one contract every client depends on:
-// `{success, data, error, meta}`. A handler that answers a bare object or a
-// bare array breaks error handling in the browser client silently, because
-// `payload.success` on a bare array is undefined rather than false.
+// TestEveryResponseIsTheEnvelope: `{success, data, error, meta}` on every route.
 func TestEveryResponseIsTheEnvelope(t *testing.T) {
 	r := testRouter(t)
 	token := tokenFor(t, "SUPER_ADMIN")
@@ -120,9 +111,7 @@ func TestEveryResponseIsTheEnvelope(t *testing.T) {
 // TEST-18 — hostile input
 // ---------------------------------------------------------------------------
 
-// hostileBodies are the shapes a handler is most likely to meet only in
-// production. None of them should ever produce a 5xx: a 400 means the request
-// was understood and refused, a 500 means it was not understood at all.
+// hostileBodies must never produce a 5xx.
 var hostileBodies = []struct {
 	name string
 	body string
@@ -139,9 +128,7 @@ var hostileBodies = []struct {
 	{"prototype pollution", `{"__proto__": {"role": "SUPER_ADMIN"}, "amount": 1}`, "application/json"},
 	{"constructor pollution", `{"constructor": {"prototype": {"role": "ADMIN"}}}`, "application/json"},
 	{"SQL metacharacters in every string", `{"notes":"'; DROP TABLE users; --","purpose":"' OR '1'='1","threadId":"'"}`, "application/json"},
-	// U+202E RIGHT-TO-LEFT OVERRIDE, U+202C POP DIRECTIONAL FORMATTING and a
-	// run of U+0301 COMBINING ACUTE ACCENT, written as escapes: the literal
-	// characters reorder this line in an editor, which is the attack itself.
+	// Bidi overrides and combining marks, written as escapes on purpose.
 	{"RTL and combining marks", "{\"notes\":\"\u202eevil\u202c\u0301\u0301\u0301\",\"nameEn\":\"عربى\"}", "application/json"},
 	{"NUL byte in a string", "{\"notes\":\"a\x00b\"}", "application/json"},
 	// The escaped form is *valid* JSON, so encoding/json decodes it into a Go
@@ -156,18 +143,14 @@ var hostileBodies = []struct {
 	{"form encoding", `amount=1&notes=x`, "application/x-www-form-urlencoded"},
 }
 
-// deepJSON builds `{"a":{"a":{...}}}` nested `depth` levels. encoding/json
-// recurses while decoding, so this is the shape that stack-overflows a parser
-// that has no limit.
+// deepJSON nests `depth` levels — the parser stack-overflow shape.
 func deepJSON(depth int) string {
 	return strings.Repeat(`{"a":`, depth) + `1` + strings.Repeat(`}`, depth)
 }
 
 func TestWriteRoutesSurviveHostileBodies(t *testing.T) {
 	r := testRouter(t)
-	// An ADMIN token gets past authorization on nearly everything, so the
-	// hostile body actually reaches the parsing and validation code. Testing
-	// this unauthenticated would only ever exercise the 401.
+	// ADMIN, so the body reaches parsing rather than stopping at 401.
 	token := tokenFor(t, "ADMIN")
 
 	for _, key := range walkRoutes(t, r) {
@@ -177,9 +160,7 @@ func TestWriteRoutesSurviveHostileBodies(t *testing.T) {
 		default:
 			continue
 		}
-		// Login and password endpoints take real credentials; a hostile body
-		// there is covered, but they also do bcrypt work per call, which makes
-		// this test minutes long for no extra signal.
+		// Skipped: bcrypt per call makes this minutes long for no extra signal.
 		if strings.Contains(pattern, "/auth/") || strings.Contains(pattern, "/password") {
 			continue
 		}
@@ -213,9 +194,7 @@ func TestWriteRoutesSurviveHostileBodies(t *testing.T) {
 	}
 }
 
-// TestReadRoutesSurviveHostileQueryStrings covers the other half of the input
-// surface. Handlers read threadId, memberId and date ranges straight off the
-// query string, where nothing has validated a type for them.
+// TestReadRoutesSurviveHostileQueryStrings: unvalidated query parameters.
 func TestReadRoutesSurviveHostileQueryStrings(t *testing.T) {
 	r := testRouter(t)
 	token := tokenFor(t, "ADMIN")

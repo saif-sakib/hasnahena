@@ -9,10 +9,7 @@ import {
   deleteOldAvatar,
 } from './cloudinary';
 
-// WO-63 / WO-55. These are NID scans, passport photos and signatures, in one
-// third-party account with no export (DATA-06). Nothing here talks to
-// Cloudinary: the parts under test are the ones that decide *which* asset an
-// operation touches, and those are pure.
+// WO-63 / WO-55: which asset an operation touches. Pure — no Cloudinary calls.
 
 const BASE = 'https://res.cloudinary.com/hasnahena/image/upload';
 const ID = 'hasnahena/profiles/member/abc123';
@@ -21,10 +18,7 @@ describe('extractPublicId', () => {
   const cases: Array<[string, string, string | null]> = [
     ['plain', `${BASE}/${ID}.jpg`, ID],
     ['versioned', `${BASE}/v1712345678/${ID}.jpg`, ID],
-    // The normal avatar URL: uploadAvatar always applies a transformation, so
-    // this shape is the rule rather than an edge case. It used to return
-    // "w_400,h_400,c_fill,g_face/hasnahena/..." — a public id that does not
-    // exist, so every old avatar stayed in the account forever.
+    // The normal (transformed) avatar URL.
     ['transformed', `${BASE}/w_400,h_400,c_fill,g_face/${ID}.jpg`, ID],
     ['transformed and versioned', `${BASE}/w_400,h_400,c_fill,g_face/v1712345678/${ID}.jpg`, ID],
     ['chained transformations', `${BASE}/w_400,h_400/q_auto/f_auto/v1712345678/${ID}.jpg`, ID],

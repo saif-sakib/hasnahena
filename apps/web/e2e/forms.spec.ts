@@ -10,17 +10,8 @@ import {
 import { waitForContent } from "./fixtures/session";
 
 /**
- * TEST-28 — the forms, put under the pressure a real member applies.
- *
- * `registration.spec.ts` already covers the sign-up form in depth — that is the
- * form the original bug report was about, and it has its own nine specs for
- * step navigation, error visibility, touch targets and draft restore. This file
- * covers what that one does not: whitespace-only input, values at the length
- * limit, paste, and double-submit.
- *
- * Double-submit is the one that matters most. A member on a slow connection taps
- * "Sign In" twice because nothing appeared to happen, and every money form in
- * the application is one tap away from the same problem.
+ * TEST-28 — forms under real pressure: whitespace, length limits, paste and
+ * double-submit (registration.spec.ts covers the sign-up form).
  */
 
 test.use({ ...devices["Pixel 7"] });
@@ -36,9 +27,7 @@ test.describe("login form", () => {
     await page.fill("#password", "   ");
     await page.click('button[type="submit"]');
 
-    // Either client-side validation blocks it or the server refuses. What must
-    // not happen is landing on a dashboard, and what must not happen quietly is
-    // nothing at all: the member needs to be told.
+    // Refused, and the member is told.
     await expect(page).not.toHaveURL(/\/dashboard\//, { timeout: 8_000 });
     const announced = page.locator(
       '[role="alert"], [role="status"], [aria-live], .text-red-500, .text-red-600',
@@ -68,9 +57,7 @@ test.describe("login form", () => {
   test("a pasted identifier is accepted the same as a typed one", async ({
     page,
   }) => {
-    // Members paste from a note or an SMS. A field that only reacts to keypress
-    // events silently ignores that, and the form then reports the field as
-    // empty while the value is visibly in it.
+    // Paste must count as input.
     await page.goto("/login");
     await waitForContent(page);
 
@@ -158,19 +145,8 @@ test.describe("double submit", () => {
   });
 
   /**
-   * The same defect, without depending on how fast the machine is.
-   *
-   * The two-taps test above is a *timing* reproduction: it failed in the full
-   * suite and passed on its own, twice each, because whether the second click
-   * lands before React has re-rendered the disabled button depends on load.
-   * Submitting the form twice in one tick removes the timing from it — the
-   * `disabled` attribute is bypassed entirely, which is precisely the gap the
-   * attribute cannot close, and the only thing left to stop a second login is
-   * the synchronous guard in the handler.
-   *
-   * Two logins is not cosmetic: each mints a session and the responses race to
-   * write the token, so the browser can end up holding one the server has
-   * already replaced — signing in successfully and going nowhere.
+   * Two submits in one tick bypass `disabled`; only the handler's synchronous
+   * guard can stop a second login (which can leave a replaced token).
    */
   test("submitting the form twice in one tick still logs in once", async ({
     page,

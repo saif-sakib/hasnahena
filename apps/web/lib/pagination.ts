@@ -1,19 +1,7 @@
 /**
- * The page numbers a pager shows, with gaps where it skips.
- *
- * Its own module with its own tests because the off-by-one cases are where
- * pagers go wrong and none of them are visible in a screenshot:
- *
- *  - the window must not run past either end
- *  - a gap must never stand in for a single page — `…` is wider than the number
- *    it would hide, and hides a page the reader can see is missing
- *  - the control must keep a **constant width**, so the buttons do not move
- *    under the reader's thumb as they page. On a 412 px screen these are small
- *    targets and a row that reflows between presses is how a mis-tap happens.
- *
- * The last one is why the window slides rather than shrinking at the ends:
- * on page 1 there is nothing to the left to show, so the space goes to the
- * right instead of collapsing.
+ * The page numbers a pager shows, with gaps. Never past either end, never a gap
+ * for a single page, and a CONSTANT width so buttons do not move under a thumb
+ * (the window slides rather than shrinks at the ends).
  */
 
 /** A page to link to, or a gap in the sequence. */

@@ -53,11 +53,7 @@ const fetchMemberDashboard = () => apiGet<MemberDashboardResponse>('/v1/dashboar
 export default function MemberDashboard() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
-  // 'loading' until the first fetch resolves, so the figures below can render a
-  // placeholder rather than a fabricated zero. A member glancing at their phone
-  // during the fetch used to be told their balance was BDT 0 — and on a failed
-  // fetch they were told that permanently, because the catch below discarded
-  // the error and kept the initial state (TEST-26).
+  // 'loading' renders a placeholder, never a fabricated zero (TEST-26).
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [data, setData] = useState<MemberDashboardResponse>({
     stats: {
@@ -70,14 +66,7 @@ export default function MemberDashboard() {
     recentTransactions: [],
   });
 
-  // The loader is declared *inside* the effect, and the retry handler calls the
-  // same module-level fetch separately.
-  //
-  // Not a style preference: `react-hooks/set-state-in-effect` fires when an
-  // effect body calls a function that sets state, so hoisting this into a
-  // `useCallback` and calling it from the effect added a 21st instance of the
-  // warning class WO-27 already owns. The shape below is the one that passes,
-  // and it is what the file had before.
+  // Loader declared inside the effect — the shape that passes set-state-in-effect (WO-27).
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -110,13 +99,7 @@ export default function MemberDashboard() {
     }
   };
 
-  /**
-   * A figure, or a placeholder while it is unknown.
-   *
-   * An em dash rather than a zero: a member can tell the difference between
-   * "not loaded yet" and "you have nothing", and only one of those is ever true
-   * before the fetch returns.
-   */
+  /** A figure, or an em dash while unknown ("not loaded" ≠ "nothing"). */
   const amount = (value: number) =>
     status === 'ready' ? formatCurrency(value, locale) : '—';
 

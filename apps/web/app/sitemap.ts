@@ -15,26 +15,11 @@ function getPathChangeFrequency(path: string): MetadataRoute.Sitemap[number]['ch
   return 'monthly';
 }
 
-/**
- * WO-80. `lastModified` used to be `new Date()`, evaluated as the sitemap was
- * generated — so every URL claimed to have changed today, on every crawl,
- * forever. That is worse than omitting it: a crawler that learns the field is
- * always "now" stops believing it, and it is one of the few signals a small
- * site has for saying which pages actually moved.
- *
- * The honest values are the `updatedAt` of the `system_config` and `galleryItem`
- * rows each page renders from. This route is prerendered, and after the Docker
- * build broke on exactly that (see lib/system-config.ts) it is not worth adding
- * a second database read here to publish a date that changes when an admin edits
- * a phone number. Omitted is the truthful option, and it is what this does.
- */
+/** No lastModified (WO-80): a fake "today" is worse than none, and a real one needs a DB read. */
 export default function sitemap(): MetadataRoute.Sitemap {
   return publicPagePaths.flatMap((path) =>
     locales.map((locale) => ({
-      // WO-95: English is unprefixed, so `/` and `/faq` rather than `/en` and
-      // `/en/faq`. Built through the same function the canonical tags use — a
-      // sitemap listing URLs that 301 elsewhere is a sitemap asking to be
-      // ignored.
+      // Canonical URLs (English unprefixed), as the canonical tags build them.
       url: `${siteOrigin}${getLocalizedPath(locale, path)}`,
       changeFrequency: getPathChangeFrequency(path),
       priority: getPathPriority(path),

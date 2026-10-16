@@ -26,14 +26,12 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
-// logLevel is set from LOG_LEVEL once config is loaded. It has to exist before
-// then so that config.Load's own failures are already structured.
+// logLevel exists before config.Load so its own failures are structured.
 var logLevel = new(slog.LevelVar)
 
 func setupLogging() {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	// SetDefault also routes the standard log package through this handler, so
-	// a stray log.Printf anywhere in a dependency still comes out as JSON.
+	// Also routes the std log package (and dependencies) through JSON.
 	slog.SetDefault(slog.New(handler))
 }
 
@@ -50,14 +48,8 @@ func applyLogLevel(name string) {
 	}
 }
 
-// selfProbe is the container HEALTHCHECK. The runtime image is distroless: no
-// shell, no curl, no wget, so the only thing available to probe the server is
-// the server binary itself. Costs nothing in image size — net/http is already
-// linked in.
-//
-// It deliberately does not call cfg.Load: that exits when DATABASE_URL is
-// missing, and a liveness probe reporting "unhealthy" because of unset
-// configuration would be reporting on the wrong thing.
+// selfProbe is the container HEALTHCHECK (the distroless image has no curl).
+// It skips cfg.Load so missing config is not reported as "unhealthy".
 func selfProbe() int {
 	port := os.Getenv("API_PORT")
 	if port == "" {
@@ -74,8 +66,6 @@ func selfProbe() int {
 	}
 	defer resp.Body.Close()
 
-	// /v1/ready pings Postgres and answers 503 when it cannot reach it, which
-	// is exactly the state this probe exists to catch.
 	if resp.StatusCode != http.StatusOK {
 		return 1
 	}
@@ -93,12 +83,7 @@ func main() {
 	config := cfg.Load()
 	applyLogLevel(config.LogLevel)
 
-	// As early as it can be: Init needs config.Environment and nothing else, and
-	// every line after this one can fail fatally. Started later — which it was —
-	// a missing DATABASE_URL or an unparseable connection string ended the
-	// process with a line in Render's log and no alert anywhere. What still
-	// cannot report is cfg.Load itself, which exits on a missing JWT_SECRET
-	// before there is an environment to tag the event with.
+	// As early as possible so later fatal startup errors reach Sentry.
 	defer observability.Init(config.Environment)()
 
 	if config.DatabaseURL == "" {
@@ -107,9 +92,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Startup only — this context is dead ten seconds after boot. Never hand it
-	// to anything that must outlive startup; use runCtx (below) for that. A
-	// background loop given this one runs exactly once and then returns.
+	// Startup only — dead after 10s. Long-lived loops must use runCtx.
 	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelStartup()
 
@@ -127,16 +110,8 @@ func main() {
 	// Neon pooler (pgBouncer) can raise prepared-statement conflicts; simple protocol avoids server-side prepare reuse.
 	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	// Pin every connection to UTC. The timestamp columns are `timestamp without
-	// time zone`, so NOW() is stored as whatever wall clock the session's zone
-	// says — on a server set to Asia/Dhaka that is six hours off the UTC values
-	// Prisma writes, and pgx reads bare timestamps back as UTC either way.
-	//
-	// That skew is not cosmetic. IsUserTokensRevoked compares a stored NOW()
-	// against a JWT's `iat`, so under a non-UTC session every token issued after
-	// a password change looked older than the revocation marker and the member
-	// was locked out until it expired. Neon happens to default to UTC, which is
-	// the only reason production has not hit this; a VPS would not be so kind.
+	// Pin sessions to UTC: columns are `timestamp without time zone`, and a
+	// non-UTC NOW() breaks the revocation-marker vs JWT `iat` comparison.
 	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
 
 	dbPool, err := pgxpool.NewWithConfig(startupCtx, poolConfig)
@@ -147,11 +122,6 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	// WO-70 removed an EnsureSupportSchema call here. It ran CREATE TABLE IF NOT
-	// EXISTS at every boot for four tables schema.prisma also defines, so the
-	// database had two definitions that nothing checked for agreement — and they
-	// disagreed. Migrations are the only definition now; `pnpm db:migrate` runs
-	// in every environment and CI fails on drift.
 	userRepo := repositories.NewUserRepository(dbPool)
 	securityService := services.NewSecurityService(dbPool)
 	emailService := services.NewEmailService(services.EmailConfig{
@@ -176,12 +146,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService, securityService)
 	dashboardHandler := handlers.NewDashboardHandler(authService, securityService, userRepo, emailService)
 
-	// How a caller's address is resolved, and four things read the answer: the
-	// rate limiter, the access log, the login lockout and the audit rows
-	// (ADR-019). Every way of getting it wrong is silent — a wrong count yields
-	// a well-formed address belonging to the wrong party — so the mode this
-	// process is running in is stated at boot rather than inferred from a
-	// dashboard later.
+	// Caller address for limiter, access log, lockout and audit (ADR-019).
 	clientIPConfig := appmw.ClientIPConfig{
 		TrustedProxies:  config.TrustedProxies,
 		TrustCloudflare: config.TrustCloudflareClientIP,
@@ -214,10 +179,8 @@ func main() {
 			ClientIP: clientIPConfig,
 		},
 		LimiterStop: limiterStop,
-		// Signature and expiry only, deliberately: no revocation check, because
-		// this runs on every request including the ones about to be rejected,
-		// and a limiter that queries the database is an amplifier rather than a
-		// defence. Handlers still call ValidateToken, which does check.
+		// Signature and expiry only — no DB revocation check on every request.
+		// Handlers still call ValidateToken.
 		VerifyToken: func(token string) (string, bool) {
 			claims, err := authService.ParseAccessToken(token)
 			if err != nil {
@@ -230,8 +193,6 @@ func main() {
 
 	metrics.Register(dbPool)
 
-	// Not under /v1: this is an operational surface, not part of the member
-	// API, and it is versioned by the exposition format rather than by us.
 	r.Handle("/metrics", metrics.Handler(config.MetricsToken))
 
 	mountRoutes(r, routerDeps{
@@ -241,16 +202,12 @@ func main() {
 		emailConfigured: emailService.IsConfigured,
 	})
 
-	// Cancelled on SIGTERM/SIGINT. Everything that should stop when the process
-	// is asked to stop hangs off this.
 	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	startCleanupLoop(runCtx, securityService, config.CleanupInterval)
 	startReconciliationLoop(runCtx, userRepo, config.ReconcileInterval)
 	startRetentionSweepLoop(runCtx, userRepo, config.RetentionSweepInterval)
-	// runCtx, not startupCtx: this must keep running for the life of the
-	// process, and is cancelled by the same SIGTERM that drains the server.
 	metrics.StartBusinessRefresh(runCtx, dbPool, config.MetricsRefreshInterval)
 
 	srv := &http.Server{
@@ -274,72 +231,41 @@ func main() {
 	waitForShutdown(runCtx, srv, dashboardHandler, serverFailed, config.ServerShutdownTimeout)
 }
 
-// routerDeps is everything the route table needs. It exists so mountRoutes can
-// be called from a test with a real database and no Brevo, no Sentry and no
-// listening socket — see cmd/server/routes_integration_test.go.
-// middlewareConfig is the deployment half of the stack: who is in front of this
-// process, and what a caller is allowed to do.
+// routerDeps is everything the route table needs, so tests can mount it
+// without Brevo, Sentry or a socket. middlewareConfig is the deployment half.
 type middlewareConfig struct {
 	CORSOrigins []string
 	EnableHSTS  bool
 
-	// ClientIP decides which address a request is attributed to — see
-	// middleware.ClientIP. It is the setting an operator has to get right, and
-	// the only one whose two failure directions are both invisible.
+	// ClientIP decides which address a request is attributed to.
 	ClientIP appmw.ClientIPConfig
 
 	RateLimit   appmw.RateLimitConfig
 	LimiterStop <-chan struct{}
 
-	// VerifyToken reports the subject of a signed, unexpired token. The
-	// Identity middleware uses it to attribute a request to a member before the
-	// rate limiter decides which bucket to count it in (WO-78).
-	//
-	// Nil is legal and means "attribute everything by address", which is the
-	// pre-WO-78 behaviour. Tests that do not care about identity leave it unset.
+	// VerifyToken attributes a request to a member before rate limiting (WO-78).
+	// Nil means "attribute by address".
 	VerifyToken appmw.TokenVerifier
 }
 
 // mountMiddleware is the global middleware stack, in order.
-//
-// Extracted from main() by WO-60 for the same reason mountRoutes was: the
-// defect it fixes lives in the *order and composition* of this stack, and a
-// stack built inline in main() cannot be exercised by a test. Removing chi's
-// RealIP is a one-line change whose effect is only visible end to end — the
-// limiter keeping its grip on a caller who varies a header.
 func mountMiddleware(r chi.Router, cfg middlewareConfig) {
 	r.Use(middleware.RequestID)
 
-	// chi's middleware.RealIP is deliberately NOT mounted (WO-60). It overwrote
-	// r.RemoteAddr with the leftmost X-Forwarded-For entry — a value the caller
-	// supplies — so the access log recorded an address the caller chose, and at
-	// the default TRUSTED_PROXIES=0 the limiter keyed on it too, handing one
-	// client a fresh quota per request for the cost of varying a header.
-	// Everything that needs the caller's address now goes through
-	// middleware.ClientIP, which counts from the trusted end.
-
-	// Logging sits outside Recoverer so a panic is turned into a 500 while still
-	// inside the access-log wrapper, and therefore gets logged with that status.
-	// It also resolves the caller's address once, for everything downstream.
+	// chi's RealIP is deliberately NOT mounted: it trusts a caller-supplied
+	// X-Forwarded-For. Use middleware.ClientIP (ADR-019).
+	// Logging sits outside Recoverer so panics are logged as 500s.
 	r.Use(appmw.Logging(cfg.ClientIP))
 	r.Use(appmw.Metrics)
 	r.Use(middleware.Recoverer)
-	// Inside Recoverer on purpose: Recoverer stops the panic, so a reporter
-	// registered outside it would never see one (RUN-08).
+	// Inside Recoverer, or the reporter never sees a panic.
 	r.Use(observability.Recoverer)
 	r.Use(appmw.CORS(cfg.CORSOrigins, cfg.EnableHSTS))
 
-	// RUN-09. Before the limiter, and that ordering is the whole difficulty of
-	// WO-78: the limiter needs to know which member a request belongs to, and a
-	// token it has not verified is worth less than the address it would replace
-	// — an attacker sending fresh garbage per request would mint a fresh bucket
-	// per request. So the signature and expiry are checked here, once, and
-	// carried in the context the way ADR-019 carries the address.
+	// Before the limiter, which keys on the verified member (WO-78).
 	r.Use(appmw.Identity(cfg.VerifyToken))
 
-	// RUN-07. Mounted after CORS so a throttled request still carries the
-	// headers a browser needs to read the 429 — a rejection the browser reports
-	// as a CORS failure tells the member nothing.
+	// After CORS so a 429 still carries the headers a browser needs.
 	r.Use(appmw.RateLimit(cfg.RateLimit, cfg.LimiterStop))
 }
 
@@ -350,20 +276,11 @@ type routerDeps struct {
 	emailConfigured func() bool
 }
 
-// mountRoutes is the API's entire URL surface.
-//
-// It was inline in main() until 2026-08-17. Extracting it is what makes TEST-15
-// possible: a table-driven test can only assert "every route refuses an
-// anonymous caller" if it can enumerate the routes, and chi can only walk a
-// router something else has built. Nothing about the routing changed — the
-// global middleware stack stays in main(), because that is configuration rather
-// than surface.
+// mountRoutes is the API's entire URL surface; extracted so tests can walk it.
 func mountRoutes(r chi.Router, d routerDeps) {
 	authHandler, dashboardHandler, dbPool := d.auth, d.dashboard, d.db
 
-	// Liveness: is the process up? Deliberately touches nothing — a restart is
-	// never the right answer to a database being briefly unreachable.
-	// emailConfigured stays here because the deployment.md release checklist reads it.
+	// Liveness: touches nothing. emailConfigured is read by the release checklist.
 	r.Get("/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		utils.Success(w, http.StatusOK, map[string]interface{}{
 			"status":          "ok",
@@ -371,9 +288,7 @@ func mountRoutes(r chi.Router, d routerDeps) {
 		})
 	})
 
-	// Readiness: can this instance actually serve? Pings the pool, so a load
-	// balancer can pull an instance that has lost its database without the
-	// orchestrator killing it.
+	// Readiness: pings the pool.
 	r.Get("/v1/ready", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancelPing := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancelPing()
@@ -388,9 +303,7 @@ func mountRoutes(r chi.Router, d routerDeps) {
 	})
 
 	r.Route("/v1", func(v1 chi.Router) {
-		// Part of the route table rather than of main's middleware stack, so
-		// that the contract tests exercise it: a NUL byte in a query parameter
-		// used to reach PostgreSQL and come back as a 500 (TEST-18).
+		// In the route table so contract tests cover it (TEST-18).
 		v1.Use(appmw.RejectNulBytes)
 
 		v1.Route("/auth", func(auth chi.Router) {
@@ -423,10 +336,6 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.Get("/member/transactions", dashboardHandler.MemberTransactions)
 			dashboard.Get("/member/loans", dashboardHandler.MemberLoans)
 			dashboard.Post("/member/requests/deposit", dashboardHandler.MemberCreateDepositRequest)
-			// POST /member/requests/withdrawal removed 2026-08-24 (ADR-030). A
-			// member filed their own withdrawal notice here and the notice
-			// period gated the payout; both are gone. A member asks a field
-			// worker, and staff pay from the screens below.
 			dashboard.Post("/member/requests/loan-repayment", dashboardHandler.MemberCreateLoanRepaymentRequest)
 			dashboard.Get("/member/profile", dashboardHandler.MemberProfile)
 
@@ -443,42 +352,23 @@ func mountRoutes(r chi.Router, d routerDeps) {
 			dashboard.Get("/worker/loans", dashboardHandler.WorkerLoans)
 			dashboard.Get("/worker/transactions", dashboardHandler.WorkerTransactions)
 			dashboard.Get("/worker/profile", dashboardHandler.WorkerProfile)
-			// UpdateProfile edits only the caller's own row, so it asks for a
-			// session and not a role — which left this PUT reachable by a
-			// MEMBER while the GET beside it was staff-only. No escalation was
-			// possible, but a route whose two halves disagree about who it is
-			// for is a route nobody can reason about. Gated here rather than
-			// inside the handler because the handler is shared with
-			// /admin/profile, which the adminOnly group already narrows
-			// further — mounting location is the answer (SEC-02, TEST-15).
+			// Staff-only; the handler is shared with /admin/profile (SEC-02).
 			dashboard.With(dashboardHandler.RequireRoles("WORKER", "ADMIN", "SUPER_ADMIN")).
 				Put("/worker/profile", dashboardHandler.UpdateProfile)
-			// POST /worker/{deposit,withdrawal} removed 2026-08-17 (WO-41):
-			// unused duplicates of the /worker/members/{memberUserId}/… routes
-			// above, one without an audit row and one that reported success
-			// without moving money.
-
-			// Everything under /admin is gated by the middleware below, so a
-			// handler added here is protected by where it is mounted rather
-			// than by the author remembering a check (SEC-02). Handlers keep
-			// their own requireRoles call as defence in depth.
+			// Everything under /admin is gated by where it is mounted (SEC-02);
+			// handlers keep their own requireRoles as defence in depth.
 			dashboard.Route("/admin", func(admin chi.Router) {
 				admin.Group(func(adminOnly chi.Router) {
 					adminOnly.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN"))
 
-					// Admin dashboard. Stays admin-only because its payload
-					// carries `recentActivity` — the audit trail — which
-					// product.md reserves for an admin.
+					// Admin-only: carries recentActivity (the audit trail).
 					adminOnly.Get("/", dashboardHandler.AdminDashboard)
 					adminOnly.Get("/workers", dashboardHandler.AdminWorkers)
 					adminOnly.Post("/workers/welcome-email", dashboardHandler.SendWorkerWelcomeEmail)
 					adminOnly.Post("/members/status", dashboardHandler.UpdateMemberStatus)
 
-					// Registration and loan approval are the two decisions
-					// product.md reserves for an admin ("approve/reject
-					// registrations and loans"). The rest of the approvals
-					// screen is *processing*, which is a worker's job, and
-					// lives in the staff group below.
+					// Registration and loan approval are admin decisions;
+					// processing postings is a worker's job (staff group below).
 					adminOnly.Post("/approvals/registration", dashboardHandler.ApproveRegistration)
 					adminOnly.Post("/approvals/registration/reject", dashboardHandler.RejectRegistration)
 					adminOnly.Post("/approvals/loan", dashboardHandler.ApproveLoan)
@@ -486,8 +376,6 @@ func mountRoutes(r chi.Router, d routerDeps) {
 
 					// Admin loans
 					adminOnly.Get("/loans/detail", dashboardHandler.AdminLoanDetail)
-					// Marking a default starts a settlement waterfall against
-					// the borrower's savings. Admin only, by product.md.
 					adminOnly.Post("/loans/default", dashboardHandler.MarkLoanDefaulted)
 
 					// Admin profile
@@ -495,42 +383,23 @@ func mountRoutes(r chi.Router, d routerDeps) {
 					adminOnly.Put("/profile", dashboardHandler.UpdateProfile)
 				})
 
-				// These sit under /admin for historical URL reasons but are a
-				// worker's daily work, so they get the wider gate.
+				// Under /admin for historical URL reasons; a worker's daily work.
 				admin.Group(func(staff chi.Router) {
 					staff.Use(dashboardHandler.RequireRoles("ADMIN", "SUPER_ADMIN", "WORKER"))
 
 					staff.Get("/donations", dashboardHandler.AdminDonations)
 					staff.Post("/donations", dashboardHandler.RecordDonation)
 
-					// The approvals *queue* and the act of processing a pending
-					// posting. Both handlers have always asked for
-					// WORKER|ADMIN|SUPER_ADMIN; only the mounting disagreed, so
-					// the worker approvals screen — which is the admin screen,
-					// re-exported — answered 403 for every worker who opened it.
-					// AdminApprovals leaves registrations out of a worker's
-					// response, so widening the gate widens no data.
+					// AdminApprovals omits registrations for a worker.
 					staff.Get("/approvals", dashboardHandler.AdminApprovals)
 					staff.Post("/approvals/withdrawal", dashboardHandler.ApproveWithdrawal)
 					staff.Post("/approvals/withdrawal/reject", dashboardHandler.RejectWithdrawal)
 
-					// Reporting is read-only aggregate over postings a worker
-					// already sees one at a time.
 					staff.Get("/reports/monthly", dashboardHandler.MonthlyReport)
 					staff.Get("/reports/yearly", dashboardHandler.YearlyReport)
 					staff.Get("/reports/loans", dashboardHandler.LoanPerformanceReport)
 
-					// The three read-only lists the shared reports screen
-					// cross-foots. Two of them hand a worker nothing new:
-					// `/admin/members` is literally the same handler body as
-					// `/worker/members` (GetMembersList(ctx, false)), and
-					// `/worker/loans` has no worker predicate in its WHERE — it
-					// already returns every loan, in a flatter shape. The third,
-					// the savings ledger, is the one real widening: a field
-					// worker could previously see only the postings they
-					// processed. They handle that cash in person and are
-					// accountable for the book, so they may read it; what stays
-					// admin-only is *acting* on it.
+					// Read-only lists for the shared reports screen.
 					staff.Get("/members", dashboardHandler.AdminMembers)
 					staff.Get("/loans", dashboardHandler.AdminLoans)
 					staff.Get("/deposits", dashboardHandler.AdminDeposits)
@@ -562,30 +431,21 @@ func waitForShutdown(
 		slog.Info("shutdown signal received, draining in-flight requests", "timeout", shutdownTimeout.String())
 	}
 
-	// End the SSE streams first. They never go idle, so Shutdown would otherwise
-	// wait out the whole timeout on connections that are safe to drop, while
-	// genuinely important work — a deposit being posted — is what the drain
-	// window is actually for.
+	// End SSE streams first; they never go idle and would eat the drain window.
 	dashboardHandler.BeginShutdown()
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		// Requests still running at this point are cut. Worth an error line:
-		// it means something took longer than the drain window.
 		slog.Error("graceful shutdown did not finish in time", "error", err)
 	} else {
 		slog.Info("shutdown complete")
 	}
 
-	// dbPool.Close is deferred in main, so it runs after this — the pool
-	// outlives the requests that need it.
 }
 
-// startCleanupLoop sweeps expired token_blacklist and rate_limits rows on a
-// ticker (RUN-06). Both tables are write-heavy and nothing else ever deletes
-// from them, so without this they grow for the life of the deployment.
+// startCleanupLoop sweeps expired token_blacklist and rate_limits rows (RUN-06).
 func startCleanupLoop(ctx context.Context, security *services.SecurityService, interval time.Duration) {
 	if interval <= 0 {
 		slog.Warn("cleanup loop disabled", "interval", interval.String())
@@ -616,8 +476,7 @@ func startCleanupLoop(ctx context.Context, security *services.SecurityService, i
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		// Once at boot: a process that restarts more often than the interval
-		// would otherwise never sweep at all.
+		// Once at boot, in case restarts outpace the interval.
 		runOnce()
 
 		for {
@@ -632,23 +491,8 @@ func startCleanupLoop(ctx context.Context, security *services.SecurityService, i
 	}()
 }
 
-// startReconciliationLoop sums the ledger and compares it to the stored
-// balances, on a ticker, for the life of the process — WO-82 (OPS-07).
-//
-// A wrong balance looks exactly like a correct balance until somebody adds it
-// up, which is why this outranks every other operational item: it is the only
-// control that would have caught LEDGER-01 the night it landed rather than in
-// an audit months later.
-//
-// It reports and never repairs. An automated correction to a ledger is a second
-// defect on top of the first, and it destroys the evidence needed to understand
-// the first. On drift there is an `audit_logs` row, a `slog` error, and the
-// `hasnahena_ledger_drift_*` gauges the Monitor workflow can alert on. A human
-// decides what to do about it.
-//
-// `ctx` must be runCtx, not startupCtx, for the reason wiring_test.go spells
-// out: a loop handed a ten-second startup context runs once and stops, silently,
-// which is indistinguishable from a ledger that never drifts.
+// startReconciliationLoop sums the ledger against stored balances (WO-82).
+// Reports, never repairs (ADR-027). ctx must be runCtx — see wiring_test.go.
 func startReconciliationLoop(ctx context.Context, repo *repositories.UserRepository, interval time.Duration) {
 	if repo == nil || interval <= 0 {
 		slog.Warn("ledger reconciliation is disabled", "interval", interval)
@@ -656,8 +500,6 @@ func startReconciliationLoop(ctx context.Context, repo *repositories.UserReposit
 	}
 
 	runOnce := func() {
-		// Bounded independently of the tick, so a pass that is waiting on a
-		// slow aggregate cannot stack up behind the next one.
 		passCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
@@ -672,15 +514,11 @@ func startReconciliationLoop(ctx context.Context, repo *repositories.UserReposit
 		taka := make(map[string]int64, len(repositories.AllChecks))
 		for _, drift := range report.Drifts {
 			rows[drift.Check]++
-			// Not every check has an amount — a posting attributed to the wrong
-			// member names the wrong person, it does not misstate a sum.
 			if repositories.CheckHasAmount(drift.Check) {
 				taka[drift.Check] += drift.Delta()
 			}
 		}
-		// Every check, not only the ones that found something — see
-		// metrics.SetLedgerDrift for why a gauge left unset is worse than a
-		// gauge set to zero.
+		// Every check, so an unset gauge never reads as "no drift".
 		metrics.SetLedgerDrift(rows, taka, repositories.AllChecks)
 
 		if report.Balanced() {
@@ -707,8 +545,7 @@ func startReconciliationLoop(ctx context.Context, repo *repositories.UserReposit
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		// Once at boot. A deploy is the most likely moment for a ledger to have
-		// been changed by something other than this application.
+		// Once at boot.
 		runOnce()
 
 		for {
@@ -723,22 +560,8 @@ func startReconciliationLoop(ctx context.Context, repo *repositories.UserReposit
 	}()
 }
 
-// startRetentionSweepLoop clears the identity data of rejected applications
-// past the retention window — WO-93, FR-23, ADR-033.
-//
-// A rejection keeps the decision forever and the person's NID number, both
-// parents' names, date of birth and two addresses along with it. The decision is
-// what the foundation may have to justify; the identity documents are not, a
-// year later. Nothing removed them, because nothing existed that could.
-//
-// Daily, and deliberately unattended: a retention rule that needs somebody to
-// remember to run it is a retention rule that is not in force. The window itself
-// is `security.rejectedRetentionDays`, so shortening it is an admin decision
-// rather than a deploy.
-//
-// `ctx` must be runCtx, for the reason wiring_test.go spells out — a loop handed
-// the ten-second startup context runs once and stops, which here looks exactly
-// like a system with nothing left to sweep.
+// startRetentionSweepLoop clears rejected applicants' identity data past
+// security.rejectedRetentionDays (FR-23, ADR-033). ctx must be runCtx.
 func startRetentionSweepLoop(ctx context.Context, repo *repositories.UserRepository, interval time.Duration) {
 	if repo == nil || interval <= 0 {
 		slog.Warn("rejected-application retention sweep is disabled", "interval", interval)
@@ -746,8 +569,6 @@ func startRetentionSweepLoop(ctx context.Context, repo *repositories.UserReposit
 	}
 
 	runOnce := func() {
-		// Bounded independently of the tick. The first pass after this ships
-		// has whatever backlog exists to work through, in batches.
 		passCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 
@@ -757,12 +578,8 @@ func startRetentionSweepLoop(ctx context.Context, repo *repositories.UserReposit
 			return
 		}
 		if report.AvatarsFound > 0 {
-			// The sweep clears the column; only the Next app can delete the
-			// Cloudinary asset behind it. This is supposed to be impossible —
-			// avatarUrl is written by a signed-in member on their own profile
-			// page and a rejected applicant has never signed in — so it is an
-			// error rather than a warning: the photograph is still being served
-			// from a public CDN and only a person can remove it.
+			// Only the Next app can delete the Cloudinary asset; this should
+			// be impossible (a rejected applicant never signed in).
 			slog.Error("retention sweep cleared an avatarUrl it cannot delete from Cloudinary",
 				"count", report.AvatarsFound,
 				"action", "delete these assets by hand; see docs/runbook.md")
@@ -782,8 +599,7 @@ func startRetentionSweepLoop(ctx context.Context, repo *repositories.UserReposit
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		// Once at boot, like the others: a process that restarts more often than
-		// the interval would otherwise never sweep at all.
+		// Once at boot.
 		runOnce()
 
 		for {

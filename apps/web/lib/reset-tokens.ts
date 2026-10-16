@@ -1,29 +1,15 @@
 import crypto from 'crypto';
 
 /**
- * The `password_reset_tokens` contract, for the half of it that Next writes.
- *
- * The table is owned by the Go API — it issues and spends every secret in it —
- * but staff creation plants a first-login marker from here, so both languages
- * have to agree on the two columns that identify a row. They do not merely
- * happen to agree: `test/unit/reset-token-scopes.test.ts` reads the Go source
- * and fails if either side moves.
- *
- * The Go half is `apps/api/internal/repositories/auth_repository.go`.
- *
- * WO-86. `token` used to hold the raw secret and the purpose was a prefix on
- * it, matched with LIKE. Anything that could read one row could take over the
- * account it belonged to, so the secret is stored as SHA-256 and the purpose
- * moved into `scope` — a hash has no prefix to match.
+ * The password_reset_tokens contract for the half Next writes (staff
+ * first-login markers). Must match auth_repository.go (reset-token-scopes.test.ts).
+ * Secrets are SHA-256; the purpose is the `scope` column (WO-86).
  */
 
 /** A "forgot password" link. */
 export const RESET_SCOPE_FORGOT_PASSWORD = 'reset';
 
-/**
- * An account that still has the temporary password it was created with.
- * Nothing ever presents one of these: its existence *is* `mustChangePassword`.
- */
+/** An account still on its temporary password; its existence IS mustChangePassword. */
 export const RESET_SCOPE_FIRST_LOGIN = 'first-login';
 
 /** The bucket for a signed-in member's emailed password-change code. */

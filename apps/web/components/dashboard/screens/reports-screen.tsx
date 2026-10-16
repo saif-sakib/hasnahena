@@ -42,22 +42,10 @@ type Donation = {
   status?: string;
 };
 
-/**
- * Which loans count as money the foundation has lent.
- *
- * The same four statuses the loans screen totals and the same set the Go API
- * interpolates as `disbursedLoanStatuses`. Summing every row instead — which
- * this screen did — counts a REJECTED application and one still waiting for a
- * guarantor as lending, and then disagrees with the overview beside it.
- */
+/** Loans that count as lent — the same set as disbursedLoanStatuses in the Go API. */
 const DISBURSED_STATUSES = ['ACTIVE', 'COMPLETED', 'SETTLED', 'DEFAULTED'];
 
-/**
- * A donation is written CONFIRMED and only leaves that state through a dispute,
- * so this excludes exactly one thing: a donation somebody has challenged. That
- * is a reconciliation matter ([ADR-026](../../../docs/decisions.md)), not a
- * figure to publish as the fund. The list below still shows every row.
- */
+/** Donations that total as the fund: all but disputed ones (ADR-026). */
 const isCountedDonation = (d: Donation) => (d.status ?? 'CONFIRMED') === 'CONFIRMED';
 
 type Deposit = {
@@ -142,10 +130,7 @@ export default function ReportsScreen() {
   const tA11y = useTranslations('dashboard.a11y');
   const [activeReport, setActiveReport] = useState<ReportType>('financial');
   const [period, setPeriod] = useState<Period>('month');
-  // WO-27 — seven endpoints as one resource, loaded by SWR rather than by an
-  // effect that writes seven pieces of state. All-or-nothing is deliberate:
-  // this screen cross-foots members against loans against deposits, and a
-  // half-loaded report is a wrong report rather than an incomplete one.
+  // SWR, all-or-nothing: a half-loaded cross-footed report is a wrong report.
   const {
     data: reportsData,
     error,
@@ -161,12 +146,7 @@ export default function ReportsScreen() {
       LoanPerformanceReport,
     ]
   >([
-    // Every one of these is staff-readable, so this screen is the same screen
-    // in both dashboards. `/v1/dashboard/admin` used to lead the list and was
-    // read for exactly one number — the charity fund — while carrying the audit
-    // trail with it. The fund is `SUM(amount) WHERE type = 'DONATION'`, which is
-    // the sum of the donations list two lines down, so it is added up here and
-    // the audit trail stays where product.md puts it.
+    // All staff-readable; the fund is summed from the donations list.
     '/v1/dashboard/admin/members',
     '/v1/dashboard/admin/loans',
     '/v1/dashboard/admin/donations',
@@ -266,10 +246,7 @@ export default function ReportsScreen() {
     const active = list.filter((l) => l.status === 'ACTIVE').length;
     const completed = list.filter((l) => l.status === 'COMPLETED' || l.status === 'SETTLED').length;
     const defaulted = list.filter((l) => l.status === 'DEFAULTED').length;
-    // The money figures are over the loans that were actually disbursed, which
-    // is what the Go API's own recovery rate divides by. Dividing recovered by
-    // every application's principal — including the rejected ones — is how the
-    // "all time" rate and the "this month" rate came from different formulas.
+    // Over disbursed loans only, as the Go recovery rate divides.
     const lent = list.filter((l) => DISBURSED_STATUSES.includes(l.status));
     const disbursed = lent.reduce((sum, l) => sum + (l.amount || 0), 0);
     const recovered = lent.reduce((sum, l) => sum + (l.paidAmount || 0), 0);

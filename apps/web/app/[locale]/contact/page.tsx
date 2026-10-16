@@ -11,13 +11,7 @@ import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 
-/**
- * WO-73. This page's content changes when an admin edits a setting, which is to
- * say almost never — so it is prerendered and served from the edge instead of
- * opening a Neon connection on every visit. `revalidateTag('system-config')` in
- * the settings `PUT` is what makes an edit appear immediately; this interval is
- * only the backstop.
- */
+/** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
 
 type PageProps = { params: Promise<{ locale: string }> };
@@ -43,18 +37,7 @@ export default async function ContactPage({ params }: PageProps) {
 
   const settings = await getPublicSettings();
 
-  // WO-67. These used to read `contact.phone` / `contact.email` /
-  // `contact.address` — three keys that were never in SYSTEM_CONFIG_KEYS, so
-  // `PUT /api/v1/settings` would reject them and no admin screen offered them.
-  // The `|| 'literal'` fallbacks were therefore the only values this page could
-  // ever show, and one of them was `contact@example.com` presented as the
-  // foundation's email address.
-  //
-  // `org.*` is the answer rather than declaring three more keys: those are
-  // already declared, already seeded with the real details, and already what the
-  // letterhead on every generated document uses. A second copy of the
-  // organisation's address is the ADR-023 shape — two places for one fact, kept
-  // equal by hand.
+  // The shared org.* reader (WO-67) — never a second copy of the address.
   const { address, phone: orgPhone, email: orgEmail } = contactDetails(settings, locale);
 
   return (
@@ -121,11 +104,7 @@ export default async function ContactPage({ params }: PageProps) {
                 <p className="text-zinc-500 dark:text-zinc-400 max-w-sm">
                    {locale === 'bn' ? 'বিস্তারিত আলোচনার জন্য সরাসরি ফোনে কল করতে পারেন অথবা আমাদের অফিসে যোগাযোগ করতে পারেন।' : 'For detailed discussions, please call directly or visit our office.'}
                 </p>
-                {/*
-                  This rendered `href="tel:"` — a link to nothing — on any
-                  deployment that had not filled the number in, under a button
-                  reading "Call Now".
-                */}
+                {/* No "Call Now" without a number (an empty tel: links nowhere). */}
                 {orgPhone && (
                   <a href={telHref(orgPhone)}>
                     <Button variant="outline" className="mt-4 rounded-full px-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30">

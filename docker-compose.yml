@@ -1,24 +1,14 @@
 # =============================================================================
-#  Hasnahena — full local stack  (WO-22 / PKG-03, PKG-04, PKG-05)
+#  Hasnahena — full local stack (WO-22). Not a production deployment.
 # =============================================================================
 #      docker compose up --build          the whole platform on :3000
 #      docker compose up -d postgres      just the database, for `pnpm dev`
 #
-#  `postgres` is its own profile-free service precisely so the second command
-#  keeps working: the pnpm workflow is still the fast one for day-to-day work,
-#  and this file must not break it.
+#  Base images are digest-pinned (refresh per docs/setup.md).
 #
-#  Not a production deployment. Web and API run on Vercel and Render — see
-#  docs/deployment.md. What this gives you is a clean-machine reproduction of
-#  the whole system, and the thing that makes a host migration boring.
-#
-#  Base images are digest-pinned; refresh them deliberately, see docs/setup.md.
-#
-#  DATABASE_URL is hard-coded to the `postgres` service in every service below,
-#  and that is deliberate — do NOT change it to ${DATABASE_URL}. The documented
-#  way to start this stack is `--env-file .env.local`, and .env.local holds the
-#  production Neon URL. Interpolating it here would point the one-shot migrate
-#  container at production and run db:seed against real member data.
+#  DATABASE_URL is hard-coded to the `postgres` service — do NOT change it to
+#  ${DATABASE_URL}: `--env-file .env.local` holds the PRODUCTION Neon URL, and
+#  the migrate container would seed real member data.
 # =============================================================================
 
 name: hasnahena
@@ -42,9 +32,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # One-shot. Applies migrations and seeds the first SUPER_ADMIN, then exits.
-  # The API waits for this to *complete*, not merely to start, so the app never
-  # comes up against a schema that is not there yet.
+  # One-shot: migrate and seed, then exit; the API waits for completion.
   migrate:
     build:
       context: .
@@ -57,12 +45,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hasnahena_dev
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@hasnahena.local}
-      # Passed through empty rather than defaulted, and NOT declared with `:?`.
-      # Compose interpolates the entire file even for `up -d postgres`, so a
-      # required-variable marker here would break the database-only workflow
-      # that everyone uses daily. seed.mjs already refuses to invent a password
-      # and rejects anything under 12 characters — the check belongs there, in
-      # one place, not duplicated into a compose expression.
+      # Empty, not `:?` — compose interpolates the whole file even for
+      # `up -d postgres`. seed.mjs validates the password.
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
     working_dir: /src
     command: sh -c "pnpm db:migrate && pnpm db:seed"

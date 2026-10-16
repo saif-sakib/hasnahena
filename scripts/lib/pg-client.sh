@@ -1,40 +1,11 @@
 #!/usr/bin/env bash
 #
-# Resolves the newest PostgreSQL client binaries present on this machine and
-# exports PG_DUMP, PG_RESTORE and PSQL pointing at them by absolute path.
+# Exports PG_DUMP, PG_RESTORE and PSQL as absolute paths to the NEWEST client
+# installed. Source it:  . "$(dirname "$0")/lib/pg-client.sh"
 #
-# Source it, do not run it:
-#     . "$(dirname "$0")/lib/pg-client.sh"
-#
-# Why this exists
-# ---------------
-# On Debian and Ubuntu, /usr/bin/pg_dump is NOT the program. It is pg_wrapper, a
-# Perl script that picks a real binary from the *configured cluster*, and only
-# falls back to "newest installed" when there is no cluster at all. GitHub's
-# ubuntu-latest image ships a PostgreSQL 16 **server** with a live cluster, so
-# installing postgresql-client-18 alongside it changes nothing: the wrapper
-# still resolves to 16 with an 18 binary sitting in /usr/lib/postgresql/18/bin.
-#
-# This is worth stating precisely because the obvious guess — "the newer package
-# just did not take" — is wrong, and leads to reinstalling clients forever. On a
-# machine with no cluster the same commands do pick the newest, which is exactly
-# why this cannot be reproduced by installing two clients in a bare container.
-#
-# pg_dump refuses to dump a server newer than itself, so the nightly backup died
-# with:
-#
-#     pg_dump: error: aborting because of server version mismatch
-#     pg_dump: detail: server version: 17.11; pg_dump version: 16.14
-#
-# on a runner that had a new-enough client installed the whole time. Selecting
-# the binary by explicit path is the only reliable fix. Putting that selection
-# HERE rather than in the workflow means it also holds for the CI restore drill
-# and for anyone running these scripts by hand — the workflow is not the only
-# caller, and it was the only place the previous fix lived.
-#
-# Any of PG_DUMP / PG_RESTORE / PSQL already set in the environment wins, so a
-# caller on an unusual layout can override without editing this file.
-
+# On Debian/Ubuntu /usr/bin/pg_dump is pg_wrapper, which resolves to the
+# CONFIGURED cluster (16 on ubuntu-latest) even with a newer client installed —
+# and pg_dump refuses a newer server. Pre-set PG_DUMP/PG_RESTORE/PSQL win.
 # shellcheck shell=bash
 
 _pg_major() {
@@ -45,10 +16,8 @@ _pg_major() {
 _pg_pick() {
   local prog="$1" best="" best_major=0 candidate major on_path
 
-  # Versioned install directories: Debian/Ubuntu, RHEL/Fedora, Homebrew. Globs
-  # that match nothing stay literal (no nullglob is set, deliberately — this
-  # file is sourced and must not change the caller's shell options), which the
-  # -x test below rejects.
+  # Debian/Ubuntu, RHEL/Fedora and Homebrew layouts; unmatched globs stay literal
+  # (no nullglob — this file is sourced) and fail the -x test.
   for candidate in \
     /usr/lib/postgresql/*/bin/"$prog" \
     /usr/pgsql-*/bin/"$prog" \
@@ -84,15 +53,10 @@ PG_RESTORE="${PG_RESTORE:-$(_pg_pick pg_restore || true)}"
 PSQL="${PSQL:-$(_pg_pick psql || true)}"
 export PG_DUMP PG_RESTORE PSQL
 
-# Fails with the version numbers and the remedy, instead of letting pg_dump emit
-# "aborting because of server version mismatch" and leaving whoever reads the
-# log at 2am to work out which side to change.
+# Fail with versions and the remedy before pg_dump's own cryptic mismatch.
+# An unreachable server is left for the dump itself to report.
 #
 #   pg_require_client_at_least <client-binary> <database-url>
-#
-# A server that cannot be reached is not this function's problem — the dump
-# itself will report the connection error far better. Silence and return in that
-# case rather than masking it.
 pg_require_client_at_least() {
   local bin="$1" url="$2" client_major server_version server_major
 

@@ -10,23 +10,8 @@ import {
 } from "./fixtures/accounts";
 
 /**
- * The approvals queue: the light, the confirmation, and the submitted time.
- *
- * Three things the owner asked for on 2026-09-02, each of which had a specific
- * failure behind it:
- *
- *  - **A pending item was invisible from anywhere but the queue itself.** Staff
- *    had to open the screen to learn there was anything on it.
- *  - **Deposit and repayment requests were acted on by the first press.** The
- *    two icon buttons are 28 px apart on a 412 px screen and both move money.
- *    The registration tab had asked for confirmation since the branch dialog;
- *    these two never did.
- *  - **Only the date was shown, never the time**, so two requests from the same
- *    member on the same day could not be told apart or ordered.
- *
- * The light going *out* is the part worth a browser test: it depends on the
- * shell and the screen sharing one SWR cache entry, which is invisible in both
- * files on their own and would break silently if either changed its path.
+ * The approvals queue: the sidebar light (shares the screen's SWR key, so it
+ * goes out at once), confirmation before money moves, and the submitted time.
  */
 
 const PENDING_ID = "DEP-2099-900001";

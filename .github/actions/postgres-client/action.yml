@@ -3,10 +3,7 @@ description: >
   Installs the newest PostgreSQL client PGDG publishes and puts its real binary
   directory ahead of /usr/bin on PATH for the rest of the job.
 
-# Two jobs need this — the nightly Backup and the CI restore drill — and they
-# need exactly the same thing, so it lives here rather than being copied. The
-# copy is how the CI drill ended up talking to a Postgres 17 service container
-# with the runner's bundled 16 client.
+# Shared by the nightly Backup and the CI restore drill.
 
 inputs:
   minimum-major:
@@ -36,10 +33,7 @@ runs:
           sudo apt-get update -qq
         }
 
-        # `ubuntu-latest` moves to a new release before PGDG publishes a
-        # matching suite, and a bare `apt-get update` against a missing suite
-        # fails the whole job. Fall back to the previous LTS codename, which
-        # PGDG always carries.
+        # Fall back to the previous LTS codename when PGDG lags a new ubuntu-latest.
         if ! add_repo "$(lsb_release -cs)"; then
           echo "PGDG has no suite for $(lsb_release -cs); falling back to noble"
           add_repo noble
@@ -50,13 +44,8 @@ runs:
           if sudo apt-get install -y -qq "postgresql-client-$v"; then break; fi
         done
 
-        # THE PART THAT MATTERS. /usr/bin/pg_dump is pg_wrapper, which resolves
-        # to the version of the *configured cluster*. This runner image ships a
-        # PostgreSQL 16 server with a live cluster, so installing client 18
-        # above changes nothing — the wrapper still answers 16.14, which is how
-        # the nightly backup failed against a 17.11 Neon server with a
-        # new-enough client already on disk. Reproduced in a container; a bare
-        # container with no cluster does NOT show the bug.
+        # pg_wrapper resolves to the runner's configured 16 cluster, so a newer
+        # client on disk changes nothing — call the newest bin/ directly.
         newest="$(find /usr/lib/postgresql -maxdepth 2 -name bin -type d 2>/dev/null \
                   | sort -V | tail -1)"
         if [ -z "$newest" ]; then

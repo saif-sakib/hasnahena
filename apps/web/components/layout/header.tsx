@@ -17,26 +17,8 @@ import {
 } from '@/lib/client-auth';
 
 /**
- * The menu, pointing at pages rather than at sections of the home page — T-10,
- * the owner's ruling of 2026-08-26.
- *
- * What it used to be, and why that was wrong. Every item was an anchor:
- * `/#about`, `/#donate`, `/#contact`, `/#features`. Meanwhile `/about`,
- * `/activities`, `/contact` and `/donate` existed as real pages with their own
- * content, their own metadata and their own JSON-LD — and the audit's link crawl
- * found **24 links to `/#about` and exactly one to `/about`**, which was the
- * language switcher on the page itself. Four pages in the sitemap that nothing
- * on the site linked to, each duplicating a home-page section that said
- * something different.
- *
- * `/#features` was worse than an orphan: the home page has never had an element
- * with `id="features"`, so that item scrolled nowhere on every page it appeared
- * on. It is gone, and with it the `navigation.features` setting that relabelled
- * it — a control for a link that did nothing.
- *
- * `howItWorks` is deliberately not here. It is a section of the home page and
- * nothing else, so the footer links it as an anchor and the header does not
- * offer it as though it were a page.
+ * The menu points at PAGES, not home-page anchors (T-10). "How it works" is a
+ * home-page section, so only the footer links it.
  */
 const navigation = [
   { name: 'home', href: '/' },
@@ -96,39 +78,17 @@ export function Header({ settings }: HeaderProps) {
   const handleLogout = () => {
     clearClientAuthState();
     setIsLoggedIn(false);
-    // `router.replace`, not `window.location.href`. The hard navigation was here
-    // to guarantee that nothing kept a stale token in memory, and it does not
-    // need to: `clearClientAuthState` dispatches `auth-change`, which is what
-    // every component listening for a session actually reacts to. `replace`
-    // rather than `push` for the same reason a dead session uses it elsewhere —
-    // the back button should not return to a signed-in page.
-    //
-    // It is also the form the `no-location-assign-relative-destination` lint
-    // rule asks for. Worth saying plainly: passing `localePath(locale)` to
-    // `window.location.href` silenced that rule by making the destination
-    // unanalysable, which is the rule being defeated rather than satisfied.
+    // router.replace: clearClientAuthState dispatches auth-change, and back
+    // must not return to a signed-in page.
     router.replace(localePath(locale));
   };
 
-  /**
-   * A menu item's text.
-   *
-   * Only "Donate" is overridable, and it now reads through `localizedSetting`
-   * so the override is a **pair**: `navigation.donate` is the Bengali label and
-   * `navigation.donateEn` the English one. It used to be a single box, labelled
-   * in English on the admin screen, rendered to both audiences — so a Bengali
-   * admin naming the menu item for their own members put Bengali in the English
-   * menu, on every page. See lib/localized-settings.ts.
-   */
+  /** A menu item's text; only "Donate" is overridable, as a prose pair. */
   const navLabel = (name: string) =>
     (name === 'donate' && localizedSetting(settings, 'navigation.donate', locale)) || t(name);
 
   const other = otherLocale(locale);
-  // WO-95. This was `pathname.replace('/en', '/bn')`, which had two problems and
-  // now has three: it matched `/enrolment` as readily as the locale segment, it
-  // could not add a prefix to a path that has none, and under `as-needed` the
-  // English pathname *has* none. `switchLocalePath` strips a known locale
-  // segment and re-applies the rule, so the reader stays exactly where they are.
+  // switchLocalePath keeps the reader where they are (WO-95).
   const languageHref = switchLocalePath(pathname, other);
 
   return (
@@ -141,29 +101,7 @@ export function Header({ settings }: HeaderProps) {
             : 'bg-transparent border-transparent'
       }`}
     >
-      {/*
-        The header's height is set by the lockup it has to hold, not the other
-        way round — and it changes with the page position, which is the classic
-        way to have both.
-        -------------------------------------------------------------------
-        **At the top** the header is transparent over the hero and the brand
-        should dominate: 96 px, with the lockup at 64. **Once scrolled** it is a
-        sticky utility bar and should get out of the way: 64 px, lockup at 40.
-        The transition is the same 300 ms as the background's.
-
-        The sizes are the correction to a correction. `logo.tsx` originally
-        rendered every call site at the asset's intrinsic 192 × 108 inside a
-        64 px header, so the leaf covered the hero's tagline badge; constraining
-        it to 40 px fixed the overlap and made the wordmark unreadable — the
-        tagline beneath হাসনাহেনা is two lines of small Bengali type, and at
-        40 px those are about eight pixels each. On a cheap Android in sunlight
-        that is not a logo, it is a smudge.
-
-        The scrolled state has the same floor for the same reason. It was
-        `h-10 md:h-12` — 40 px again, the size the rule above exists to forbid —
-        and since a reader spends almost the whole visit scrolled, that was the
-        state the wordmark was unreadable in for almost the whole visit.
-      */}
+      {/* Height follows the lockup: 96px at the top (logo 64), 64px scrolled (logo 40) — never smaller, or the Bengali tagline becomes unreadable. */}
       <nav
         className={`container-wide flex items-center justify-between transition-all duration-300 ${
           isScrolled || mobileMenuOpen ? 'h-16 md:h-20' : 'h-24 md:h-28'

@@ -24,27 +24,9 @@ interface LogoProps {
 }
 
 /**
- * How **tall** the lockup renders — a Tailwind height class, with the width left
- * to follow the aspect ratio.
- *
- * Two corrections live in this map, in order.
- *
- * **The size prop used to do nothing at all.** It named a *width*, handed it to
- * `next/image`, and the className then said `h-auto w-auto` — which overrides
- * both, because a replaced element sized `auto`/`auto` renders at its intrinsic
- * dimensions. Every call site got the same picture: `sm` and `md` both measured
- * 192 × 108, inside a 64 px header, so the leaf spilled over the hero and
- * covered the tagline badge at 412 px.
- *
- * **Then the fix went too far the other way.** Constraining `md` to 40 px made
- * the lockup obey its header and made the wordmark unreadable — the tagline
- * under হাসনাহেনা is two lines of small Bengali type, and at 40 px tall those
- * lines are about eight pixels each. The owner reads this on a phone in
- * sunlight. So the header grew to hold a lockup at a size somebody can actually
- * read, rather than the lockup shrinking to fit a header nobody chose.
- *
- * Classes rather than an inline style so the height can be responsive: a phone
- * gets the smaller step of each pair, a desktop the larger.
+ * The lockup's HEIGHT per size (width follows the aspect ratio) — never
+ * `h-auto w-auto`, which ignores the size entirely. Large enough that the
+ * Bengali tagline stays legible; phone gets the smaller step of each pair.
  */
 const heightClass = {
   sm: 'h-9 md:h-10',
@@ -65,26 +47,19 @@ export function Logo({
   priority = false,
 }: LogoProps) {
   const source = src ?? (mark ? LOGO_MARK_SRC : LOGO_LOCKUP_SRC);
-  // The intrinsic size handed to `next/image` is the *largest* the class pair
-  // can render, so the srcset it picks is never upscaled. The CSS below is what
-  // actually decides the size on screen.
+  // The intrinsic size is the largest the class pair renders, so srcset never upscales.
   const height = maxHeight[size];
   const width = Math.round(height / (mark ? MARK_RATIO : LOCKUP_RATIO));
 
   return (
     <Image
       src={source}
-      // Named in full, in both scripts. This renders in the header of every
-      // public page, so it is one of the most-crawled strings on the site —
-      // "Hasnahena" alone is a crowded name and omits the word people search.
+      // The full name in both scripts — one of the most-crawled strings.
       alt="হাসনাহেনা ফাউন্ডেশন / Hasnahena Foundation"
       width={width}
       height={height}
       className={cn(
-        // `w-auto` and never `h-auto`: the height class is the size, the width
-        // follows. `max-w-[45vw]` is the guard for an uploaded `branding.logo`
-        // of an unexpected shape — a very wide one must not push the language
-        // switcher off a 412 px screen.
+        // Height class decides size; max-w guards a very wide uploaded logo at 412px.
         'w-auto max-w-[45vw] object-contain',
         heightClass[size],
         variant === 'light' && 'brightness-0 invert',

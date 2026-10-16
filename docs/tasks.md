@@ -1,97 +1,35 @@
 # Task Board
 
-**Everything that is left to do, in one place.** There is no second list: what
-used to be spread across `work-orders.md`, `production-readiness.md` and the top
-of this file is here, and those two files are gone — closed work is history and
-history lives in [changelog.md](changelog.md).
+**Everything left to do, in one place** — there is no second list. **Nothing finished is listed**: delete the row in the same commit as the work; history goes to [changelog.md](changelog.md).
 
-**Nothing finished is listed here.** A board that keeps its own history stops
-being readable as a board. Delete the row in the same commit as the work; the
-changelog is where it goes.
-
-## How to use this
-
-Say **`do T-12`** and the task is executed from the description here plus the
-docs it points at — no re-reading of the codebase needed to know what is wanted.
-Tasks are ordered so that each is genuinely doable when you reach it.
-
-**Sessions** is how many working sessions the task needs end to end — including
-reading the code, writing the tests that keep it fixed, running the suites and
-updating the docs. A session is one focused stretch of work, not a calendar day.
-Where a range is given, the low end assumes nothing surprising is found; the
-high end is what it costs when the first honest look turns up more than the
-task description knew about, which on this codebase has been the common case.
-**`owner`** means it is not engineering at all — it needs an account, a
-credential, a paid plan, or a decision only the foundation can make, and I
-cannot do it.
+Say **`do T-12`** and the task is executed from its row plus the docs it points at. **Sessions** = focused working sessions end to end (code, tests, suites, docs); the high end is what it costs when the first honest look finds more, which here is common. **`owner`** = needs an account, credential, paid plan or a decision only the foundation can make.
 
 Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 
----
-
 ## Where the platform stands
 
-No requirement is **broken**. The money paths, the security work, the tests, CI,
-backups and containers are done and hold. **The entry point is done** — Phase 1
-closed on 2026-08-26; the registration → approval → first-login journey has an
-end-to-end spec at phone width in both languages. **The public face is done too**
-— Phase 2 closed the same day: the eleven pages a stranger can reach were
-audited link by link, the menu now points at the pages rather than at anchors on
-the home page, and every control on the two admin content screens is proved to
-change what a visitor sees. What is left is of three kinds: a handful of owner
-actions that take minutes and are blocking nothing but themselves; the
-input/output sweep before production; and the long tail of product gaps in the FR
-table below.
-
-**The monitoring is now mostly on** — `METRICS_TOKEN` on Render and Sentry on
-Vercel are both confirmed live. What remains of T-01 is the Go API's own Sentry
-DSN, the GitHub secret the Monitor workflow reads, and the two UptimeRobot
-monitors: until those, an API-side exception is still unseen and the workflow
-fails twice a day.
-
-## What it adds up to
+Live since 2026-08-27, with monitoring fully on since 2026-09-03 (both Sentry DSNs, `METRICS_TOKEN`, UptimeRobot on `/v1/health`, nightly database and asset backups to R2). The money paths, security, tests, CI, the entry path (registration → approval → first login) and the public site are done. Left: a few owner actions, the input/output sweep, and the product gaps in the FR table.
 
 | Phase | What | Sessions |
 |---|---|---|
-| **0** | Owner actions — finish the monitoring, `TRUSTED_PROXIES`, two settings confirmations | `owner`, about 30 min total |
+| **0** | Owner actions | `owner`, ~30 min |
 | **3** | The whole-site input/output sweep | **4–6** |
 | **4** | The last cheap schema change | **1–2** |
-| — | **Go live** — the cutover in [go-live.md](go-live.md) | 1 |
 | **5** | The product gaps in the FR table | **13–17** |
-| **6** | Operations: restore drill, asset backup, logs, dashboard | **4–5** |
-| **8** | Move hosts | **4–6** |
-
-**To a launch you would not be embarrassed by: Phases 0, 3, 4 plus the cutover — 6–9 sessions.**
-Phase 5 is real product work that a live foundation can absorb gradually; Phase 6
-follows the first real data; Phase 8 waits until everything is quiet.
-
-The high end of each range is not padding. On this codebase the first honest look
-at an area has repeatedly found more than the task description knew about — the
-English-first work was scoped as three orders and turned up five further defects,
-two of them live on the deployed site.
+| **6** | Operations: logs, dashboard | **2–3** |
+| **8** | Off the free tiers | per trigger |
 
 ---
 
 ## Phase 0 — Owner actions
 
-None of these is engineering. All of them are quick.
-
-**Re-verified against the live site on 2026-08-25**, because a board that
-records a defect somebody has since fixed sends the next session hunting for
-it. Most of what this phase used to list is already done: `METRICS_TOKEN` is set
-on Render, Sentry is reporting from Vercel, and the three `system_config` rows
-now read correctly. What that verification *did* find is that one of them was
-never an owner problem at all — the Settings screen carried its own copy of the
-organisation's defaults, disagreeing with the seed about the foundation's own
-name, and **posts them back on every save**. Fixing the row by hand would have
-held until the next time an admin pressed Save. That is fixed in code and
-guarded by `org-defaults.test.ts`.
+Not engineering; all quick.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[~]` **T-03** | **Fill in the English description, and read the seeded copy** | `owner` 15 min | **Settings → Organisation**: *Description (English)*, added 2026-08-25. Until it is filled in, the JSON-LD every search engine and AI assistant reads describes the foundation **in Bengali**, on the English page as well as the Bengali one. **Content & Media → Public Pages**: every box there is a pair — Bangla and English — and both halves are now **seeded with real copy** in the foundation's voice, so nothing is blank and nothing shows the wrong script. What is left is editorial rather than repair: read both languages and change what you would say differently. The four hero figures on the same screen are seeded with `135+` members and estimates consistent with it. They are **stated, not counted** — the fund's real balances are deliberately not published (owner, 2026-08-26) — so they are published under the foundation's name and nobody but the foundation can confirm them. Read all four and correct what is wrong. Open Settings once and press Save even if you change nothing: that writes the corrected defaults for any row the database is missing |
-| `[ ]` **T-05** | **Decide how long a half-finished registration stays on the phone** | `owner` 5 min | The form saves a draft to `localStorage` so an applicant interrupted six steps in does not start again — and that draft holds the NID number, both parents' names and both addresses, for **7 days**. On a shared handset, which is common, that is a real if modest exposure. Shortening it weakens a feature that exists for a good reason, so it is a trade only the foundation can price. Raised twice during Phase 1 and Phase 2 and recorded here so it stops being a footnote: pick a number, or say 7 days is right |
-| `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | **Decided 2026-08-25: 365 days**, which is the seeded default, so there is most likely nothing to change — this is a look, not an edit. Admin → Settings. The sweep counts from each rejection, so it has to be right **before** real applications exist ([ADR-033](decisions.md)) |
+| `[~]` **T-03** | **Fill in the English description, and read the seeded copy** | `owner` 15 min | **Settings → Organisation → Description (English)** — until filled, the JSON-LD describes the foundation in Bengali on both pages. Then read **Content & Media → Public Pages** in both languages (all seeded) and correct anything you would say differently — especially the four hero figures (`135+` and estimates), published under the foundation's name. Press Save on Settings once to write any missing defaults |
+| `[ ]` **T-05** | **Decide how long a half-finished registration stays on the phone** | `owner` 5 min | The registration draft (NID, parents' names, addresses) stays in `localStorage` for **7 days** — a modest exposure on shared handsets. Pick a number, or confirm 7 |
+| `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | Decided 2026-08-25: 365 (the seeded default) — just look at Admin → Settings ([ADR-033](decisions.md)) |
 
 ---
 
@@ -103,38 +41,30 @@ production."*
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-12** | **Input/expected-output sweep, page by page** | 4–6 | Every form field on every screen for all four roles: what it accepts, what it rejects, what it says when it rejects, and what the server does with it. Money fields against rule 1 (whole taka, `parseWholeTaka`), dates, phone and NID formats, file uploads, every empty state and every error state. Done in passes of roughly one dashboard per session so findings can be fixed while they are fresh, rather than accumulating into a list too long to act on. **This cannot honestly promise "zero bugs"** — no sweep can — but it is the difference between finding them here and a member finding them with their savings |
+| `[ ]` **T-12** | **Input/expected-output sweep, page by page** | 4–6 | Every field on every screen, all four roles: what it accepts and rejects, the message, what the server does — money (rule 1, `parseWholeTaka`), dates, phone/NID, uploads, every empty and error state. One dashboard per session, fixing as you go |
 
-> **On "zero bugs before production".** The suites already refuse a large class
-> of defect, and the ledger is summed hourly and compared to the stored balances.
-> What T-12 adds is the class no test currently reaches: a field that accepts
-> something it should not, an error message that says the wrong thing, an empty
-> state nobody has seen. Aim for zero *known* defects at cutover and a short path
-> from a member's report to a fix — [runbook.md](runbook.md) is that path.
+> No sweep can promise zero bugs; T-12 targets the class no test reaches (a field accepting what it should not, a wrong error message, an unseen empty state). Aim for zero *known* defects and a short path from a member's report to a fix ([runbook.md](runbook.md)).
 
 ---
 
 ## Phase 4 — The schema, while it is still cheap
 
-Everything here is a migration today, and a migration **plus a backfill plus a
-plan for rows written in between** once real members exist. Guarded by
-`pnpm db:migrate:check` in CI.
+A migration today; a migration plus a backfill once real data accumulates.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-13** | **Donation fund types** (FR-15/16) | 1–2 | A donation posts as an untyped `DONATION` with no Operating/Lending/Zakat split and no per-fund accounting. **Zakat funds cannot be reconstructed after the fact** — the money is fungible once it is in the pool, so the type has to be recorded at the moment of the posting or it is gone. Cheap only while the donation table is empty |
+| `[ ]` **T-13** | **Donation fund types** (FR-15/16) | 1–2 | Donations post as untyped `DONATION` — no Operating/Lending/Zakat split. **Zakat cannot be reconstructed later** (money is fungible in the pool), so the type must be recorded at posting. Cheap only while the donation table is empty |
 
 ---
 
 ## Phase 5 — The product gaps
 
-The FR table below is the specification; these are the rows that are not `[x]`.
-Ordered by what a member notices.
+The FR rows that are not `[x]`, ordered by what a member notices.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-33** | **Actions minutes ran out in August and took the nightly backup with them** | `owner` | The usage export shows 2,033 minutes across 15–31 August against a 2,000/month allowance, **85.8% of it `ci.yml`**; `backup.yml` and `monitor.yml` stop appearing after the 27th and 28–31 August record no runs at all. GitHub Free carries a \$0 spending limit, so this is never a bill — it is Actions stopping, and the backup stopping with it, reporting nothing because a job that never starts cannot fail. Three things are already done: `images.yml` is tags-only with a monthly cron, the restore drill is gated on `scripts/`, the schema and the migrations rather than every commit, and the asset artifact keeps 7 days instead of 30 now that R2 holds the tail. **The remaining lever is the branch → PR workflow** — CI triggers on `push` to `main` only, so feature-branch commits cost nothing until a PR exists ([workflow.md](workflow.md) §2). Check Usage monthly, and if minutes run out again, verify last night's backup before anything else |
-| `[!]` **T-31** | **A hard navigation into the dashboard can log the reader out** | 1–2 | Reproducible on an unmodified checkout, and intermittent: land on a dashboard URL by full page load shortly after signing in and the shell's mount-time effects sometimes fetch **without an `Authorization` header**. `apiRequest` throws on the resulting 401, the handler calls `clearClientAuthState()`, and the reader is bounced to `/login` with a session that was perfectly valid — a direct `fetch` with the same token from the same page returns 200. Clicking through the sidebar does not trip it, which is why it has survived: the browser suite navigates by clicking. It will be hit by anyone who bookmarks a dashboard screen, opens one in a new tab, or reloads. `getValidatedClientToken()` returning `null` for a token that is present is the thing to explain first — `components/layout/dashboard-layout.tsx`, `lib/client-auth.ts`, `lib/api.ts`. The fix should also stop a **single** 401 from a background poll ending a session: revalidating a notification count is not evidence that the member is signed out. Found 2026-08-27 while verifying Content & Media; a spec that reloads into `/dashboard/*` and asserts it stays there is what pins it |
+| `[ ]` **T-33** | **Actions minutes ran out in August and took the nightly backup with them** | `owner` | Aug 2026: 2,033 minutes in 17 days (86% `ci.yml`) against 2,000; GitHub Free's $0 limit means Actions — and the nightly backup — simply stopped. Done: `images.yml` tags-only, restore drill gated, asset artifact 7 days. Remaining lever: push to feature branches ([workflow.md](workflow.md) §2). Check Usage monthly; if minutes run out, verify last night's backup first |
+| `[!]` **T-31** | **A hard navigation into the dashboard can log the reader out** | 1–2 | A full page load into a dashboard shortly after sign-in sometimes fetches **without `Authorization`**; the 401 handler clears the session and bounces to `/login`. Clicking through the sidebar never trips it (so the browser suite misses it); bookmarks, new tabs and reloads do. Start with why `getValidatedClientToken()` returns `null` for a present token (`dashboard-layout.tsx`, `lib/client-auth.ts`, `lib/api.ts`). Also: a single 401 from a background poll must not end a session. Pin with a spec that reloads into `/dashboard/*` and stays |
 | `[ ]` **T-14** | **Worker-created loans skip the lifecycle** (FR-12) | 1 | `worker_repository.go` inserts `status = 'ACTIVE'` with `disbursementDate` and `approvedAt` in one statement — no guarantor step, no approval step. The documented Request → Approve → Disburse lifecycle is reachable only through admin approval of a loan the worker UI cannot create |
 | `[ ]` **T-15** | **Fairness and solvency caps** (FR-10) | 1–2 | The personal cap is enforced; the fund-level ones are not. Nothing stops the fund lending itself empty |
 | `[ ]` **T-16** | **Guarantor-obligation withdrawal block** (FR-09) | 1 | A guarantor's savings back someone else's loan; today only the guarantor's *own* active loan blocks a withdrawal |
@@ -143,7 +73,7 @@ Ordered by what a member notices.
 | `[ ]` **T-20** | **Admin correction flow for a disputed posting** (FR-18) | 1 | The freeze works; the correction is manual SQL today. Corrections append ([ADR-026](decisions.md), [runbook.md](runbook.md) §2) |
 | `[ ]` **T-22** | **48-hour unconfirmed-transaction sweep** (OPS-08) | 1 | The Monitor workflow alerts on the backlog twice a day and nothing acts on it |
 | `[ ]` **T-23** | **Worker SLA colouring** (FR-21) | 1 | Queues are live; the green-under-24 h / red-over-48 h signal is missing |
-| `[ ]` **T-24** | **The 827 inline EN/BN strings** | 3–4 | `locale === 'bn' ? … : …` across 33 dashboard files instead of `messages/{en,bn}.json` (rule 5); the worst are `dashboard/admin/workers` (72), `member-detail-screen` (66) and `dashboard/member/loans` (57). They *are* translated, so this is a maintainability gap rather than a member-facing one — but it is also a **blind spot**: nothing in `messages.test.ts` can read a string that lives in a component, which is how the Terms of Service came to promise administrative fees in both languages while every guard passed. The `(auth)` pages were cleared by WO-96 and are held there by a census; widening that census is the same job as fixing the 827 |
+| `[ ]` **T-24** | **The 827 inline EN/BN strings** | 3–4 | `locale === 'bn' ? … : …` across 33 dashboard files instead of `messages/` (rule 5); worst: `dashboard/admin/workers` (72), `member-detail-screen` (66), `dashboard/member/loans` (57). Translated, but invisible to `messages.test.ts` (how a fee promise once hid). `(auth)` is done (WO-96); widening that census is the same job |
 
 ---
 
@@ -157,28 +87,17 @@ Ordered by what a member notices.
 
 ---
 
-## Phase 7 — Go live
-
-The cutover itself — freeze, clear the fake data, rotate every secret, create the
-real first admin, take the first backup by hand — is a procedure rather than a
-task list, and it lives in **[go-live.md](go-live.md)**. Do it once Phases 0–3
-are clear.
-
----
-
 ## Phase 8 — Get off the free tiers
 
-The plan, the measured limits and the triggers are [scaling.md](scaling.md).
-**T-31 is free and fixes both problems the platform has today.** Nothing else
-here is needed until roughly 6,000 members.
+Plan, measured limits and triggers: [scaling.md](scaling.md). Stage 0 below is free; nothing else is needed until ~6,000 members.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-31** | **Stage 0 — the free fixes** | `owner` + 0.5 | Three things, all $0. (a) The UptimeRobot monitor on `/v1/ready` pings the pool; at UptimeRobot's default 5-minute interval that is **182 CU-hours against an allowance of 100** — delete it or set it six-hourly. (b) Assets backup weekly not nightly, `images.yml` to tags only — recovers ~230 Actions minutes. (c) A Cloudflare Worker cron on `/v1/health` during Dhaka daytime keeps Render warm without waking the database. `monitor.yml`'s stale comment naming `/v1/ready` is already corrected |
+| `[ ]` **T-31** | **Stage 0 — the free fixes** | `owner` + 0.5 | All $0. (a) ~~UptimeRobot on `/v1/ready`~~ — done, it watches `/v1/health`. (b) Assets backup weekly, not nightly (recovers Actions minutes). (c) A Cloudflare Worker cron on `/v1/health` during Dhaka daytime keeps Render warm without waking the database |
 | `[ ]` **T-33** | **Decide the Vercel Hobby terms question** | `owner` | Hobby is non-commercial only. Pay $20/mo, apply to Vercel's open-source programme (this repo is MIT-licensed and may qualify), or bring T-30 forward. Capacity is fine to ~15,000 members; this is a policy risk, not a technical one |
 | `[ ]` **T-34** | **Neon Free → Launch** | `owner` | Trigger: storage past 0.4 GB or compute past 80 CU-h — about **6,000 members**, the first real capacity wall. A dashboard toggle, no migration, no base fee. ~$7/mo |
-| `[ ]` **T-32** | **Cloudinary → Cloudflare R2** | 1–2 | **A privacy task, not a cost one** — Cloudinary's 25 credits carry to ~25,000 members. But an NID scan is served today from a URL needing no login, which [ADR-038](decisions/adr-038-retention-is-tiered-by-what-the-data-is-not-by-one-clock.md) only mitigates. R2 makes the bucket private, deletes the dynamic-folder-mode bug class along with `cloudinary-reconcile.mjs`, and removes a vendor with no export path. Cheapest while the asset count is in the hundreds |
-| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-33 decided by moving. **Fly.io Singapore for both apps (~$16–25/mo) is preferred over a VPS** — same Dockerfiles, no operating system to own. A VPS (Contabo/Hostinger Singapore) is cheaper still if somebody will administer it. **Not AWS, not Kubernetes, and Postgres stays on Neon** — reasoning in [scaling.md](scaling.md) |
+| `[ ]` **T-32** | **Cloudinary → Cloudflare R2** | 1–2 | **Privacy, not cost** — an NID scan is served from a URL needing no login (ADR-038 only mitigates). R2 makes the bucket private, removes the dynamic-folder bug class and `cloudinary-reconcile.mjs`, and a vendor with no export path. Cheapest while assets number in the hundreds |
+| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-33 decided by moving. **Fly.io Singapore (~$16–25/mo) preferred over a VPS**; not AWS, not Kubernetes; Postgres stays on Neon ([scaling.md](scaling.md)) |
 
 ---
 ## Requirements
@@ -188,16 +107,16 @@ here is needed until roughly 6,000 members.
 | FR-01 | Login by phone or email | `[x]` | Go `/v1/auth/login` |
 | FR-02 | Forced password change on first login | `[x]` | `mustChangePassword` + first-login token |
 | FR-03 | RBAC on sensitive actions | `[x]` | Go handlers + `lib/server-auth.ts`; `/admin` routes also gated at the router (SEC-02) |
-| FR-04 | Registration captures biodata, NID, address, nominee | `[x]` | `/api/v1/registrations`, throttled, with the age floor from `membership.minimumAgeYears`, a live-scoped NID/email/phone uniqueness check, and a nominee who cannot be the applicant. `test/routes/registration.test.ts`, `e2e/entry-path.spec.ts` |
-| FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI. **The reject side only became true on 2026-08-26** — the screen posted a hardcoded `reason: ''` and the only record was an audit row whose `details` was the empty string. A reason is now chosen from `lib/rejection-reasons.ts`, stored on the row where a screen can read it, and quoted in the email to the applicant; the API refuses a rejection without one |
+| FR-04 | Registration captures biodata, NID, address, nominee | `[x]` | `/api/v1/registrations` — throttled, age floor, live-scoped NID/email/phone uniqueness, nominee ≠ applicant. `test/routes/registration.test.ts`, `e2e/entry-path.spec.ts` |
+| FR-05 | Admin approve/reject registration with reason | `[x]` | Go approvals + admin UI; a reason code from `lib/rejection-reasons.ts` is required, stored on the row and quoted in the applicant's email |
 | FR-06 | Member edits nominee, audit-logged | `[ ]` | captured at signup only; no edit path |
 | FR-07 | Deposit request → process → confirm | `[x]` | full loop across both backends |
-| FR-08 | Member withdrawal, asked for in person and paid by staff | `[x]` | no notice, no notice period ([ADR-030](decisions.md)). `AddMemberWithdrawal` pays with or without an outstanding request and settles one when there is; `loan.noticePeriodDays` is published to members and enforced by nobody. `policy_enforcement_integration_test.go`, `cmd/server/withdrawal_status_integration_test.go` |
+| FR-08 | Member withdrawal, asked for in person and paid by staff | `[x]` | no notice period ([ADR-030](decisions.md)); `AddMemberWithdrawal` settles an outstanding request if any. `policy_enforcement_integration_test.go`, `withdrawal_status_integration_test.go` |
 | FR-09 | Block withdrawal breaking collateral / guarantee | `[~]` | active-loan block via `loan.allowActiveLoanWithdrawal`; no guarantor-obligation check |
 | FR-10 | Max loan from configured caps | `[~]` | members apply from the dashboard, personal cap enforced; **fairness and solvency caps still missing** |
 | FR-11 | Guarantor request + approval | `[x]` | required above `loan.guarantorThresholdAmount`, nominated by member ID, approve/decline on the member dashboard |
 | FR-12 | Approve → disburse → confirm | `[~]` | the worker path (`CreateMemberLoan`) writes `status = 'ACTIVE'` directly, skipping `PENDING_GUARANTOR` → `PENDING_APPROVAL`. The documented lifecycle is reachable only via admin approval of a loan the worker UI cannot create |
-| FR-13 | Record installments; no late fee on a missed one | `[x]` | installments recorded and counted against the missed total. **There is no late fee** — ruled by the foundation 2026-08-25 (was T-05). The printed agreement now *denies* one rather than reserving one, and `requirements.test.ts` pins both directions: deleting the denial fails, implementing a fee fails |
+| FR-13 | Record installments; no late fee on a missed one | `[x]` | instalments recorded and counted; **no late fee** (ruled 2026-08-25) — the agreement denies one and `requirements.test.ts` pins both directions |
 | FR-14 | Default settlement waterfall | `[x]` | ordering and proportionality correct with or without a guarantor; status change, all three recovery legs and the audit row commit in one transaction |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split |
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, and the pool now exists as a real account owned by `system_donation_fund`; no per-fund accounting |
@@ -208,16 +127,10 @@ here is needed until roughly 6,000 members.
 | FR-21 | Worker dashboard with SLA queues | `[~]` | queues live; SLA colouring (green <24h / red >48h) missing |
 | FR-22 | Admin dashboard | `[~]` | approvals, reports, settings, support and the audit viewer are done; **no liquidity alerts** |
 | FR-23 | Member erasure and rejected-application retention | `[x]` | admin erases from the member detail screen — anonymise if there are postings, delete if there are none; the Go sweep clears a rejected applicant's identity after `security.rejectedRetentionDays` |
-| FR-24 | Admin audit viewer | `[x]` | `dashboard/admin/audit` — a day-grouped timeline, searchable by account/receipt/loan number and name, filterable by category, severity and date range, coloured by severity, with sign-ins hidden until asked for |
-| FR-25 | Tiered retention | `[x]` | four tiers in `lib/audit-actions.ts` beside the action they describe (ADR-038); a refused applicant's identity **photographs** go at the decision, the ledger and every decision are permanent |
+| FR-24 | Admin audit viewer | `[x]` | `dashboard/admin/audit` — day-grouped timeline, searchable by account/receipt/loan number and name, filtered by category, severity and date, sign-ins hidden by default |
+| FR-25 | Tiered retention | `[x]` | tiers in `lib/audit-actions.ts` (ADR-038); refused applicants' photos go at the decision; the ledger and decisions are permanent |
 
-**14 complete · 7 partial · 2 not started · 0 broken.**
-**This page cannot quietly fall behind the code.** A requirement not marked
-`[x]` must *still* be unimplemented in the source, or
-`apps/web/test/unit/requirements.test.ts` fails and names the file that
-implements it. The same suite fails if [product.md](product.md) and this table
-disagree — so a task above that closes an FR has to update this row in the same
-commit.
+**`requirements.test.ts` keeps this table honest**: a requirement not `[x]` must still be unimplemented in the source, and this table must agree with [product.md](product.md) — a task closing an FR updates its row in the same commit.
 
 ---
 
@@ -227,7 +140,7 @@ Recorded so they are not re-proposed as gaps.
 
 | Not doing | Why |
 |---|---|
-| A late fee on a missed installment | **Ruled by the foundation, 2026-08-25** (was T-05). The question was never the amount, it was who keeps the money: a penalty retained by the lender is riba on the mainstream reading, and one paid entirely to charity is the form scholars permit but needs a charity ledger destination and an audit trail proving the fund retained nothing. The ruling is that there is no late fee at all. The printed loan agreement now **denies** one rather than reserving one, which is the half of the ruling a member can read, and `requirements.test.ts` fails in both directions — deleting the denial, or implementing a fee |
+| A late fee on a missed installment | **Ruled out by the foundation, 2026-08-25** (a penalty kept by the lender is riba). The agreement denies one; `requirements.test.ts` fails if the denial goes or a fee appears |
 | Kubernetes | A cooperative in Jashore does not need an orchestrator. One VPS with Compose is operable by one person |
 | Microservices | Two services is already the right number |
 | Redis | Postgres handles the rate limits and the blacklist at this scale — and that choice is what makes the single-VPS target realistic |
@@ -248,4 +161,4 @@ Recorded so they are not re-proposed as gaps.
 | Every failure that has cost a session | [traps.md](traps.md) |
 | How to change a specific thing | [changing-things.md](changing-things.md) |
 | The night something breaks | [runbook.md](runbook.md) |
-| The cutover procedure | [go-live.md](go-live.md) |
+| The cutover procedure (repeat for a host move) | [runbook.md §7](runbook.md#7-re-cutting-onto-a-new-host-the-go-live-procedure) |

@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
 #
-# Restores an encrypted dump into a scratch database and proves it is intact.
+# Restores an encrypted dump into a scratch database and proves it intact:
+# pg_restore succeeds, every table exists, row counts match the catalog, and
+# the money invariants hold. A backup nobody has restored is a rumour.
 #
 #   BACKUP_PASSPHRASE=... scripts/restore-check.sh <archive.dump.gpg> <scratch-db-url>
-#
-# This is the other half of scripts/backup.sh, and the half that matters. A
-# backup nobody has restored is a rumour: the file exists, the job is green, and
-# whether it contains a usable database is unknown until the worst possible day.
-#
-# What "intact" means here, in order of increasing usefulness:
-#   1. pg_restore completes without error
-#   2. every table the schema declares exists
-#   3. row counts match what the dump's own catalog says
-#   4. the money invariants still hold — savings balances are non-negative and
-#      every account still reconciles against its transactions
 #
 # The scratch URL is TRUNCATED and rewritten. Never point it at anything real.
 
 set -euo pipefail
 
-# Same reason as scripts/backup.sh: pick the newest client by absolute path.
-# pg_restore is the stricter half — it rejects an archive whose format version
-# is newer than itself outright, so a 16 client restoring a dump taken from a 17
-# server fails on the file header before it reads a single row.
+# Newest client by path: pg_restore rejects an archive newer than itself.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/pg-client.sh"
 
 ARCHIVE="${1:-}"
@@ -91,15 +79,7 @@ ELAPSED=$(( $(date -u +%s) - START ))
 echo "restore: completed in ${ELAPSED}s"
 
 echo
-# Schema-qualified, because pg_stat_user_tables spans every non-system schema
-# and this script only resets `public`. Restoring into a Neon *branch* — which
-# is what the runbook tells you to do — inherits whatever else the parent had,
-# so the listing showed nine empty tables named `user`, `session`, `account`,
-# `organization`, `member`, `invitation`, `verification`, `jwks` and
-# `project_config` that are in no migration and came from no dump. They are
-# Neon's own auth scaffolding sitting in its own schema. Nothing was wrong, but
-# a drill that lists rows the archive does not contain is a drill you have to
-# think twice about, and thinking twice is what you cannot do at 2 a.m.
+# Only the `public` schema (a Neon branch also carries Neon's own auth tables).
 echo "restore: row counts"
 "$PSQL" "$SCRATCH_URL" --quiet --set ON_ERROR_STOP=1 -P pager=off <<'SQL'
 SELECT schemaname AS schema, relname AS table, n_live_tup AS approx_rows

@@ -16,28 +16,13 @@ const (
 	brevoDefaultBaseURL = "https://api.brevo.com/v3"
 	brevoRetryAttempts  = 3
 
-	// The whole retry sequence, end to end.
-	//
-	// It used to be unbounded in every practical sense: three attempts against a
-	// 12-second client with a 1.5-second sleep between them is 39 seconds of
-	// synchronous work inside the handler that approves a member. The graceful
-	// shutdown budget is SERVER_SHUTDOWN_TIMEOUT, 30 seconds by default, so a
-	// deploy landing during a slow Brevo call was a SIGKILL mid-request — the
-	// exact failure RUN-02 exists to prevent, reintroduced through a
-	// dependency's latency (WO-62).
-	//
-	// Ten seconds is generous for a transactional email API and leaves the drain
-	// two-thirds intact. TestTheWorstCaseFitsInsideTheShutdownDrain holds this
-	// against the shutdown default so the two cannot drift apart.
+	// Whole retry sequence, bounded to fit inside the shutdown drain (WO-62,
+	// TestTheWorstCaseFitsInsideTheShutdownDrain).
 	brevoSendBudget = 10 * time.Second
 
-	// One attempt. Without a per-attempt bound a single hung connection spends
-	// the entire budget and the retries that exist for exactly that case never
-	// run.
+	// Per attempt, so one hung connection cannot eat the budget.
 	brevoAttemptTimeout = 4 * time.Second
 
-	// Short, because the budget is short. Interrupted by the budget expiring —
-	// the old time.Sleep could not be.
 	brevoRetryBackoff = 500 * time.Millisecond
 )
 
@@ -58,9 +43,7 @@ type EmailService struct {
 	enabled   bool
 	client    *http.Client
 
-	// Timings, as fields rather than as the constants directly, so a test can
-	// prove the budget is enforced in milliseconds instead of waiting out the
-	// real one. Nothing outside this package sets them.
+	// Timings as fields so tests can shrink them.
 	sendBudget     time.Duration
 	attemptTimeout time.Duration
 	retryBackoff   time.Duration
@@ -116,9 +99,7 @@ func NewEmailService(cfg EmailConfig) *EmailService {
 		appURL:    appURL,
 		enabled:   enabled,
 		client: &http.Client{
-			// A backstop only. Every request carries its own deadline now, and
-			// this sits at the outer budget so it can never be the shorter of
-			// the two and quietly override the per-attempt bound.
+			// Backstop only; each attempt has its own deadline.
 			Timeout: brevoSendBudget,
 		},
 		sendBudget:     brevoSendBudget,
@@ -139,22 +120,9 @@ func normalizeLocale(locale string) string {
 	return "en"
 }
 
-// localeURL builds a link into the web app for a locale.
-//
-// English has **no prefix** since WO-95 ([ADR-034](../../../../docs/decisions.md)):
-// `/login` is English and `/bn/login` is Bengali. This used to be
-// `fmt.Sprintf("%s/%s/login", appURL, locale)` at three call sites, which now
-// produces `https://…/en/login` — a URL the proxy answers with a **301**.
-//
-// It works, and it is still wrong to send. These are the links in an approval
-// email and a password-reset email: they outlive the deploy that wrote them,
-// they are forwarded, and some mail clients and link scanners resolve a
-// redirect before a person ever sees it. The canonical URL is what belongs in
-// an email that may be opened in a year.
-//
-// The rule is the same one `apps/web/lib/locale-path.ts` implements, and it is
-// duplicated here rather than shared because the two runtimes cannot share a
-// module. `TestEmailLinksUseTheCanonicalLocalePath` is what keeps them equal.
+// localeURL builds a canonical link: English unprefixed, Bengali /bn
+// (ADR-034). Mirrors apps/web/lib/locale-path.ts
+// (TestEmailLinksUseTheCanonicalLocalePath).
 func localeURL(appURL, locale, path string) string {
 	if normalizeLocale(locale) == "bn" {
 		return fmt.Sprintf("%s/bn%s", appURL, path)
@@ -243,13 +211,7 @@ func (s *EmailService) buildMemberApprovalEmail(to, memberName, accountNo, phone
 	escapedPassword := html.EscapeString(temporaryPassword)
 	escapedLoginURL := html.EscapeString(loginURL)
 
-	// **What to log in with**, which this email did not say until 2026-08-26.
-	// It gave a temporary password and a link and nothing else — so a member who
-	// had registered with both an email and a phone number had to guess which
-	// one the box wanted. The staff welcome email had always listed both. The
-	// account number goes in for a different reason: it is the one identifier a
-	// member is ever given (ADR-023), it is allocated when they apply, and this
-	// is the first time they see it.
+	// Tell the member what to log in with, plus their account number (ADR-023).
 	identifier := strings.TrimSpace(to)
 	escapedIdentifier := html.EscapeString(identifier)
 	escapedAccountNo := html.EscapeString(strings.TrimSpace(accountNo))
@@ -300,9 +262,7 @@ func (s *EmailService) buildMemberApprovalEmail(to, memberName, accountNo, phone
 	return subject, textBody, htmlBody, nil
 }
 
-// SendMemberApprovalEmail renders the message and hands it to the transport. The
-// rendering is buildMemberApprovalEmail, which is pure and therefore testable — see
-// email_service_test.go (WO-52). Nothing here reaches the network.
+// SendMemberApprovalEmail renders via the pure buildMemberApprovalEmail (WO-52).
 func (s *EmailService) SendMemberApprovalEmail(ctx context.Context, to, memberName, accountNo, phone, temporaryPassword, locale string) error {
 	subject, textBody, htmlBody, err := s.buildMemberApprovalEmail(to, memberName, accountNo, phone, temporaryPassword, locale)
 	if err != nil {
@@ -311,19 +271,8 @@ func (s *EmailService) SendMemberApprovalEmail(ctx context.Context, to, memberNa
 	return s.sendWithRetry(ctx, strings.TrimSpace(to), subject, textBody, htmlBody)
 }
 
-// rejectionReasonSentence renders a rejection reason code in the applicant's
-// language.
-//
-// **The code list must match `apps/web/lib/rejection-reasons.ts`**, which is
-// what the admin's picker offers. A code chosen there that is unknown here
-// renders as no reason at all, in the one message the applicant ever receives
-// about the decision — so `rejection-reasons.test.ts` reads both files and
-// fails on any divergence.
-//
-// The sentences are deliberately the reason itself rather than an apology
-// wrapped around one: the surrounding email already carries the courtesy, and a
-// reason a member has to parse out of a paragraph is a reason they will
-// telephone the office about.
+// rejectionReasonSentence renders a rejection code in the applicant's language.
+// Codes must match apps/web/lib/rejection-reasons.ts (rejection-reasons.test.ts).
 func rejectionReasonSentence(code, locale string) string {
 	bn := normalizeLocale(locale) == "bn"
 	switch strings.ToUpper(strings.TrimSpace(code)) {
@@ -363,27 +312,15 @@ func rejectionReasonSentence(code, locale string) string {
 		}
 		return "We could not reach the applicant to verify the application."
 	case "OTHER":
-		// The note carries it. `OTHER` with no note is refused at the handler,
-		// because a rejection reading only "other reason" tells nobody anything.
+		// The note carries it; OTHER without a note is refused at the handler.
 		return ""
 	}
 	return ""
 }
 
-// SendMemberRejectionEmail tells an applicant their application was not
-// approved, why, and that they may apply again.
-//
-// **Nothing sent this before 2026-08-26.** Rejection wrote a status, scrambled
-// the applicant's email and phone so the unique constraint would let them
-// reapply, and stopped. The applicant was never told — not by email, not in the
-// app, not anywhere — and the scramble meant they could not be told later
-// either. They waited for an answer that had already been decided and could
-// never arrive.
-//
-// A delivery failure is returned so the caller can surface it, exactly as the
-// approval mail does: the rejection itself has already been committed and must
-// not be rolled back because an SMTP host was briefly unavailable, but an admin
-// who now has to telephone the applicant needs to know that.
+// SendMemberRejectionEmail tells an applicant why they were refused and that
+// they may reapply. Delivery failure is returned for the admin to see; the
+// rejection is already committed.
 func (s *EmailService) SendMemberRejectionEmail(ctx context.Context, to, memberName, reasonCode, reasonNote, locale string) error {
 	subject, textBody, htmlBody, err := s.buildMemberRejectionEmail(to, memberName, reasonCode, reasonNote, locale)
 	if err != nil {
@@ -409,10 +346,7 @@ func (s *EmailService) buildMemberRejectionEmail(to, memberName, reasonCode, rea
 
 	locale = normalizeLocale(locale)
 
-	// The preset sentence and the admin's note are joined rather than one
-	// replacing the other: an admin who picks "documents were not readable" and
-	// then writes *which* document has said two useful things, and dropping
-	// either loses half the answer.
+	// Preset sentence and the admin's note are joined, not one replacing the other.
 	reason := rejectionReasonSentence(reasonCode, locale)
 	if note := strings.TrimSpace(reasonNote); note != "" {
 		if reason != "" {
@@ -550,9 +484,7 @@ func (s *EmailService) buildStaffWelcomeEmail(to string, staffName string, role 
 	return subject, textBody, htmlBody, nil
 }
 
-// SendStaffWelcomeEmail renders the message and hands it to the transport. The
-// rendering is buildStaffWelcomeEmail, which is pure and therefore testable — see
-// email_service_test.go (WO-52). Nothing here reaches the network.
+// SendStaffWelcomeEmail renders via the pure buildStaffWelcomeEmail (WO-52).
 func (s *EmailService) SendStaffWelcomeEmail(ctx context.Context, to string, staffName string, role string, phone string, temporaryPassword string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildStaffWelcomeEmail(to, staffName, role, phone, temporaryPassword, locale)
 	if err != nil {
@@ -562,20 +494,8 @@ func (s *EmailService) SendStaffWelcomeEmail(ctx context.Context, to string, sta
 }
 
 // sendWithRetry makes up to brevoRetryAttempts attempts inside one fixed budget.
-//
-// The caller's context is taken for its values and NOT for its cancellation,
-// which is deliberate and is the one part of this worth reading twice.
-//
-// Both cancellations a request context carries would do harm here. A client
-// disconnect: the approval has already committed and the HTTP response is what
-// carries the temporary password, so if the admin's browser has gone the email
-// is the only way the member will ever receive it — cancelling it is the worst
-// available outcome. A shutdown: in-flight requests are allowed to finish, that
-// being the entire point of the drain, and a bounded ten seconds finishes well
-// inside it.
-//
-// So the fix for WO-62 is the deadline, not the cancellation. What made the old
-// code dangerous was that it had no bound at all, not that it ignored ctx.
+// It takes ctx's values but NOT its cancellation: the approval has committed,
+// so a client disconnect must not cancel the only delivery of the password.
 func (s *EmailService) sendWithRetry(ctx context.Context, to string, subject string, textBody string, htmlBody string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.sendBudget)
 	defer cancel()
@@ -741,9 +661,7 @@ func (s *EmailService) buildPasswordChangeVerificationCodeEmail(to string, recip
 	return subject, textBody, htmlBody, nil
 }
 
-// SendPasswordChangeVerificationCodeEmail renders the message and hands it to the transport. The
-// rendering is buildPasswordChangeVerificationCodeEmail, which is pure and therefore testable — see
-// email_service_test.go (WO-52). Nothing here reaches the network.
+// SendPasswordChangeVerificationCodeEmail renders via the pure builder (WO-52).
 func (s *EmailService) SendPasswordChangeVerificationCodeEmail(ctx context.Context, to string, recipientName string, code string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildPasswordChangeVerificationCodeEmail(to, recipientName, code, locale)
 	if err != nil {
@@ -790,9 +708,7 @@ func (s *EmailService) buildPasswordResetEmail(to string, token string, locale s
 	return subject, textBody, htmlBody, nil
 }
 
-// SendPasswordResetEmail renders the message and hands it to the transport. The
-// rendering is buildPasswordResetEmail, which is pure and therefore testable — see
-// email_service_test.go (WO-52). Nothing here reaches the network.
+// SendPasswordResetEmail renders via the pure buildPasswordResetEmail (WO-52).
 func (s *EmailService) SendPasswordResetEmail(ctx context.Context, to string, token string, locale string) error {
 	subject, textBody, htmlBody, err := s.buildPasswordResetEmail(to, token, locale)
 	if err != nil {

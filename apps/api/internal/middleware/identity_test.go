@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-// WO-78. Identity decides who a request belongs to, once, for everything
-// downstream. What it must never do is answer "this member" for a token that
-// did not verify — that is the whole reason the limiter is allowed to trust it.
+// WO-78: only a verified token attributes a request to a member.
 func TestIdentityOnlyAttributesVerifiedTokens(t *testing.T) {
 	verify := func(token string) (string, bool) {
 		if token == "good" {
@@ -33,9 +31,7 @@ func TestIdentityOnlyAttributesVerifiedTokens(t *testing.T) {
 		},
 		{name: "surrounding whitespace", authHeader: "Bearer   good  ", want: "member-1"},
 		{
-			// The one that matters: a forged token must leave the request
-			// anonymous so the limiter falls back to the address. If this ever
-			// returns a subject, one client mints a bucket per request.
+			// A forged token must leave the request anonymous.
 			name:       "a token that does not verify",
 			authHeader: "Bearer forged",
 			want:       "",
@@ -65,10 +61,7 @@ func TestIdentityOnlyAttributesVerifiedTokens(t *testing.T) {
 	}
 }
 
-// A verifier that says "yes" with an empty subject is a bug in the verifier,
-// not a licence to key the limiter on "". Everything with no id shares the
-// anonymous-by-address path, and an empty user key would put every such caller
-// in one bucket regardless of address.
+// An empty subject is ignored, or every such caller would share one bucket.
 func TestIdentityIgnoresAnEmptySubject(t *testing.T) {
 	verify := func(string) (string, bool) { return "", true }
 
@@ -86,9 +79,7 @@ func TestIdentityIgnoresAnEmptySubject(t *testing.T) {
 	}
 }
 
-// A request that never passed through Identity — every handler unit test, and
-// anything mounted outside the global stack — must read back as anonymous
-// rather than panicking on a missing context value.
+// Without the middleware, RequestUserID is "" rather than a panic.
 func TestRequestUserIDIsEmptyWithoutTheMiddleware(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	req.Header.Set("Authorization", "Bearer good")

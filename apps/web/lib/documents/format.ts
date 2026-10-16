@@ -1,13 +1,7 @@
 /**
- * Formatting helpers for official documents.
- *
- * Documents are English only (ADR-012), so amounts carry the ISO code `BDT`
- * rather than the `৳` sign: the sign lives in the Bengali Unicode block and
- * cannot be drawn by the PDF renderer's standard fonts. Grouping stays
- * South Asian (1,25,000), which is how figures are read in Bangladesh.
- *
- * `esc()` guards the HTML renderer — document data is member-supplied (names,
- * descriptions, notes) and would otherwise be injected straight into markup.
+ * Formatting helpers for official documents (English only, ADR-012): amounts
+ * use `BDT` (the ৳ glyph is not in the PDF fonts) with South Asian grouping
+ * (1,25,000). `esc()` guards the HTML renderer against member-supplied text.
  */
 
 import type { StatementTxType } from './types';
@@ -25,11 +19,7 @@ export function esc(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * Fallback for empty fields so documents never print "undefined".
- * Returns plain text — escaping is the HTML renderer's job, because the PDF
- * renderer needs the raw string.
- */
+/** "—" for empty fields. Plain text; escaping is the HTML renderer's job. */
 export const orDash = (value: unknown): string => {
   const text = value === null || value === undefined ? '' : String(value).trim();
   return text.length > 0 ? text : '—';
@@ -120,10 +110,7 @@ export function amountInWords(amount: number): string {
 // Transaction classification
 // ---------------------------------------------------------------------------
 
-/**
- * Direction from the member's point of view: money received is a credit,
- * money paid out is a debit. Used for the statement's credit/debit columns.
- */
+/** Credit or debit from the member's point of view (statement columns). */
 export function txDirection(type: StatementTxType): 'credit' | 'debit' {
   switch (type) {
     case 'DEPOSIT':
@@ -147,11 +134,7 @@ export function txLabel(type: StatementTxType): string {
   return TX_LABELS[type] ?? String(type).replace(/_/g, ' ');
 }
 
-/**
- * Deterministic, human-readable document id printed on every page.
- * A reference that is already a document number (DEP-2026-…, LOAN-2026-…) is
- * used as-is rather than being prefixed a second time.
- */
+/** The document id printed on every page; an existing document number is used as-is. */
 export function buildDocumentId(prefix: string, reference: string): string {
   const clean = String(reference || 'NA').toUpperCase().replace(/[^A-Z0-9-]/g, '');
   if (clean === 'NA' || clean === '') return `${prefix}-NA`;
@@ -166,22 +149,10 @@ export function documentIdFromReference(prefix: string, reference?: string): str
 }
 
 /**
- * Make text drawable by the PDF renderer's standard fonts.
- *
- * Documents are English only, but letterhead values come from `system_config`
- * and notes are typed by members, so a Bengali string can still reach a
- * template. Helvetica encodes Latin-1; anything outside it renders as mojibake.
- * Removing it up front makes the failure visible and predictable — a dash where
- * the text would have been — instead of a page of corrupted glyphs.
- *
- * Typographic punctuation is **transliterated, not dropped**. jsPDF discards
- * anything above U+00FF silently, which is worse than mojibake because the
- * result still reads as a sentence: `0% — Qard al-Hasan` printed as
- * `0%  Qard al-Hasan`, and the loan agreement's default clause — the one naming
- * whose savings get taken — printed as "the borrowers own savings, then the
- * guarantors savings", turning two possessives into plurals. Worst of all,
- * `orDash`'s own `—` placeholder vanished, so an empty field printed as a blank
- * gap: exactly the failure this function was written to prevent (TEST-24).
+ * Make text drawable by the standard PDF fonts (Latin-1). Typographic
+ * punctuation is TRANSLITERATED — jsPDF silently drops anything above U+00FF,
+ * which turned "borrower's" into "borrowers" and blanked the "—" placeholder
+ * (TEST-24). Other non-Latin-1 text becomes a dash.
  */
 const TRANSLITERATE: Array<[RegExp, string]> = [
   [/[‐-―]/g, '-'], // hyphen, en dash, em dash, horizontal bar

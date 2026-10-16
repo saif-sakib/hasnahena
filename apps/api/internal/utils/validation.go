@@ -1,11 +1,6 @@
 package utils
 
-// Upper bounds for financial operations, in whole Taka (ADR-002).
-//
-// Handlers enforce these inline alongside a `<= 0` lower-bound check, e.g.
-//
-//	if req.Amount <= 0 { ... }
-//	if req.Amount > utils.MaxDepositAmount { ... }
+// Upper bounds for financial operations, in whole taka (ADR-002).
 const (
 	// MaxDepositAmount - Maximum single deposit (10 crore BDT)
 	MaxDepositAmount int64 = 10_00_00_000
@@ -25,9 +20,6 @@ const (
 	// MaxPurposeLength - Maximum loan purpose length
 	MaxPurposeLength = 500
 
-	// MaxRequestBodySize - Maximum request body size (1 MB).
-	//
-	// Enforced inside utils.ParseJSON, which wraps r.Body in an io.LimitReader,
-	// so every JSON handler is bounded without changing its call site.
+	// MaxRequestBodySize (1 MB), enforced inside utils.ParseJSON.
 	MaxRequestBodySize int64 = 1 * 1024 * 1024
 )

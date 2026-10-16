@@ -1,27 +1,9 @@
 name: Monitor
 
-# Business-threshold alerting (OBS-06).
-#
-# This job deliberately does NOT do uptime checking, and the reason is money.
-# GitHub gives a private repository 2,000 Actions minutes a month, and every run
-# is billed rounded up to a whole minute. A five-minute uptime check is 8,640
-# runs — four times the entire free allowance, for something UptimeRobot does
-# for nothing at a one-minute interval. So:
-#
-#   * "Is the API up?"  -> UptimeRobot, free tier, hits **/v1/health**, which
-#     touches nothing. NOT /v1/ready: that pings the pool, and at UptimeRobot's
-#     default five-minute interval the database never reaches its suspend timer
-#     — 182 compute-hours a month against an allowance of 100 (ADR-035).
-#     A readiness check belongs on a load balancer, or here at six-hourly.
-#   * "Is the error rate high?" -> Sentry, free tier, its own alert rules.
-#   * "Is a member waiting on money?" -> here. Nothing else can see it.
-#
-# That last one is the whole point. A transaction sitting unconfirmed for three
-# days throws no exception and returns no error status; every technical monitor
-# in the stack reports green while a member waits. Twice a day is the right
-# cadence for it — it is a queue, not an outage.
-#
-# Cost: ~60 runs a month.
+# Business-threshold alerting (OBS-06), twice a day (~60 runs/month) — a member
+# waiting on money raises no error anywhere else. NOT uptime: that is
+# UptimeRobot on /v1/health (never /v1/ready, which wakes the database —
+# ADR-035); error rates are Sentry's.
 
 on:
   schedule:
@@ -123,10 +105,7 @@ jobs:
             echo "alert=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # A GitHub issue is the notification channel because it needs no third
-      # party and no secret: GitHub emails the repo owner when an issue is
-      # opened or commented. One issue is reused while a problem persists, so a
-      # week-long backlog is one thread rather than fourteen emails.
+      # A GitHub issue is the channel (emails the owner); one issue per ongoing problem.
       - name: Open or update the alert issue
         if: steps.check.outputs.alert == 'true'
         uses: actions/github-script@v9

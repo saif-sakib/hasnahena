@@ -2,22 +2,9 @@
 
 package repositories
 
-// Regression guards for the ledger defects found in the 2026-08-17 audit
-// (LEDGER-01 → LEDGER-04, work orders WO-41 → WO-43).
-//
-// The whole batch existed because the suite next door was green over all of it.
-// It was green for two specific reasons, and each test here closes one:
-//
-//   - Nothing in it ever ran two postings at once, so a read-modify-write on a
-//     balance looked correct. Twenty concurrent deposits left one deposit's
-//     worth of money in the account and twenty rows in the ledger.
-//   - Every waterfall test seeded a guarantor, so the nullable "guarantorId"
-//     column's real path — a loan below the guarantor threshold — never
-//     executed once.
-//
-// Both are cheap to test and were invisible without the test. Add to this file
-// rather than the general one when the thing under test is *arithmetic
-// integrity* rather than a business rule.
+// Regression guards for the 2026-08-17 ledger audit (LEDGER-01 → 04): concurrent
+// postings and the guarantor-less waterfall. Add here when the subject is
+// arithmetic integrity rather than a business rule.
 
 import (
 	"context"
@@ -26,10 +13,7 @@ import (
 	"testing"
 )
 
-// seedLoanNoGuarantor inserts an ACTIVE loan with "guarantorId" left NULL —
-// what the schema allows and what every loan below the guarantor threshold
-// looks like. The sibling helper in integration_test.go always sets one, which
-// is exactly how LEDGER-02 survived.
+// seedLoanNoGuarantor inserts an ACTIVE loan with "guarantorId" NULL.
 func seedLoanNoGuarantor(t *testing.T, borrower string, remaining int64) string {
 	t.Helper()
 	var loanID string
@@ -51,13 +35,8 @@ func seedLoanNoGuarantor(t *testing.T, borrower string, remaining int64) string 
 // LEDGER-01 — concurrent postings must not lose each other.
 // ---------------------------------------------------------------------------
 
-// TestConcurrentDepositsAllLand is the direct regression test for the measured
-// defect: 20 parallel deposits of 1,000 produced a balance of 1,000 against
-// 20,000 of transaction rows.
-//
-// The balance and the ledger are asserted separately on purpose. Either alone
-// can look right while the pair is wrong, and it is the *disagreement* that
-// makes a passbook unexplainable to the member holding it.
+// TestConcurrentDepositsAllLand: 20 parallel deposits; balance and ledger are
+// asserted separately, since their disagreement is the defect.
 func TestConcurrentDepositsAllLand(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -105,12 +84,8 @@ func TestConcurrentDepositsAllLand(t *testing.T) {
 	}
 }
 
-// TestConcurrentWithdrawalsCannotOverdraw covers the mirror case, which was the
-// more expensive of the two: ten parallel withdrawals of 5,000 all cleared a
-// 10,000 balance, paying out 50,000.
-//
-// The count is asserted as well as the balance because a correct final balance
-// can still hide an overdraw that a later deposit happened to cover.
+// TestConcurrentWithdrawalsCannotOverdraw: ten parallel 5,000 withdrawals
+// against 10,000; count and balance both asserted.
 func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -121,9 +96,7 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 	const attempts = 10
 	const each = 5000 // the balance covers exactly two
 
-	// One matured notice per attempt (FR-08), so what limits the outcome to two
-	// is the balance and not the supply of notices. Without this the test would
-	// still report "2 succeeded" for entirely the wrong reason.
+	// One notice per attempt, so only the balance limits the outcome.
 	for i := 0; i < attempts; i++ {
 		fileWithdrawalRequest(t, member, each, 12)
 	}
@@ -157,10 +130,7 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 		t.Fatalf("account overdrawn to %d", got)
 	}
 
-	// CONFIRMED only. Since FR-08 a WITHDRAWAL row is either a notice the member
-	// gave (PENDING) or a payout that settled one (CONFIRMED); the eight notices
-	// nobody could pay are still sitting here, and counting them as money out
-	// would report a 50,000 payout against a 10,000 balance.
+	// CONFIRMED only; unpaid PENDING notices are not money out.
 	var paidOut int64
 	if err := testPool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(amount), 0)::bigint FROM transactions WHERE type = 'WITHDRAWAL' AND status = 'CONFIRMED'`).Scan(&paidOut); err != nil {
@@ -171,9 +141,7 @@ func TestConcurrentWithdrawalsCannotOverdraw(t *testing.T) {
 	}
 }
 
-// TestConcurrentDepositsAllocateDistinctReceipts guards the other shared
-// resource a parallel posting touches. Receipt numbers are printed in paper
-// passbooks, so a collision is unrecoverable after the fact.
+// TestConcurrentDepositsAllocateDistinctReceipts: receipts are printed on paper.
 func TestConcurrentDepositsAllocateDistinctReceipts(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -215,10 +183,7 @@ func TestConcurrentDepositsAllocateDistinctReceipts(t *testing.T) {
 // LEDGER-02 — the waterfall must work without a guarantor.
 // ---------------------------------------------------------------------------
 
-// TestWaterfallRecoversWithoutAGuarantor is the regression test for a loan
-// whose "guarantorId" is NULL. Before the fix the waterfall aborted on the NULL
-// scan before step 1, and because MarkLoanDefaulted committed the status change
-// in a separate transaction the loan was left DEFAULTED with nothing recovered.
+// TestWaterfallRecoversWithoutAGuarantor: a NULL guarantorId must not abort recovery.
 func TestWaterfallRecoversWithoutAGuarantor(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -253,9 +218,8 @@ func TestWaterfallRecoversWithoutAGuarantor(t *testing.T) {
 	}
 }
 
-// TestUnguaranteedDefaultLeavesResidualDebt confirms the null-guarantor path
-// still follows the policy when the borrower cannot cover the debt: skip the
-// absent guarantor, fall through to the donation pool, leave the rest standing.
+// TestUnguaranteedDefaultLeavesResidualDebt: skip the absent guarantor, use the
+// pool, leave the rest standing.
 func TestUnguaranteedDefaultLeavesResidualDebt(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -282,12 +246,7 @@ func TestUnguaranteedDefaultLeavesResidualDebt(t *testing.T) {
 	}
 }
 
-// TestMarkingDefaultedIsAtomic pins the transaction boundary itself.
-//
-// A loan id that does not exist makes the waterfall's first statement return no
-// rows, so the whole call must fail having changed nothing. Before the fix the
-// status UPDATE had already been committed by the time recovery ran, so a
-// failure left a defaulted loan that had never been settled.
+// TestMarkingDefaultedIsAtomic: a failed recovery must change nothing.
 func TestMarkingDefaultedIsAtomic(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -318,17 +277,8 @@ func TestMarkingDefaultedIsAtomic(t *testing.T) {
 // FR-11 — a nominated guarantor must actually see the request.
 // ---------------------------------------------------------------------------
 
-// TestGuarantorSeesPendingRequest guards two defects that together made the
-// member dashboard's guarantee panel permanently empty, neither of which could
-// fail loudly:
-//
-//   - the SELECT listed five columns and the Scan took four, so every row
-//     errored into a `continue`;
-//   - it filtered on the legacy `PENDING` status while a guarantee request is
-//     created as `PENDING_GUARANTOR`.
-//
-// Either one alone hides the request. Both were live, so a member nominated as
-// guarantor was never told, and the loan sat in PENDING_GUARANTOR forever.
+// TestGuarantorSeesPendingRequest: the guarantee panel must show
+// PENDING_GUARANTOR requests (FR-11).
 func TestGuarantorSeesPendingRequest(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -377,12 +327,8 @@ func TestGuarantorSeesPendingRequest(t *testing.T) {
 	}
 }
 
-// TestMemberLoansDoesNotLeakOtherMembers pins SEC-13.
-//
-// GetMemberLoans used to return `availableGuarantors`: the name and savings
-// balance of the 50 wealthiest other members, ordered by balance descending, to
-// any signed-in member. product.md is explicit that a member cannot see another
-// member's data. Nothing consumed it, so it was disclosure with no feature.
+// TestMemberLoansDoesNotLeakOtherMembers pins SEC-13: no other member's
+// name or balance in the response.
 func TestMemberLoansDoesNotLeakOtherMembers(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -403,14 +349,8 @@ func TestMemberLoansDoesNotLeakOtherMembers(t *testing.T) {
 // LEDGER-04 — donations are sequential, and they leave a trail.
 // ---------------------------------------------------------------------------
 
-// seedDonationAccount creates the real donation pool account that
-// RecordDonation posts into. seedDonationPool next door only inserts DONATION
-// ledger rows, which is enough for the waterfall (it sums transactions) but not
-// for recording a donation, which needs the account row to lock.
-//
-// The owner id is not arbitrary: RecordDonation finds the pool by it, because
-// there is no account number any more (ADR-023). It must equal
-// repositories.DonationFundUserID.
+// seedDonationAccount creates the pool account RecordDonation locks. The owner
+// id must equal repositories.DonationFundUserID.
 func seedDonationAccount(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -436,10 +376,8 @@ func seedDonationAccount(t *testing.T) string {
 	return owner
 }
 
-// TestDonationsAreSequentialAndAudited covers both halves of LEDGER-04 at once.
-// The receipt number used to be a wall-clock stamp to the second, so two
-// donations recorded in the same second collided; and RecordDonation was the
-// only balance-changing method in the API that wrote no audit row.
+// TestDonationsAreSequentialAndAudited (LEDGER-04): sequential receipts and an
+// audit row.
 func TestDonationsAreSequentialAndAudited(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

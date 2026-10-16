@@ -1,45 +1,12 @@
 /**
- * Take a complete, encrypted copy of the Cloudinary account.
+ * An encrypted copy of the whole Cloudinary account — the only copy of member
+ * NID scans outside it (ADR-020).
  *
  *   node scripts/cloudinary-backup.mjs [outdir]
+ *   → backups/hasnahena-assets-<UTC stamp>.tar.gz.gpg  (files/ + manifest.json)
  *
- * Why this exists
- * ---------------
- * The nightly dump covers the database and nothing else. Every member's NID
- * scan, photograph and signature lives in one third-party account with no
- * export feature — the most damaging files in the system, and the only ones
- * with no copy anywhere. [ADR-020](../../../docs/decisions.md) deferred this
- * until the first real member document existed, on the grounds that an export
- * job written against an empty account cannot be tested. Six members now have
- * four documents each, so the trigger has fired.
- *
- * What it does, and does not
- * --------------------------
- * It **reads**. There is no code path here that renames, moves or deletes
- * anything on Cloudinary — that is `cloudinary-reconcile.mjs`, and keeping the
- * two apart is deliberate: the script you reach for when something has gone
- * wrong should not be able to make it worse.
- *
- * The output is one encrypted archive, named and passphrased exactly like
- * `scripts/backup.sh`'s database dump, because in an emergency the two are
- * restored together and a second convention is a second thing to remember:
- *
- *   backups/hasnahena-assets-<UTC stamp>.tar.gz.gpg
- *
- * Inside it: `files/` mirroring every public id, and `manifest.json` recording
- * what each one was — public id, folder, format, byte length and creation date.
- * The manifest is what makes the archive readable without Cloudinary: the
- * public id already names the person (`people/ACC-KH-33001/nid-front`), which
- * is the whole reason [ADR-040](../../../docs/decisions.md) files assets under
- * the account number rather than a cuid.
- *
- * It deliberately does **not** read the database. An asset backup that needs
- * Postgres to be up is one you cannot take on the day Postgres is down. For the
- * same reason it talks to the Admin API over plain `fetch` rather than through
- * the Cloudinary SDK: `node scripts/cloudinary-backup.mjs` then works on any
- * machine with node and a copy of this file, with no install step. A recovery
- * tool that first needs a healthy `node_modules` is one more thing to go wrong
- * on the day everything already has.
+ * Read-only by construction (repairs are cloudinary-reconcile.mjs). Needs no
+ * database and no SDK — plain fetch, runnable with just node and this file.
  */
 
 import { spawn } from 'node:child_process';
@@ -66,9 +33,7 @@ function configure() {
     throw new Error(`Cloudinary is not configured. Set ${missing.join(', ')}.`);
   }
 
-  // Same refusal as scripts/backup.sh, for the same reason: this archive holds
-  // national identity documents. An unencrypted copy on a laptop or in a CI
-  // artifact store is a data breach waiting for someone to notice.
+  // Refuse without encryption: this archive holds national identity documents.
   if (!process.env.BACKUP_PASSPHRASE) {
     throw new Error(
       'BACKUP_PASSPHRASE is not set — refusing to write an unencrypted copy of members’ identity documents.',
@@ -208,9 +173,7 @@ async function main() {
   console.log('listing…');
   const assets = await listAssets();
 
-  // An empty account means the credentials pointed somewhere else, or the
-  // listing silently failed. Either way, better a failed backup than a green
-  // one wrapping nothing — the same floor scripts/backup.sh puts under a dump.
+  // An empty account means wrong credentials or a failed listing — fail.
   if (assets.length === 0) {
     throw new Error(`no assets found under ${ROOT}/ — refusing to write an empty archive`);
   }

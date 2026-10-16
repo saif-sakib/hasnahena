@@ -1,14 +1,7 @@
 //go:build integration
 
-// WO-82 (OPS-07) — the reconciliation job.
-//
-// A wrong balance looks exactly like a correct balance until somebody adds it
-// up. These tests plant a specific disagreement with raw SQL, and assert the job
-// finds that one and reports it as what it is.
-//
-// Every identifier here is namespaced `rc*`, because the Go suites truncate
-// between tests and a fixture that collides with another file's would pass or
-// fail on package ordering.
+// WO-82 — the reconciliation job. Each test plants one disagreement with raw
+// SQL and asserts it is reported. Identifiers are namespaced `rc*`.
 package repositories
 
 import (
@@ -17,14 +10,8 @@ import (
 	"testing"
 )
 
-// seedBackedDeposit makes a seeded savings balance *consistent*: it writes the
-// CONFIRMED DEPOSIT row that would have produced it, with the snapshot a real
-// posting records.
-//
-// Without this every test in this file would start with drift, because
-// seedMember writes a balance and no transaction behind it — which is itself a
-// small demonstration of the point: a balance with nothing under it is
-// indistinguishable from a correct one.
+// seedBackedDeposit writes the CONFIRMED deposit behind a seeded balance, so
+// the starting ledger is consistent.
 func seedBackedDeposit(t *testing.T, userID string, amount int64, minutesAgo int) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
@@ -187,9 +174,7 @@ func TestReconcileFindsEachPlantedDrift(t *testing.T) {
 	}
 }
 
-// TestEveryCheckIsExercised keeps the table above honest. Adding a sixth
-// invariant to AllChecks without planting a drift for it would otherwise leave
-// it untested and looking covered.
+// TestEveryCheckIsExercised: each AllChecks entry needs a planted drift.
 func TestEveryCheckIsExercised(t *testing.T) {
 	covered := map[string]bool{}
 	for _, tc := range driftCases() {
@@ -219,9 +204,7 @@ func TestReconcileCorrectsNothing(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	// An automated correction to a ledger is a second defect on top of the
-	// first, and it destroys the evidence needed to understand the first. The
-	// wrong number must still be there for a human to look at.
+	// The wrong number must still be there for a human (ADR-027).
 	if got := savingsOf(t, member); got != 9000 {
 		t.Fatalf("savings = %d after reconciliation, want 9000 untouched — the job repaired "+
 			"the drift instead of reporting it", got)
@@ -245,9 +228,7 @@ func TestRecordDriftAppendsOneAuditRowPerCheck(t *testing.T) {
 	if n := countAuditLogs(t, CheckSavingsBalance, "LEDGER_DRIFT_DETECTED"); n != 1 {
 		t.Errorf("audit rows for %s = %d, want 1", CheckSavingsBalance, n)
 	}
-	// One row per *check*, not per drifting account: a lost update on a busy
-	// account can produce thousands of drifting snapshots, and a job that writes
-	// thousands of audit rows every hour makes the append-only log unreadable.
+	// One row per check, not per account.
 	var total int
 	if err := testPool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM audit_logs WHERE action = 'LEDGER_DRIFT_DETECTED'`).Scan(&total); err != nil {
@@ -294,10 +275,7 @@ func TestACleanLedgerWritesNoAuditRow(t *testing.T) {
 // A dispute is not a reversal
 // ---------------------------------------------------------------------------
 
-// A member disputing a posting flips it from CONFIRMED to DISPUTED and changes
-// no balance — the dispute is a claim that the amount was wrong, not an
-// unwinding. A reconciliation that counted only CONFIRMED would report drift on
-// every open dispute, which is an alarm that is always firing.
+// A dispute changes no balance, so DISPUTED still counts as moved (ADR-026).
 func TestADisputedPostingIsStillMoneyThatMoved(t *testing.T) {
 	repo := newTestRepo(t)
 
@@ -332,21 +310,8 @@ func TestARejectedRequestIsNotMoneyThatMoved(t *testing.T) {
 // The waterfall, end to end
 // ---------------------------------------------------------------------------
 
-// TestWaterfallRecoveryLeavesTheLedgerBalanced is the regression for two defects
-// this order's reconciliation found in `waterfallRecoveryTx`, both of which had
-// been live and neither of which failed any existing test:
-//
-//  1. The three recovery rows were inserted with **no status**, so they took the
-//     column default of `PENDING` — while the savings had already been deducted
-//     in the same transaction. A `PENDING` withdrawal is a member's *notice*
-//     (FR-08, ADR-016), so every status-filtered aggregate under-counted a
-//     recovery that had already happened.
-//  2. `accounts."loanBalance"` was never reduced. The loan was written down and
-//     the account kept the pre-default figure, so a member who had their savings
-//     taken to settle a default still saw the whole debt on their dashboard —
-//     permanently, because nothing else recomputes that column.
-//
-// Run this against the pre-fix code and it fails on both.
+// TestWaterfallRecoveryLeavesTheLedgerBalanced: recovery rows are CONFIRMED
+// and accounts.loanBalance is reduced.
 func TestWaterfallRecoveryLeavesTheLedgerBalanced(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -440,13 +405,7 @@ func seedRepayment(t *testing.T, borrower, loanID string, amount int64) {
 	`, borrower, loanID, amount)
 }
 
-// Every check reports a taka figure now.
-//
-// `transaction_owner` did not: it compared a posting's `userId` against the
-// owner of the `accountId` in the next column, and the answer was a member's
-// name rather than a sum. ADR-044 removed that column — a posting names one
-// person — so the drift it looked for cannot be represented, and the check went
-// with it. What is left is the assertion that nothing else is in that position.
+// Every check reports a taka figure.
 func TestEveryCheckReportsAnAmount(t *testing.T) {
 	for _, check := range AllChecks {
 		if !CheckHasAmount(check) {

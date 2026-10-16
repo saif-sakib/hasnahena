@@ -3,17 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * WO-64. The support proxy forwards an allow-list, and an allow-list is a copy
- * of something — which means it can be a stale copy.
- *
- * The failure this prevents is quiet and confusing: someone adds a support
- * route to the Go API, the browser calls it through `lib/api.ts` (which rewrites
- * everything under `/v1/dashboard/support` to the proxy), and it 404s in
- * production with nothing in either log explaining why, because the 404 is the
- * proxy's own and never reached Go.
- *
- * So the list is checked against the router rather than trusted. No database
- * and no network: both files are read off disk.
+ * WO-64: the support proxy's allow-list must match the /support routes in
+ * main.go — a missing entry 404s at the proxy with no log. Read off disk.
  */
 
 const proxySource = readFileSync(

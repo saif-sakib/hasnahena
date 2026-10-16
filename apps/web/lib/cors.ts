@@ -1,10 +1,6 @@
 /**
- * CORS for the Next route handlers.
- *
- * These endpoints used to answer `Access-Control-Allow-Origin: *`, which let any
- * page on the internet read and (before the auth checks were added) write them —
- * SEC-03/SEC-04. Origins now come from `CORS_ORIGINS`, the same comma-separated
- * list the Go API reads, so both backends agree on who may call them.
+ * CORS for the Next route handlers, from CORS_ORIGINS — the same list the Go
+ * API reads (SEC-03/04).
  */
 
 const DEFAULT_ORIGINS = ['http://localhost:3000', 'http://localhost:3001'];
@@ -23,11 +19,7 @@ function allowedOrigins(): string[] {
   return appUrl ? [appUrl.replace(/\/$/, '')] : DEFAULT_ORIGINS;
 }
 
-/**
- * Headers for a cross-origin response. An unrecognised (or absent) Origin gets
- * no `Access-Control-Allow-Origin` at all, which is what makes the browser
- * refuse the response — never a wildcard.
- */
+/** CORS headers; an unknown Origin gets no Allow-Origin at all, never a wildcard. */
 export function corsHeaders(request?: Request | null): Record<string, string> {
   const headers: Record<string, string> = {
     Vary: 'Origin',

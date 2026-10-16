@@ -19,11 +19,7 @@ import { toPdfSafe } from './format';
 import { CONTENT_WIDTH, PAGE } from './theme';
 
 // TEST-25 — the edges: amount boundaries, page breaks, oversized inputs,
-// English-only enforcement (ADR-012), and document numbers (ADR-013).
-//
-// These are the cases a document meets once it leaves the happy path a
-// developer tried by hand: a crore-sized figure, a member with a long name, a
-// statement covering a year, a note typed in Bengali.
+// English-only (ADR-012) and document numbers (ADR-013).
 
 const statementWith = (transactions: StatementTransaction[], closing = 0) =>
   buildStatement({
@@ -104,9 +100,7 @@ describe('pagination', () => {
 
   it('spills a long statement onto more than one page', async () => {
     const pdf = await renderPDF(statementWith(manyEntries(120), 60000));
-    // `internal.pages` is 1-indexed with a placeholder at 0, so a single-page
-    // document has length 2. jsPDF's typings do not expose getNumberOfPages on
-    // the `internal` object, hence the cast.
+    // internal.pages is 1-indexed with a placeholder at 0.
     const pages = (pdf as never as { internal: { pages: unknown[] } }).internal.pages;
     expect(pages.length - 1).toBeGreaterThan(1);
   });
@@ -151,11 +145,7 @@ describe('pagination', () => {
   });
 
   it('never draws text off the page', async () => {
-    // Anything positioned outside the page box is clipped: invisible in a
-    // viewer and absent from the print, with nothing to indicate it was there.
-    // A row that overflows the bottom instead of starting a new page is the way
-    // that happens, and it happens to the *last* rows — the most recent
-    // transactions, which are the ones a member is looking for.
+    // Overflowing rows are clipped invisibly — and they are the most recent ones.
     const pdf = await renderPDF(statementWith(manyEntries(120), 60000));
     const pages = (pdf as never as { internal: { pages: string[][] } }).internal.pages;
 
@@ -188,13 +178,7 @@ describe('pagination', () => {
 // ---------------------------------------------------------------------------
 
 describe('table columns fit their content', () => {
-  // The Reference column was 0.15 of the content width — 22.7 mm usable — while
-  // a 15-character document number measures 23.14 mm at the table's 8 pt
-  // Helvetica. Every reference on every statement wrapped, printing as
-  // `DEP-2026-00000` with a stray `1` beneath it.
-  //
-  // This measures rather than eyeballs, so the next column that is a fraction
-  // too narrow fails here instead of on a member's printed statement.
+  // Measured, not eyeballed: a 15-char document number must fit its column.
   const CELL_FONT_PT = 8;
   const CELL_PADDING_MM = 2;
 
@@ -336,9 +320,7 @@ describe('English-only enforcement (ADR-012)', () => {
   });
 
   it('transliterates typographic punctuation instead of dropping it', () => {
-    // jsPDF discards anything above U+00FF silently, which turned
-    // `the borrower’s own savings` into `the borrowers own savings` — a
-    // possessive read as a plural, in the clause naming whose money is taken.
+    // jsPDF drops anything above U+00FF; punctuation must be transliterated.
     expect(toPdfSafe('0% — Qard al-Hasan')).toBe('0% - Qard al-Hasan');
     expect(toPdfSafe('the borrower’s savings')).toBe("the borrower's savings");
     expect(toPdfSafe('“quoted”')).toBe('"quoted"');

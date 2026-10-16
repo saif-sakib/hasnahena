@@ -12,20 +12,8 @@ import {
 } from "./fixtures/accounts";
 
 /**
- * The gallery lightbox must cover the viewport on every page that renders a
- * gallery — which means it must not depend on what a page wraps the grid in.
- *
- * It did. `fixed inset-0 z-50` spans the viewport only while no ancestor opens
- * a stacking context, and on `/gallery` none does, so the lightbox was correct
- * there and correct in every test that looked at it. The home page puts the
- * same component inside `<section class="relative overflow-hidden">` >
- * `<div class="relative z-10">`; that `z-10` is a stacking context, so `z-50`
- * became 50-within-10 and the `fixed z-50` header painted straight over the
- * top of the overlay, with the section's `overflow-hidden` clipping the rest.
- *
- * So this asserts the thing that was actually wrong — the overlay covers the
- * whole viewport and nothing paints above it — and asserts it on **both**
- * pages, because checking only the page that worked is what missed it.
+ * The lightbox covers the viewport on EVERY page with a gallery — a parent
+ * stacking context once trapped it under the header on the home page.
  */
 
 const PHONE = devices["Pixel 7"].viewport!; // 412 px — the width this site is read at
@@ -33,12 +21,7 @@ const PHONE = devices["Pixel 7"].viewport!; // 412 px — the width this site is
 const CAPTION_EN = "Lightbox regression fixture";
 const CAPTION_BN = "লাইটবক্স পরীক্ষার ছবি";
 
-/**
- * Seeded through the API rather than straight into the table, because
- * `getPublicGalleryItems` is an `unstable_cache` keyed on GALLERY_TAG and the
- * route handler is what calls `revalidateTag`. A row written behind it is a row
- * the page will not show for an hour.
- */
+/** Seeded via the API so revalidateTag runs (a direct write is cached for an hour). */
 async function adminToken(request: APIRequestContext): Promise<string> {
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8099";
   const response = await request.post(
@@ -102,9 +85,7 @@ test.describe("the gallery lightbox escapes its page", () => {
         expect(box!.width).toBeGreaterThanOrEqual(PHONE.width - 1);
         expect(box!.height).toBeGreaterThanOrEqual(PHONE.height - 1);
 
-        // 2. Nothing paints above it. The header is the element that did: a hit
-        //    test at the top of the screen must land inside the overlay, not on
-        //    a nav link sitting over it.
+        // 2. Nothing paints above it (a hit test at the top lands in the overlay).
         const topCentre = await page.evaluate(
           ([x, y]) => {
             const el = document.elementFromPoint(x, y);

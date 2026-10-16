@@ -1,13 +1,5 @@
-// WO-64 — the support proxy forwards only what it is meant to forward.
-//
-// Next percent-decodes catch-all segments before a handler sees them and
-// `fetch` normalises `..` away before the request leaves the process, so the
-// old `parts.join('/')` reached any path on the API base. Nothing here proves
-// that was exploitable — the Go API authorises every route itself — but the
-// proxy is the wrong place to be relying on that.
-//
-//   scripts/test-stack.sh up && eval "$(scripts/test-stack.sh env)"
-//   pnpm --filter @hasnahena/web test:routes
+// WO-64 — the support proxy forwards only allow-listed paths (decoded `..`
+// segments once reached any API path). Needs a database.
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -172,9 +164,7 @@ describe.skipIf(skip)('support proxy', () => {
   });
 
   describe('per-member rate limiting', () => {
-    // The Go limiter sees Vercel's address for everything that arrives through
-    // this proxy, so without a limit on this side one member's burst is spent
-    // out of a bucket the whole membership shares.
+    // Through the proxy the Go limiter sees one Vercel address — limit here.
     it('stops a single caller from spending the shared upstream quota', async () => {
       const headers = { 'x-real-ip': '203.0.113.7' };
       let blocked = 0;
@@ -204,11 +194,7 @@ describe.skipIf(skip)('support proxy', () => {
     });
   });
 
-  // The proxy must not add an X-Forwarded-For entry. The Go API reads that
-  // header from the trusted end using TRUSTED_PROXIES, one global number; an
-  // entry added here lands at an index it does not read, and raising the number
-  // to compensate would make it believe a spoofed entry on the traffic that
-  // reaches it directly. ADR-021 has the full reasoning.
+  // No X-Forwarded-For entry is added (ADR-021).
   it('does not forward a caller-supplied X-Forwarded-For', async () => {
     await call('POST', ['messages'], { headers: { 'x-forwarded-for': '9.9.9.9' } });
     const headers = new Headers((seen[0].init.headers ?? {}) as HeadersInit);

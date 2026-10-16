@@ -1,11 +1,7 @@
 package repositories
 
-// Deposits, withdrawals and donations — the postings that change a savings
-// balance.
-//
-// Every balance change in here runs in ONE transaction and writes an audit_logs
-// row inside it, so a rolled-back posting cannot leave an audit row describing
-// money that never moved (CLAUDE.md rules 2 and 6).
+// Deposits, withdrawals and donations. Every balance change runs in ONE
+// transaction with its audit_logs row (rules 2 and 6).
 
 import (
 	"context"
@@ -21,54 +17,17 @@ import (
 	"hasnahena/apps/api/internal/utils"
 )
 
-// DonationFundUserID owns the donation pool account.
-//
-// The pool is found by its owner rather than by an account number, because
-// there is no longer an account number: `accounts.accountNumber` was always a
-// copy of the owner's accountNo and was removed (ADR-023). This id is set
-// explicitly by `pnpm db:seed`, and `accounts.userId` is unique, so the lookup
-// below names exactly one row — which matters, because it takes FOR UPDATE on a
-// money path.
+// DonationFundUserID owns the donation pool account; set by `pnpm db:seed`.
+// accounts.userId is unique, so the FOR UPDATE lookup names exactly one row.
 const DonationFundUserID = "system_donation_fund"
 
-// ErrDonationPoolMissing means the donation pool account does not exist.
-// It is a deployment fault rather than a request fault, so the handler answers
-// 503 and names the fix instead of 500 and naming nothing.
+// ErrDonationPoolMissing is a deployment fault: 503 naming the fix.
 var ErrDonationPoolMissing = errors.New(
 	"the donation pool account (owned by " + DonationFundUserID + ") is missing — run `pnpm db:seed` against this database")
 
-// FR-08 used to make a member's withdrawal *request* a binding notice: a
-// PENDING row whose createdAt started a clock, and neither the admin's approval
-// nor the worker's payout could move money before it ran out.
-//
-// It does not any more (ADR-030). Staff pay a withdrawal at the desk when the
-// member asks for it, and `loan.noticePeriodDays` is the courtesy period the
-// foundation publishes to members rather than a gate this code enforces. The
-// two sentinels that named the refusals — ErrNoWithdrawalNotice and
-// ErrNoticePeriodNotElapsed — are gone with the refusals themselves, and both
-// handlers' `errors.Is` branches with them.
-//
-// What survives is the *settlement*: a member may still have an outstanding
-// PENDING withdrawal row from before the change, and a payout consumes it
-// rather than writing a second row for the same money. See
-// claimOutstandingWithdrawalNotice.
-
-// Why the reasons a withdrawal is refused are sentinels rather than strings.
-//
-// Every one of these is an ordinary, expected answer — the member has not given
-// notice, the notice is not due yet, they guarantee somebody else's loan. The
-// handler has to tell them apart to answer with the right status and the right
-// sentence, and it used to do that with `strings.Contains(err.Error(), …)`.
-//
-// That failed twice at once. `"is guarantor for active loan"` also contains
-// `"active loan"`, and the active-loan branch was tested first, so a guarantor
-// was told they had a loan of their own. And the two FR-08 errors above matched
-// no branch at all, so the single most common refusal — no notice on file — fell
-// through to `500 Failed to process withdrawal`, which is how "admin member
-// withdrawal is not working" was reported.
-//
-// The message text is deliberately unchanged from the strings it replaces, so
-// any caller still matching on a substring keeps working while it is migrated.
+// Withdrawal refusals are sentinels, matched with errors.Is (rule 2b). There is
+// no notice-period gate (ADR-030); a payout still settles an outstanding
+// PENDING withdrawal — see claimOutstandingWithdrawalNotice.
 var (
 	ErrMemberNotFound             = errors.New("member not found")
 	ErrMemberNotActive            = errors.New("member not active")
@@ -77,9 +36,7 @@ var (
 	ErrGuarantorBlocksWithdrawal  = errors.New("member is guarantor for an active loan")
 )
 
-// formatNoticeDate is the one date format members see on a withdrawal. It
-// matches the generated documents (lib/documents/format.ts uses en-GB), so a
-// member comparing a notification with a statement sees the same shape.
+// formatNoticeDate matches the generated documents' en-GB date format.
 func formatNoticeDate(t time.Time) string {
 	return t.Format("02 Jan 2006")
 }
@@ -119,9 +76,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 
 	switch txType {
 	case "DEPOSIT":
-		// Credited relatively, so the row's own value is the input (ADR-015).
-		// This used to SELECT the balance and write back a total computed in Go,
-		// which loses one of two concurrent approvals against the same account.
+		// Credited relatively (ADR-015).
 		var newSavings, loanBalance int64
 		if err := tx.QueryRow(ctx, `
 			UPDATE accounts
@@ -151,11 +106,8 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			return fmt.Errorf("failed to notify member: %w", err)
 		}
 	case "WITHDRAWAL":
-		// No maturity gate (ADR-030). This used to refuse until
-		// `loan.noticePeriodMonths` had elapsed since `createdAt`; staff now
-		// decide when a withdrawal is paid, and this marks the request ready
-		// for the desk. The row still moves no money here — the debit happens
-		// in AddMemberWithdrawal, which settles this same row.
+		// No maturity gate (ADR-030): marks the request ready for the desk.
+		// Money moves in AddMemberWithdrawal, which settles this row.
 		if _, err := tx.Exec(ctx, `
 			UPDATE transactions
 			SET status = 'PROCESSED', "processedAt" = NOW(), "processedBy" = $2
@@ -336,9 +288,7 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 	}
 	defer tx.Rollback(ctx)
 
-	// The account is still joined and still locked — it just has nothing to
-	// return. Its key is the member's own id (ADR-044), which the caller already
-	// has, so a column that echoed the argument back is gone.
+	// Account is still locked; its key is the member's id (ADR-044).
 	var memberStatus, memberName string
 	if err := tx.QueryRow(ctx, `
 		SELECT
@@ -380,9 +330,7 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 		description = "Member-submitted bKash deposit request"
 	}
 
-	// A request is a document from the moment it is made: the member is told a
-	// number they can quote, and that number is the row. It is allocated inside
-	// this transaction, so a request that fails to record releases it.
+	// The request number is the row id, allocated in-transaction.
 	requestID, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDeposit)
 	if err != nil {
 		return "", err
@@ -471,9 +419,7 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			COALESCE(u."nameEn", ''),
 			COALESCE(u."nameBn", ''),
 			COALESCE(u."accountNo", ''),
-			-- On the receipt this screen prints. A receipt with no mobile number
-			-- on it is the one a member cannot be traced by at the counter, and
-			-- this query was the only source the transactions screen had.
+			-- Printed on the receipt.
 			COALESCE(u.phone, ''),
 			COALESCE(processor."nameEn", '') as processor_name
 		FROM transactions t
@@ -486,10 +432,7 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 	args := []interface{}{}
 	argCount := 0
 
-	// The deposits screen wants savings movements; the transactions screen wants
-	// every posting, disbursements and repayments included. Both read this one
-	// query, so the caller says which — and the narrow set stays the default,
-	// because that is what every existing caller means.
+	// Default: savings movements only; "all" adds every posting type.
 	if scope, _ := filters["types"].(string); scope != "all" {
 		query += ` AND t.type IN ('DEPOSIT', 'WITHDRAWAL')`
 	}
@@ -555,8 +498,7 @@ func (r *UserRepository) GetAllDeposits(ctx context.Context, filters map[string]
 			"type":   txType,
 			"amount": amount,
 			"status": txStatus,
-			// `id` is the receipt number. `externalReference` is the member's own
-			// bKash TrxID, which used to be crammed into the same column.
+			// `id` is the receipt number; externalReference is the member's bKash TrxID.
 			"externalReference": externalRef,
 			"notes":             description,
 			"processedBy":       processorName,
@@ -638,11 +580,7 @@ func (r *UserRepository) GetDonations(ctx context.Context) ([]map[string]interfa
 			COALESCE(u."nameEn", '') as donor_name,
 			COALESCE(u."nameBn", '') as donor_name_bn,
 			COALESCE(u."accountNo", '') as donor_id,
-			-- Every row, whatever its status: this is the ledger of donations and
-			-- hiding one from the admin who has to explain it helps nobody. The
-			-- status comes with it so the screens can total the *fund* on a
-			-- predicate rather than on "everything the list happened to hold",
-			-- which is how this sum and the admin dashboard's came apart.
+			-- Every status; screens total the fund on a predicate.
 			t.status::text
 		FROM transactions t
 		LEFT JOIN users u ON u.id = t."userId"
@@ -724,22 +662,14 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		FOR UPDATE
 	`, DonationFundUserID).Scan(&donationUserID, &donationBalance)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Nothing in the schema, the migrations or the application created this
-		// row until 2026-08-17 — only a test did — so on a fresh deployment
-		// every donation failed here and the admin saw "Failed to record
-		// donation" with nothing to act on. `pnpm db:seed` creates it now; this
-		// error exists so that if it is ever missing again, the message says
-		// which row and which command (TEST-18).
+		// Created by `pnpm db:seed` (TEST-18).
 		return "", ErrDonationPoolMissing
 	}
 	if err != nil {
 		return "", fmt.Errorf("read donation account: %w", err)
 	}
 
-	// Allocated from document_sequences like every other reference number
-	// (ADR-013). This used to be DON- plus a wall-clock stamp to the second, so
-	// two donations recorded in the same second collided on a number a member is
-	// handed on paper.
+	// From document_sequences (ADR-013).
 	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDonation)
 	if err != nil {
 		return "", err
@@ -754,8 +684,7 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		}
 	}
 
-	// Credited relatively (ADR-015), even though the FOR UPDATE above already
-	// serialises donations: the pool is a single row every donation contends on.
+	// Credited relatively (ADR-015); the pool row is contended by every donation.
 	var newDonationBalance int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE accounts
@@ -780,9 +709,6 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 		return "", err
 	}
 
-	// A donation changes a balance, so it leaves an audit row like every other
-	// posting (CLAUDE.md rule 2). This was the only money method in the Go API
-	// without one.
 	if err := r.insertAuditLogTx(ctx, tx, "DONATION_RECORDED", "ACCOUNT", donationUserID, recordedByID,
 		fmt.Sprintf("Donation %d BDT recorded, receipt %s, pool %d -> %d", amount, receiptNumber, donationBalance, newDonationBalance),
 	); err != nil {
@@ -796,15 +722,7 @@ func (r *UserRepository) RecordDonation(ctx context.Context, recordedByID string
 	return receiptNumber, nil
 }
 
-// ProcessDeposit was removed 2026-08-17 (WO-41). It was a second, worse deposit
-// path behind POST /v1/dashboard/worker/deposit: no audit row, a receipt number
-// taken from the request body instead of document_sequences, no transaction
-// status, and the same lost update as AddMemberDeposit. No client ever called
-// it — the worker UI posts to /worker/members/{id}/deposit — so it was a
-// duplicate money path kept alive only by its route. AddMemberDeposit below is
-// the one to use.
-
-// AddMemberDeposit adds a deposit for a member (worker action)
+// AddMemberDeposit adds a deposit for a member (worker action).
 func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerID string, amount int64, notes string) (string, error) {
 	if amount <= 0 {
 		return "", errors.New("amount must be positive")
@@ -816,10 +734,7 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 	}
 	defer tx.Rollback(ctx)
 
-	// Inside the transaction and locked. This read used to come from the pool
-	// before the transaction existed, so two workers posting to the same member
-	// both saw the old balance and the second overwrote the first — twenty
-	// concurrent deposits left one deposit's worth of money (ADR-015).
+	// Locked inside the transaction (ADR-015).
 	var status string
 	var currentBalance int64
 	if err := tx.QueryRow(ctx, `
@@ -835,15 +750,13 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		return "", errors.New("member not active")
 	}
 
-	// Allocated inside the transaction so an abandoned deposit does not burn a
-	// receipt number.
+	// In-transaction, so an abandoned deposit burns no receipt number.
 	receipt, err := r.nextDocumentNumber(ctx, tx, utils.SeriesDeposit)
 	if err != nil {
 		return "", err
 	}
 
-	// Credited relatively: the stored value is the input, not a total computed
-	// in Go from a value that may already be stale.
+	// Credited relatively (ADR-015).
 	var newBalance int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE accounts
@@ -906,26 +819,9 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 	return receipt, nil
 }
 
-// AddMemberWithdrawal processes a withdrawal for a member (worker action)
-
-// claimOutstandingWithdrawalNotice finds an unpaid withdrawal request this
-// payout can settle, and locks it. `found` is false when there is none, which
-// is the ordinary case now and not an error (ADR-030).
-//
-// Why look at all, when a member no longer files notices. Rows filed before the
-// change are still PENDING, and so are any a member submitted through the
-// member request flow that used to exist. Paying one of them at the desk must
-// *close* that row rather than write a second one beside it, or every total
-// over `transactions` counts the same withdrawal twice — once as a request and
-// once as the payment.
-//
-// "Covers the amount" rather than "equals" it: a member who asked for ৳10,000
-// and then takes ৳6,000 at the desk is withdrawing less than they asked for.
-// A payout larger than any outstanding request is simply a fresh withdrawal and
-// gets its own row.
-//
-// Oldest first, so a member with several settles the one that has waited
-// longest.
+// claimOutstandingWithdrawalNotice locks the oldest unpaid PENDING withdrawal
+// whose amount covers this payout, so paying it closes that row instead of
+// double-counting. found=false is the ordinary case (ADR-030).
 func (r *UserRepository) claimOutstandingWithdrawalNotice(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -963,10 +859,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	}
 	defer tx.Rollback(ctx)
 
-	// Locked inside the transaction. Every eligibility test below is made
-	// against this row, so it has to be the row the debit lands on — reading it
-	// from the pool first let ten concurrent withdrawals of ৳5,000 all pass a
-	// ৳10,000 balance check and all succeed (ADR-015).
+	// Locked inside the transaction; every check below is made on this row (ADR-015).
 	var status string
 	var currentBalance, activeLoan int64
 	var isGuarantor bool
@@ -996,24 +889,13 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		return "", ErrGuarantorBlocksWithdrawal
 	}
 
-	// A payout no longer needs a member request behind it (ADR-030). This used
-	// to refuse outright unless the member had filed a notice and that notice
-	// had matured — which is the rule the owner asked to lift: staff take the
-	// request in person and pay at the desk, and the notice period is now the
-	// courtesy the foundation asks for rather than a gate in this code.
-	//
-	// An outstanding request is still *settled* rather than left behind, so the
-	// ledger carries one row for one withdrawal. With none, this writes a fresh
-	// row below.
+	// No member request required (ADR-030); an outstanding one is settled.
 	noticeID, requestedAt, settlesRequest, err := r.claimOutstandingWithdrawalNotice(ctx, tx, memberID, amount)
 	if err != nil {
 		return "", err
 	}
 
-	// **Only when there is no request to settle.** A request already carries a
-	// withdrawal number and keeps it (ADR-044), so allocating one here
-	// unconditionally would consume a number no document ever bears — a gap in a
-	// series whose whole value is that it has none.
+	// A settled request keeps its own number; allocate only when there is none.
 	receipt := noticeID
 	if !settlesRequest {
 		receipt, err = r.nextDocumentNumber(ctx, tx, utils.SeriesWithdrawal)
@@ -1022,10 +904,7 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 		}
 	}
 
-	// Debited relatively, and the balance test is repeated in the WHERE clause
-	// so the check and the debit are one atomic step rather than two. No row
-	// back means the balance moved underneath us — the same answer the caller
-	// already understands.
+	// Relative debit with the balance test in the WHERE (ADR-015).
 	var newBalance int64
 	err = tx.QueryRow(ctx, `
 		UPDATE accounts
@@ -1045,27 +924,12 @@ func (r *UserRepository) AddMemberWithdrawal(ctx context.Context, memberID, work
 	if notes != "" {
 		description = notes
 	}
-	// One posting per withdrawal, whichever path got here.
-	//
-	// With an outstanding request, that row *becomes* the posting: a second row
-	// would leave the ledger carrying the same withdrawal twice — once as a
-	// request and once as a payment — and every total over `transactions` would
-	// double it. **`amount` is rewritten to what was actually paid**, which is
-	// not always what was asked for: a request covers any amount up to itself,
-	// so a member who asked for ৳10,000 and took ৳6,000 settles it at ৳6,000.
-	// Leaving the announced figure here would debit the account ৳6,000 and tell
-	// the ledger ৳10,000 — the balance and the passbook disagreeing by ৳4,000,
-	// which is the class of defect ADR-015 exists to prevent.
-	//
-	// With none, the posting is written here. It is CONFIRMED on insert because
-	// the money has already changed hands at the desk; a PENDING row would be a
-	// second withdrawal waiting to be paid (rule 6a).
+	// One posting per withdrawal. A settled request BECOMES the posting, with
+	// `amount` rewritten to what was actually paid. Otherwise insert CONFIRMED
+	// (money changed hands at the desk; rule 6a).
 	auditNote := fmt.Sprintf("Withdrawal %d BDT for member %s, receipt %s, balance %d -> %d",
 		amount, memberID, receipt, currentBalance, newBalance)
 	if settlesRequest {
-		// The request already carries a number, and it is the row's key, so
-		// settling one keeps it rather than stamping a second number onto the
-		// same posting — `receipt` is that number here.
 		if _, err := tx.Exec(ctx, `
 			UPDATE transactions
 			SET status = 'CONFIRMED',

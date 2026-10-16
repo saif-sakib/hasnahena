@@ -1,9 +1,4 @@
-/**
- * Brand constants, palette, and page geometry shared by both document
- * renderers. Colours are declared once as RGB triples: the PDF renderer needs
- * numeric channels, the HTML renderer needs hex, and a single source stops the
- * printed and downloaded copies from drifting apart.
- */
+/** Brand constants, palette and page geometry shared by both renderers (RGB once). */
 
 import type { OrgSettings } from './types';
 
@@ -11,10 +6,8 @@ export const BRAND_NAME_EN = 'Hasnahena Foundation';
 export const BRAND_NAME_BN = 'হাসনাহেনা ফাউন্ডেশন';
 export const BRAND_LOGO_PATH = '/images/logo/logo.png';
 /**
- * Print-sized copy of the lockup, flattened onto white and quantised. The
- * masthead prints it 14 mm tall, so the full-resolution asset would add ~160 kB
- * of PNG to every PDF for no visible gain; flattening also avoids relying on
- * PDF soft masks for the transparency. Regenerate from `logo.png`, not by hand.
+ * Print-sized lockup, flattened onto white (~160 kB smaller per PDF, no soft
+ * masks). Regenerate from logo.png.
  */
 export const BRAND_LOGO_PRINT_PATH = '/images/logo/logo-print.png';
 /** Intrinsic aspect ratio of the lockup (787 × 442). */
@@ -36,10 +29,7 @@ export const LEDGER_NOTICE =
 
 export const FOOTER_NOTE = 'Computer-generated document — valid without seal or signature.';
 
-/**
- * The Bengali org name is deliberately not printed on documents: they are
- * English-only, and the PDF renderer's standard fonts cannot shape Bengali.
- */
+/** English name only — documents are English (ADR-012). */
 export const getOrgNameEn = (org: OrgSettings = DEFAULT_ORG): string => {
   const name = org.nameEn?.trim();
   return !name || name.toLowerCase() === 'hasnahena' ? BRAND_NAME_EN : name;

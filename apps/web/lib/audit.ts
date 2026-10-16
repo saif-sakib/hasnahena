@@ -1,17 +1,7 @@
 import { prisma } from './prisma';
 import { headers } from 'next/headers';
 
-/**
- * The vocabulary lives in `lib/audit-actions.ts`, with both backends' actions in
- * it and a census that keeps it honest.
- *
- * What was here before was a hand-written union that had drifted into describing
- * a different system: it named `REGISTRATION_APPROVED`, `LOAN_APPROVED`,
- * `DEPOSIT_CONFIRMED`, `WITHDRAWAL_APPROVED` and `SETTINGS_UPDATED` — none of
- * which anything writes — and was missing every action the Go API does write. It
- * compiled because the only thing it constrained was the ten call sites in this
- * app, and nothing read the table.
- */
+/** The vocabulary lives in lib/audit-actions.ts. */
 export type { AuditAction } from './audit-actions';
 import type { AuditAction } from './audit-actions';
 
@@ -31,12 +21,8 @@ interface AuditLogParams {
   newValue?: object;
   details?: string;
   /**
-   * The request being handled, when the caller has it.
-   *
-   * `headers()` throws outside a request scope, and it used to throw *before*
-   * the insert — so any context where it is unavailable lost the audit row
-   * entirely rather than losing the caller's address. Passing the request
-   * avoids the lookup; failing the lookup no longer costs the row.
+   * The request being handled, if available — avoids headers(), which throws
+   * outside a request scope.
    */
   request?: Request;
 }
@@ -50,9 +36,7 @@ async function callerOrigin(request?: Request): Promise<{ userIp: string; userAg
   return { userIp, userAgent: source.get('user-agent') || undefined };
 }
 
-/**
- * Creates an audit log entry for sensitive operations
- */
+/** Create an audit log entry for a sensitive operation. */
 export async function createAuditLog(params: AuditLogParams): Promise<void> {
   try {
     const { userIp, userAgent } = await callerOrigin(params.request);

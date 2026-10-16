@@ -25,37 +25,14 @@ import {
 } from '@/lib/membership-eligibility';
 
 /**
- * Settings is the money-and-identity screen.
- *
- * It used to carry a "Landing" tab too — hero image, partner logos, section
- * headings, the login greeting and a gallery uploader, sitting beside the loan
- * multiplier and the bKash number. Publishing the public site and configuring
- * how the foundation's money works are two jobs, and they are two screens now:
- * everything a visitor *reads* moved to Content & Media, next to the gallery it
- * belongs with.
- *
- * What is left is what a wrong value costs real money or real trust: who the
- * organisation is (this prints on every generated document's letterhead), the
- * loan policy, the accounts a donor sends money to, and how long support
- * conversations are kept. `SETTINGS_CONFIG_KEYS` in lib/system-config.ts is the
- * authoritative list, and the two screens' lists are a partition — a unit test
- * refuses a key that lands in both or in neither.
+ * Settings: organisation identity, loan policy, payment channels, retention.
+ * Public-site copy is on Content & Media; SETTINGS_CONFIG_KEYS and
+ * CONTENT_CONFIG_KEYS partition the keys.
  */
 
 /**
- * What this form shows for an `org.*` row the database does not have.
- *
- * **These must equal the seeded defaults**, and until 2026-08-25 two of them did
- * not: this file said `Hasnahena` and `হাসনাহেনা` where `scripts/seed.mjs` said
- * `Hasnahena Foundation` and `হাসনাহেনা ফাউন্ডেশন`. That is not a cosmetic
- * disagreement, because these values are *written back on save* — an admin who
- * opened Settings and pressed Save, having changed something else entirely,
- * silently replaced the foundation's name with the short form, in both scripts,
- * everywhere the name is published: the JSON-LD a crawler reads, the letterhead
- * of every generated document, the browser tab. It is also why T-03 listed
- * `org.nameEn` as wrong on the live site — nobody typed that, this constant did.
- *
- * `org-defaults.test.ts` reads both files and fails when they drift again.
+ * What the form shows for a missing `org.*` row. MUST equal the seed defaults —
+ * these are written back on save (org-defaults.test.ts).
  */
 const DEFAULT_ORG_SETTINGS = {
   name: 'হাসনাহেনা ফাউন্ডেশন',
@@ -78,23 +55,13 @@ const DEFAULT_LOAN_SETTINGS = {
   missedPaymentsForDefault: 3,
   // Days, not months (ADR-030). 90 is the three months this replaced.
   noticePeriodDays: 90,
-  // WO-45. Declared since then and read by the loan application endpoint, but
-  // no screen offered it — so the only value it could ever hold was whatever
-  // the seed wrote. 0 means every loan needs a guarantor.
-  //
-  // 20000 rather than 0 because that is what `app/api/v1/loans/applications`
-  // falls back to when the row is missing, and what `seed.mjs` writes. A form
-  // whose default disagrees with the enforcer shows an admin a policy the
-  // system does not apply — the failure ADR-016 was opened for.
+  // Same 20000 fallback as the loan application route and seed.mjs (WO-45).
   guarantorThresholdAmount: 20000,
   allowActiveLoanWithdrawal: false,
 };
 
 const DEFAULT_SUPPORT_RETENTION_DAYS = 10;
-// One year. Must stay equal to `DefaultRejectedRetentionDays` in
-// apps/api/internal/repositories/retention_repository.go — this is only the
-// figure the form shows before an admin has ever saved one; the sweep reads the
-// database (WO-93, ADR-033).
+// Must equal DefaultRejectedRetentionDays in retention_repository.go (ADR-033).
 const DEFAULT_REJECTED_RETENTION_DAYS = 365;
 
 /** The donor-facing account details and the support retention policy. */
@@ -102,9 +69,7 @@ const DEFAULT_PAYMENT_SETTINGS: Record<string, string> = {
   'donation.bkash': '',
   'donation.nagad': '',
   'donation.rocket': '',
-  // WO-67. Seeded EMPTY, deliberately: /donate hides the whole bank card until
-  // an admin fills the account number in, because a plausible-looking wrong
-  // number is worse than a visible gap when a donor can act on it.
+  // Seeded EMPTY: /donate hides the bank card until filled (WO-67).
   'bank.name': '',
   'bank.accountName': '',
   'bank.accountNo': '',
@@ -136,9 +101,7 @@ export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState('organization');
   const [isSaving, setIsSaving] = useState(false);
 
-  // WO-27 — SWR, not an effect. This screen *edits* what it fetches, so the
-  // server value stays derived and only the admin's edits are state; see
-  // useDraft in lib/use-api.ts for why that distinction matters here.
+  // SWR; only the admin's edits are state (useDraft, WO-27).
   const {
     data: settingsData,
     isLoading,
@@ -146,10 +109,7 @@ export default function AdminSettingsPage() {
   } = useSWR<Record<string, string>>(
     '/api/v1/settings',
     async () => {
-      // The admin tier — every declared key, including the ones no member-facing
-      // screen may read (WO-77). Without the token this form would load the
-      // public subset and then save it back, deleting nothing but showing an
-      // admin a settings screen with fields missing.
+      // The admin tier (WO-77) — every declared key.
       const data = await readSettings();
       if (!data) throw new Error('Failed to load settings');
       return data;
@@ -210,9 +170,7 @@ export default function AdminSettingsPage() {
   );
 
   const serverPaymentSettings = useMemo<Record<string, string>>(() => {
-    // Only this screen's own string keys. Reading every string key and posting
-    // the lot back is what made the old form a second writer for the landing
-    // copy, so a save here could resurrect a value Content & Media had cleared.
+    // Only this screen's own keys, so a save cannot resurrect Content & Media's.
     const stringSettings = Object.fromEntries(
       Object.entries(settingsData ?? {}).filter(
         ([key, value]) => typeof value === 'string' && key in DEFAULT_PAYMENT_SETTINGS,
@@ -262,17 +220,13 @@ export default function AdminSettingsPage() {
       };
       const normalizedSupportRetentionDays = Math.max(1, Math.trunc(supportRetentionDays));
       const normalizedRejectedRetentionDays = Math.max(1, Math.trunc(rejectedRetentionDays));
-      // Clamped rather than merely trimmed. A value outside the bounds makes
-      // `minimumAgeYears()` fall back on read, so saving one would show the
-      // admin a number the system is not using.
+      // Clamped: an out-of-bounds value falls back on read.
       const normalizedMinimumAge = Math.min(
         MINIMUM_AGE_UPPER_BOUND,
         Math.max(MINIMUM_AGE_LOWER_BOUND, Math.trunc(minimumAge)),
       );
 
-      // Flatten settings for saving. Only SETTINGS_CONFIG_KEYS — Content & Media
-      // owns the rest, and the two lists are a partition, so neither screen can
-      // overwrite the other's rows with a copy it read minutes ago.
+      // Only SETTINGS_CONFIG_KEYS — Content & Media owns the rest.
       const settingsToSave = {
         ...paymentSettings,
         'org.name': orgSettings.name,
@@ -296,18 +250,8 @@ export default function AdminSettingsPage() {
         'security.rejectedRetentionDays': String(normalizedRejectedRetentionDays),
         'membership.minimumAgeYears': String(normalizedMinimumAge),
 
-        // The notification.*, security.* and appearance.* keys are deliberately
-        // NOT posted. Nothing in either backend reads them, and because this
-        // endpoint rejects the entire request on one unrecognised key, sending
-        // them made every save 400 — the admin could not change loan policy,
-        // organisation details or landing copy either.
-        //
-        // A read-only "System" tab used to list them here with a note saying
-        // where each behaviour is really controlled. It was removed on
-        // 2026-08-18 because a settings tab that changes nothing is still a
-        // settings tab, and an admin opening it reasonably expects controls.
-        // UNIMPLEMENTED_CONFIG_KEYS in lib/system-config.ts carries that
-        // mapping now — wire a reader before ever putting one back on screen.
+        // Unimplemented keys (UNIMPLEMENTED_CONFIG_KEYS) are never posted — the
+        // endpoint would reject the whole request.
       };
 
       setLoanSettings(normalizedLoanSettings);
@@ -321,10 +265,7 @@ export default function AdminSettingsPage() {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        // Filtered to this screen's own keys rather than posted as assembled.
-        // The two admin screens share one key/value table, and each save posts a
-        // whole list, so a stray key here would silently revert whatever Content
-        // & Media last wrote to it.
+        // Filtered to this screen's keys.
         body: JSON.stringify(
           Object.fromEntries(
             Object.entries(settingsToSave).filter(([key]) =>
@@ -339,15 +280,10 @@ export default function AdminSettingsPage() {
         throw new Error(payload?.error || 'Failed to save settings');
       }
 
-      // Letterhead values are cached for the session, so documents generated
-      // after this save would otherwise keep printing the old organisation
-      // details until a full reload.
+      // Letterhead values are cached for the session.
       clearOrgSettingsCache();
 
-      // Saved, so the drafts hand control back to the server value. Re-reading
-      // first means the form now shows what the API actually stored — which is
-      // the only way an admin finds out that a value was normalised on the way
-      // in rather than accepted as typed.
+      // Re-read so the form shows what was actually stored.
       await fetchSettings();
       resetOrgDraft();
       resetLoanDraft();
@@ -487,14 +423,7 @@ export default function AdminSettingsPage() {
                   />
                 </div>
 
-                {/*
-                  Two boxes, like the two name boxes above. One address box was
-                  shown to both audiences, so whichever script it was typed in
-                  appeared on the other language's site too — the Bengali
-                  address sat under an English "Address" heading on every public
-                  page. This one also prints on every generated document, which
-                  ADR-012 makes English only.
-                */}
+                {/* Two address boxes (Bengali + English); the address also prints on English-only documents. */}
                 <div className="space-y-2">
                   <Label htmlFor="org-address-en" className="flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
@@ -537,16 +466,7 @@ export default function AdminSettingsPage() {
                   />
                 </div>
 
-                {/*
-                  Two boxes, for the third time on this screen — name, address,
-                  and now description. This one is the least visible and was the
-                  last found: nothing on any page renders it, so the only reader
-                  is the JSON-LD an admin never sees. The single box was filled
-                  in in Bengali, which is the natural thing to do under a label
-                  that gives no hint, and the English home page published a
-                  Bengali NGO description to every crawler and assistant that
-                  read it.
-                */}
+                {/* Two description boxes; the English one feeds the JSON-LD. */}
                 <div className="space-y-2">
                   <Label htmlFor="org-description-en">
                     {locale === 'bn' ? 'বিবরণ (ইংরেজি)' : 'Description (English)'}
@@ -711,12 +631,7 @@ export default function AdminSettingsPage() {
                   </p>
                 </div>
 
-                {/*
-                  WO-93 / ADR-033. The rejection decision and its audit row are
-                  kept for ever; the applicant's identity documents are not.
-                  Editable rather than a constant so shortening the window is an
-                  admin decision rather than a deploy.
-                */}
+                {/* ADR-033: the decision is kept forever, identity data is not. */}
                 <div className="space-y-2 max-w-xs">
                   <Label htmlFor="rejected-retention" className="flex items-center gap-2">
                     <ShieldAlert className="h-4 w-4" />
@@ -743,14 +658,7 @@ export default function AdminSettingsPage() {
                   </p>
                 </div>
 
-                {/*
-                  T-07 / 2026-08-26. Date of birth was validated only as "not in
-                  the future", so an infant passed and became a pending member.
-                  A setting rather than a constant at the owner's direction: it
-                  is foundation policy, and both the registration form and the
-                  API read it — the form so the applicant is told on step 1, the
-                  API because it must not trust the form.
-                */}
+                {/* Read by the registration form and the API (T-07). */}
                 <div className="space-y-2 max-w-xs">
                   <Label htmlFor="minimum-age" className="flex items-center gap-2">
                     <ShieldAlert className="h-4 w-4" />
@@ -901,14 +809,7 @@ export default function AdminSettingsPage() {
                     </p>
                   </div>
 
-                  {/* ADR-030. This used to be enforced, in months, on both
-                      payout paths. It is now what the foundation ASKS for, in
-                      days: staff pay a withdrawal when the member asks, and
-                      this figure is published on the member's savings screen
-                      and in the FAQ so they know how much warning to give.
-                      Saying so on the control matters — an admin who believes
-                      this blocks a payout will not understand why one went
-                      through. */}
+                  {/* ADR-030: informational — what the foundation asks for, not a payout gate. */}
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Clock className="h-4 w-4" />

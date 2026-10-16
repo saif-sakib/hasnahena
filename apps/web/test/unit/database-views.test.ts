@@ -3,36 +3,15 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /**
- * The `v_*` views, and the columns they promise not to lose.
- *
- * The views exist so the database can be read by hand: every join in this schema
- * is between two cuids, so answering "what did this member deposit last week" in
- * a SQL console meant copying ids between three queries. They are the one place
- * where readability outranks normalisation, and that is affordable only because
- * nothing writes through them and no application code reads them.
- *
- * A view is *not* checked by the compiler and not checked by
- * `pnpm db:migrate:check` — Prisma's `migrate diff` does not model views at all,
- * which is exactly why adding them cost no drift and exactly why nothing would
- * notice them rotting. A column renamed in `schema.prisma` fails the next
- * migration against a database that has these views, at deploy time, which is
- * the wrong moment to find out. This finds out at `pnpm test:unit`.
+ * The `v_*` views (human SQL reading only) and the columns they name — invisible
+ * to the compiler and db:migrate:check, so a rename would fail at deploy time.
  */
 const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
 const SCHEMA = readFileSync(join(WEB_ROOT, 'prisma', 'schema.prisma'), 'utf8');
 
 const MIGRATIONS = join(WEB_ROOT, 'prisma', 'migrations');
 
-/**
- * The **current** definition of each view.
- *
- * Read from every migration in order and keyed by view name, so the last
- * `CREATE OR REPLACE VIEW v_people` wins — which is exactly what the database
- * ends up with. Reading only the `_readable_views` migration was the first
- * version, and it is wrong the moment a later migration replaces a view: it
- * would report a column as missing that the view stopped naming, and, worse,
- * would keep passing for a view that a later migration broke.
- */
+/** The CURRENT definition of each view: the last CREATE OR REPLACE across migrations. */
 const VIEW_BODIES = new Map<string, string>();
 for (const dir of readdirSync(MIGRATIONS).filter((d) => !d.endsWith('.toml')).sort()) {
   let sql: string;
@@ -55,21 +34,11 @@ describe('the readable views', () => {
   });
 
   it('name only columns that still exist in schema.prisma', () => {
-    // Every column this schema declares is quoted camelCase in SQL, because
-    // Prisma maps the model field name straight through (CONTRIBUTING.md). So
-    // the quoted identifiers in the view bodies are exactly the set that a
-    // rename would invalidate. The bare lowercase ones are checked separately
-    // below — this test used to argue they did not need to be, on the grounds
-    // that a rename would break every other query too. That was wrong, and
-    // `branches.code` is how: nothing else selected it, so dropping it broke
-    // exactly one thing, and that one thing is invisible to the compiler and to
-    // `pnpm db:migrate:check`.
+    // Quoted camelCase identifiers are exactly what a field rename invalidates.
     const quoted = new Set(
       [...VIEWS_SQL.matchAll(/"([a-z][A-Za-z0-9]*)"/g)].map((m) => m[1]),
     );
-    // Two kinds of quoted name are legitimate without being a field name: a
-    // table's `@@map` target, and a column renamed away from its field name with
-    // `@map` (`AuditLog.userId @map("performedBy")` is the one that exists).
+    // Legitimate non-field names: @@map tables and @map columns.
     const mapped = new Set([
       ...[...SCHEMA.matchAll(/@@map\("([^"]+)"\)/g)].map((m) => m[1]),
       ...[...SCHEMA.matchAll(/@map\("([^"]+)"\)/g)].map((m) => m[1]),
@@ -90,11 +59,7 @@ describe('the readable views', () => {
   });
 
   it('name only lowercase columns that still exist either', () => {
-    // `b.code`, `u.phone`, `a."savingsBalance"`. The unquoted half is the one
-    // that got away: a column whose name is already lowercase needs no quotes,
-    // so it does not appear in the check above, and `branches.code` was dropped
-    // while `v_people` still selected it. That fails at `prisma migrate deploy`
-    // — during a deployment, on the migration *after* the one that broke it.
+    // Unquoted lowercase columns too (dropping branches.code broke v_people).
     const referenced = new Set(
       [...VIEWS_SQL.matchAll(/\b[a-z]\.([a-z][a-z0-9_]*)\b/g)].map((m) => m[1]),
     );
@@ -115,14 +80,7 @@ describe('the readable views', () => {
   });
 
   it('lead with the identifier a human has, under a name that says what it is', () => {
-    // The whole point, restated for a schema where the keys ARE the identifiers.
-    //
-    // The rule used to be "the first column must not be `x.id`", because `x.id`
-    // was a cuid and a view opening with one is the table again. Since ADR-044
-    // it is `DEP-2026-000001` or `LOAN-2026-000012`, so the *column* is no
-    // longer what distinguishes a readable view from a raw one — the **alias**
-    // is. A first column of `t.id AS receipt` is exactly right; one of
-    // `t.id AS transaction_id` is the table again under a new name.
+    // The first column's ALIAS says it is readable (keys are identifiers since ADR-044).
     const READABLE_FIRST_ALIAS = /^(account_no|receipt|loan_no|key|at|name)$/;
     for (const [, name, body] of VIEWS_SQL.matchAll(
       /CREATE OR REPLACE VIEW (v_\w+) AS\s*SELECT\s*([\s\S]*?)\nFROM/g,
@@ -139,18 +97,7 @@ describe('the readable views', () => {
 });
 
 describe('loan eligibility is derived, never stored', () => {
-  /**
-   * `accounts.maxLoanAmount` was inserted as 0 and never updated by anything,
-   * while two production queries selected it — one of them behind the "Loan
-   * Eligibility / Max loan limit" tile on every member's home screen. So a
-   * member with 50,000 taka saved was told on their first screen that they could
-   * borrow nothing, while the loans page two clicks away computed the real
-   * figure from the same savings balance and showed it.
-   *
-   * `isLoanEligible` was never read at all, which is how the two creation paths
-   * came to disagree about it — the Next registration route wrote `false`, the
-   * Go approval path wrote `true`, for the same member, minutes apart.
-   */
+  /** No stored eligibility column — it was written 0 and never updated. */
   it('has no eligibility column on the Account model', () => {
     const model = /model Account \{[\s\S]*?\n\}/.exec(SCHEMA)?.[0] ?? '';
     expect(model.length).toBeGreaterThan(100);
@@ -168,9 +115,7 @@ describe('loan eligibility is derived, never stored', () => {
     const apiRoot = resolve(WEB_ROOT, '..', 'api', 'internal', 'repositories');
     for (const file of ['member_repository.go', 'admin_repository.go']) {
       const source = readFileSync(join(apiRoot, file), 'utf8');
-      // The SQL form specifically — table-qualified. `member_repository.go`
-      // legitimately puts a `maxLoanAmount` key in the JSON it returns; what
-      // must not come back is a *column* by that name being selected.
+      // The SQL column form only (a JSON key of that name is fine).
       expect(source, `${file} selects a stored maximum again`).not.toMatch(
         /\."maxLoanAmount"|"maxLoanAmount"\s*(?:,|\))/,
       );

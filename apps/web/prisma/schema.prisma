@@ -54,20 +54,7 @@ enum TransactionStatus {
   REVERSED
 }
 
-/// The loan lifecycle, and only the lifecycle.
-///
-/// `PENDING` and `APPROVED` used to sit here too, kept "for compatibility with
-/// older UI mocks" — two vocabularies for one concept, with `PENDING` as the
-/// column default, so every new row was written into the legacy one. That cost
-/// at least two real defects: the guarantor panel filtered `PENDING` while
-/// applications create `PENDING_GUARANTOR`, so a guarantor never saw their
-/// request; and `GetLoanStats` counted `status = 'PENDING'` as "pending loans",
-/// which meant the admin dashboard reported zero pending loans no matter how
-/// many were waiting.
-///
-/// Collapsed by WO-71: `PENDING` → `PENDING_APPROVAL`, `APPROVED` → `ACTIVE`.
-/// Postgres will not drop an enum label any row still references, which is why
-/// this had to happen before real loans existed.
+/// The loan lifecycle only (legacy PENDING/APPROVED collapsed by WO-71).
 enum LoanStatus {
   // Application, in order.
   PENDING_GUARANTOR
@@ -89,77 +76,31 @@ enum LoanStatus {
 
 model User {
   id           String     @id
-  /// **`email`, `phone` and `nidNumber` are unique, and this file cannot say
-  /// so.** All three carry *partial* unique indexes that Prisma can express
-  /// neither the predicate nor (for email) the expression of, so they are
-  /// invisible here and to `prisma migrate diff` — the same blind spot as the
-  /// CHECK constraints and the `audit_logs` trigger, and the reason a
-  /// `--from-empty` baseline would drop them silently. The full list is in
-  /// docs/data-model.md.
-  ///
-  ///   `users_email_live_key`  UNIQUE (lower(email))  WHERE not rejected
-  ///   `users_phone_live_key`  UNIQUE (phone)         WHERE not rejected
-  ///   `users_nid_live_key`    UNIQUE ("nidNumber")   WHERE not rejected
-  ///
-  /// Added by `20260826120000_live_identity_uniqueness`, replacing the
-  /// unconditional `@unique` attributes and WO-90's `users_email_lower_key`.
-  /// Case-insensitivity is kept from WO-90: `Saif@x.com` and `saif@x.com` are
-  /// one person, and a convention that every write path lowercases first is not
-  /// a constraint.
-  ///
-  /// **Only live rows are constrained**, because a rejected applicant must be
-  /// able to apply again with the same details (owner's ruling, 2026-08-26).
-  /// The alternative, which this replaced, was overwriting their email and
-  /// phone at the moment of rejection — which freed the constraint by
-  /// destroying the only way to tell them they had been rejected. The predicate
-  /// is defined once per language in `lib/rejected-application.ts` and in the
-  /// Go API's `RejectedApplicationSQL`, and pinned by
-  /// `rejected-application.test.ts`.
-  ///
-  /// The consequence for every lookup: **two rows may now share an email**, so
-  /// a query by email or phone that does not exclude rejected applications can
-  /// return one.
+  /// email, phone and nidNumber are UNIQUE among live rows via partial indexes
+  /// Prisma cannot express (invisible to `migrate diff`; a --from-empty baseline
+  /// drops them — docs/data-model.md):
+  ///   users_email_live_key  UNIQUE (lower(email))  WHERE not rejected
+  ///   users_phone_live_key  UNIQUE (phone)         WHERE not rejected
+  ///   users_nid_live_key    UNIQUE ("nidNumber")   WHERE not rejected
+  /// A rejected applicant may reapply, so two rows may share an email: every
+  /// lookup by contact detail must exclude rejected applications.
   email        String?
   phone        String
   passwordHash String
   role         UserRole   @default(MEMBER)
   status       UserStatus @default(PENDING)
 
-  /// Why an application was turned down, and when.
-  ///
-  /// The reason used to exist only in `audit_logs.details`, which no screen can
-  /// read — and the admin UI posted an empty string, so FR-05's "with reason"
-  /// was not met on the reject side. `rejectionReasonCode` is one of the preset
-  /// codes in `lib/rejection-reasons.ts`; `rejectionReasonNote` is the admin's
-  /// optional free text.
-  ///
-  /// The note is cleared by the retention sweep with the rest of the identity
-  /// data (ADR-033) — an admin may have typed identifying detail into it. The
-  /// code and the date are the decision itself and are kept for ever.
+  /// Why an application was refused (FR-05): a code from lib/rejection-reasons.ts
+  /// (kept forever) and an optional note (cleared by the retention sweep, ADR-033).
   rejectionReasonCode String?
   rejectionReasonNote String?
   rejectedAt          DateTime?
 
-  /// The language the applicant filled the form in, so the foundation writes to
-  /// them in it.
-  ///
-  /// Before this the approval email's language came from the **admin's**
-  /// dashboard locale, passed up from the approvals screen — so a Bengali
-  /// applicant approved by an admin working in English received the single most
-  /// important email the foundation sends, carrying their temporary password,
-  /// in a language they may not read. The applicant's own language was known at
-  /// the moment they applied and was thrown away.
-  ///
-  /// Nullable because every member who registered before 2026-08-26 has no
-  /// recorded preference; those fall back to the admin's locale as before.
+  /// The applicant's form language, for decision emails. Null before 2026-08-26.
   preferredLocale String?
 
-  // Profile
-  //
-  // The member's account number — `ACC-KH-33001`. It was called `memberId`
-  // until 2026-08-19; the value, its format and its allocator are unchanged.
-  // ADR-023 remains the rule it always was: this is the *only* identifier a
-  // member is given, and nothing may print it under a second name.
+  // Profile. accountNo (`ACC-KH-33001`) is the ONLY identifier a member is
+  // given (ADR-023); called memberId before 2026-08-19.
   accountNo  String? @unique // গ্রাহক আই.ডি
   formNumber String? // ফরম নং
 
@@ -190,18 +131,7 @@ model User {
   approvedUsers  User[]    @relation("UserApprovals")
 
   // Relations
-  /// **One relation, not two.** There used to be a `permanentAddress` and a
-  /// `presentAddress`, each a separate optional one-to-one carrying its own
-  /// nullable unique foreign key back here — two columns on `addresses` of
-  /// which exactly one was ever set, and a `cuid()` primary key on top of them
-  /// identifying a row that is already identified by whose address it is and
-  /// which of the two it is.
-  ///
-  /// `addresses` is now keyed on `(userId, type)`. Which kind of address a row
-  /// is became a value in a column instead of a choice between two columns, so
-  /// "this person's permanent address" is one predicate rather than one of two
-  /// join paths, and the pair cannot get into the state the old shape allowed:
-  /// a row with both keys set, or with neither.
+  /// Both addresses in one relation, keyed (userId, type).
   addresses Address[]
 
   nominee                 Nominee?
@@ -218,38 +148,12 @@ model User {
   sseTickets              SseTicket[]      @relation("UserSseTickets")
   notifications           Notification[]   @relation("UserNotifications")
 
-  /// The office this person belongs to — **a member's as well as a worker's**.
-  ///
-  /// Was a free-text string with no referential integrity until WO-72: renaming
-  /// a branch left every worker pointing at the old name, and a typo created a
-  /// branch that existed only on that one row.
-  ///
-  /// It said "members do not have one" until 2026-08-27, and the column had
-  /// never been restricted to staff — only nothing ever wrote it for a member.
-  /// The read side was already built: the admin member list `LEFT JOIN`s
-  /// branches on this exact column and has always returned `null` for every
-  /// member, because there was no write path rather than because there was no
-  /// column. The owner's ruling was to fill it in, which cost a write path and
-  /// no migration.
-  ///
-  /// Nullable, and stays that way. A member registering while the foundation has
-  /// more than one office cannot be assigned automatically, and guessing is
-  /// worse than an admin picking; `onDelete: SetNull` means closing an office
-  /// does not delete the people who banked there.
+  /// The person's office — members' and workers' alike (WO-72). Nullable: set by
+  /// the admin at approval; SetNull so closing an office deletes nobody.
   assignedBranch   Branch? @relation("AssignedBranch", fields: [assignedBranchId], references: [id], onDelete: SetNull)
   assignedBranchId String?
 
-  /// Lookup by phone, non-unique.
-  ///
-  /// `phone` used to be `@unique`, which served both purposes at once. Now that
-  /// uniqueness is a *partial* index Prisma cannot model
-  /// (`users_phone_live_key`), the lookup needs its own declaration — login and
-  /// the availability check both search by phone and must find rejected rows
-  /// too, which the partial index by definition does not cover.
-  ///
-  /// Declared here rather than left in the migration alone because Prisma *can*
-  /// express this one, so an undeclared version is reported as drift by
-  /// `pnpm db:migrate:check` on every run.
+  /// Non-unique phone lookup (login and availability must find rejected rows too).
   @@index([phone])
   @@index([status, createdAt])
   @@index([role, status])
@@ -260,21 +164,12 @@ model User {
 }
 
 /// Which of a person's two addresses this row is.
-///
-/// A value in a column, replacing a choice between two nullable foreign keys.
 enum AddressType {
   PERMANENT
   PRESENT
 }
 
-/// A person has at most one of each kind, so that pair **is** the key.
-///
-/// This carried a `cuid()`, plus `userPermanentId` and `userPresentId` — three
-/// columns to identify a row that "the permanent address of ACC-KH-33001"
-/// already identifies completely, and two of the three were always null. The
-/// surrogate key named nothing a human could look up and nothing else ever
-/// referenced it: no foreign key pointed at `addresses.id`, and no screen, no
-/// document and no audit row ever printed one.
+/// At most one of each kind per person, so (userId, type) is the key.
 model Address {
   type          AddressType
   houseNo       String // বাড়ী নং
@@ -292,34 +187,20 @@ model Address {
   @@map("addresses")
 }
 
-/// The person who receives the account if the member dies — one per member.
-///
-/// Keyed on the member, because that is the only thing that identifies it. The
-/// `cuid()` this used to carry sat beside a `userId` that was already `@unique`:
-/// two columns, one of them unreadable, guaranteeing the same single row.
+/// The person who receives the account if the member dies — keyed on the member.
 model Nominee {
   name         String // নমিনীর নাম
   relationship String // সম্পর্ক
   nidNumber    String // নমিনীর NID
   phone        String?
 
-  // Relation. The member's own number is the key — `ACC-KH-33001` names its
-  // nominee row exactly as well as any invented id could, and can be typed into
-  // a console by somebody holding a passbook.
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String @id
 
   @@map("nominees")
 }
 
-/// One uploaded file, identified by whose it is and what it is.
-///
-/// A registration submits exactly one of each of the four types in
-/// `lib/application-documents.ts`, and the uploader writes each to a fixed
-/// public id under the owner's folder — so `(userId, type)` was already unique
-/// by construction on the image host before it was declared here. Saying so in
-/// the schema means a second `nid_front` for one person is refused by the
-/// database rather than by a convention.
+/// One uploaded file, keyed by owner and type (one of each per registration).
 model Document {
   type     String // passport_photo, nid_front, nid_back, nominee_photo
   url      String
@@ -332,10 +213,7 @@ model Document {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
 
-  // The composite key leads with `userId`, which is how both approval screens
-  // read this table (`WHERE "userId" = $1`), so it answers that on its own —
-  // the separate index this model used to carry would now be a duplicate of the
-  // primary key's own btree.
+  // Leads with userId, which is how both approval screens read this table.
   @@id([userId, type])
   @@map("documents")
 }
@@ -344,98 +222,35 @@ model Document {
 // FINANCIAL ACCOUNTS
 // ============================================================
 
-/// One account per user, and the relation is one-to-one because that is what
-/// every query already assumed — member lookups all read `WHERE "userId" = $1`
-/// and expect a single row.
-///
-/// There is no `accountNumber` on this model. It used to exist and was always
-/// set to the owner's identifier, in both creation paths, so a member's
-/// statement printed the same string twice under two labels.
-/// `users.accountNo` is the one identifier (ADR-008, ADR-023): it exists before
-/// any account does, it has a format members read aloud, and it is what the
-/// receipt and the loan agreement had always used on their own.
-///
-/// It was called `users.memberId` until 2026-08-19. Same column, same values,
-/// same allocator — the name now matches the `ACC-` the values have always
-/// started with, and matches what a member is told to quote.
+/// One account per user, keyed by the owner's id. No accountNumber — users.accountNo
+/// is the one identifier (ADR-023).
 model Account {
   // Balances (stored in Taka for precision)
   savingsBalance BigInt @default(0) // সঞ্চয় স্থিতি
   loanBalance    BigInt @default(0) // ঋণ স্থিতি
 
-  /// There is no `maxLoanAmount` and no `isLoanEligible` here either, and for
-  /// the same reason there is no `accountNumber`: the answer already exists
-  /// somewhere it cannot go stale.
-  ///
-  /// `maxLoanAmount` was written 0 when the account was created and **never
-  /// updated by anything** — while two production queries selected it and one
-  /// of them fed the "Loan Eligibility / Max loan limit" tile on every member's
-  /// home screen. So every member was told they could borrow nothing, for ever,
-  /// while the loans page two clicks away computed `savings x multiplier` and
-  /// showed the real figure. `isLoanEligible` was worse in the quiet way: the
-  /// two creation paths disagreed about it (registration wrote `false`, admin
-  /// approval wrote `true`) and nothing noticed, because nothing read it.
-  ///
-  /// Both are derived from `savingsBalance` and `loan.maxLoanMultiplier` by
-  /// `money.MaxLoanAmount` / `money.CheckEligibility`, which is what the staff
-  /// screens and the loans page always used.
+  /// No stored maxLoanAmount / isLoanEligible: derived from savingsBalance and
+  /// loan.maxLoanMultiplier (money.MaxLoanAmount), so they cannot go stale.
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// **The owner's number is the key.** There is no separate `id`, for the same
-  /// reason there is no `accountNumber`: `userId` was already `@unique`, so the
-  /// `cuid()` beside it identified nothing the account holder's own number did
-  /// not identify better. It leaked, too — `WITHDRAWAL_POSTED` and the other
-  /// balance-change audit rows record `entityType: 'ACCOUNT'` with this value
-  /// as `entityId`, so the audit screen printed `cmob97efh00003zynz0as5knq`
-  /// where it now prints `ACC-KH-33001`.
-  ///
-  /// Nothing points here any more either: `transactions` and `loans` used to
-  /// carry an `accountId` **and** the member's own id, always equal, and the
-  /// second was the one every query actually filtered on.
+  /// The owner's id is the key (ADR-044).
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String @id
 
   @@map("accounts")
 }
 
-/// One posting. **The id is the receipt number.**
-///
-/// `DEP-2026-000001` for a deposit, `WDR-` for a withdrawal, `DSB-` for a
-/// disbursement, `REP-` for an instalment, `DON-` for a donation, `ADJ-` for a
-/// recovery against the donation pool — allocated from `document_sequences` in
-/// the same database transaction that writes the row, so a rolled-back posting
-/// releases its number and the series stays gapless.
-///
-/// There used to be a `cuid()` primary key and a **nullable** `receiptNumber`
-/// beside it. Two identifiers for one posting, of which the one printed on the
-/// member's copy was the one the database did not require: four inserts in
-/// `loan_repository.go` wrote no receipt at all, so a disbursement, a default
-/// recovery from either party's savings, and a draw on the donation pool were
-/// each a line in the ledger that nothing on paper could be matched against.
-/// Every posting now carries a number a member can read aloud, and it is the
-/// key, so a second row can never claim it.
-///
-/// There is no `accountId` either. It was NOT NULL, it always held the account
-/// of the `userId` in the next column, and it is the column an insert forgot
-/// (loan_repository.go:971 records the row that reached production without
-/// one). One posting names one person.
+/// One posting; the id IS the receipt number (DEP-/WDR-/DSB-/REP-/DON-/ADJ-),
+/// allocated from document_sequences in the posting's transaction (ADR-044).
 model Transaction {
   id          String          @id
   type        TransactionType
   amount      BigInt // Amount in Taka
   description String?
 
-  /// The **member's** reference, not the foundation's: the bKash TrxID typed
-  /// into a deposit or instalment request so staff can find the payment.
-  ///
-  /// It used to be written into `receiptNumber`, which is how one column came
-  /// to hold two unrelated facts — a number the foundation issues and a number
-  /// somebody else issued — told apart only by the row's status. Searching the
-  /// ledger by receipt therefore matched bKash references too, and a request
-  /// that was later confirmed had its member reference overwritten by the
-  /// receipt, losing the only link back to the payment.
+  /// The MEMBER's own reference (bKash TrxID), never the receipt number.
   externalReference String?
 
   status      TransactionStatus @default(PENDING)
@@ -464,10 +279,7 @@ model Transaction {
 
   @@index([type, status, createdAt])
   @@index([status, createdAt])
-  // This answers what `([accountId, createdAt DESC])` used to, and what the
-  // dropped `([receiptNumber])` used to: a member's postings newest first, and
-  // a lookup by the number on the receipt — which is now the primary key, so it
-  // has an index by definition.
+  // A member's postings, newest first.
   @@index([userId, createdAt(sort: Desc)])
   @@index([processedBy, processedAt])
   // A loan's repayment history — loan_repository.GetLoanRepayments (WO-68).
@@ -479,19 +291,7 @@ model Transaction {
 // LOANS
 // ============================================================
 
-/// One loan. **The id is the loan number** — `LOAN-2026-000012`, the number
-/// printed on the agreement the member signs.
-///
-/// `id` and `loanNumber` were two required, uniquely-identifying columns for
-/// one loan: the same redundancy `branches` and `system_config` each had, and
-/// the `cuid()` was the half that reached the audit trail. `LOAN_DISBURSED`,
-/// `LOAN_TOPPED_UP` and `LOAN_REPAYMENT_POSTED` all record `entityType: 'LOAN'`
-/// with the key as `entityId`, so an admin reading the audit screen saw an
-/// opaque string for a loan whose agreement, notification and repayment receipt
-/// all named it `LOAN-2026-000012`.
-///
-/// `accountId` is gone for the reason it is gone from `transactions`: it was
-/// always the account of `borrowerId`, which is in the next column.
+/// One loan; the id IS the loan number (`LOAN-2026-000012`, ADR-044).
 model Loan {
   id String @id
 
@@ -534,10 +334,7 @@ model Loan {
   @@index([status, createdAt])
   @@index([borrowerId, status])
   @@index([approvedBy, approvedAt])
-  // WO-68. `guarantorId` is filtered in nine places and always together with
-  // status — including a correlated EXISTS evaluated once per row of the member
-  // list. Composite, so that predicate is answered from the index rather than
-  // by reading each candidate row to check its status.
+  // WO-68: guarantorId is always filtered with status.
   @@index([guarantorId, status])
   @@map("loans")
 }
@@ -546,29 +343,9 @@ model Loan {
 // SYSTEM
 // ============================================================
 
-/// A physical office. Until 2026-08-19 this table existed and nothing read or
-/// wrote it, while `users.assignedBranch` held a free-text branch name with no
-/// link to it — a table modelling branches and a string modelling branches, not
-/// connected to each other. That is the ADR-023 shape: one fact, two homes, kept
-/// equal by hand or not at all (WO-72).
-///
-/// `code` is the human-readable prefix (`KH` for Bhekutia). Note that account
-/// numbers are generated from the hardcoded constant `utils.AccountNoPrefix`
-/// ("ACC-KH-33"), NOT from this column — a second branch therefore needs a code
-/// change in `account_no.go` as well as a row here. That is recorded rather than
-/// fixed: making the prefix dynamic would change the format of an identifier
-/// members read aloud and write into paper passbooks (ADR-008).
-/// The code IS the primary key.
-///
-/// This carried a `cuid()` as well, and the pair was the same redundancy
-/// `system_config` had: two required, uniquely-identifying columns for one
-/// thing. `KH` is what an admin types into the form, what is printed beside the
-/// office name, and what `users.assignedBranchId` now reads in a console.
-///
-/// Safe here and not for `users`: a branch has one inbound foreign key, a
-/// handful of rows, and its id has never been written into an audit row, a
-/// document, a Cloudinary folder or a token. Set explicitly on create — there is
-/// no default, because inventing a code is the one thing this must not do.
+/// A physical office; the code (`KH`) IS the primary key, set explicitly
+/// (ADR-041). Account numbers do NOT derive from it — the ACC-KH-33 prefix is
+/// fixed in account_no.go (ADR-008).
 model Branch {
   id      String  @id
   name    String
@@ -579,12 +356,7 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// Everyone attached to this office — members and staff alike.
-  ///
-  /// Named `staff` until 2026-08-27, which is what made "members do not have a
-  /// branch" look like a property of the schema rather than of the write paths.
-  /// It is a Prisma-side field name and maps to no column, so the rename is not
-  /// a migration.
+  /// Everyone attached to this office — members and staff.
   users User[] @relation("AssignedBranch")
 
   @@index([isActive, name])
@@ -592,16 +364,6 @@ model Branch {
 }
 
 /// The key IS the primary key.
-///
-/// This carried a `cuid()` surrogate as well, which nothing ever selected,
-/// joined or referenced — it was written and then never looked at again. What it
-/// did do was put 74 rows of `cmpbicztq00192zn69dh1j9w5` in front of anybody
-/// opening the table in a database console, in the leftmost column, on the table
-/// that is edited by hand more often than any other.
-///
-/// Same principle as `DocumentSequence` below, which has always been keyed on
-/// `(series, year)`: where a real identifier exists and nothing points at the
-/// row, the real identifier is the key.
 model SystemConfig {
   key         String  @id
   value       String
@@ -612,10 +374,8 @@ model SystemConfig {
   @@map("system_config")
 }
 
-/// Allocates the running number behind every receipt, withdrawal, loan and
-/// repayment reference (DEP-2026-000123). One row per series per year; the Go
-/// API increments it inside the same transaction as the posting it names, so
-/// numbers are unique, sequential, and never consumed by a failed posting.
+/// The running number behind every reference (DEP-2026-000123), one row per
+/// series per year, incremented in the posting's own transaction.
 model DocumentSequence {
   series  String
   year    Int
@@ -628,27 +388,11 @@ model DocumentSequence {
   @@map("document_sequences")
 }
 
-// DATA-08: a BEFORE UPDATE OR DELETE trigger enforces append-only on this table
-// at the database level. Prisma cannot model triggers, so it lives in
-// prisma/migrations/20260816120000_audit_logs_append_only/migration.sql and is
-// invisible to `migrate diff`. Regenerating a baseline with --from-empty WILL
-// drop it. UPDATE is never permitted; DELETE only inside a transaction that has
-// set hasnahena.allow_audit_purge (scripts/db-clear-preserve-core.mjs).
-/// The trail. **Numbered, not hashed** — `#1042`, in the order it happened.
-///
-/// A `cuid()` on an append-only log is the one place a random key buys nothing
-/// at all: rows are only ever inserted, never merged from another source, and
-/// the question asked of this table is always "what happened, in order". A
-/// sequence answers that in the key itself, sorts identically to `createdAt`
-/// without depending on a clock, and gives an admin a number they can quote
-/// when they report a row.
-///
-/// `entityId` holds the id of whatever the row is about, and since ADR-043 that
-/// is a number a person can read: `ACC-KH-33001`, `LOAN-2026-000012`,
-/// `DEP-2026-000045`. The 2026-09-01 migration rewrote the rows written before
-/// then — see the migration's own header for why the append-only trigger was
-/// suspended for exactly the length of that statement, and for the audit row
-/// the migration wrote about itself.
+// DATA-08: a BEFORE UPDATE OR DELETE trigger makes this append-only (migration
+// 20260816120000_audit_logs_append_only). Invisible to `migrate diff`; a
+// --from-empty baseline WILL drop it. DELETE only with hasnahena.allow_audit_purge.
+/// The trail, numbered by a sequence in insertion order. entityId is a readable
+/// id (ACC-…, LOAN-…, DEP-…) since ADR-043/044.
 model AuditLog {
   id         Int     @id @default(autoincrement())
   action     String
@@ -705,9 +449,7 @@ model SupportMessage {
   message      String
   createdAt    DateTime      @default(now()) @map("createdAt")
 
-  // One index, not two. There was a second, identical but for `DESC` on the
-  // trailing column; a btree is scannable in both directions, so it answered no
-  // query the ascending one could not and cost a write on every message.
+  // One index; a btree scans both directions.
   @@index([threadId, createdAt], map: "idx_support_messages_thread_created")
   @@index([senderUserId, createdAt])
   @@map("support_messages")
@@ -739,16 +481,7 @@ model Notification {
 
   // Target (who should see this)
   targetRole   UserRole? // If set, all users with this role see it
-  /// WO-92. `targetUserId` was a bare `String?` with no relation while every
-  /// other user-owned table declared `onDelete: Cascade`, so notifications were
-  /// cleaned up by hand in exactly one place — the worker DELETE — and left
-  /// behind by every other deletion path.
-  ///
-  /// Orphaned rows are the small half of it. A notification is *read by target
-  /// id* (`member_repository.go`), so an id that is re-used or mis-assigned
-  /// delivers one member's balance and loan detail to another member's bell
-  /// icon. A foreign key is what makes an id that names nobody impossible
-  /// rather than merely unlikely.
+  /// WO-92: a real FK with cascade, so a notification can never name nobody.
   targetUserId String? // If set, specific user sees it
   targetUser   User?     @relation("UserNotifications", fields: [targetUserId], references: [id], onDelete: Cascade)
 
@@ -789,20 +522,11 @@ model GalleryItem {
 model PasswordResetToken {
   id String @id @default(cuid())
 
-  // What the secret is for. Three values today: "reset" (a forgot-password
-  // link), "first-login" (the marker that derives mustChangePassword), and
-  // "pwd-change:<userId>" (the emailed code for a logged-in password change).
-  //
-  // It exists because the purpose used to be a prefix on the secret itself
-  // ("first-login-<hex>", "pwd-change:<userId>:<code>") and every query matched
-  // it with LIKE. A hash has no prefix, so the purpose had to move to a column
-  // of its own before the secret could be hashed (WO-86).
+  // What the secret is for: "reset", "first-login" (derives mustChangePassword)
+  // or "pwd-change:<userId>" (WO-86).
   scope String
 
-  // SHA-256 of the secret that was emailed — never the secret. Same treatment,
-  // and the same reason, as TokenBlacklist.tokenHash: anything that can read
-  // one row of this table used to be able to take over the account it belongs
-  // to.
+  // SHA-256 of the emailed secret — never the secret.
   tokenHash String
 
   email String?
@@ -813,9 +537,7 @@ model PasswordResetToken {
 
   createdAt DateTime @default(now())
 
-  // Unique on the pair, not on the hash alone. A "pwd-change" secret is a
-  // 6-digit code, so two members can legitimately hold the same one at the
-  // same time; the scope carries their user id and keeps the rows apart.
+  // Unique per (scope, hash): 6-digit codes can collide across members.
   @@unique([scope, tokenHash])
   @@index([email])
   @@index([phone])
@@ -839,10 +561,7 @@ model TokenBlacklist {
   @@map("token_blacklist")
 }
 
-// Short-lived single-purpose credential for SSE connections. EventSource cannot
-// send an Authorization header, so the stream takes one of these in the query
-// string instead of an access token (SEC-05). Created here as well as in
-// EnsureSupportSchema so a deploy that has not run `db push` still works.
+// Short-lived single-purpose SSE credential (EventSource cannot send headers; SEC-05).
 model SseTicket {
   ticketHash String   @id // SHA-256 hash of the ticket (not the ticket itself)
   userId     String
