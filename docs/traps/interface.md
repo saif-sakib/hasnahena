@@ -190,6 +190,19 @@
   wider script), which turns a number into something breakable anywhere. A
   number is one word however long it is: widen the column instead. Two columns
   now exist only above the width where a seven-digit total fits on one line.
+  The member overview's Loan Eligibility did the same (`BDT 250,00 / 0` at
+  1280 px) through `wrap-break-word`: money is `whitespace-nowrap tabular-nums`,
+  and the type scale is chosen so it fits.
+- **A font the page downloads is not a font the page uses.** Hind Siliguri was
+  preloaded on every page — four weights, Bengali and Latin subsets, English
+  pages included — while `body` named only Inter, which has no Bengali. So every
+  Bengali glyph outside two `font-bengali` blocks fell through to whatever face
+  the phone had, and a home-page card set its verse in Hind and the heading above
+  it in something else. Nothing failed: `document.fonts` reported the font
+  loaded, English looked right, and Bengali rendered in *a* font. Ask what
+  rendered a node (CDP `CSS.getPlatformFontsForNode`), not what loaded.
+  `--font-sans` now names both faces, Latin first, so each glyph finds its own;
+  Hind's Latin subset is not loaded, because Inter always wins it.
 - **An application-level check that is stricter than the constraint it
   anticipates is invisible, and it always wins.** Staff creation looked a
   contact up with `OR: [{ email }, { phone }]` and no `liveIdentityFilter`, so a

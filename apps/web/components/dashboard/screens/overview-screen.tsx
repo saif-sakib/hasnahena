@@ -18,6 +18,7 @@ import { formatCurrency } from "@/lib/utils";
 import { useApi } from "@/lib/use-api";
 import { useDashboardRole } from "@/components/dashboard/role";
 import { localePath } from "@/lib/locale-path";
+import { auditActionLabel } from "@/lib/audit-actions";
 
 /**
  * The staff overview for both dashboards: the queue banner and the numbers
@@ -332,8 +333,9 @@ export default function OverviewScreen() {
                   className="px-6 py-4 flex items-center justify-between hover:bg-neutral-50/50 transition-colors"
                 >
                   <div className="flex flex-col gap-1">
+                    {/* The catalogue's words, not the stored code (USER_APPROVED). */}
                     <span className="text-sm font-medium text-neutral-900">
-                      {activity.action}
+                      {auditActionLabel(activity.action, locale)}
                     </span>
                     <span className="text-xs text-neutral-500">
                       {activity.user}

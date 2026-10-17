@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
+import { AuthBackdrop } from '@/components/layout/auth-backdrop';
 import { toast } from '@/hooks/use-toast';
 import { setClientAuthToken } from '@/lib/client-auth';
 import { fetchSettings } from '@/lib/settings-client';
@@ -275,13 +276,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col relative w-full items-center justify-center bg-zinc-50 overflow-hidden">
-      {/* Immersive Nature Background */}
-      <div className="absolute inset-0 z-0 bg-slate-50">
-        <div className="absolute top-0 right-0 -mr-20 -mt-20 h-[500px] w-[500px] rounded-full bg-emerald-200/40 blur-3xl" />
-        <div className="absolute bottom-0 left-0 -ml-20 -mb-20 h-[500px] w-[500px] rounded-full bg-teal-200/40 blur-3xl" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]" />
-      </div>
+    <div className="min-h-dvh flex flex-col relative w-full items-center justify-center overflow-hidden">
+      <AuthBackdrop />
 
       {/* Top Navigation Bar - Floating & Glassy */}
       <header className="absolute top-0 left-0 right-0 z-50 p-4 sm:p-6 w-full flex justify-between items-center">
@@ -290,18 +286,18 @@ export default function LoginPage() {
           <span className="text-[13px] font-semibold tracking-wide">{tp('home')}</span>
         </Link>
         <div className="flex items-center gap-2">
-          <Link href={localePath(other, '/login')}>
-            <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4  h-9">
-              <Globe className="h-[14px] w-[14px] opacity-80" strokeWidth={2.5} />
-              <span className="text-[13px] font-semibold">{locale === 'en' ? 'বাংলা' : 'English'}</span>
-            </Button>
-          </Link>
-          <Link href={localePath(locale, '/#contact')} className="hidden sm:block">
-            <Button variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4 h-9">
-              <HelpCircle className="h-[14px] w-[14px]" />
+          <Button asChild variant="ghost" size="sm" className="gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4 h-9">
+            <Link href={localePath(other, '/login')} hrefLang={other}>
+              <Globe className="h-[14px] w-[14px] opacity-80" strokeWidth={2.5} aria-hidden="true" />
+              <span lang={other} className="text-[13px] font-semibold">{locale === 'en' ? 'বাংলা' : 'English'}</span>
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-full px-4 h-9">
+            <Link href={localePath(locale, '/support')}>
+              <HelpCircle className="h-[14px] w-[14px]" aria-hidden="true" />
               <span className="text-[13px] font-semibold">{tp('help')}</span>
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </header>
 
@@ -309,7 +305,7 @@ export default function LoginPage() {
       <main className="relative z-10 w-full max-w-[440px] px-4 sm:px-6 py-10 flex-1 flex flex-col justify-center animate-in slide-in-from-bottom-8 fade-in-50 duration-700">
         
         {/* Card Container */}
-        <div className="bg-white/70 backdrop-blur-xl sm:bg-white border border-white/20 shadow-2xl shadow-emerald-900/30 rounded-[28px] overflow-hidden">
+        <div className="bg-white border border-slate-200/70 card-raise rounded-2xl overflow-hidden">
           
           {/* Decorative Top Accent */}
           <div className="h-1.5 w-full bg-linear-to-r from-emerald-400 via-emerald-500 to-teal-400" />
@@ -322,9 +318,9 @@ export default function LoginPage() {
                   <Logo size="lg" priority />
                 </span>
               </Link>
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
                 {welcomeMessage || tp('successBody')}
-              </h2>
+              </h1>
               <p className="text-[14px] text-slate-500 font-medium">
                 {t('loginSubtitle')}
               </p>

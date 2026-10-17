@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
+import { AuthBackdrop } from '@/components/layout/auth-backdrop';
 import { toast } from '@/hooks/use-toast';
 import { localePath } from '@/lib/locale-path';
 
@@ -128,8 +129,9 @@ export function ResetPasswordForm() {
   // Loading state
   if (isValidating) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
-        <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
+      <div className="relative min-h-dvh flex items-center justify-center p-4">
+        <AuthBackdrop />
+        <Card className="relative z-10 w-full max-w-md rounded-2xl border-slate-200 card-raise">
           <CardContent className="py-12 text-center">
             <Loader2 className="h-12 w-12 animate-spin mx-auto text-emerald-600" />
             <p className="mt-4 text-muted-foreground">
@@ -144,13 +146,14 @@ export function ResetPasswordForm() {
   // Invalid token state
   if (!isValid && !isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
-        <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
+      <div className="relative min-h-dvh flex items-center justify-center p-4">
+        <AuthBackdrop />
+        <Card className="relative z-10 w-full max-w-md rounded-2xl border-slate-200 card-raise">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-red-100 flex items-center justify-center">
               <XCircle className="h-10 w-10 text-red-600" />
             </div>
-            <CardTitle className="text-2xl">
+            <CardTitle as="h1" className="text-2xl">
               {t('invalidTitle')}
             </CardTitle>
             <CardDescription className="text-base">
@@ -178,13 +181,14 @@ export function ResetPasswordForm() {
   // Success state
   if (isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
-        <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
+      <div className="relative min-h-dvh flex items-center justify-center p-4">
+        <AuthBackdrop />
+        <Card className="relative z-10 w-full max-w-md rounded-2xl border-slate-200 card-raise">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
               <CheckCircle2 className="h-10 w-10 text-emerald-600" />
             </div>
-            <CardTitle className="text-2xl">
+            <CardTitle as="h1" className="text-2xl">
               {t('doneTitle')}
             </CardTitle>
             <CardDescription className="text-base">
@@ -205,14 +209,15 @@ export function ResetPasswordForm() {
 
   // Reset form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-50 to-emerald-50 p-4">
-      <Card className="w-full max-w-md rounded-2xl border-slate-200 shadow-xl">
+    <div className="relative min-h-dvh flex items-center justify-center p-4">
+        <AuthBackdrop />
+      <Card className="relative z-10 w-full max-w-md rounded-2xl border-slate-200 card-raise">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto">
             <Logo size="lg" />
           </div>
           <div>
-            <CardTitle className="text-2xl">
+            <CardTitle as="h1" className="text-2xl">
               {t('title')}
             </CardTitle>
             <CardDescription className="mt-2">

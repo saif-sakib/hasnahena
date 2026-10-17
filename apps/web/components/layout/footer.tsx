@@ -23,11 +23,12 @@ export function Footer({ settings }: FooterProps) {
   const name = orgName(settings, locale) || 'Hasnahena Foundation';
 
   return (
-    <footer className="border-t bg-slate-50/50 dark:bg-slate-900/50">
+    <footer className="surface-seam bg-slate-50/60 dark:bg-slate-900/50">
       <div className="container-wide py-12 md:py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+        {/* Phone: the two link lists side by side, brand and contact full width. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-10">
           {/* Brand Section */}
-          <div className="space-y-4 lg:col-span-1">
+          <div className="col-span-2 space-y-4 md:col-span-1">
             <Link href={localePath(locale)} className="inline-block">
               <Logo
                 size="md"
@@ -52,7 +53,7 @@ export function Footer({ settings }: FooterProps) {
 
           {/* Quick Links */}
           <div>
-            <h3 className="font-semibold text-sm uppercase tracking-wider text-foreground mb-4">
+            <h3 className="eyebrow text-foreground mb-4">
               {t('quickLinks')}
             </h3>
             <ul className="space-y-2.5">
@@ -67,7 +68,7 @@ export function Footer({ settings }: FooterProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                    className="inline-block py-0.5 text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     {item.label}
                   </Link>
@@ -78,7 +79,7 @@ export function Footer({ settings }: FooterProps) {
 
           {/* Resources */}
           <div>
-            <h3 className="font-semibold text-sm uppercase tracking-wider text-foreground mb-4">
+            <h3 className="eyebrow text-foreground mb-4">
               {t('resources')}
             </h3>
             <ul className="space-y-2.5">
@@ -91,7 +92,7 @@ export function Footer({ settings }: FooterProps) {
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                    className="inline-block py-0.5 text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     {item.label}
                   </Link>
@@ -101,8 +102,8 @@ export function Footer({ settings }: FooterProps) {
           </div>
 
           {/* Contact */}
-          <div>
-            <h3 className="font-semibold text-sm uppercase tracking-wider text-foreground mb-4">
+          <div className="col-span-2 md:col-span-1">
+            <h3 className="eyebrow text-foreground mb-4">
               {tNav('contact')}
             </h3>
             <ul className="space-y-3">

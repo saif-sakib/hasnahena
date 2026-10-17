@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import { setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
-import { Mail, Phone, MapPin, Send } from 'lucide-react';
+import { Mail, Phone, MapPin } from 'lucide-react';
+import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
 import { getPublicSettings } from '@/lib/system-config';
 import { contactDetails, telHref } from '@/lib/contact-details';
 import { Button } from '@/components/ui/button';
@@ -36,87 +37,69 @@ export default async function ContactPage({ params }: PageProps) {
   setRequestLocale(locale);
 
   const settings = await getPublicSettings();
+  const t = await getTranslations({ locale, namespace: 'pages.contact' });
 
   // The shared org.* reader (WO-67) — never a second copy of the address.
   const { address, phone: orgPhone, email: orgEmail } = contactDetails(settings, locale);
+
+  // An unset detail is absent, never a placeholder.
+  const cards = [
+    { key: 'phone', icon: Phone, value: orgPhone, href: orgPhone ? telHref(orgPhone) : undefined },
+    { key: 'email', icon: Mail, value: orgEmail, href: orgEmail ? `mailto:${orgEmail}` : undefined },
+    { key: 'address', icon: MapPin, value: address, href: undefined },
+  ].filter((card) => card.value);
 
   return (
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/contact" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 bg-zinc-50 dark:bg-zinc-950 pt-32 md:pt-36 pb-20 z-10 w-full flex flex-col items-center">
-        <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
-          
-          <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-sm font-semibold tracking-wide mb-8 border border-emerald-100 dark:border-emerald-900/50 shadow-xs shadow-emerald-900/5">
-              <Mail className="w-4 h-4" />
-              {locale === 'bn' ? 'যোগাযোগ' : 'Contact'}
-            </div>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-white mb-6">
-              {locale === 'bn' ? 'আমাদের সাথে যোগাযোগ করুন' : 'Get in Touch'}
-            </h1>
-            <p className="text-lg md:text-xl text-zinc-600 dark:text-zinc-400 leading-relaxed font-light">
-              {locale === 'bn' 
-                ? 'যেকোনো প্রয়োজনে আমাদের সাথে যোগাযোগ করুন। আমরা আপনাদের সহায়তায় সবসময় প্রস্তুত।' 
-                : 'Contact us for any needs. We are always ready to assist you.'}
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6 md:gap-10">
-            {/* Contact Details */}
-            <div className="col-span-1 space-y-6">
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
-                  <Phone className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ফোন' : 'Phone'}</h3>
-                <a href={telHref(orgPhone)} className="text-zinc-600 dark:text-zinc-400 hover:text-emerald-600">
-                  {orgPhone}
-                </a>
-              </div>
-              
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
-                  <Mail className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ইমেইল' : 'Email'}</h3>
-                <a href={`mailto:${orgEmail}`} className="text-zinc-600 dark:text-zinc-400 hover:text-emerald-600">
-                  {orgEmail}
-                </a>
-              </div>
-
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-3xl p-6 shadow-xs">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center mb-4">
-                  <MapPin className="w-5 h-5" />
-                </div>
-                <h3 className="font-semibold text-zinc-900 dark:text-white text-lg mb-2">{locale === 'bn' ? 'ঠিকানা' : 'Address'}</h3>
-                <p className="text-zinc-600 dark:text-zinc-400">{address}</p>
-              </div>
-            </div>
-
-            {/* Empty Form Display Container */}
-            <div className="col-span-1 md:col-span-2 bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 md:p-12 shadow-xl shadow-zinc-200/20 dark:shadow-none">
-              <div className="flex flex-col items-center justify-center h-full text-center py-10 space-y-6">
-                <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 rounded-[20px] flex justify-center items-center rotate-3 border border-emerald-100 dark:border-emerald-900/50">
-                   <Send className="w-8 h-8 -rotate-12" />
-                </div>
-                <h3 className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{locale === 'bn' ? 'বার্তা পাঠান' : 'Send a Message'}</h3>
-                <p className="text-zinc-500 dark:text-zinc-400 max-w-sm">
-                   {locale === 'bn' ? 'বিস্তারিত আলোচনার জন্য সরাসরি ফোনে কল করতে পারেন অথবা আমাদের অফিসে যোগাযোগ করতে পারেন।' : 'For detailed discussions, please call directly or visit our office.'}
-                </p>
-                {/* No "Call Now" without a number (an empty tel: links nowhere). */}
-                {orgPhone && (
-                  <a href={telHref(orgPhone)}>
-                    <Button variant="outline" className="mt-4 rounded-full px-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30">
-                       {locale === 'bn' ? 'কল করুন' : 'Call Now'}
-                    </Button>
+      <main className="surface-paper flex-1">
+        <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
+        <PageBody className="max-w-5xl space-y-6">
+          <div className="grid gap-6 md:grid-cols-3">
+            {cards.map(({ key, icon: Icon, value, href }) => (
+              <article key={key} className={`${paperCard} p-6`}>
+                <IconTile>
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </IconTile>
+                <h2 className="mb-1 font-semibold text-slate-900 dark:text-white">{t(key)}</h2>
+                {href ? (
+                  <a href={href} className="text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
+                    {value}
                   </a>
+                ) : (
+                  <p className="text-muted-foreground">{value}</p>
                 )}
-              </div>
-            </div>
+              </article>
+            ))}
           </div>
-          
-        </div>
+
+          <section className={`${paperCard} flex flex-col items-start gap-5 p-6 md:flex-row md:items-center md:justify-between md:p-8`}>
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-white">{t('talkTitle')}</h2>
+              <p className="mt-1 max-w-xl text-muted-foreground">{t('talkBody')}</p>
+            </div>
+            {/* No "Call Now" without a number (an empty tel: links nowhere). */}
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+              {orgPhone && (
+                <Button asChild size="lg" className="gap-2">
+                  <a href={telHref(orgPhone)}>
+                    <Phone className="h-4 w-4" aria-hidden="true" />
+                    {t('callNow')}
+                  </a>
+                </Button>
+              )}
+              {orgEmail && (
+                <Button asChild size="lg" variant="outline" className="gap-2">
+                  <a href={`mailto:${orgEmail}`}>
+                    <Mail className="h-4 w-4" aria-hidden="true" />
+                    {t('writeToUs')}
+                  </a>
+                </Button>
+              )}
+            </div>
+          </section>
+        </PageBody>
       </main>
       <Footer settings={settings} />
     </>

@@ -60,7 +60,7 @@ export function SectionHeading({
  * closing to a taper), stretched with preserveAspectRatio="none". The viewBox
  * height must stay ≤ the box height, or the stroke squashes to a hairline.
  */
-function Underline({ className }: { className?: string }) {
+export function Underline({ className }: { className?: string }) {
   return (
     <svg
       className={['pointer-events-none select-none', className ?? ''].join(' ')}

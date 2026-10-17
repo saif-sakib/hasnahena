@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import { setRequestLocale } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
-import { HandHeart, HeartPulse, Building2, QrCode } from 'lucide-react';
+import { Building2, Smartphone } from 'lucide-react';
+import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
 import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
@@ -34,122 +35,96 @@ export default async function DonatePage({ params }: PageProps) {
   setRequestLocale(locale);
 
   const settings = await getPublicSettings();
+  const t = await getTranslations({ locale, namespace: 'pages.donate' });
+  const tDonation = await getTranslations({ locale, namespace: 'donation' });
+
+  const bankAccountNo = settings['bank.accountNo']?.trim();
+  const bankName = settings['bank.name']?.trim();
+  const bankAccountName = settings['bank.accountName']?.trim();
+  const bankBranch = settings['bank.branch']?.trim();
+  const mobileNumbers: Array<[string, string]> = (
+    [
+      [tDonation('bkash'), settings['donation.bkash']?.trim()],
+      [tDonation('nagad'), settings['donation.nagad']?.trim()],
+      [tDonation('rocket'), settings['donation.rocket']?.trim()],
+    ] as Array<[string, string | undefined]>
+  ).filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+  // Each card renders only when an admin has published its details (WO-67) —
+  // never a placeholder account number. The account number is the load-bearing
+  // field: a bank card without one cannot be acted on, so it decides whether
+  // the card exists at all. The rest degrade to omitted lines.
+  const showBank = Boolean(bankAccountNo);
+  const showMobile = mobileNumbers.length > 0;
 
   return (
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/donate" settings={settings} />
       <Header settings={settings} />
-      <main className="flex-1 bg-rose-50/30 dark:bg-zinc-950 pt-32 md:pt-36 pb-20 z-10 w-full flex flex-col items-center">
-        <div className="container-wide max-w-6xl w-full mx-auto px-4 md:px-8">
-          
-          <div className="max-w-3xl text-center mx-auto mb-20 animate-in slide-in-from-bottom-6 fade-in-50 duration-700">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-sm font-semibold tracking-wide mb-8 border border-rose-200 dark:border-rose-900/50 shadow-xs shadow-rose-900/5">
-              <HandHeart className="w-4 h-4" />
-              {locale === 'bn' ? 'অনুদান' : 'Donate'}
+      <main className="surface-paper flex-1">
+        <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
+        <PageBody className="max-w-5xl">
+          {!showBank && !showMobile ? (
+            <div className={`${paperCard} mx-auto max-w-2xl p-8 text-center`}>
+              <p className="leading-relaxed text-muted-foreground">{t('comingSoon')}</p>
             </div>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-zinc-900 dark:text-white mb-6">
-              {locale === 'bn' ? 'আপনার অনুদান বদলে দিতে পারে একটি জীবন' : 'Your Donation Can Change a Life'}
-            </h1>
-            <p className="text-lg md:text-xl text-zinc-600 dark:text-zinc-400 leading-relaxed font-light">
-              {locale === 'bn' 
-                ? 'হাসনাহেনার সেবামূলক কার্যক্রমে যুক্ত হয়ে সমাজ উন্নয়নে সহায়তা করুন। আপনাদের দেয়া অনুদান পৌঁছে যাবে প্রকৃত অভাবীদের কাছে।' 
-                : 'Support Hasnahena’s welfare initiatives. Your donations will reach those who are truly in need.'}
-            </p>
-          </div>
+          ) : (
+            <div className={showBank && showMobile ? 'grid gap-6 md:grid-cols-2' : 'mx-auto grid max-w-xl gap-6'}>
+              {showBank && (
+                <section className={`${paperCard} p-6 md:p-8`}>
+                  <IconTile>
+                    <Building2 className="h-6 w-6" aria-hidden="true" />
+                  </IconTile>
+                  <h2 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">{t('bankTitle')}</h2>
+                  {/* A ledger of label/value lines, so each detail can be read off on its own. */}
+                  <dl className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+                    {bankName && <DetailRow label={t('bankName')} value={bankName} />}
+                    {bankAccountName && <DetailRow label={t('accountName')} value={bankAccountName} />}
+                    <DetailRow label={t('accountNumber')} value={bankAccountNo!} figure />
+                    {bankBranch && <DetailRow label={t('branch')} value={bankBranch} />}
+                  </dl>
+                </section>
+              )}
 
-          {/* Each card renders only when an admin has published its details (WO-67) — never a placeholder account number. */}
-          {(() => {
-            const bankAccountNo = settings['bank.accountNo']?.trim();
-            const bankName = settings['bank.name']?.trim();
-            const bankAccountName = settings['bank.accountName']?.trim();
-            const bankBranch = settings['bank.branch']?.trim();
-            const mobileNumbers: Array<[string, string]> = (
-              [
-                ['bKash', settings['donation.bkash']?.trim()],
-                ['Nagad', settings['donation.nagad']?.trim()],
-                ['Rocket', settings['donation.rocket']?.trim()],
-              ] as Array<[string, string | undefined]>
-            ).filter((entry): entry is [string, string] => Boolean(entry[1]));
-
-            // The account number is the load-bearing field: a bank card without
-            // one cannot be acted on, so it is what decides whether the card
-            // exists at all. The rest degrade to omitted lines.
-            const showBank = Boolean(bankAccountNo);
-            const showMobile = mobileNumbers.length > 0;
-
-            if (!showBank && !showMobile) {
-              return (
-                <div className="rounded-[32px] border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-10 text-center">
-                  <p className="text-zinc-600 dark:text-zinc-400">
-                    {locale === 'bn'
-                      ? 'অনুদানের তথ্য শীঘ্রই প্রকাশ করা হবে। অনুগ্রহ করে যোগাযোগ পাতার মাধ্যমে আমাদের সাথে যোগাযোগ করুন।'
-                      : 'Donation details will be published shortly. Please reach us through the contact page in the meantime.'}
+              {showMobile && (
+                <section className={`${paperCard} p-6 md:p-8`}>
+                  <IconTile>
+                    <Smartphone className="h-6 w-6" aria-hidden="true" />
+                  </IconTile>
+                  <h2 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">{t('mobileTitle')}</h2>
+                  <dl className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+                    {mobileNumbers.map(([label, number]) => (
+                      <DetailRow key={label} label={label} value={number} figure />
+                    ))}
+                  </dl>
+                  <p className="mt-5 rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+                    {t('confirmNote')}
                   </p>
-                </div>
-              );
-            }
-
-            return (
-              <div className={showBank && showMobile ? 'grid md:grid-cols-2 gap-8' : 'grid gap-8 max-w-xl mx-auto'}>
-                {showBank && (
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/20 text-rose-500 rounded-[24px] flex items-center justify-center mb-6">
-                      <Building2 className="w-10 h-10" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
-                      {locale === 'bn' ? 'ব্যাংক একাউন্ট' : 'Bank Account'}
-                    </h2>
-                    <div className="space-y-3 text-zinc-600 dark:text-zinc-400">
-                      {bankName && <p className="font-medium text-lg">{bankName}</p>}
-                      {bankAccountName && (
-                        <p>
-                          {locale === 'bn' ? 'একাউন্ট নাম:' : 'Account Name:'} {bankAccountName}
-                        </p>
-                      )}
-                      <p className="font-mono text-zinc-800 dark:text-zinc-200 my-2 text-xl px-4 py-2 bg-zinc-100 dark:bg-zinc-950 rounded-xl inline-block">
-                        {bankAccountNo}
-                      </p>
-                      {bankBranch && (
-                        <p>
-                          {locale === 'bn' ? 'শাখা:' : 'Branch:'} {bankBranch}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {showMobile && (
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 rounded-[32px] p-8 shadow-xl shadow-zinc-200/20 text-center flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 rounded-[24px] flex items-center justify-center mb-6">
-                      <QrCode className="w-10 h-10" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">
-                      {locale === 'bn' ? 'মোবাইল ব্যাংকিং' : 'Mobile Banking'}
-                    </h2>
-                    <div className="space-y-4 text-zinc-600 dark:text-zinc-400">
-                      {mobileNumbers.map(([label, number]) => (
-                        <div key={label}>
-                          <p>{label}</p>
-                          <p className="font-mono text-indigo-600 dark:text-indigo-400 font-bold text-2xl tracking-wider">
-                            {number}
-                          </p>
-                        </div>
-                      ))}
-                      <p className="text-sm px-4 py-2 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 rounded-full inline-flex mt-4">
-                        {locale === 'bn'
-                          ? '* অনুদান পাঠানোর পর অনুগ্রহ করে মেসেজ দিয়ে নিশ্চিত করবেন।'
-                          : '* Please confirm via SMS after sending the donation.'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-        </div>
+                </section>
+              )}
+            </div>
+          )}
+        </PageBody>
       </main>
       <Footer settings={settings} />
     </>
+  );
+}
+
+/** One label/value line; a `figure` is a number someone will type, so it is set large and never broken. */
+function DetailRow({ label, value, figure = false }: { label: string; value: string; figure?: boolean }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd
+        className={
+          figure
+            ? 'whitespace-nowrap font-mono text-lg font-semibold tabular-nums tracking-wide text-emerald-800 select-all dark:text-emerald-300'
+            : 'font-medium text-slate-900 dark:text-white'
+        }
+      >
+        {value}
+      </dd>
+    </div>
   );
 }

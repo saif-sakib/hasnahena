@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { ShieldCheck } from 'lucide-react';
 import { locales, type Locale } from '@/i18n';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
@@ -48,7 +47,6 @@ export default async function PrivacyPage({ params }: PageProps) {
       {/* The site header and footer, for navigation and the language switch. */}
       <Header settings={settings} />
       <LegalDocument
-        icon={<ShieldCheck className="h-7 w-7 text-emerald-600" />}
         title={t('privacy.title')}
         intro={t('privacy.intro')}
         lastUpdated={PRIVACY_LAST_UPDATED}

@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, HeadphonesIcon, Mail, Phone, MessageCircle } from 'lucide-react';
+import { ArrowRight, Mail, MapPin, Phone } from 'lucide-react';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales, type Locale } from '@/i18n';
-import { Button } from '@/components/ui/button';
+import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
-import { contactDetails } from '@/lib/contact-details';
+import { contactDetails, telHref } from '@/lib/contact-details';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
 import { StructuredData } from '@/components/seo/structured-data';
 import { localePath } from '@/lib/locale-path';
@@ -36,62 +37,56 @@ export default async function SupportPage({ params }: PageProps) {
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
+  setRequestLocale(locale);
 
   const settings = await getPublicSettings();
+  const t = await getTranslations({ locale, namespace: 'pages.support' });
 
-  const isBn = locale === 'bn';
   // org.* via contactDetails (WO-67).
-  const {
-    address: supportAddress,
-    phone: supportPhone,
-    email: supportEmail,
-  } = contactDetails(settings, locale);
+  const { address, phone, email } = contactDetails(settings, locale);
+
+  const channels = [
+    { key: 'phone', icon: Phone, value: phone, href: phone ? telHref(phone) : undefined },
+    { key: 'email', icon: Mail, value: email, href: email ? `mailto:${email}` : undefined },
+    { key: 'office', icon: MapPin, value: address, href: undefined },
+  ].filter((channel) => channel.value);
 
   return (
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/support" settings={settings} />
       <Header settings={settings} />
-      <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-32 md:pt-36 pb-16">
-        <div className="container-wide max-w-4xl">
-          <div className="mb-8 flex items-center justify-between">
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-              <HeadphonesIcon className="h-7 w-7 text-emerald-600" />
-              {isBn ? 'সহায়তা ও সাপোর্ট' : 'Support Center'}
-            </h1>
-            <Link href={localePath(locale)}>
-              <Button variant="outline" size="sm" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                {isBn ? 'হোমে ফিরুন' : 'Back to Home'}
-              </Button>
+      <main className="surface-paper flex-1">
+        <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
+        <PageBody className="max-w-5xl">
+          <div className="grid gap-6 md:grid-cols-3">
+            {channels.map(({ key, icon: Icon, value, href }) => (
+              <article key={key} className={`${paperCard} p-6`}>
+                <IconTile>
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </IconTile>
+                <h2 className="mb-1 font-semibold text-slate-900 dark:text-white">{t(key)}</h2>
+                {href ? (
+                  <a href={href} className="text-sm text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
+                    {value}
+                  </a>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{value}</p>
+                )}
+              </article>
+            ))}
+          </div>
+
+          <p className="mt-8 text-center text-muted-foreground">
+            {t('faqPrompt')}{' '}
+            <Link
+              href={localePath(locale, '/faq')}
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {t('faqLink')}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
-              <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                <Phone className="h-5 w-5" />
-              </div>
-              <h2 className="font-semibold text-slate-900 dark:text-white">{isBn ? 'ফোন সাপোর্ট' : 'Phone Support'}</h2>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{supportPhone}</p>
-            </article>
-
-            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
-              <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                <Mail className="h-5 w-5" />
-              </div>
-              <h2 className="font-semibold text-slate-900 dark:text-white">{isBn ? 'ইমেইল সাপোর্ট' : 'Email Support'}</h2>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{supportEmail}</p>
-            </article>
-
-            <article className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
-              <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                <MessageCircle className="h-5 w-5" />
-              </div>
-              <h2 className="font-semibold text-slate-900 dark:text-white">{isBn ? 'অফিস ভিজিট' : 'Office Visit'}</h2>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{supportAddress}</p>
-            </article>
-          </div>
-        </div>
+          </p>
+        </PageBody>
       </main>
       <Footer settings={settings} />
     </>

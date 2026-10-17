@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
 import { formatLegalDate } from '@/lib/legal';
 import { getTranslations } from 'next-intl/server';
+import { PageHero, paperCard } from '@/components/layout/page-hero';
 
 interface LegalSection {
   title: string;
@@ -8,7 +8,6 @@ interface LegalSection {
 }
 
 interface LegalDocumentProps {
-  icon: ReactNode;
   title: string;
   intro: string;
   /** ISO date from `lib/legal.ts`. */
@@ -19,12 +18,8 @@ interface LegalDocumentProps {
   values?: Record<string, string>;
 }
 
-/**
- * The shell both legal pages render into. `pt-32 md:pt-36` clears the fixed
- * header, matching the other interior pages.
- */
+/** The shell both legal pages render into, on the interior pages' hero. */
 export async function LegalDocument({
-  icon,
   title,
   intro,
   lastUpdated,
@@ -44,31 +39,23 @@ export async function LegalDocument({
       : text;
 
   return (
-    <main className="flex-1 bg-slate-50 dark:bg-slate-950 pt-32 md:pt-36 pb-16">
-      <div className="container-wide max-w-3xl">
-        <div className="mb-8">
-          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 dark:bg-emerald-900/30">
-            {icon}
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white">{title}</h1>
-          <p className="mt-3 text-slate-600 dark:text-slate-300 leading-relaxed">{intro}</p>
-          <p className="mt-4 text-sm text-slate-500">
-            {t('lastUpdated', { date: formatLegalDate(lastUpdated, locale) })}
-          </p>
-        </div>
+    <main className="surface-paper flex-1">
+      <PageHero title={title} lead={intro}>
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+          {t('lastUpdated', { date: formatLegalDate(lastUpdated, locale) })}
+        </p>
+      </PageHero>
 
-        <div className="space-y-6">
-          {sections.map((section) => (
-            <section
-              key={section.title}
-              className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/60 dark:border-slate-800 p-6 shadow-xs"
-            >
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
+      {/* One document, numbered sections divided by hairlines — read like a page, not a deck of cards. */}
+      <div className="container-wide max-w-3xl pb-16 md:pb-24">
+        <div className={`${paperCard} divide-y divide-slate-100 dark:divide-slate-800`}>
+          {sections.map((section, index) => (
+            <section key={section.title} className="p-6 md:p-8">
+              <h2 className="mb-3 flex gap-3 text-lg font-semibold text-slate-900 dark:text-white">
+                <span className="tabular-nums text-emerald-700 dark:text-emerald-400">{index + 1}.</span>
                 {section.title}
               </h2>
-              <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                {fill(section.content)}
-              </p>
+              <p className="leading-relaxed text-slate-600 dark:text-slate-400">{fill(section.content)}</p>
             </section>
           ))}
         </div>

@@ -7,9 +7,8 @@ import { Menu, X, Globe, LogOut, LayoutDashboard, ChevronRight } from 'lucide-re
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
-import { localePath, otherLocale, switchLocalePath } from '@/lib/locale-path';
+import { localePath, otherLocale, pathWithoutLocale, switchLocalePath } from '@/lib/locale-path';
 import { localizedSetting } from '@/lib/localized-settings';
-import { cn } from '@/lib/utils'; // Assuming this utility exists, otherwise check utils
 import {
   clearClientAuthState,
   getClientRoleFromToken,
@@ -44,14 +43,30 @@ export function Header({ settings }: HeaderProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState('member');
 
-  // Handle scroll effect
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
-    window.addEventListener('scroll', handleScroll);
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // The open menu covers the page: the page must not scroll behind it, and
+  // Escape closes it, as it would a dialog.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [mobileMenuOpen]);
 
   // Check login status from localStorage
   useEffect(() => {
@@ -86,6 +101,11 @@ export function Header({ settings }: HeaderProps) {
   /** A menu item's text; only "Donate" is overridable, as a prose pair. */
   const navLabel = (name: string) =>
     (name === 'donate' && localizedSetting(settings, 'navigation.donate', locale)) || t(name);
+
+  /** The page the reader is on, for the menu's current-page marker. */
+  const currentPath = pathWithoutLocale(pathname);
+  const isCurrent = (href: string) =>
+    href === '/' ? currentPath === '/' : currentPath === href || currentPath.startsWith(`${href}/`);
 
   const other = otherLocale(locale);
   // switchLocalePath keeps the reader where they are (WO-95).
@@ -122,65 +142,77 @@ export function Header({ settings }: HeaderProps) {
 
         {/* Desktop Navigation */}
         <div className="hidden md:flex md:items-center md:gap-x-1 lg:gap-x-2">
-          {navigation.map((item) => (
-            <Link
-              key={item.name}
-              href={localePath(locale, item.href)}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 hover:bg-slate-100 dark:hover:bg-slate-800 ${
-                isScrolled ? 'text-slate-600 dark:text-slate-300 hover:text-primary' : 'text-slate-700 dark:text-slate-200 hover:text-primary'
-              }`}
-            >
-              {navLabel(item.name)}
-            </Link>
-          ))}
+          {navigation.map((item) => {
+            const current = isCurrent(item.href);
+            return (
+              <Link
+                key={item.name}
+                href={localePath(locale, item.href)}
+                aria-current={current ? 'page' : undefined}
+                // The rule under the current item is the same brushed emerald as the section headings.
+                className={`relative px-3 py-2 rounded-sm text-sm font-medium transition-colors duration-200 hover:text-primary after:absolute after:inset-x-3 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-emerald-500 after:transition-transform after:duration-300 ${
+                  current
+                    ? 'text-emerald-800 dark:text-emerald-300 after:scale-x-100'
+                    : 'text-slate-700 dark:text-slate-200 after:scale-x-0 hover:after:scale-x-100'
+                }`}
+              >
+                {navLabel(item.name)}
+              </Link>
+            );
+          })}
         </div>
 
         {/* Right side actions */}
         <div className="flex items-center gap-x-2 sm:gap-x-3 z-50">
           {/* Language Switcher */}
-          <Link href={languageHref}>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className={`gap-2 transition-colors ${
-                isScrolled || mobileMenuOpen 
-                  ? mobileMenuOpen ? 'text-white hover:text-emerald-100 hover:bg-emerald-800' : 'text-muted-foreground hover:text-foreground'
-                  : 'text-slate-700 dark:text-slate-200 hover:text-primary hover:bg-white/20'
-              }`}
-            >
-              <Globe className="h-4 w-4" />
-              <span className="hidden sm:inline text-xs font-medium uppercase tracking-wider">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className={`gap-2 transition-colors ${
+              isScrolled || mobileMenuOpen
+                ? mobileMenuOpen ? 'text-white hover:text-emerald-100 hover:bg-emerald-800' : 'text-muted-foreground hover:text-foreground'
+                : 'text-slate-700 dark:text-slate-200 hover:text-primary hover:bg-white/20'
+            }`}
+          >
+            <Link href={languageHref} hrefLang={other}>
+              <Globe className="h-4 w-4" aria-hidden="true" />
+              {/* Visually hidden on a phone, still the link's name there. */}
+              <span lang={other} className="sr-only sm:not-sr-only text-xs font-medium uppercase tracking-wider">
                 {locale === 'en' ? 'বাংলা' : 'EN'}
               </span>
-            </Button>
-          </Link>
+            </Link>
+          </Button>
 
           {/* Auth Buttons - Desktop */}
           <div className="hidden md:flex md:items-center md:gap-x-2">
             {isLoggedIn ? (
               <>
-                <Link href={localePath(locale, `/dashboard/${userRole}`)}>
-                  <Button variant="ghost" size="sm" className="gap-2 font-medium">
+                <Button asChild variant="ghost" size="sm" className="gap-2 font-medium">
+                  <Link href={localePath(locale, `/dashboard/${userRole}`)}>
                     <LayoutDashboard className="h-4 w-4" />
                     {t('dashboard')}
-                  </Button>
-                </Link>
-                <Button variant="outline" size="sm" className="gap-2 border-slate-200 dark:border-slate-700" onClick={handleLogout}>
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-slate-200 dark:border-slate-700"
+                  onClick={handleLogout}
+                  aria-label={t('logout')}
+                  title={t('logout')}
+                >
                   <LogOut className="h-4 w-4" />
                 </Button>
               </>
             ) : (
               <>
-                <Link href={localePath(locale, '/login')}>
-                  <Button variant="ghost" size="sm" className={isScrolled ? "text-slate-700 dark:text-slate-200" : "text-slate-800 dark:text-white hover:bg-white/20"}>
-                    {t('login')}
-                  </Button>
-                </Link>
-                <Link href={localePath(locale, '/register')}>
-                  <Button size="sm" className="shadow-none font-medium bg-primary hover:bg-primary/90 text-primary-foreground animate-in fade-in zoom-in duration-300">
-                    {t('register')}
-                  </Button>
-                </Link>
+                <Button asChild variant="ghost" size="sm" className={isScrolled ? "text-slate-700 dark:text-slate-200" : "text-slate-800 dark:text-white hover:bg-white/20"}>
+                  <Link href={localePath(locale, '/login')}>{t('login')}</Link>
+                </Button>
+                <Button asChild size="sm" className="font-medium">
+                  <Link href={localePath(locale, '/register')}>{t('register')}</Link>
+                </Button>
               </>
             )}
           </div>
@@ -191,7 +223,9 @@ export function Header({ settings }: HeaderProps) {
             size="icon"
             className={`md:hidden relative z-50 ${mobileMenuOpen ? 'text-white hover:bg-emerald-800' : ''}`}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label={tA11y('toggleMenu')}
+            aria-label={tA11y(mobileMenuOpen ? 'closeMenu' : 'openMenu')}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="site-menu"
           >
             {mobileMenuOpen ? (
               <X className="h-6 w-6" />
@@ -203,7 +237,9 @@ export function Header({ settings }: HeaderProps) {
       </nav>
 
       {/* Mobile Navigation Overlay */}
-      <div 
+      <div
+        id="site-menu"
+        inert={!mobileMenuOpen}
         className={`fixed inset-0 bg-linear-to-b from-emerald-800 to-emerald-950 backdrop-blur-xl z-49 md:hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full pointer-events-none'
         }`}
@@ -212,46 +248,56 @@ export function Header({ settings }: HeaderProps) {
         <div className="flex flex-col h-full px-6 pb-24 overflow-y-auto">
           {!isLoggedIn && (
             <div className="grid grid-cols-1 gap-4 mb-6">
-              <Link href={localePath(locale, '/login')} onClick={() => setMobileMenuOpen(false)}>
-                <Button size="lg" className="w-full text-base h-12 shadow-none font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
+              <Button asChild size="lg" className="w-full text-base h-12 font-semibold bg-white text-emerald-900 hover:bg-emerald-50">
+                <Link href={localePath(locale, '/login')} onClick={() => setMobileMenuOpen(false)}>
                   {t('login')}
-                </Button>
-              </Link>
-              <Link href={localePath(locale, '/register')} onClick={() => setMobileMenuOpen(false)}>
-                <Button variant="outline" size="lg" className="w-full text-base h-12 border-emerald-600 text-white hover:bg-emerald-800 font-semibold bg-transparent">
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg" className="w-full text-base h-12 border-emerald-600 text-white hover:bg-emerald-800 hover:text-white font-semibold bg-transparent">
+                <Link href={localePath(locale, '/register')} onClick={() => setMobileMenuOpen(false)}>
                   {t('register')}
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           )}
 
           <div className="flex flex-col gap-2 mt-4">
-            {navigation.map((item, index) => (
-              <Link
-                key={item.name}
-                href={localePath(locale, item.href)}
-                className="group flex items-center justify-between py-4 text-lg font-medium border-b border-emerald-700/30 text-emerald-100 hover:text-white transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-                style={{ transitionDelay: `${index * 50}ms` }}
-              >
-                <span>
-                  {navLabel(item.name)}
-                </span>
-                <ChevronRight className="h-5 w-5 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-emerald-200" />
-              </Link>
-            ))}
+            {navigation.map((item) => {
+              const current = isCurrent(item.href);
+              return (
+                <Link
+                  key={item.name}
+                  href={localePath(locale, item.href)}
+                  aria-current={current ? 'page' : undefined}
+                  className={`group flex items-center justify-between py-4 text-lg font-medium border-b border-emerald-700/30 transition-colors ${
+                    current ? 'text-white' : 'text-emerald-100 hover:text-white'
+                  }`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <span className="flex items-center gap-3">
+                    {/* The current page is marked by more than colour. */}
+                    <span
+                      aria-hidden="true"
+                      className={`h-1.5 w-1.5 rounded-full ${current ? 'bg-emerald-300' : 'bg-transparent'}`}
+                    />
+                    {navLabel(item.name)}
+                  </span>
+                  <ChevronRight className="h-5 w-5 text-emerald-300/70 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              );
+            })}
           </div>
 
           <div className="mt-auto mb-8 space-y-4">
             {isLoggedIn ? (
               <div className="grid gap-3">
-                <Link href={localePath(locale, `/dashboard/${userRole}`)} onClick={() => setMobileMenuOpen(false)}>
-                  <Button size="lg" className="w-full gap-2 text-base bg-white text-emerald-900 hover:bg-emerald-50">
+                <Button asChild size="lg" className="w-full gap-2 text-base bg-white text-emerald-900 hover:bg-emerald-50">
+                  <Link href={localePath(locale, `/dashboard/${userRole}`)} onClick={() => setMobileMenuOpen(false)}>
                     <LayoutDashboard className="h-5 w-5" />
                     {t('dashboard')}
-                  </Button>
-                </Link>
-                <Button variant="outline" size="lg" className="w-full gap-2 text-base border-emerald-600 text-white hover:bg-emerald-800 bg-transparent" onClick={() => { handleLogout(); setMobileMenuOpen(false); }}>
+                  </Link>
+                </Button>
+                <Button variant="outline" size="lg" className="w-full gap-2 text-base border-emerald-600 text-white hover:bg-emerald-800 hover:text-white bg-transparent" onClick={() => { handleLogout(); setMobileMenuOpen(false); }}>
                   <LogOut className="h-5 w-5" />
                   {t('logout')}
                 </Button>

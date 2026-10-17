@@ -154,17 +154,17 @@ export default async function HomePage({ params }: PageProps) {
     {
       value: localizedSetting(settings, 'stats.deposits', locale),
       label: tStats('totalDeposits'),
-      icon: <Wallet className="h-5 w-5 text-amber-600 sm:h-6 sm:w-6" />,
+      icon: <Wallet className="h-5 w-5 text-emerald-600 sm:h-6 sm:w-6" />,
     },
     {
       value: localizedSetting(settings, 'stats.loans', locale),
       label: tStats('loansDistributed'),
-      icon: <HandHeart className="h-5 w-5 text-blue-600 sm:h-6 sm:w-6" />,
+      icon: <HandHeart className="h-5 w-5 text-emerald-600 sm:h-6 sm:w-6" />,
     },
     {
       value: localizedSetting(settings, 'stats.charity', locale),
       label: tStats('charitableFund'),
-      icon: <Heart className="h-5 w-5 text-rose-600 sm:h-6 sm:w-6" />,
+      icon: <Heart className="h-5 w-5 text-emerald-600 sm:h-6 sm:w-6" />,
     },
   ]
     .filter((card) => card.value.trim() !== '')
@@ -219,7 +219,7 @@ export default async function HomePage({ params }: PageProps) {
             <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
               <div className="space-y-6 md:space-y-8 animate-in slide-in-from-left-10 fade-in duration-700">
                 <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 backdrop-blur-xs">
-                  <span className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2 animate-pulse"></span>
+                  <span aria-hidden="true" className="flex h-2 w-2 rounded-full bg-emerald-600 mr-2"></span>
                   {localizedSetting(settings, 'hero.tagline', locale) || tHero('tagline')}
                 </div>
                 <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-slate-900 dark:text-white leading-[1.1]">
@@ -302,17 +302,12 @@ export default async function HomePage({ params }: PageProps) {
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="card-raise relative overflow-hidden border-emerald-100 bg-white dark:border-emerald-900/50 dark:bg-slate-900">
-                    <CardContent className="pt-8 pb-8 px-6 relative">
-                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-emerald-100 dark:text-emerald-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
-                      <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
-                        {tQuran(`ayah${num}.text`)}
-                      </p>
-                      <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium relative z-10 text-right">
-                        — {tQuran(`ayah${num}.source`)}
-                      </p>
-                    </CardContent>
-                  </Card>
+                  <ScriptureCard
+                    key={num}
+                    text={tQuran(`ayah${num}.text`)}
+                    source={tQuran(`ayah${num}.source`)}
+                    accent="emerald"
+                  />
                 ))}
               </div>
             </div>
@@ -328,17 +323,12 @@ export default async function HomePage({ params }: PageProps) {
 
               <div className="reveal-row grid md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((num) => (
-                  <Card key={num} className="card-raise relative overflow-hidden border-amber-100 bg-white dark:border-amber-900/50 dark:bg-slate-900">
-                    <CardContent className="pt-8 pb-8 px-6 relative">
-                      <Quote className="absolute -bottom-4 -right-4 h-20 w-20 text-amber-100 dark:text-amber-900/50 rotate-180 z-0 opacity-40 pointer-events-none" />
-                      <p className="text-base leading-relaxed mb-4 font-bengali relative z-10">
-                        {tHadith(`hadith${num}.text`)}
-                      </p>
-                      <p className="text-sm text-amber-600 dark:text-amber-400 font-medium relative z-10 text-right">
-                        — {tHadith(`hadith${num}.source`)}
-                      </p>
-                    </CardContent>
-                  </Card>
+                  <ScriptureCard
+                    key={num}
+                    text={tHadith(`hadith${num}.text`)}
+                    source={tHadith(`hadith${num}.source`)}
+                    accent="amber"
+                  />
                 ))}
               </div>
             </div>
@@ -399,26 +389,28 @@ export default async function HomePage({ params }: PageProps) {
           </div>
         </section>
 
-        {/* Gallery Section */}
-        <section id="gallery" className="relative overflow-hidden py-20 md:py-32">
+        {/* Gallery Section — absent until there is a photograph to show; an
+            empty collection on the home page reads as a page that failed. */}
+        {galleryItems.length > 0 && (
+        <section id="gallery" className="relative overflow-hidden py-16 md:py-20">
           <div className="container-wide relative z-10">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
               <div className="reveal-left max-w-2xl">
                 <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6">
                   <ImageIcon className="h-6 w-6" />
                 </div>
-                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 text-slate-900 dark:text-white">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 text-slate-900 dark:text-white">
                   {tGallery('title')}
                 </h2>
                 <p className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
                   {tGallery('subtitle')}
                 </p>
               </div>
-              <Link href={localePath(locale, '/gallery')} className="reveal-right">
-                <Button variant="outline" className="hidden md:flex gap-2">
-                    {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              <Button asChild variant="outline" className="reveal-right hidden md:inline-flex gap-2">
+                <Link href={localePath(locale, '/gallery')}>
+                  {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
             </div>
 
             <div className="reveal-soft">
@@ -426,14 +418,15 @@ export default async function HomePage({ params }: PageProps) {
             </div>
             
             <div className="mt-12 text-center md:hidden">
-              <Link href={localePath(locale, '/gallery')}>
-                <Button variant="outline" className="w-full gap-2">
-                    {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              <Button asChild variant="outline" className="w-full gap-2">
+                <Link href={localePath(locale, '/gallery')}>
+                  {tGallery('viewAll')} <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
             </div>
           </div>
         </section>
+        )}
 
         {/* How It Works Section */}
         <section id="how-it-works" className="surface-veil py-16 md:py-20">
@@ -444,13 +437,18 @@ export default async function HomePage({ params }: PageProps) {
               {steps.map((step, index) => (
                 <div key={index} className="relative">
                   <div className="flex flex-col items-center text-center">
+                    {/* The connector runs from this badge's edge to the next one's: half a
+                        column plus the 2rem gap, less the two 2rem badge radii and a margin. */}
+                    {index < steps.length - 1 && (
+                      <div
+                        aria-hidden="true"
+                        className="hidden lg:block absolute top-8 left-[calc(50%+2.75rem)] w-[calc(100%-3.5rem)] border-t-2 border-dashed border-emerald-300/80 dark:border-emerald-700"
+                      />
+                    )}
                     <div className="relative mb-4">
-                      <div className="h-16 w-16 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground font-bold text-xl shadow-lg shadow-primary/25">
+                      <div className="h-16 w-16 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-xl tabular-nums ring-4 ring-emerald-100 dark:ring-emerald-900/50">
                         {step.step}
                       </div>
-                      {index < steps.length - 1 && (
-                        <div className="hidden lg:block absolute top-8 left-full w-full h-0.5 bg-linear-to-r from-primary/50 to-primary/10" />
-                      )}
                     </div>
                     <h3 className="font-semibold mb-2 text-lg">{step.title}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">
@@ -547,13 +545,44 @@ export default async function HomePage({ params }: PageProps) {
 function SectionLink({ href, label }: { href: string; label: string }) {
   return (
     <div className="reveal-soft mt-10 text-center">
-      <Link href={href}>
-        <Button variant="outline" className="gap-2">
+      <Button asChild variant="outline" className="gap-2">
+        <Link href={href}>
           {label}
           <ArrowRight className="h-4 w-4" />
-        </Button>
-      </Link>
+        </Link>
+      </Button>
     </div>
+  );
+}
+
+/**
+ * A verse or hadith: the words, then the source beneath them, pinned to the
+ * card's foot so a row of three ends on one line. The quote mark is in flow —
+ * as a large clipped background glyph it sat on the citation.
+ */
+function ScriptureCard({ text, source, accent }: { text: string; source: string; accent: 'emerald' | 'amber' }) {
+  const amber = accent === 'amber';
+  return (
+    <figure
+      className={`card-raise flex h-full flex-col rounded-sm border bg-white p-6 dark:bg-slate-900 ${
+        amber ? 'border-amber-100 dark:border-amber-900/50' : 'border-emerald-100 dark:border-emerald-900/50'
+      }`}
+    >
+      <Quote
+        aria-hidden="true"
+        className={`mb-3 h-6 w-6 ${amber ? 'text-amber-300 dark:text-amber-700' : 'text-emerald-300 dark:text-emerald-700'}`}
+      />
+      <blockquote className="flex-1 text-base leading-relaxed text-slate-800 dark:text-slate-200">{text}</blockquote>
+      <figcaption
+        className={`mt-5 border-t pt-4 text-sm font-medium ${
+          amber
+            ? 'border-amber-100 text-amber-700 dark:border-amber-900/50 dark:text-amber-400'
+            : 'border-emerald-100 text-emerald-700 dark:border-emerald-900/50 dark:text-emerald-400'
+        }`}
+      >
+        — {source}
+      </figcaption>
+    </figure>
   );
 }
 

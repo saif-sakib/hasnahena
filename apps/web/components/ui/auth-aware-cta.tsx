@@ -47,31 +47,23 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
     return (
       <div className="flex flex-col sm:flex-row gap-4 pt-2">
         {isLoggedIn ? (
-          <Link href={localePath(locale, `/dashboard/${userRole}`)}>
-            <Button
-              size="xl"
-              className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
-            >
+          <Button asChild size="xl" className="gap-2 w-full sm:w-auto">
+            <Link href={localePath(locale, `/dashboard/${userRole}`)}>
               <LayoutDashboard className="h-5 w-5" />
               {t('goToDashboard')}
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         ) : (
-          <Link href={localePath(locale, '/register')}>
-            <Button
-              size="xl"
-              className="gap-2 w-full sm:w-auto shadow-none shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all"
-            >
+          <Button asChild size="xl" className="gap-2 w-full sm:w-auto">
+            <Link href={localePath(locale, '/register')}>
               {ctaText}
               <ArrowRight className="h-5 w-5" />
-            </Button>
-          </Link>
-        )}
-        <Link href="#how-it-works">
-          <Button variant="outline" size="xl" className="w-full sm:w-auto">
-            {learnMoreText}
+            </Link>
           </Button>
-        </Link>
+        )}
+        <Button asChild variant="outline" size="xl" className="w-full sm:w-auto">
+          <Link href="#how-it-works">{learnMoreText}</Link>
+        </Button>
       </div>
     );
   }
@@ -83,20 +75,17 @@ export function AuthAwareCTA({ locale, ctaText, learnMoreText, variant }: AuthAw
   }
 
   return (
-    <section className="py-16 md:py-20 bg-linear-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white">
+    // Deep emerald, the colour of the menu overlay — a closing band, not a banner.
+    <section className="py-16 md:py-20 bg-linear-to-br from-emerald-800 to-emerald-950 text-white">
       <div className="container-wide text-center">
-        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">{t('ctaTitle')}</h2>
-        <p className="text-lg mb-8 opacity-90 max-w-2xl mx-auto">{t('ctaSubtitle')}</p>
-        <Link href={localePath(locale, '/register')}>
-          <Button
-            size="xl"
-            variant="secondary"
-            className="gap-2 text-primary shadow-none hover:shadow-xl transition-all"
-          >
+        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 text-balance">{t('ctaTitle')}</h2>
+        <p className="text-lg mb-8 text-emerald-100/90 max-w-2xl mx-auto">{t('ctaSubtitle')}</p>
+        <Button asChild size="xl" className="gap-2 bg-white text-emerald-900 hover:bg-emerald-50">
+          <Link href={localePath(locale, '/register')}>
             {ctaText}
             <ArrowRight className="h-5 w-5" />
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
     </section>
   );

@@ -116,7 +116,7 @@ export default function MemberDashboard() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight text-neutral-900">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900">
             {t('welcome')}, {locale === 'bn' ? 'সদস্য' : 'Member'}
           </h1>
           <p className="text-sm text-neutral-500">
@@ -144,15 +144,16 @@ export default function MemberDashboard() {
       )}
 
       {/* Account Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
+      {/* Two by two on a phone: all four figures above the fold. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="flex min-w-0 flex-col p-4 sm:p-5 bg-white border border-neutral-200/50 rounded-2xl">
+          <div className="flex items-center gap-2 text-[13px] sm:text-[14px] font-medium text-neutral-500 mb-3">
             <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
               <Wallet className="h-4 w-4" />
             </div>
             {t('currentBalance')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
+          <p className="text-lg sm:text-2xl font-bold text-neutral-900 tracking-tight tabular-nums whitespace-nowrap leading-tight">
             {amount(data.stats.currentBalance)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -160,14 +161,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
-            <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+        <div className="flex min-w-0 flex-col p-4 sm:p-5 bg-white border border-neutral-200/50 rounded-2xl">
+          <div className="flex items-center gap-2 text-[13px] sm:text-[14px] font-medium text-neutral-500 mb-3">
+            <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
               <ArrowUpRight className="h-4 w-4" />
             </div>
             {t('totalDeposited')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
+          <p className="text-lg sm:text-2xl font-bold text-neutral-900 tracking-tight tabular-nums whitespace-nowrap leading-tight">
             {amount(data.stats.totalDeposited)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -175,14 +176,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
-            <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+        <div className="flex min-w-0 flex-col p-4 sm:p-5 bg-white border border-neutral-200/50 rounded-2xl">
+          <div className="flex items-center gap-2 text-[13px] sm:text-[14px] font-medium text-neutral-500 mb-3">
+            <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
               <HandCoins className="h-4 w-4" />
             </div>
             {t('loanBalance')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
+          <p className="text-lg sm:text-2xl font-bold text-neutral-900 tracking-tight tabular-nums whitespace-nowrap leading-tight">
             {amount(data.stats.loanBalance)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -190,14 +191,14 @@ export default function MemberDashboard() {
           </p>
         </div>
 
-        <div className="flex flex-col p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="flex items-center gap-2 text-[14px] font-medium tracking-wide text-neutral-500 mb-3">
-            <div className="p-2 bg-neutral-100 rounded-lg text-neutral-600">
+        <div className="flex min-w-0 flex-col p-4 sm:p-5 bg-white border border-neutral-200/50 rounded-2xl">
+          <div className="flex items-center gap-2 text-[13px] sm:text-[14px] font-medium text-neutral-500 mb-3">
+            <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
               <HandCoins className="h-4 w-4" />
             </div>
             {t('loanEligibility')}
           </div>
-          <p className="text-2xl xl:text-3xl font-bold text-neutral-900 tracking-tight wrap-break-word leading-tight">
+          <p className="text-lg sm:text-2xl font-bold text-neutral-900 tracking-tight tabular-nums whitespace-nowrap leading-tight">
             {amount(data.stats.loanEligibility)}
           </p>
           <p className="text-xs text-neutral-400 mt-1">
@@ -229,11 +230,11 @@ export default function MemberDashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 p-6">
             <div className="flex flex-col gap-1">
               <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'অবশিষ্ট' : 'Remaining'}</p>
-              <p className="text-lg font-semibold text-neutral-900">{formatCurrency(data.activeLoan.remainingAmount, locale)}</p>
+              <p className="text-lg font-semibold text-neutral-900 tabular-nums whitespace-nowrap">{formatCurrency(data.activeLoan.remainingAmount, locale)}</p>
             </div>
             <div className="flex flex-col gap-1">
               <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'পরবর্তী কিস্তি' : 'Next Installment'}</p>
-              <p className="text-lg font-semibold text-neutral-900">{formatCurrency(data.activeLoan.nextInstallment, locale)}</p>
+              <p className="text-lg font-semibold text-neutral-900 tabular-nums whitespace-nowrap">{formatCurrency(data.activeLoan.nextInstallment, locale)}</p>
             </div>
             <div className="flex flex-col gap-1">
               <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'নির্ধারিত তারিখ' : 'Due Date'}</p>
@@ -259,32 +260,32 @@ export default function MemberDashboard() {
       )}
 
       {/* Quick Links - Clean Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link href={localePath(locale, '/dashboard/member/deposits')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <Link href={localePath(locale, '/dashboard/member/deposits')} className="group flex flex-col items-center gap-2 p-3 text-center sm:flex-row sm:gap-4 sm:p-5 sm:text-left bg-white border border-neutral-200/50 rounded-2xl hover:border-emerald-200 transition-colors">
+          <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center">
             <Wallet className="h-4.5 w-4.5 text-emerald-600" />
           </div>
           <div className="flex flex-col">
-            <p className="text-sm font-semibold text-neutral-900 group-hover:text-emerald-600 transition-colors">{locale === 'bn' ? 'আমানত' : 'Deposits'}</p>
-            <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'ইতিহাস দেখুন' : 'View history'}</p>
+            <p className="text-sm font-semibold text-neutral-900 group-hover:text-emerald-700 transition-colors">{locale === 'bn' ? 'আমানত' : 'Deposits'}</p>
+            <p className="hidden sm:block text-xs font-medium text-neutral-500">{locale === 'bn' ? 'ইতিহাস দেখুন' : 'View history'}</p>
           </div>
         </Link>
-        <Link href={localePath(locale, '/dashboard/member/loans')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="h-10 w-10 min-w-[40px] bg-amber-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
-            <HandCoins className="h-4.5 w-4.5 text-amber-600" />
+        <Link href={localePath(locale, '/dashboard/member/loans')} className="group flex flex-col items-center gap-2 p-3 text-center sm:flex-row sm:gap-4 sm:p-5 sm:text-left bg-white border border-neutral-200/50 rounded-2xl hover:border-emerald-200 transition-colors">
+          <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center">
+            <HandCoins className="h-4.5 w-4.5 text-emerald-600" />
           </div>
           <div className="flex flex-col">
-            <p className="text-sm font-semibold text-neutral-900 group-hover:text-amber-600 transition-colors">{locale === 'bn' ? 'ঋণ' : 'Loans'}</p>
-            <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'স্থিতি দেখুন' : 'View status'}</p>
+            <p className="text-sm font-semibold text-neutral-900 group-hover:text-emerald-700 transition-colors">{locale === 'bn' ? 'ঋণ' : 'Loans'}</p>
+            <p className="hidden sm:block text-xs font-medium text-neutral-500">{locale === 'bn' ? 'স্থিতি দেখুন' : 'View status'}</p>
           </div>
         </Link>
-        <Link href={localePath(locale, '/dashboard/member/transactions')} className="group flex items-center gap-4 p-5 bg-white border border-neutral-200/50 rounded-2xl hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] transition-all duration-300">
-          <div className="h-10 w-10 min-w-[40px] bg-blue-50 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform">
-            <ArrowUpRight className="h-4.5 w-4.5 text-blue-600" />
+        <Link href={localePath(locale, '/dashboard/member/transactions')} className="group flex flex-col items-center gap-2 p-3 text-center sm:flex-row sm:gap-4 sm:p-5 sm:text-left bg-white border border-neutral-200/50 rounded-2xl hover:border-emerald-200 transition-colors">
+          <div className="h-10 w-10 min-w-[40px] bg-emerald-50 rounded-full flex items-center justify-center">
+            <ArrowUpRight className="h-4.5 w-4.5 text-emerald-600" />
           </div>
           <div className="flex flex-col">
-            <p className="text-sm font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors">{locale === 'bn' ? 'লেনদেন' : 'Transactions'}</p>
-            <p className="text-xs font-medium text-neutral-500">{locale === 'bn' ? 'সব দেখুন' : 'View all'}</p>
+            <p className="text-sm font-semibold text-neutral-900 group-hover:text-emerald-700 transition-colors">{locale === 'bn' ? 'লেনদেন' : 'Transactions'}</p>
+            <p className="hidden sm:block text-xs font-medium text-neutral-500">{locale === 'bn' ? 'সব দেখুন' : 'View all'}</p>
           </div>
         </Link>
       </div>
@@ -331,7 +332,7 @@ export default function MemberDashboard() {
                   </div>
                 </div>
                 <div className="flex flex-col items-end text-right">
-                  <p className={`text-sm font-semibold tracking-tight ${isCreditTransaction(tx.type) ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <p className={`text-sm font-semibold tracking-tight tabular-nums whitespace-nowrap ${isCreditTransaction(tx.type) ? 'text-emerald-600' : 'text-red-600'}`}>
                     {isCreditTransaction(tx.type) ? '+' : '-'}
                     {formatCurrency(tx.amount, locale)}
                   </p>

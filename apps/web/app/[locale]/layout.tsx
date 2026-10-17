@@ -17,13 +17,18 @@ import {
 import { getPublicSettings } from '@/lib/system-config';
 import '../globals.css';
 
+/*
+ * Inter sets Latin, Hind Siliguri sets Bengali: the stack in globals.css names
+ * both, so each glyph falls to the face that has it. Hind's Latin subset is
+ * never reached (Inter is first) — not loading it saves four preloads.
+ */
 const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-sans',
+  variable: '--font-inter',
 });
 
 const hindSiliguri = Hind_Siliguri({
-  subsets: ['bengali', 'latin'],
+  subsets: ['bengali'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-bengali',
   display: 'swap',
@@ -133,10 +138,10 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} suppressHydrationWarning>
-      <body
-        className={`${inter.variable} ${hindSiliguri.variable} font-sans antialiased min-h-screen flex flex-col`}
-      >
+    // The font variables live on <html>: the theme's --font-sans is declared on
+    // :root and resolves them there.
+    <html lang={locale} className={`${inter.variable} ${hindSiliguri.variable}`} suppressHydrationWarning>
+      <body className="font-sans antialiased min-h-screen flex flex-col">
         <NextIntlClientProvider messages={messages}>
           {children}
           <Toaster />

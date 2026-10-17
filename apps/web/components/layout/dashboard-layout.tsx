@@ -257,9 +257,12 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         key={item.name}
         href={href}
         prefetch={true}
-        className={`flex items-center gap-3 px-3 py-2 text-[14px] transition-all rounded-lg ${
+        aria-current={isActive ? "page" : undefined}
+        // The brand's emerald for "you are here", with a rule on the leading
+        // edge so the state is not carried by colour alone.
+        className={`relative flex items-center gap-3 px-3 py-2 text-[14px] transition-colors rounded-lg ${
           isActive
-            ? "bg-zinc-900 text-white font-medium shadow-[0_1px_2px_rgba(0,0,0,0.1)]"
+            ? "bg-emerald-50 text-emerald-900 font-medium ring-1 ring-inset ring-emerald-100 before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-emerald-600"
             : "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950"
         }`}
         onClick={() => {
@@ -270,8 +273,8 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
         }}
       >
         <item.icon
-          className={`h-[18px] w-[18px] ${isActive ? "text-white" : "text-zinc-400"}`}
-          strokeWidth={isActive ? 2.5 : 2}
+          className={`h-[18px] w-[18px] ${isActive ? "text-emerald-700" : "text-zinc-400"}`}
+          strokeWidth={isActive ? 2.25 : 2}
         />
         {locale === "bn" ? item.bn : item.en}
         {/* A dot, not a count (a stale count invites acting on it); aria-label for screen readers. */}

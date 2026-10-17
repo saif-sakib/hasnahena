@@ -6,7 +6,7 @@ at build time. They are grouped by **what you have to be touching to hit one**.
 This is the only file that keeps them. If you are about to add a lesson to
 another doc, add it here and link instead.
 
-**This file is the index — 206 traps in 24 files.** The lines below are the
+**This file is the index — 207 traps in 24 files.** The lines below are the
 trap titles verbatim, so this page alone answers "is my problem already known?".
 Open the one file whose heading matches what you are touching; the set is 111 KB
 and the largest single file is 32 KB.
@@ -198,7 +198,7 @@ and the largest single file is 32 KB.
 - Chromium reports `'upgrade-insecure-requests' is ignored when delivered in a report-only policy` to the console on every page load.
 - Generous per-page waits multiply.
 
-### [Interface](traps/interface.md) · 51
+### [Interface](traps/interface.md) · 52
 
 - A badge inside a link changes that link's accessible name.
 - A feature behind `@supports` that degrades to nothing degrades silently, and looks exactly like never having built it.
@@ -222,6 +222,7 @@ and the largest single file is 32 KB.
 - That the database knows a number does not mean the number may be published.
 - `aria-hidden` on a decorative wrapper becomes a content wrapper the moment the decoration gains children.
 - A long number wraps between its own digits, and only at a real viewport width.
+- A font the page downloads is not a font the page uses.
 - An application-level check that is stricter than the constraint it anticipates is invisible, and it always wins.
 - A page whose layout depends on an admin having filled a box in looks broken on launch day.
 - A spec that drives a third-party service cannot run in CI, and failing is not the same as being honest about it.

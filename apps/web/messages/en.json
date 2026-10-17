@@ -594,5 +594,70 @@
         }
       }
     }
+  },
+  "pages": {
+    "about": {
+      "eyebrow": "About Us",
+      "title": "Building a Better Society Together",
+      "lead": "Hasnahena Cooperative Society is a non-profit organization. We work towards completely interest-free financing and social development.",
+      "vision": {
+        "title": "Vision",
+        "body": "Establishing an interest-free economy and exploitation-free society."
+      },
+      "mission": {
+        "title": "Mission",
+        "body": "Self-reliance through member savings, halal investments, and public welfare activities."
+      },
+      "values": {
+        "title": "Values",
+        "body": "Transparency, accountability, trustworthiness, and mutual cooperation are our foundation."
+      }
+    },
+    "activities": {
+      "eyebrow": "Our Activities",
+      "title": "Initiatives for Social Welfare",
+      "lead": "We conduct various activities for overall social development, including interest-free loans, education, and social support."
+    },
+    "contact": {
+      "eyebrow": "Contact",
+      "title": "Get in Touch",
+      "lead": "Contact us for any needs. We are always ready to assist you.",
+      "phone": "Phone",
+      "email": "Email",
+      "address": "Address",
+      "talkTitle": "Talk to us",
+      "talkBody": "For detailed discussions, please call directly or visit our office.",
+      "callNow": "Call Now",
+      "writeToUs": "Write to us"
+    },
+    "donate": {
+      "eyebrow": "Donate",
+      "title": "Your Donation Can Change a Life",
+      "lead": "Support Hasnahena’s welfare initiatives. Your donations will reach those who are truly in need.",
+      "comingSoon": "Donation details will be published shortly. Please reach us through the contact page in the meantime.",
+      "bankTitle": "Bank Account",
+      "bankName": "Bank",
+      "accountName": "Account Name",
+      "accountNumber": "Account Number",
+      "branch": "Branch",
+      "mobileTitle": "Mobile Banking",
+      "confirmNote": "Please confirm via SMS after sending the donation."
+    },
+    "faq": {
+      "eyebrow": "Help",
+      "title": "Frequently Asked Questions",
+      "moreQuestions": "Still have a question?",
+      "contactUs": "Contact us"
+    },
+    "support": {
+      "eyebrow": "Help",
+      "title": "Support Center",
+      "lead": "Reach us by phone, by email, or at the office — whichever suits you.",
+      "phone": "Phone Support",
+      "email": "Email Support",
+      "office": "Office Visit",
+      "faqPrompt": "Many questions are already answered in the FAQ.",
+      "faqLink": "Read the FAQ"
+    }
   }
 }

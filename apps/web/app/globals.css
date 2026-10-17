@@ -60,9 +60,15 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 
-  --font-sans: var(--font-sans), system-ui, sans-serif;
+  /*
+  Latin from Inter, Bengali from Hind Siliguri — per glyph, so a Bengali line
+  with a receipt number in it gets both. The two variables are next/font's, set
+  on <html>; the fallbacks cover the root 404, which renders outside that layout.
+   */
+  --font-sans:
+    var(--font-inter, ui-sans-serif), var(--font-bengali, 'Noto Sans Bengali'), system-ui,
+    sans-serif;
   --font-mono: ui-monospace, monospace;
-  --font-bengali: Hind Siliguri, Noto Sans Bengali, sans-serif;
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
@@ -289,10 +295,33 @@
     @apply bg-background text-foreground antialiased;
   }
   
-  /* Bengali font support */
+  /* Bengali first — for prose that is Bengali in both languages. */
   .font-bengali {
-    font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+    font-family: var(--font-bengali, 'Noto Sans Bengali'), var(--font-inter, ui-sans-serif), sans-serif;
   }
+
+  /* Figures line up in columns and do not jitter as they change. */
+  table td {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+Letter-spacing pulls Bengali conjuncts apart and the script has no capitals for
+it to balance, so the wide trackings on small label text are English-only.
+Unlayered, because a utility in a later layer would otherwise win.
+ */
+:lang(bn) :is(.tracking-wide, .tracking-wider, .tracking-widest, .eyebrow) {
+  letter-spacing: normal;
+}
+
+/* A small label above a heading: the site's one eyebrow style. */
+@utility eyebrow {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 @layer utilities {

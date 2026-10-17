@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, HelpCircle } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales, type Locale } from '@/i18n';
-import { Button } from '@/components/ui/button';
+import { PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { getPublicSettings } from '@/lib/system-config';
@@ -36,10 +37,11 @@ export default async function FaqPage({ params }: PageProps) {
   if (!locales.includes(locale as Locale)) {
     notFound();
   }
+  setRequestLocale(locale);
 
   const settings = await getPublicSettings();
+  const t = await getTranslations({ locale, namespace: 'pages.faq' });
 
-  const isBn = locale === 'bn';
   // One source for the questions: this list and the FAQPage structured data
   // must say the same thing, and a rich result whose answer differs from the
   // page is a policy violation rather than a typo. See lib/faq.ts.
@@ -49,30 +51,29 @@ export default async function FaqPage({ params }: PageProps) {
     <>
       <StructuredData locale={normalizeLocale(locale)} path="/faq" settings={settings} />
       <Header settings={settings} />
-      <main className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-32 md:pt-36 pb-16">
-        <div className="container-wide max-w-4xl">
-          <div className="mb-8 flex items-center justify-between">
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-              <HelpCircle className="h-7 w-7 text-emerald-600" />
-              {isBn ? 'সাধারণ প্রশ্নাবলী' : 'Frequently Asked Questions'}
-            </h1>
-            <Link href={localePath(locale)}>
-              <Button variant="outline" size="sm" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                {isBn ? 'হোমে ফিরুন' : 'Back to Home'}
-              </Button>
-            </Link>
-          </div>
-
-          <div className="space-y-4">
+      <main className="surface-paper flex-1">
+        <PageHero eyebrow={t('eyebrow')} title={t('title')} />
+        <PageBody className="max-w-3xl">
+          <div className={`${paperCard} divide-y divide-slate-100 dark:divide-slate-800`}>
             {faqItems.map((item) => (
-              <article key={item.q} className="rounded-xl border bg-white p-5 shadow-xs dark:bg-slate-900">
+              <article key={item.q} className="p-6">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{item.q}</h2>
-                <p className="mt-2 text-slate-600 dark:text-slate-300">{item.a}</p>
+                <p className="mt-2 leading-relaxed text-muted-foreground">{item.a}</p>
               </article>
             ))}
           </div>
-        </div>
+
+          <p className="mt-8 text-center text-muted-foreground">
+            {t('moreQuestions')}{' '}
+            <Link
+              href={localePath(locale, '/contact')}
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {t('contactUs')}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </p>
+        </PageBody>
       </main>
       <Footer settings={settings} />
     </>

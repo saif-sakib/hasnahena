@@ -49,7 +49,8 @@ app/[locale]/(marketing)   home, about, activities, gallery, faq, contact, donat
 app/[locale]/(auth)        login, register, forgot-password, reset-password
 app/[locale]/dashboard/    member/ worker/ admin/ — staff route files are one-line re-exports
 components/ui              shadcn-style primitives
-components/layout          header, footer, dashboard-layout, legal-document
+components/layout          header, footer, dashboard-layout, legal-document · page-hero (every
+                           interior public page opens with PageHero) · auth-backdrop (sign-in ground)
 components/dashboard       screens/ (one component per staff screen, both dashboards) · nav.ts ·
                            role.tsx (useDashboardRole, presentation only) · money-actions.tsx (THE money form)
 lib/                       api client, auth, prisma, validation, documents, cloudinary, seo, csp
@@ -59,7 +60,7 @@ messages/{en,bn}.json      all copy (next-intl). `/faq` English, `/bn/faq` Benga
 
 **Documents** (`lib/documents/`, English only, [ADR-012](decisions.md)): statement, receipt, loan agreement, certificate. A builder produces a renderer-independent `DocumentModel`; `render/html.ts` (preview/print) and `render/pdf.ts` (vector download) both consume it. Import from `@/lib/documents`; amounts print `BDT 1,25,000`.
 
-**UI tokens**: CSS variables in `app/globals.css` (light and `.dark`), primary emerald `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`; semantic classes only; status colours in `lib/status-styles.ts`.
+**UI tokens**: CSS variables in `app/globals.css` (light and `.dark`), primary emerald `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`; semantic classes only; status colours in `lib/status-styles.ts`. Type: `--font-sans` is Inter for Latin then Hind Siliguri for Bengali, per glyph (both next/font variables on `<html>`); wide letter-spacing is reset under `:lang(bn)`. Public pages share one look: ivory `surface-paper`, the lattice, `card-raise` white cards, emerald icon tiles; copy for the interior pages is `pages.*`.
 
 ## Go API structure
 

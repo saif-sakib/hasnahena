@@ -28,11 +28,12 @@ const CardHeader = React.forwardRef<
 ));
 CardHeader.displayName = 'CardHeader';
 
+/** An h3 by default; `as="h1"` when the card is the page (a sign-in screen). */
 const CardTitle = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
+  HTMLHeadingElement,
+  React.HTMLAttributes<HTMLHeadingElement> & { as?: 'h1' | 'h2' | 'h3' }
+>(({ className, as: Heading = 'h3', ...props }, ref) => (
+  <Heading
     ref={ref}
     className={cn('font-semibold leading-none tracking-tight', className)}
     {...props}
