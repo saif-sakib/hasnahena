@@ -79,7 +79,9 @@ func Load() Config {
 
 	// Validate JWT_SECRET - critical security requirement
 	jwtSecret := getEnv("JWT_SECRET", "")
-	if jwtSecret == "" || jwtSecret == "change-this-in-production" {
+	// The local-development value is published in .env.example; never sign production tokens with it.
+	if jwtSecret == "" || jwtSecret == "change-this-in-production" ||
+		(getEnv("ENVIRONMENT", "") == "production" && jwtSecret == "local-development-secret-at-least-32-characters-long") {
 		slog.Error("JWT_SECRET must be set to a secure value of at least 32 characters")
 		os.Exit(1)
 	}

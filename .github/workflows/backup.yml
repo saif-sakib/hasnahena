@@ -7,10 +7,13 @@ name: Backup
 #   BACKUP_DATABASE_URL  direct (NOT -pooler) Neon connection string
 #   BACKUP_PASSPHRASE    symmetric key for the dump — losing it loses the backup
 #   CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET  (assets)
-# Optional, to copy off GitHub:
-#   BACKUP_S3_BUCKET     e.g. s3://hasnahena-backups
-#   BACKUP_S3_ENDPOINT   set for Backblaze B2 / Cloudflare R2; omit for AWS S3
+#   BACKUP_S3_BUCKET     e.g. s3://hasnahena-backups — the ONLY copy kept
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION (`auto` for R2)
+# Optional:
+#   BACKUP_S3_ENDPOINT   set for Backblaze B2 / Cloudflare R2; omit for AWS S3
+#
+# Nothing is uploaded as a workflow artifact: the repository is public, and a
+# public repository's artifacts are downloadable by any signed-in GitHub user.
 
 on:
   schedule:
@@ -39,11 +42,13 @@ jobs:
         env:
           DB: ${{ secrets.BACKUP_DATABASE_URL }}
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
         run: |
           # Without this the job "succeeds" at producing nothing, which is the
           # single worst outcome for a backup pipeline.
-          [ -n "$DB" ]   || { echo 'BACKUP_DATABASE_URL secret is not set' >&2; exit 1; }
-          [ -n "$PASS" ] || { echo 'BACKUP_PASSPHRASE secret is not set' >&2; exit 1; }
+          [ -n "$DB" ]     || { echo 'BACKUP_DATABASE_URL secret is not set' >&2; exit 1; }
+          [ -n "$PASS" ]   || { echo 'BACKUP_PASSPHRASE secret is not set' >&2; exit 1; }
+          [ -n "$BUCKET" ] || { echo 'BACKUP_S3_BUCKET secret is not set' >&2; exit 1; }
 
       # A pg_dump at least as new as Neon's server (see the action).
       - uses: ./.github/actions/postgres-client
@@ -69,28 +74,7 @@ jobs:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: scripts/backup.sh backups
 
-      - name: Name the artifact
-        id: meta
-        env:
-          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
-        run: |
-          echo "name=hasnahena-backup-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          # The `secrets` context is not available in `if:` conditions, so the
-          # off-GitHub copy is gated on an output instead.
-          echo "s3=${BUCKET:+yes}" >> "$GITHUB_OUTPUT"
-
-      # Only the .gpg files are ever uploaded. backup.sh deletes the plaintext
-      # dump, but the glob is explicit so a future edit cannot leak one.
-      - name: Retain on GitHub
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.meta.outputs.name }}
-          path: backups/*.dump.gpg
-          if-no-files-found: error
-          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 30 }}
-
-      - name: Copy off GitHub
-        if: steps.meta.outputs.s3 == 'yes'
+      - name: Copy to the bucket
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -103,6 +87,8 @@ jobs:
           args=()
           [ -n "$ENDPOINT" ] && args+=(--endpoint-url "$ENDPOINT")
           # Under database/, so a lifecycle rule can treat dumps and assets differently.
+          # Only the .gpg files are ever uploaded. backup.sh deletes the plaintext
+          # dump, but the filter is explicit so a future edit cannot leak one.
           aws "${args[@]}" s3 cp backups/ "$BUCKET/database/" --recursive --exclude '*' --include '*.dump.gpg'
 
       - name: Summary
@@ -135,12 +121,14 @@ jobs:
           KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
         run: |
           missing=''
           [ -n "$CLOUD" ]  || missing="$missing CLOUDINARY_CLOUD_NAME"
           [ -n "$KEY" ]    || missing="$missing CLOUDINARY_API_KEY"
           [ -n "$SECRET" ] || missing="$missing CLOUDINARY_API_SECRET"
           [ -n "$PASS" ]   || missing="$missing BACKUP_PASSPHRASE"
+          [ -n "$BUCKET" ] || missing="$missing BACKUP_S3_BUCKET"
           if [ -n "$missing" ]; then
             echo "Set these repository secrets:$missing" >&2
             echo "Until then, no copy of any member's NID scan exists outside Cloudinary." >&2
@@ -157,26 +145,7 @@ jobs:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: node apps/web/scripts/cloudinary-backup.mjs backups
 
-      - name: Name the artifact
-        id: meta
-        env:
-          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
-        run: |
-          echo "name=hasnahena-assets-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          # As in the dump job: the `secrets` context is not available in `if:`.
-          echo "s3=${BUCKET:+yes}" >> "$GITHUB_OUTPUT"
-
-      - name: Retain on GitHub
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.meta.outputs.name }}
-          path: backups/*.tar.gz.gpg
-          if-no-files-found: error
-          # 7 days (500 MB GitHub storage); R2 holds the long tail; monthly keeps 90.
-          retention-days: ${{ github.event.schedule == '0 20 1 * *' && 90 || 7 }}
-
-      - name: Copy off GitHub
-        if: steps.meta.outputs.s3 == 'yes'
+      - name: Copy to the bucket
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

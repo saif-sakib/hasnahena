@@ -31,15 +31,11 @@ import { runAsScript } from './lib/guard.mjs';
 import { allocateStaffNo, parseStaffSequence } from './lib/account-no.mjs';
 
 /**
- * The launch admins, named rather than discovered. Override with
- * PURGE_KEEP_ADMINS=a@x.com,b@x.com.
+ * The launch admins, named rather than discovered: PURGE_KEEP_ADMINS=a@x.com,b@x.com.
+ * Required — the repository is public, so the names are not written here.
  */
-const DEFAULT_ADMINS = ['ashiqhmm1@gmail.com', 'saifahmedsakib@gmail.com'];
-
-const ADMINS = (process.env.PURGE_KEEP_ADMINS?.trim()
-  ? process.env.PURGE_KEEP_ADMINS.split(',')
-  : DEFAULT_ADMINS
-)
+const ADMINS = (process.env.PURGE_KEEP_ADMINS ?? '')
+  .split(',')
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean)
   .map((email) => ({ email }));
@@ -167,6 +163,9 @@ async function main() {
   loadDatabaseEnv();
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not set. Set it in the shell or in .env.local.');
+  }
+  if (ADMINS.length === 0) {
+    throw new Error('PURGE_KEEP_ADMINS is not set: name the admins who survive, comma-separated.');
   }
 
   const confirmed = process.argv.includes('--confirm');

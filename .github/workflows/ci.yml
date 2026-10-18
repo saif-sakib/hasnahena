@@ -155,6 +155,9 @@ jobs:
         with:
           version: v2.6.1
           working-directory: apps/api
+          # `config verify` fetches its JSON schema from golangci-lint.run on every
+          # run; that site timing out failed CI with no code at fault.
+          verify: false
 
       - name: Build
         run: go build ./...

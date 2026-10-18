@@ -96,18 +96,18 @@ Nothing in production uses them yet (Vercel and Render build from source); they 
 
 Migrations, not `db push` ([ADR-014](decisions/adr-014-prisma-migrate-supersedes-db-push.md)): `pnpm db:migrate:dev` (create), `pnpm db:migrate` (apply), `pnpm db:migrate:status`. `db:push` is for throwaway databases only — on production it writes schema without history and the next migrate sees unreconcilable drift. A pre-migrations database needs `pnpm db:migrate:baseline` once (records `0_init`, runs nothing; do it on a Neon branch first).
 
-**A migration that drops a column has no overlap window** (old code selects it; new code omits a NOT NULL column). In one sitting, outside office hours: (1) run the Backup workflow by hand and wait for the artifact; (2) rehearse on a Neon branch — `pnpm db:migrate` then `pnpm db:migrate:check`; (3) migrate production **first**, then deploy both apps (reads failing on staff screens beats a member's deposit failing); (4) `pnpm db:migrate:check` against production must say *No difference detected*.
+**A migration that drops a column has no overlap window** (old code selects it; new code omits a NOT NULL column). In one sitting, outside office hours: (1) run the Backup workflow by hand and wait for it to finish (the archive lands in R2); (2) rehearse on a Neon branch — `pnpm db:migrate` then `pnpm db:migrate:check`; (3) migrate production **first**, then deploy both apps (reads failing on staff screens beats a member's deposit failing); (4) `pnpm db:migrate:check` against production must say *No difference detected*.
 
 ## Backups
 
-`.github/workflows/backup.yml`, nightly 19:00 UTC (01:00 Dhaka) plus monthly. Mandatory secrets (the job fails loudly without them): `BACKUP_DATABASE_URL` (**direct** string) and `BACKUP_PASSPHRASE` — keep the passphrase somewhere that survives losing this GitHub account; without it every backup is noise.
+`.github/workflows/backup.yml`, nightly 19:00 UTC (01:00 Dhaka) plus monthly. Mandatory secrets (the job fails loudly without them): `BACKUP_DATABASE_URL` (**direct** string), `BACKUP_PASSPHRASE` and `BACKUP_S3_BUCKET` with its `AWS_*` credentials — keep the passphrase somewhere that survives losing this GitHub account; without it every backup is noise.
 
-- **Database**: `pg_dump -Fc`, AES256-encrypted, GitHub artifact for 30 days (90 monthly).
-- **Assets** (`assets` job, `cloudinary-backup.mjs`): every asset under `hasnahena/` downloaded, verified against Cloudinary's byte length, one encrypted archive `hasnahena-assets-<stamp>.tar.gz.gpg` (`files/` mirroring public ids + `manifest.json`); artifact 7 days. Needs the three `CLOUDINARY_*` repository secrets and fails, never skips, without them. Read-only by construction; no SDK, so recovery needs only node. Restore: `gpg --decrypt … > assets.tar.gz && tar -xzf assets.tar.gz`; re-uploading is a manual `uploader.upload` per file with the manifest's `public_id`.
-- Silent stoppers: GitHub disables schedules after **60 days without a commit** (it emails first); artifacts expire.
+- **Database**: `pg_dump -Fc`, AES256-encrypted, to the bucket's `database/`.
+- **Assets** (`assets` job, `cloudinary-backup.mjs`): every asset under `hasnahena/` downloaded, verified against Cloudinary's byte length, one encrypted archive `hasnahena-assets-<stamp>.tar.gz.gpg` (`files/` mirroring public ids + `manifest.json`), to the bucket's `assets/`. Needs the three `CLOUDINARY_*` repository secrets and fails, never skips, without them. Read-only by construction; no SDK, so recovery needs only node. Restore: `gpg --decrypt … > assets.tar.gz && tar -xzf assets.tar.gz`; re-uploading is a manual `uploader.upload` per file with the manifest's `public_id`.
+- Silent stoppers: GitHub disables schedules after **60 days without a commit** (it emails first).
 - By hand: Actions → Backup → Run workflow, or `pnpm db:backup` / `pnpm backup:assets` locally (both need `BACKUP_PASSPHRASE`; the database one takes the direct URL as `DIRECT_DATABASE_URL` or `BACKUP_DATABASE_URL`).
 
-**Off GitHub (live since 2026-09-03, Cloudflare R2).** Both jobs copy to any S3-compatible bucket when `BACKUP_S3_BUCKET` is set — secrets only, no code. Setup: one private bucket near Dhaka; a token scoped to that bucket (read+write); secrets `BACKUP_S3_BUCKET` (`s3://hasnahena-backups`), `BACKUP_S3_ENDPOINT` (R2 `https://<account-id>.r2.cloudflarestorage.com`, B2 `https://s3.<region>.backblazeb2.com`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (**`auto`** on R2 — required). Lifecycle rules: `database/` 365 days (~63 KB/night), `assets/` 60 days (~4.8 MB/night and growing with membership — this rule is what keeps the 10 GB free tier safe). R2 egress is free and the archives are encrypted before upload, so the provider only holds ciphertext.
+**The bucket (live since 2026-09-03, Cloudflare R2) is the only copy.** Nothing is kept as a workflow artifact: the repository is public, and a public repository's artifacts are downloadable by any signed-in GitHub user. Any S3-compatible bucket works — secrets only, no code. Setup: one private bucket near Dhaka; a token scoped to that bucket (read+write); secrets `BACKUP_S3_BUCKET` (`s3://hasnahena-backups`), `BACKUP_S3_ENDPOINT` (R2 `https://<account-id>.r2.cloudflarestorage.com`, B2 `https://s3.<region>.backblazeb2.com`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (**`auto`** on R2 — required). Lifecycle rules: `database/` 365 days (~63 KB/night), `assets/` 60 days (~4.8 MB/night and growing with membership — this rule is what keeps the 10 GB free tier safe). R2 egress is free and the archives are encrypted before upload, so the provider only holds ciphertext.
 
 **Actions minutes.** GitHub Free's 2,000 minutes have a **$0 spending limit**: running out stops Actions, the nightly backup included, with no failure to report ([trap](traps/a-safety-job-that-spends-the-budget-the-safety-job-needs.md)). In place: `images.yml` tags/monthly, the restore drill gated on its inputs, CI only on PRs and `main` ([workflow.md](workflow.md) §2). Check Settings → Billing → Usage monthly; if minutes run out, first check last night's backup ran.
 
@@ -118,7 +118,7 @@ Migrations, not `db push` ([ADR-014](decisions/adr-014-prisma-migrate-supersedes
 `scripts/restore-check.sh` performs the restore (CI runs it, so it cannot rot):
 
 ```bash
-# 1. Archive: Actions → Backup → artifact, or aws s3 cp s3://…/hasnahena-<stamp>.dump.gpg .
+# 1. Archive: aws s3 cp s3://…/hasnahena-<stamp>.dump.gpg .
 # 2. Target: a Neon *branch*, never the primary (locally: createdb hasnahena_restore)
 BACKUP_PASSPHRASE='…' scripts/restore-check.sh hasnahena-<stamp>.dump.gpg postgresql://…/hasnahena_restore
 ```

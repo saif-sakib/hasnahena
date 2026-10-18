@@ -103,7 +103,7 @@ After any rotation: sign in as a member (a green health check proves nothing abo
 
 ## 4. Restore from backup
 
-**A restore you have not performed is a rumour.** `.github/workflows/backup.yml` runs daily at 19:00 UTC (01:00 Dhaka) plus monthly, producing two encrypted archives — the database dump and the assets (`hasnahena-assets-<stamp>.tar.gz.gpg`: every NID scan, photo and signature, readable without the database because public ids name people) — as workflow artifacts and in Cloudflare R2. Neon's own PITR is bounded and dies with the account. **Restore the pair together**, or documents 404 or belong to nobody.
+**A restore you have not performed is a rumour.** `.github/workflows/backup.yml` runs daily at 19:00 UTC (01:00 Dhaka) plus monthly, producing two encrypted archives — the database dump and the assets (`hasnahena-assets-<stamp>.tar.gz.gpg`: every NID scan, photo and signature, readable without the database because public ids name people) — to Cloudflare R2 only (never workflow artifacts: the repository is public). Neon's own PITR is bounded and dies with the account. **Restore the pair together**, or documents 404 or belong to nobody.
 
 ### Verify a backup (on a schedule, not in an emergency)
 
