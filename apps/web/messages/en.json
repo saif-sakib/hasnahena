@@ -371,6 +371,7 @@
     "disputeAlreadyRaised": "A dispute has already been raised for this transaction.",
     "disputeFailed": "The dispute could not be submitted. Please try again.",
     "disputeAmountInvalid": "Enter the correct amount in whole taka, or leave it empty.",
+    "disputeReasonShort": "Describe the problem in at least three characters.",
     "myProfile": "My Profile",
     "personalInfo": "Personal Information",
     "nomineeInfo": "Nominee Information",

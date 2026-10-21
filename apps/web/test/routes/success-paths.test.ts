@@ -115,6 +115,16 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
     expect(row?.status, 'a rejected dispute must not freeze the transaction').toBe('CONFIRMED');
   });
 
+  it('refuses a reason that is only whitespace', async () => {
+    const res = await raise({ reason: '     ' });
+    expect(res.status, `body: ${res.text}`).toBe(400);
+  });
+
+  it('refuses a correction too large to be an exact integer', async () => {
+    const res = await raise({ reason: 'Wrong amount recorded.', correctAmount: 1e20 });
+    expect(res.status, `body: ${res.text}`).toBe(400);
+  });
+
   it('refuses a fractional correction — money is whole taka (rule 1)', async () => {
     const res = await raise({ reason: 'Wrong amount recorded.', correctAmount: 4000.5 });
     expect(res.status, `body: ${res.text}`).toBe(400);

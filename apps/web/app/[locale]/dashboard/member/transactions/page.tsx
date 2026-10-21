@@ -290,6 +290,10 @@ export default function TransactionsPage() {
       }
       if (!selectedTransaction) return;
 
+      if (disputeReason.trim().length < 3) {
+        setDisputeError(t('disputeReasonShort'));
+        return;
+      }
       // Optional: a member disputing the whole posting has no correct amount.
       const correct = correctAmount.trim() === '' ? undefined : parseWholeTaka(correctAmount);
       if (correct === null) {
@@ -322,6 +326,9 @@ export default function TransactionsPage() {
         setCorrectAmount('');
         setSelectedTransaction(null);
         await refresh();
+      } catch {
+        // Offline or the server unreachable: say so rather than fail silently.
+        setDisputeError(t('disputeFailed'));
       } finally {
         submittingDispute.current = false;
       }

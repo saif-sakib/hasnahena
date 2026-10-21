@@ -8,9 +8,11 @@ import { serializeTransaction } from '@/lib/api-utils';
 import { TransactionStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
-  reason: z.string().min(3),
-  // Whole taka (rule 1), positive: the sign is the transaction type.
-  correctAmount: z.number().int().positive().optional(),
+  // Trimmed before the length check, or three spaces pass and store an empty reason.
+  reason: z.string().trim().min(3),
+  // Whole taka (rule 1), positive: the sign is the transaction type. Bounded so
+  // BigInt never receives an imprecise float.
+  correctAmount: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {

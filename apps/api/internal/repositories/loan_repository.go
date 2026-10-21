@@ -277,9 +277,6 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		return "", fmt.Errorf("%w: loan repayment %s", ErrDuplicatePendingRequest, existingRequestID)
 	}
 	if !errors.Is(dupErr, pgx.ErrNoRows) {
-		return "", fmt.Errorf("check for a duplicate repayment request: %w", dupErr)
-	}
-	if !errors.Is(dupErr, pgx.ErrNoRows) {
 		return "", dupErr
 	}
 

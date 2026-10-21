@@ -339,9 +339,6 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 		return "", fmt.Errorf("%w: deposit %s", ErrDuplicatePendingRequest, existingRequestID)
 	}
 	if !errors.Is(dupErr, pgx.ErrNoRows) {
-		return "", fmt.Errorf("check for a duplicate deposit request: %w", dupErr)
-	}
-	if !errors.Is(dupErr, pgx.ErrNoRows) {
 		return "", dupErr
 	}
 
