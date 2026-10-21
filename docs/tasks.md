@@ -10,7 +10,7 @@ Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 
 ## Where the platform stands
 
-Live since 2026-08-27, monitoring fully on since 2026-09-03 (both Sentry DSNs, `METRICS_TOKEN`, UptimeRobot on `/v1/health`, nightly encrypted database and asset backups to R2), CSP enforced on both tiers, **repository public since 2026-10-18** (MIT). The money paths, security, tests, CI, the entry path (registration → approval → first login) and the public site are done. Left: pending security updates, a session bug, a handful of owner actions, the input/output sweep, and the product gaps in the FR table. Reviewed against the code 2026-10-21.
+Live since 2026-08-27, monitoring fully on since 2026-09-03 (both Sentry DSNs, `METRICS_TOKEN`, UptimeRobot on `/v1/health`, nightly encrypted database and asset backups to R2), CSP enforced on both tiers, **repository public since 2026-10-18** (MIT). The money paths, security, tests, CI, the entry path (registration → approval → first login) and the public site are done. No open security alerts (2026-10-22). Left: a session bug, a handful of owner actions, the input/output sweep, and the product gaps in the FR table. Reviewed against the code 2026-10-21.
 
 ## The order to work in
 
@@ -18,17 +18,16 @@ Top to bottom. Owner rows can be done in any spare ten minutes alongside the eng
 
 | # | Task | Why now |
 |---|---|---|
-| 1 | **T-40** security updates | open Dependabot alerts against production |
-| 2 | **T-42** preview deploys off the live database | every PR — Dependabot's included — builds a preview |
-| 3 | **T-31** hard navigation logs the reader out | broken for members today |
-| 4 | **T-41** the laptop off the production database | one stray script already deleted every member once |
-| 5 | **T-29** branch protection | free since the repo went public |
-| 6 | **T-03, T-04, T-05, T-39, T-43, T-44, T-45** | owner, ~1 hour together |
-| 7 | **T-13** donation fund types | cheap only while the donation table is near-empty |
-| 8 | **T-12** the input/output sweep | the owner's pre-production bar |
-| 9 | **T-14 → T-16 → T-15 → T-18 → T-20 → T-22 → T-23 → T-46 → T-47 → T-17 → T-24** | product gaps, money-safety first |
-| 10 | **T-27, T-28, T-48** | operations |
-| 11 | **T-35 … T-30** | free-tier exits, each on its trigger |
+| 1 | **T-42** preview deploys off the live database | every PR — Dependabot's included — builds a preview |
+| 2 | **T-31** hard navigation logs the reader out | broken for members today |
+| 3 | **T-41** the laptop off the production database | one stray script already deleted every member once |
+| 4 | **T-29** branch protection | free since the repo went public |
+| 5 | **T-03, T-04, T-05, T-39, T-43, T-44, T-45** | owner, ~1 hour together |
+| 6 | **T-13** donation fund types | cheap only while the donation table is near-empty |
+| 7 | **T-12** the input/output sweep | the owner's pre-production bar |
+| 8 | **T-14 → T-16 → T-15 → T-18 → T-20 → T-22 → T-23 → T-46 → T-47 → T-17 → T-24** | product gaps, money-safety first |
+| 9 | **T-27, T-28, T-48** | operations |
+| 10 | **T-35 … T-30** | free-tier exits, each on its trigger |
 | — | **T-49** | local only, whenever |
 
 | Phase | What | Sessions |
@@ -47,7 +46,6 @@ Top to bottom. Owner rows can be done in any spare ten minutes alongside the eng
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[!]` **T-40** | **Apply the open security updates** | 0.5–1 | GitHub → Security → Dependabot lists open alerts against `next` (direct) and transitive packages in `pnpm-lock.yaml` (`tinypool`, `fast-uri`, `brace-expansion`, `sharp`, `js-yaml`, `source-map-js`, `dompurify`, `vitest`); PRs #17–#19 cover three. Bump `next` to the newest 16.3.x patch on a branch, regenerate the lock, add `pnpm.overrides` for transitive packages no parent has released a fix for, then the full gate (`typecheck`, `lint`, `test:unit`, `build`, `test:bundle`, e2e). Close the Dependabot PRs it supersedes. Afterwards: add `npm` and `gomod` to `.github/dependabot.yml` (today only `github-actions`), so updates arrive as routine PRs, not only as alerts |
 | `[ ]` **T-42** | **Preview deploys must not reach the live database** | `owner` 2 min | Vercel builds a preview for every PR — Dependabot's #17–#19 already have one. **Vercel → Settings → Environment Variables → `DATABASE_URL`**: tick **Production only**; give Preview a different value (a Neon `preview` branch, or Neon's Vercel integration). Shared across all three, a guessable preview URL writes to the live ledger ([workflow.md §3](workflow.md#3-preview-deploys)). Check `CRON_SECRET` and the `CLOUDINARY_*` keys the same way |
 | `[!]` **T-31** | **A hard navigation into the dashboard can log the reader out** | 1–2 | A full page load into a dashboard shortly after sign-in sometimes fetches **without `Authorization`**; the 401 handler clears the session and bounces to `/login`. Clicking through the sidebar never trips it (so the browser suite misses it); bookmarks, new tabs and reloads do. Lead: `proxy.ts` gates on the `hn_access_token` **cookie** but `getValidatedClientToken()` (`lib/client-auth.ts`) reads **localStorage only** — find when the two disagree (also test a bookmark on the apex, which 308s to `www`). Also: a single 401 from a background poll must not end a session. Pin with a spec that reloads into `/dashboard/*` and stays |
 | `[ ]` **T-41** | **Stop developing against the production database** | `owner` 10 min + 0.5 | `.env.local` and `apps/web/.env` both point at the production Neon branch. On 2026-09-01 a shell loop deleted every member through exactly this (recovered by PITR). Follow [workflow.md §1](workflow.md#1-stop-developing-against-the-production-database): a Neon `dev` branch (or local Postgres) in **both** files, `pnpm db:purge:confirm` + `pnpm db:seed` on it, then prove it with the `grep` there. Then delete §1's "Today" column |
@@ -156,7 +154,7 @@ Not tasks to close — dates to keep. When one is done, write the new date here.
 | Restore drill (OPS-04) — database into a Neon branch **and** the assets archive ([runbook.md §4](runbook.md#4-restore-from-backup)) | quarterly | **2026-12-03** |
 | Access review (OPS-05) | quarterly | **now** — first one is part of T-45 |
 | Secret rotation (OPS-02) — `JWT_SECRET` on both hosts together | 6 months, and after any exposure | **2027-02-27** (last: go-live, 2026-08-27) |
-| Dependency updates (OPS-03) — merge Dependabot PRs on a branch, CI green | monthly; **security PRs within a week** | ongoing (T-40 clears the backlog) |
+| Dependency updates (OPS-03) — merge Dependabot PRs on a branch, CI green | monthly; **security PRs within a week** | ongoing — merge them **one at a time**, CI green on `main` between ([traps/dependencies.md](traps/dependencies.md)) |
 | Scheduled workflows still enabled — GitHub disables schedules on a **public** repository after 60 days without a commit, nightly backup included | check monthly | — |
 | Last night's backup landed in R2 (`database/` and `assets/`) | weekly glance | — |
 

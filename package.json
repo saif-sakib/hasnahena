@@ -52,13 +52,16 @@
   "packageManager": "pnpm@8.15.4",
   "pnpm": {
     "overrides": {
-      "brace-expansion@1": "^1.1.18",
+      "brace-expansion@1": "^1.1.21",
+      "brace-expansion@5": "^5.0.12",
       "glob@10": "^10.5.0",
       "js-yaml": "^4.3.1",
       "lodash": "^4.18.0",
       "nanoid@3": "^3.3.18",
       "picomatch@2": "^2.3.2",
-      "postcss": "^8.5.23"
+      "postcss": "^8.5.23",
+      "source-map-js": "^1.2.2",
+      "vite@7": "^7.3.7"
     }
   }
 }
