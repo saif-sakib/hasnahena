@@ -471,6 +471,7 @@ export default function TransactionsScreen() {
                         setSelectedTransaction(transaction);
                         setShowDetailModal(true);
                       }}
+                      aria-label={tA11y('viewDetails')}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>

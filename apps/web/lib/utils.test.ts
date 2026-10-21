@@ -68,8 +68,11 @@ describe('every screen that posts an amount parses whole taka', () => {
   /** Files under these roots are searched for a money post. */
   const ROOTS = ['app', 'components', 'lib'];
 
-  /** A body key of `amount:` on an api call is what makes a file in scope. */
-  const POSTS_AN_AMOUNT = /\bapi(?:Post|Put|Patch)\b[\s\S]{0,400}?\bamount:/;
+  /**
+   * A body key of `amount:` on an api call — or on a raw fetch's JSON body, which
+   * is how the loan application form rounded paisa past this census.
+   */
+  const POSTS_AN_AMOUNT = /\b(?:api(?:Post|Put|Patch)|JSON\.stringify)\b[\s\S]{0,400}?\bamount:/;
 
   const sources = (() => {
     const found: Array<{ rel: string; source: string }> = [];

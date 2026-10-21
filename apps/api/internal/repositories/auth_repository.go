@@ -230,7 +230,7 @@ func (r *UserRepository) VerifyCurrentPassword(ctx context.Context, userID, curr
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(currentPassword)); err != nil {
-		return fmt.Errorf("current password is incorrect")
+		return ErrCurrentPasswordIncorrect
 	}
 
 	return nil
@@ -355,6 +355,9 @@ func nilIfEmpty(value string) *string {
 
 // ErrPasswordUpdateRowCount: a password write touched other than exactly one
 // row — an invariant failure, not a refusal (WO-87).
+// ErrCurrentPasswordIncorrect: the logged-in change and its verify step (rule 2b).
+var ErrCurrentPasswordIncorrect = errors.New("current password is incorrect")
+
 var ErrPasswordUpdateRowCount = errors.New("password update did not affect exactly one user")
 
 // revokeAllUserTokensSQL writes the "every token issued before createdAt is

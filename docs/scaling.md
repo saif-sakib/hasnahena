@@ -4,13 +4,13 @@
 
 ## The short answer
 
-**Nothing needs paying for yet.** Today's two strains — Neon compute hours and Actions minutes — are configuration, not growth. The first real wall is **Neon's 0.5 GB storage at ~6,000 members** (nearer 4,000 after three years of `audit_logs`), and passing it costs **~$7/month**. Cloudinary's 25 credits carry to ~25,000 members; leaving it is a **privacy** task, not a cost one.
+**Nothing needs paying for yet.** Today's strain — Neon compute hours — is configuration, not growth (Actions minutes stopped binding when the repository went public, 2026-10-18). The first real wall is **Neon's 0.5 GB storage at ~6,000 members** (nearer 4,000 after three years of `audit_logs`), and passing it costs **~$7/month**. Cloudinary's 25 credits carry to ~25,000 members; leaving it is a **privacy** task, not a cost one.
 
 ## Today's strains
 
 **Neon compute** — 100 CU-h/month free; awake 24/7 at 0.25 CU is 182. It suspends after 5 idle minutes, so anything touching it more often pins it awake. The Go API is tuned ([ADR-035](decisions/adr-035-idle-behaviour-is-a-line-item-not-a-performance-detail.md): `DB_MIN_CONNS=0`, daily background jobs ≈ 4 CU-h/month). The leak to watch is any **UptimeRobot monitor on `/v1/ready`** (pings the pool): 5-minute default = 182 CU-h (the whole allowance), 30 min = 30, 6 h = 2.5. Uptime belongs on `/v1/health`, which touches nothing.
 
-**Actions minutes** — 2,000/month: fixed scheduled cost ~420 (nightly backup ~240, monitor ~120, image builds), leaving room for ~45 full CI runs (~32 min each). Free remedies: (1) assets backup weekly (`images.yml` is already tags-only); (2) a self-hosted runner; (3) a public repository (MIT already — review [runbook.md](runbook.md) first, it maps every credential). Pushing to feature branches costs nothing until a PR ([workflow.md](workflow.md)).
+**Actions minutes** — resolved by remedy (3): the repository is public since 2026-10-18, and standard runners are unmetered there. Were it made private again, the 2,000/month would bind as before (fixed scheduled cost ~420 — nightly backup ~240, monitor ~120, image builds — leaving ~45 full CI runs), and the remedies are an assets backup weekly or a self-hosted runner.
 
 **Render cold starts** — free services sleep after 15 idle minutes (~60 s first request); 750 instance-hours vs a 730-hour month. Better: a **Cloudflare Worker cron** pinging `/v1/health` every 5 minutes 00:00–17:00 UTC (06:00–23:00 Dhaka) — ~510 hours, no database wake.
 
@@ -28,7 +28,7 @@ Assumptions: 20% of members active monthly · 4 sessions × ~5 page views · **0
 | Vercel bandwidth | 100 GB | ~30,000 | — |
 | Brevo | 300 emails/day | ~50,000 | most members have no email ([ADR-036](decisions/adr-036-a-member-with-no-email-resets-their-password-at-the-desk.md)) |
 | Render Free | 750 instance-h | **now**, without care | $0 — warm selectively |
-| GitHub Actions | 2,000 min | **now** | $0 — see above |
+| GitHub Actions | unmetered (public) | — | $0 — see above |
 | **Vercel Hobby terms** | non-commercial only | **a judgment call** | $20, move, or their OSS programme |
 
 | Admitting | 6,000 in | 15,000 in |
@@ -59,7 +59,7 @@ Rejected: **Namecheap VPS** (Phoenix only, ~250 ms from Dhaka); **Oracle Always 
 
 ## The staged plan
 
-**Stage 0 — now, $0** ([T-35](tasks.md)): assets backup weekly; the Cloudflare Worker warm-up cron; decide the Vercel terms question ([T-36](tasks.md)). (UptimeRobot already watches `/v1/health`; `images.yml` is tags-only.) Carries to ~6,000 members.
+**Stage 0 — now, $0** ([T-35](tasks.md)): the Cloudflare Worker warm-up cron; decide the Vercel terms question ([T-36](tasks.md)). (UptimeRobot already watches `/v1/health`; `images.yml` is tags-only.) Carries to ~6,000 members.
 
 **Stage 1 — Neon storage past 0.4 GB or compute past 80 CU-h — ~$7**: Neon Free → **Launch** (no base fee, no migration; $0.106/CU-h, $0.35/GB-month, still scales to zero).
 
@@ -90,4 +90,4 @@ Rejected: **Namecheap VPS** (Phoenix only, ~250 ms from Dhaka); **Oracle Always 
 | A funder or regulator names a cloud | reopen "rejected" with their requirement written down |
 | Anyone proposes self-hosting Postgres | the answer is no |
 
-**Owner actions** (accounts I cannot reach; all free): create the Cloudflare Worker cron; decide the Vercel terms question; choose public repo vs self-hosted runner; set a billing alert on any account that becomes paid.
+**Owner actions** (accounts I cannot reach; all free): create the Cloudflare Worker cron (T-35); decide the Vercel terms question (T-36); set a billing alert on any account that becomes paid (T-37). Public repository vs self-hosted runner: decided, public (2026-10-18).

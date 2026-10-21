@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { HandCoins, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseWholeTaka } from '@/lib/utils';
 import { getAccessToken } from '@/lib/api';
 
 /**
@@ -48,10 +48,12 @@ export function LoanApplicationForm({
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
-  const amountValue = Number.parseFloat(amount);
-  const hasAmount = Number.isFinite(amountValue) && amountValue > 0;
+  // Whole taka or nothing (rule 1): a fraction is refused, never rounded.
+  const amountValue = parseWholeTaka(amount) ?? 0;
+  const hasAmount = amountValue > 0;
   const installmentCount = Number.parseInt(installments, 10);
   const hasInstallments = Number.isFinite(installmentCount) && installmentCount > 0;
 
@@ -94,6 +96,7 @@ export function LoanApplicationForm({
   };
 
   const submit = async () => {
+    if (submittingRef.current) return;
     setError(null);
 
     if (!hasAmount) return setError(t('applyErrorAmount'));
@@ -106,6 +109,7 @@ export function LoanApplicationForm({
     if (purpose.trim().length < 3) return setError(t('applyErrorPurpose'));
     if (guarantorRequired && !guarantor) return setError(t('applyErrorGuarantor'));
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const token = getAccessToken();
@@ -116,7 +120,7 @@ export function LoanApplicationForm({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          amount: Math.round(amountValue),
+          amount: amountValue,
           installments: installmentCount,
           purpose: purpose.trim(),
           // Omitted entirely below the threshold — the server treats absent and
@@ -145,6 +149,7 @@ export function LoanApplicationForm({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

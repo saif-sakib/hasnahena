@@ -27,6 +27,7 @@ var (
 	// ErrLoanNotYetDefaultable: not enough missed instalments yet — "wait",
 	// not "never".
 	ErrLoanNotYetDefaultable = errors.New("loan has not missed enough payments to be defaulted")
+	ErrLoanNotPending        = errors.New("only pending loan requests")
 )
 
 func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID string) error {
@@ -51,12 +52,12 @@ func (r *UserRepository) ApproveLoan(ctx context.Context, loanID, approverID str
 	`
 	if err := tx.QueryRow(ctx, loanQuery, loanID).Scan(&principalAmount, &borrowerID, &loanStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("loan request not found")
+			return ErrLoanNotFound
 		}
 		return err
 	}
 	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
-		return errors.New("only pending loan requests can be approved")
+		return fmt.Errorf("%w can be approved", ErrLoanNotPending)
 	}
 
 	const updateLoanQuery = `
@@ -164,12 +165,12 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 		FOR UPDATE
 	`, loanID).Scan(&borrowerID, &loanStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("loan request not found")
+			return ErrLoanNotFound
 		}
 		return err
 	}
 	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "PENDING_APPROVAL" {
-		return errors.New("only pending loan requests can be rejected")
+		return fmt.Errorf("%w can be rejected", ErrLoanNotPending)
 	}
 
 	const updateQuery = `
@@ -206,7 +207,7 @@ func (r *UserRepository) RejectLoan(ctx context.Context, loanID, approverID, rea
 func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, memberID, loanID string, amount int64, bkashReference, notes string) (string, error) {
 	reference := strings.TrimSpace(bkashReference)
 	if reference == "" {
-		return "", errors.New("bkash reference is required")
+		return "", ErrBkashReferenceRequired
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -226,10 +227,13 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		  AND u.role = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&memberStatus, &memberName); err != nil {
-		return "", errors.New("member not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrMemberNotFound
+		}
+		return "", fmt.Errorf("read member for repayment request: %w", err)
 	}
 	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
-		return "", errors.New("member not active")
+		return "", ErrMemberNotActive
 	}
 
 	var remainingAmount int64
@@ -244,13 +248,16 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		  AND "borrowerId" = $2
 		FOR UPDATE
 	`, loanID, memberID).Scan(&remainingAmount, &loanStatus); err != nil {
-		return "", errors.New("loan not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrLoanNotFound
+		}
+		return "", fmt.Errorf("read loan for repayment request: %w", err)
 	}
 	if strings.ToUpper(strings.TrimSpace(loanStatus)) != "ACTIVE" {
-		return "", errors.New("loan is not active")
+		return "", ErrLoanNotActive
 	}
 	if amount > remainingAmount {
-		return "", errors.New("repayment exceeds remaining balance")
+		return "", ErrRepaymentExceedsBalance
 	}
 
 	var existingRequestID string
@@ -267,7 +274,7 @@ func (r *UserRepository) CreateMemberLoanRepaymentRequest(ctx context.Context, m
 		LIMIT 1
 	`, memberID, loanID, amount, reference).Scan(&existingRequestID)
 	if dupErr == nil {
-		return "", errors.New("duplicate pending loan repayment request")
+		return "", fmt.Errorf("%w: loan repayment %s", ErrDuplicatePendingRequest, existingRequestID)
 	}
 	if !errors.Is(dupErr, pgx.ErrNoRows) {
 		return "", dupErr
@@ -763,22 +770,6 @@ func (r *UserRepository) MarkLoanDefaulted(ctx context.Context, loanID, adminID,
 	return tx.Commit(ctx)
 }
 
-// ProcessWaterfallRecovery runs the waterfall standalone, for re-running
-// recovery on a loan already defaulted.
-func (r *UserRepository) ProcessWaterfallRecovery(ctx context.Context, loanID string) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if err := r.waterfallRecoveryTx(ctx, tx, loanID); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
 // waterfallRecoveryTx recovers a defaulted loan inside the caller's transaction:
 // borrower's savings, then the guarantor's, then the donation pool, in that
 // order and never past what is owed.
@@ -885,14 +876,15 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 	// Step 3: Use donation pool
 	if amountToRecover > 0 {
 		// Pool = donations MINUS earlier draws, or one taka settles many defaults.
+		// Settled rows only: a posting that moved no money cannot fund a recovery (ADR-016).
 		var donationBalance int64
 		if err := tx.QueryRow(ctx, `
 			SELECT COALESCE(SUM(
 				CASE WHEN type = 'DONATION' THEN amount ELSE -amount END
 			)::bigint, 0)
 			FROM transactions
-			WHERE type = 'DONATION'
-			   OR (type = 'FEE' AND "loanId" IS NOT NULL)
+			WHERE status IN `+settledStatuses+`
+			  AND (type = 'DONATION' OR (type = 'FEE' AND "loanId" IS NOT NULL))
 		`).Scan(&donationBalance); err != nil {
 			return err
 		}
@@ -957,7 +949,7 @@ func (r *UserRepository) waterfallRecoveryTx(ctx context.Context, tx pgx.Tx, loa
 func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerID string, amount int64, purpose string, installments int) (string, error) {
 	minDepositRequired, maxLoanMultiplier, maxInstallmentMonths := r.getLoanPolicy(ctx)
 	if installments < 1 || installments > maxInstallmentMonths {
-		return "", errors.New("invalid installments")
+		return "", ErrInvalidInstallments
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -979,24 +971,27 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&status, &currentBalance, &activeLoan)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrMemberNotFound
+	}
 	if err != nil {
-		return "", fmt.Errorf("member not found: %w", err)
+		return "", fmt.Errorf("read member for loan: %w", err)
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
-		return "", errors.New("member not active")
+		return "", ErrMemberNotActive
 	}
 	if activeLoan > 0 {
-		return "", errors.New("has active loan")
+		return "", ErrActiveLoanExists
 	}
 
 	minDeposit := minDepositRequired
 	if currentBalance < minDeposit {
-		return "", errors.New("not eligible - insufficient deposit")
+		return "", ErrLoanNotEligible
 	}
 
 	maxLoanAmount := money.MaxLoanAmount(currentBalance, maxLoanMultiplier)
 	if amount > maxLoanAmount {
-		return "", errors.New("exceeds limit")
+		return "", ErrLoanExceedsLimit
 	}
 
 	loanNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoan)
@@ -1094,6 +1089,14 @@ func (r *UserRepository) CreateMemberLoan(ctx context.Context, memberID, workerI
 
 	return loanNumber, nil
 }
+
+// Sentinels for the worker loan path (rule 2b).
+var (
+	ErrInvalidInstallments = errors.New("invalid installments")
+	ErrActiveLoanExists    = errors.New("has active loan")
+	ErrLoanNotEligible     = errors.New("not eligible - insufficient deposit")
+	ErrLoanExceedsLimit    = errors.New("exceeds limit")
+)
 
 // Sentinels for the top-up path (rule 2b).
 var (
@@ -1276,10 +1279,13 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		WHERE u.id = $1 AND u.role::text = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&userId, &status); err != nil {
-		return "", fmt.Errorf("member not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrMemberNotFound
+		}
+		return "", fmt.Errorf("read member for repayment: %w", err)
 	}
 	if status != "ACTIVE" {
-		return "", fmt.Errorf("member account not active")
+		return "", ErrMemberNotActive
 	}
 
 	var loanStatus string
@@ -1289,10 +1295,13 @@ func (r *UserRepository) AddMemberLoanPayment(ctx context.Context, memberID, pro
 		WHERE id = $1 AND "borrowerId" = $2
 		FOR UPDATE
 	`, loanID, memberID).Scan(&loanStatus); err != nil {
-		return "", fmt.Errorf("loan not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrLoanNotFound
+		}
+		return "", fmt.Errorf("read loan for repayment: %w", err)
 	}
 	if loanStatus != "ACTIVE" {
-		return "", fmt.Errorf("loan is not active")
+		return "", ErrLoanNotActive
 	}
 
 	receiptNumber, err := r.nextDocumentNumber(ctx, tx, utils.SeriesLoanRepayment)

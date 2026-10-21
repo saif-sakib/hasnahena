@@ -1,5 +1,3 @@
-import * as React from 'react';
-
 /**
  * The hero's fallback illustration — an eight-point khatam tessellation in
  * inline SVG (theme colours, no request, no licence). Shown only when all four

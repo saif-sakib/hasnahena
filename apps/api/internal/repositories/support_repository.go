@@ -398,10 +398,13 @@ func (r *UserRepository) GetSupportMessages(ctx context.Context, actorUserID, ac
 	return messages, nil
 }
 
+// ErrSupportForbidden: only staff may close a member's thread (rule 2b).
+var ErrSupportForbidden = errors.New("forbidden")
+
 func (r *UserRepository) MarkSupportThreadProcessed(ctx context.Context, actorUserID, actorRole, threadID string) error {
 	role := strings.ToUpper(strings.TrimSpace(actorRole))
 	if role != "WORKER" && role != "ADMIN" && role != "SUPER_ADMIN" {
-		return errors.New("forbidden")
+		return ErrSupportForbidden
 	}
 	_, err := r.db.Exec(ctx, `
 		UPDATE support_threads

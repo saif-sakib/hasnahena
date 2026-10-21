@@ -177,7 +177,7 @@ It re-homes assets whose `asset_folder` disagrees with their public id, deletes 
 | **Cloudflare** | DNS, Email Routing, R2 | Cloudflare account owner (2FA on) |
 | **Brevo** / **Cloudinary** / **Sentry** | their own keys | their account owners |
 
-**One person can reach every credential** (OPS-06): this table maps the single points of failure, it does not fix them ([T-39](tasks.md)). The `.env.*.example` files list which variables each host needs (never values, rule 7). **Must agree across both hosts:** `JWT_SECRET`, `DATABASE_URL`, `NEXT_PUBLIC_APP_URL` (and `JWT_EXPIRY_SECONDS` if changed).
+**One person can reach every credential** (OPS-06): this table maps the single points of failure, it does not fix them ([T-45](tasks.md); 2FA on each is [T-39](tasks.md)). The `.env.*.example` files list which variables each host needs (never values, rule 7). **Must agree across both hosts:** `JWT_SECRET`, `DATABASE_URL`, `NEXT_PUBLIC_APP_URL` (and `JWT_EXPIRY_SECONDS` if changed).
 
 ---
 
@@ -275,7 +275,7 @@ and the name in a visible heading — a content decision, not a bug.
 | OPS-02 | Secret rotation | every 6 months and after any exposure (`JWT_SECRET` on both hosts together) |
 | OPS-03 | Dependency updates | monthly, on a branch, CI green |
 | OPS-04 | Restore drill | quarterly (next 2026-12-03) |
-| OPS-05 | Access review | quarterly — who holds admin, Neon, Vercel, Render, Cloudinary, DNS |
+| OPS-05 | Access review | quarterly — who holds admin, Neon, Vercel, Render, Cloudinary, DNS; first one is [T-45](tasks.md), due dates in [tasks.md § Recurring](tasks.md#recurring) |
 | OPS-07 | Ledger reconciliation | automatic, daily ([§2](#2-a-disputed-or-wrong-transaction), ADR-027) |
 | OPS-08 | 48-hour unconfirmed-transaction sweep | product gap in [tasks.md](tasks.md) |
-| OPS-09 | Uptime/incident log | a dated file — turns "it feels slow" into evidence |
+| OPS-09 | Uptime/incident log | a dated file — turns "it feels slow" into evidence; not started ([T-48](tasks.md)) |

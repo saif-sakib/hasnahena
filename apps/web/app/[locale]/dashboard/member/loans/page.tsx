@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useTranslations, useLocale } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import {
   HandCoins,
   AlertCircle,
@@ -48,7 +47,6 @@ interface MemberTransaction {
 export default function LoansPage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
-  const router = useRouter();
   // SWR (WO-27); a settings failure falls back to defaults.
   const {
     data: pageData,

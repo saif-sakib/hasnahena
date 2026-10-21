@@ -107,7 +107,7 @@ func summarizeEmailDeliveryError(err error) string {
 		return "unknown error"
 	}
 
-	msg := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " "))
+	msg := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\n", " ")) // rule2b:third-party — Brevo's text is all it sends
 	lower := strings.ToLower(msg)
 
 	switch {
@@ -263,13 +263,14 @@ func (h *DashboardHandler) MemberCreateDepositRequest(w http.ResponseWriter, r *
 
 	requestID, err := h.userRepo.CreateMemberDepositRequest(r.Context(), auth.UserID, req.Amount, req.BkashReference, req.Notes)
 	if err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrMemberNotFound):
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-		case strings.Contains(errMsg, "not active"):
+		case errors.Is(err, repositories.ErrMemberNotActive):
 			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
-		case strings.Contains(errMsg, "duplicate"):
+		case errors.Is(err, repositories.ErrBkashReferenceRequired):
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "bKash reference is required")
+		case errors.Is(err, repositories.ErrDuplicatePendingRequest):
 			utils.Error(w, http.StatusConflict, "DUPLICATE_REQUEST", "A similar deposit request is already pending")
 		default:
 			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit deposit request")
@@ -319,17 +320,20 @@ func (h *DashboardHandler) MemberCreateLoanRepaymentRequest(w http.ResponseWrite
 
 	requestID, err := h.userRepo.CreateMemberLoanRepaymentRequest(r.Context(), auth.UserID, req.LoanID, req.Amount, req.BkashReference, req.Notes)
 	if err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "member not found"):
+		case errors.Is(err, repositories.ErrMemberNotFound):
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
-		case strings.Contains(errMsg, "loan not found"):
+		case errors.Is(err, repositories.ErrLoanNotFound):
 			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan not found")
-		case strings.Contains(errMsg, "not active"):
+		case errors.Is(err, repositories.ErrMemberNotActive):
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+		case errors.Is(err, repositories.ErrLoanNotActive):
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "Loan is not active")
-		case strings.Contains(errMsg, "exceeds remaining"):
+		case errors.Is(err, repositories.ErrRepaymentExceedsBalance):
 			utils.Error(w, http.StatusBadRequest, "EXCEEDS_REMAINING", "Amount exceeds remaining loan balance")
-		case strings.Contains(errMsg, "duplicate"):
+		case errors.Is(err, repositories.ErrBkashReferenceRequired):
+			utils.Error(w, http.StatusBadRequest, "INVALID_REQUEST", "bKash reference is required")
+		case errors.Is(err, repositories.ErrDuplicatePendingRequest):
 			utils.Error(w, http.StatusConflict, "DUPLICATE_REQUEST", "A similar loan repayment request is already pending")
 		default:
 			utils.Error(w, http.StatusInternalServerError, "REQUEST_CREATE_FAILED", "Failed to submit loan repayment request")
@@ -852,11 +856,10 @@ func (h *DashboardHandler) ApproveLoan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.ApproveLoan(r.Context(), req.LoanID, auth.UserID); err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "only pending"):
+		case errors.Is(err, repositories.ErrLoanNotPending):
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_PENDING", "Only pending loans can be approved")
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrLoanNotFound):
 			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan request not found")
 		default:
 			utils.Error(w, http.StatusInternalServerError, "APPROVE_FAILED", "Failed to approve loan")
@@ -887,11 +890,10 @@ func (h *DashboardHandler) RejectLoan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.RejectLoan(r.Context(), req.LoanID, auth.UserID, req.Reason); err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "only pending"):
+		case errors.Is(err, repositories.ErrLoanNotPending):
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_PENDING", "Only pending loans can be rejected")
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrLoanNotFound):
 			utils.Error(w, http.StatusNotFound, "LOAN_NOT_FOUND", "Loan request not found")
 		default:
 			utils.Error(w, http.StatusInternalServerError, "REJECT_FAILED", "Failed to reject loan")
@@ -927,15 +929,15 @@ func (h *DashboardHandler) ApproveWithdrawal(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.userRepo.ApproveWithdrawal(r.Context(), requestID, userID); err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrRequestNotFound):
 			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
-		case strings.Contains(errMsg, "only pending"),
-			strings.Contains(errMsg, "loan is not active"),
-			strings.Contains(errMsg, "exceeds remaining"),
-			strings.Contains(errMsg, "missing loan reference"),
-			strings.Contains(errMsg, "unsupported transaction type"):
+		case errors.Is(err, repositories.ErrRequestNotPending),
+			errors.Is(err, repositories.ErrLoanNotFound),
+			errors.Is(err, repositories.ErrLoanNotActive),
+			errors.Is(err, repositories.ErrRepaymentExceedsBalance),
+			errors.Is(err, repositories.ErrMissingLoanReference),
+			errors.Is(err, repositories.ErrUnsupportedRequestType):
 			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
 		default:
 			slog.Error("approve withdrawal failed", "requestId", requestID, "error", err)
@@ -973,13 +975,12 @@ func (h *DashboardHandler) RejectWithdrawal(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := h.userRepo.RejectWithdrawal(r.Context(), requestID, userID, req.Reason); err != nil {
-		errMsg := strings.ToLower(strings.TrimSpace(err.Error()))
 		switch {
-		case strings.Contains(errMsg, "not found"):
+		case errors.Is(err, repositories.ErrRequestNotFound):
 			utils.Error(w, http.StatusNotFound, "TRANSACTION_NOT_FOUND", "Transaction request not found")
-		case strings.Contains(errMsg, "only pending"):
+		case errors.Is(err, repositories.ErrRequestNotPending):
 			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
-		case strings.Contains(errMsg, "unsupported transaction type"):
+		case errors.Is(err, repositories.ErrUnsupportedRequestType):
 			utils.Error(w, http.StatusBadRequest, "INVALID_TRANSACTION_STATE", err.Error())
 		default:
 			utils.Error(w, http.StatusInternalServerError, "REJECT_WITHDRAWAL_FAILED", "Failed to reject withdrawal")
@@ -1282,7 +1283,7 @@ func (h *DashboardHandler) ChangePassword(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.userRepo.ChangePassword(r.Context(), auth.UserID, req.CurrentPassword, req.NewPassword); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+		if errors.Is(err, repositories.ErrCurrentPasswordIncorrect) {
 			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
 			return
 		}
@@ -1339,7 +1340,7 @@ func (h *DashboardHandler) RequestPasswordChangeCode(w http.ResponseWriter, r *h
 	}
 
 	if err := h.userRepo.VerifyCurrentPassword(r.Context(), auth.UserID, currentPassword); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+		if errors.Is(err, repositories.ErrCurrentPasswordIncorrect) {
 			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
 			return
 		}
@@ -1502,7 +1503,7 @@ func (h *DashboardHandler) ConfirmPasswordChangeWithCode(w http.ResponseWriter, 
 	}
 
 	if err := h.userRepo.ChangePassword(r.Context(), auth.UserID, currentPassword, newPassword); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "incorrect") {
+		if errors.Is(err, repositories.ErrCurrentPasswordIncorrect) {
 			utils.Error(w, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "Current password is incorrect")
 			return
 		}
@@ -1656,7 +1657,7 @@ func (h *DashboardHandler) SupportMarkProcessed(w http.ResponseWriter, r *http.R
 		return
 	}
 	if err := h.userRepo.MarkSupportThreadProcessed(r.Context(), auth.UserID, auth.Role, strings.TrimSpace(req.ThreadID)); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "forbidden") {
+		if errors.Is(err, repositories.ErrSupportForbidden) {
 			utils.Error(w, http.StatusForbidden, "AUTH_FORBIDDEN", "Insufficient permissions")
 			return
 		}
@@ -1885,7 +1886,7 @@ func (h *DashboardHandler) WorkerMemberDetail(w http.ResponseWriter, r *http.Req
 	data, err := h.userRepo.GetMemberDetailForWorker(r.Context(), memberUserId)
 	if err != nil {
 		slog.Error("member detail lookup failed", "memberUserId", memberUserId, "error", err)
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, repositories.ErrMemberNotFound) {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
 		}
@@ -1929,11 +1930,11 @@ func (h *DashboardHandler) WorkerAddDeposit(w http.ResponseWriter, r *http.Reque
 
 	receipt, err := h.userRepo.AddMemberDeposit(r.Context(), memberUserId, auth.UserID, req.Amount, req.Notes)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, repositories.ErrMemberNotFound) {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
 		}
-		if strings.Contains(err.Error(), "not active") {
+		if errors.Is(err, repositories.ErrMemberNotActive) {
 			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
 			return
 		}
@@ -2055,23 +2056,27 @@ func (h *DashboardHandler) WorkerAddLoan(w http.ResponseWriter, r *http.Request)
 
 	loanNumber, err := h.userRepo.CreateMemberLoan(r.Context(), memberUserId, auth.UserID, req.Amount, req.Purpose, req.Installments)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, repositories.ErrMemberNotFound) {
 			utils.Error(w, http.StatusNotFound, "MEMBER_NOT_FOUND", "Member not found")
 			return
 		}
-		if strings.Contains(err.Error(), "not active") {
+		if errors.Is(err, repositories.ErrMemberNotActive) {
 			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
 			return
 		}
-		if strings.Contains(err.Error(), "not eligible") {
+		if errors.Is(err, repositories.ErrInvalidInstallments) {
+			utils.Error(w, http.StatusBadRequest, "INVALID_INSTALLMENTS", "Installments exceed the maximum allowed")
+			return
+		}
+		if errors.Is(err, repositories.ErrLoanNotEligible) {
 			utils.Error(w, http.StatusBadRequest, "NOT_ELIGIBLE", "Member is not eligible for a loan")
 			return
 		}
-		if strings.Contains(err.Error(), "exceeds limit") {
+		if errors.Is(err, repositories.ErrLoanExceedsLimit) {
 			utils.Error(w, http.StatusBadRequest, "EXCEEDS_LIMIT", "Loan amount exceeds maximum limit")
 			return
 		}
-		if strings.Contains(err.Error(), "active loan") {
+		if errors.Is(err, repositories.ErrActiveLoanExists) {
 			utils.Error(w, http.StatusBadRequest, "ACTIVE_LOAN_EXISTS", "Member already has an active loan")
 			return
 		}
@@ -2190,16 +2195,20 @@ func (h *DashboardHandler) WorkerAddLoanPayment(w http.ResponseWriter, r *http.R
 	receiptNumber, err := h.userRepo.AddMemberLoanPayment(r.Context(), memberUserId, auth.UserID, req.LoanId, req.Amount, req.Notes)
 	if err != nil {
 		slog.Error("add member loan payment failed", "memberUserId", memberUserId, "error", err)
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, repositories.ErrMemberNotFound) || errors.Is(err, repositories.ErrLoanNotFound) {
 			utils.Error(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return
 		}
-		if strings.Contains(err.Error(), "not active") {
+		if errors.Is(err, repositories.ErrMemberNotActive) {
+			utils.Error(w, http.StatusBadRequest, "MEMBER_NOT_ACTIVE", "Member account is not active")
+			return
+		}
+		if errors.Is(err, repositories.ErrLoanNotActive) {
 			utils.Error(w, http.StatusBadRequest, "LOAN_NOT_ACTIVE", "This loan is not active")
 			return
 		}
 		// Also fires when two payments race and the second loses.
-		if errors.Is(err, repositories.ErrRepaymentExceedsBalance) || strings.Contains(err.Error(), "exceeds remaining") {
+		if errors.Is(err, repositories.ErrRepaymentExceedsBalance) {
 			utils.Error(w, http.StatusConflict, "EXCEEDS_REMAINING", "Payment amount exceeds the remaining loan balance")
 			return
 		}

@@ -155,6 +155,13 @@
   reconstructed statement no longer referenced `$1` — the test went red on a pgx
   error rather than on the cross-account write it exists to catch. Read *why* the
   red run failed, not just that it did.
+- **A fixture that leaves out a column inherits its default, and the default can be the bug's precondition.** `seedDonationPool` inserted a
+  donation without `status`, so every waterfall test ran on `PENDING`
+  donations — a posting that moved no money — and passed only because the
+  pool query ignored status (rule 6a). Restricting the query to settled rows
+  turned nine waterfall tests red at once. Seed the row the way its only
+  production writer does (`RecordDonation`: `CONFIRMED`), and name the status
+  in a fixture whenever an aggregate filters on it.
 
 ---
 
