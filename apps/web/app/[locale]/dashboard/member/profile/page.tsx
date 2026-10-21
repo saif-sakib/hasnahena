@@ -2,11 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import {
   User,
   Phone,
-  Mail,
   MapPin,
   UserCheck,
   Shield,
@@ -90,7 +88,6 @@ const emptyAddress: UserProfile['permanentAddress'] = {
 export default function ProfilePage() {
   const t = useTranslations('dashboard');
   const locale = useLocale();
-  const router = useRouter();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // WO-27 — SWR, not an effect. See lib/use-api.ts.

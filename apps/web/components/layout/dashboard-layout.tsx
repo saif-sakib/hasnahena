@@ -5,15 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import useSWR from "swr";
 import {
-  User,
   Menu,
   X,
   Bell,
   Globe,
   LogOut,
   Home,
-  ChevronRight,
-  Shield,
   CheckCircle2,
   MessageCircle,
   Send,
@@ -38,7 +35,6 @@ import {
   getValidatedClientToken,
 } from "@/lib/client-auth";
 import Image from "next/image";
-import { Input } from "@/components/ui/input";
 import { useApi } from "@/lib/use-api";
 import { navFor, type DashboardNavItem } from "@/components/dashboard/nav";
 import { DashboardRoleProvider } from "@/components/dashboard/role";
@@ -572,11 +568,6 @@ export function DashboardLayout({ children, role }: DashboardLayoutProps) {
       handleUnauthorizedError(error);
       // Silently fail, UI already updated
     }
-  };
-
-  const handleViewAllNotifications = () => {
-    setShowNotifications(false);
-    router.push(basePath);
   };
 
   const loadSupportMessages = useCallback(

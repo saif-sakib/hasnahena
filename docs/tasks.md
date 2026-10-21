@@ -181,7 +181,7 @@ Not tasks to close — dates to keep. When one is done, write the new date here.
 | FR-14 | Default settlement waterfall | `[x]` | ordering and proportionality correct with or without a guarantor; status change, all three recovery legs and the audit row commit in one transaction |
 | FR-15 | Donations carry a fund type | `[ ]` | posts as untyped `DONATION`; no Operating/Lending/Zakat split (T-13) |
 | FR-16 | Donation funds isolated from deposits | `[~]` | not withdrawable, and the pool now exists as a real account owned by `system_donation_fund`; no per-fund accounting (T-13) |
-| FR-17 | Member raises dispute | `[x]` | the transaction freezes, the audit row is written and the member gets a 200 with the frozen posting. `test/routes/success-paths.test.ts` |
+| FR-17 | Member raises dispute | `[x]` | from the member's transactions screen, on a `CONFIRMED` posting only (ADR-026); the transaction freezes, the audit row is written and the member gets a 200 with the frozen posting. `test/routes/success-paths.test.ts` |
 | FR-18 | Freeze disputed txn, notify admin | `[~]` | status freezes; admin correction flow is manual (T-20) |
 | FR-19 | Append-only audit log | `[x]` | written by both backends and **enforced by a database trigger** — UPDATE is rejected outright |
 | FR-20 | Member dashboard | `[x]` | balances, loans, transactions, deposits, profile, support |

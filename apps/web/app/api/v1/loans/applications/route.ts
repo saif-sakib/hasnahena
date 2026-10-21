@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { serializeLoan } from '@/lib/api-utils';

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { authErrorStatus } from '@/lib/auth';
 import { requireActiveAuth } from '@/lib/auth-revocation';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
 import { createAuditLog } from '@/lib/audit';
@@ -10,8 +9,8 @@ import { TransactionStatus, UserRole } from '@prisma/client';
 
 const bodySchema = z.object({
   reason: z.string().min(3),
-  // Positive: the sign is the transaction type.
-  correctAmount: z.number().positive().optional(),
+  // Whole taka (rule 1), positive: the sign is the transaction type.
+  correctAmount: z.number().int().positive().optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -38,18 +37,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (tx.status === TransactionStatus.DISPUTED) {
       return NextResponse.json({ ok: false, error: 'DISPUTE_ALREADY_RAISED' }, { status: 409 });
     }
+    // Only a CONFIRMED posting moved money; DISPUTED counts as moved (ADR-026),
+    // so freezing a PENDING or PROCESSED row would invent a movement.
+    if (tx.status !== TransactionStatus.CONFIRMED) {
+      return NextResponse.json({ ok: false, error: 'NOT_DISPUTABLE' }, { status: 409 });
+    }
 
-    const correctAmountBig =
-      typeof payload.correctAmount === 'number' ? BigInt(Math.floor(payload.correctAmount)) : null;
-
-    const updated = await prisma.transaction.update({
-      where: { id: tx.id },
+    // Conditional on the status read above, so a concurrent change cannot be overwritten.
+    const { count } = await prisma.transaction.updateMany({
+      where: { id: tx.id, status: TransactionStatus.CONFIRMED },
       data: {
         status: TransactionStatus.DISPUTED,
         disputeReason: payload.reason.trim(),
-        disputeCorrectAmount: correctAmountBig ?? null,
+        disputeCorrectAmount: payload.correctAmount != null ? BigInt(payload.correctAmount) : null,
       },
     });
+    if (count === 0) {
+      return NextResponse.json({ ok: false, error: 'DISPUTE_ALREADY_RAISED' }, { status: 409 });
+    }
+    const updated = await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } });
 
     // A dispute is the first step of a correction; audit who objected and why.
     await createAuditLog({

@@ -5,9 +5,12 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"hasnahena/apps/api/internal/money"
 )
@@ -326,8 +329,11 @@ func (r *UserRepository) GetMemberDetailForWorker(ctx context.Context, memberID 
 		&id, &accountNo, &name, &email, &phone, &nid, &status, &createdAt,
 		&savingsBalance, &activeLoan, &totalDeposited, &totalWithdrawn, &address, &isGuarantor,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrMemberNotFound
+	}
 	if err != nil {
-		return nil, fmt.Errorf("member not found: %w", err)
+		return nil, fmt.Errorf("load member detail: %w", err)
 	}
 
 	// Calculate loan eligibility

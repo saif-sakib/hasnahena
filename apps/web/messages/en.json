@@ -367,6 +367,10 @@
     "disputeReason": "Dispute Reason",
     "correctAmount": "Correct Amount",
     "submitDispute": "Submit Dispute",
+    "disputeNotAllowed": "Only a completed transaction can be disputed.",
+    "disputeAlreadyRaised": "A dispute has already been raised for this transaction.",
+    "disputeFailed": "The dispute could not be submitted. Please try again.",
+    "disputeAmountInvalid": "Enter the correct amount in whole taka, or leave it empty.",
     "myProfile": "My Profile",
     "personalInfo": "Personal Information",
     "nomineeInfo": "Nominee Information",
@@ -455,7 +459,8 @@
       "facebookPage": "Hasnahena on Facebook",
       "changePhoto": "Change profile photo",
       "removePhoto": "Remove profile photo",
-      "close": "Close"
+      "close": "Close",
+      "viewDetails": "View transaction details"
     },
     "audit": {
       "title": "Audit Log",

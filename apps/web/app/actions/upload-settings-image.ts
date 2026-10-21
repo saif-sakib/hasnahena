@@ -1,11 +1,10 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadSettingsImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { revalidatePath, updateTag } from 'next/cache';
 import { SYSTEM_CONFIG_TAG } from '@/lib/system-config';
-import { authorizeServerActionRoles } from '@/lib/server-auth';
+import { authorizeServerActionRoles, serverActionToken } from '@/lib/server-auth';
 import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadSettingsImageResult {
@@ -43,12 +42,7 @@ export async function uploadSettingsImageAction(
   formData: FormData
 ): Promise<UploadSettingsImageResult> {
   try {
-    const authTokenFromForm = formData.get('authToken');
-    const cookieStore = await cookies();
-    const authToken =
-      (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
-        ? authTokenFromForm.trim()
-        : null) ?? cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(formData.get('authToken'));
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };
@@ -138,10 +132,7 @@ export async function deleteSettingsImageAction(
   authTokenFromClient?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const cookieStore = await cookies();
-    const authToken =
-      (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
-      cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(authTokenFromClient);
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };

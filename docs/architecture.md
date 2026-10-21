@@ -58,7 +58,7 @@ messages/{en,bn}.json      all copy (next-intl). `/faq` English, `/bn/faq` Benga
                            every internal URL via lib/locale-path.ts
 ```
 
-**Documents** (`lib/documents/`, English only, [ADR-012](decisions.md)): statement, receipt, loan agreement, certificate. A builder produces a renderer-independent `DocumentModel`; `render/html.ts` (preview/print) and `render/pdf.ts` (vector download) both consume it. Import from `@/lib/documents`; amounts print `BDT 1,25,000`.
+**Documents** (`lib/documents/`, English only, [ADR-012](decisions.md)): statement, receipt, loan agreement, certificate. A builder produces a renderer-independent `DocumentModel`; `render/pdf.ts` (the vector download members get) and `render/html.ts` (escaped HTML; the document tests read it) both consume it. Import from `@/lib/documents`; amounts print `BDT 1,25,000`.
 
 **UI tokens**: CSS variables in `app/globals.css` (light and `.dark`), primary emerald `hsl(160 84% 39%)` / `45%` dark, radius `0.625rem`; semantic classes only; status colours in `lib/status-styles.ts`. Type: `--font-sans` is Inter for Latin then Hind Siliguri for Bengali, per glyph (both next/font variables on `<html>`); wide letter-spacing is reset under `:lang(bn)`. Public pages share one look: ivory `surface-paper`, the lattice, `card-raise` white cards, emerald icon tiles; copy for the interior pages is `pages.*`.
 

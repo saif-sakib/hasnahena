@@ -34,6 +34,14 @@ var (
 	ErrInsufficientBalance        = errors.New("insufficient balance")
 	ErrActiveLoanBlocksWithdrawal = errors.New("member has an active loan")
 	ErrGuarantorBlocksWithdrawal  = errors.New("member is guarantor for an active loan")
+
+	// The request → process → confirm lifecycle (rule 2b).
+	ErrBkashReferenceRequired  = errors.New("bkash reference is required")
+	ErrDuplicatePendingRequest = errors.New("duplicate pending request")
+	ErrRequestNotFound         = errors.New("transaction request not found")
+	ErrRequestNotPending       = errors.New("only pending transactions")
+	ErrMissingLoanReference    = errors.New("loan repayment request missing loan reference")
+	ErrUnsupportedRequestType  = errors.New("unsupported transaction type")
 )
 
 // formatNoticeDate matches the generated documents' en-GB date format.
@@ -65,12 +73,12 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 	`
 	if err := tx.QueryRow(ctx, getQuery, requestID).Scan(&txType, &txStatus, &amount, &memberID, &loanID, &createdAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("transaction request not found")
+			return ErrRequestNotFound
 		}
 		return err
 	}
 	if strings.ToUpper(strings.TrimSpace(txStatus)) != "PENDING" {
-		return fmt.Errorf("only pending transactions can be approved")
+		return fmt.Errorf("%w can be approved", ErrRequestNotPending)
 	}
 	txType = strings.ToUpper(strings.TrimSpace(txType))
 
@@ -129,7 +137,7 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 		}
 	case "LOAN_REPAYMENT":
 		if strings.TrimSpace(loanID) == "" {
-			return fmt.Errorf("loan repayment request missing loan reference")
+			return ErrMissingLoanReference
 		}
 
 		var remainingAmount int64
@@ -140,14 +148,17 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			WHERE id = $1 AND "borrowerId" = $2
 			FOR UPDATE
 		`, loanID, memberID).Scan(&remainingAmount, &loanStatus); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrLoanNotFound
+			}
 			return err
 		}
 		normalizedLoanStatus := strings.ToUpper(strings.TrimSpace(loanStatus))
 		if normalizedLoanStatus != "ACTIVE" {
-			return fmt.Errorf("loan is not active")
+			return ErrLoanNotActive
 		}
 		if amount > remainingAmount {
-			return fmt.Errorf("repayment exceeds remaining balance")
+			return ErrRepaymentExceedsBalance
 		}
 
 		newRemaining := remainingAmount - amount
@@ -205,13 +216,16 @@ func (r *UserRepository) ApproveWithdrawal(ctx context.Context, requestID, appro
 			return fmt.Errorf("failed to notify member: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported transaction type")
+		return ErrUnsupportedRequestType
 	}
 
-	_, _ = tx.Exec(ctx, `
+	// Checked: a failed insert aborts the transaction, and the commit would fail without saying why.
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", "createdAt")
 		VALUES ('APPROVE_TRANSACTION', 'TRANSACTION', $1, $2, NOW())
-	`, requestID, approverID)
+	`, requestID, approverID); err != nil {
+		return fmt.Errorf("failed to write audit log: %w", err)
+	}
 
 	return tx.Commit(ctx)
 }
@@ -231,16 +245,16 @@ func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approv
 		FOR UPDATE
 	`, requestID).Scan(&txStatus, &txType, &memberID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("transaction request not found")
+			return ErrRequestNotFound
 		}
 		return err
 	}
 	if strings.ToUpper(strings.TrimSpace(txStatus)) != "PENDING" {
-		return fmt.Errorf("only pending transactions can be rejected")
+		return fmt.Errorf("%w can be rejected", ErrRequestNotPending)
 	}
 	txType = strings.ToUpper(strings.TrimSpace(txType))
 	if txType != "DEPOSIT" && txType != "WITHDRAWAL" && txType != "LOAN_REPAYMENT" {
-		return fmt.Errorf("unsupported transaction type")
+		return ErrUnsupportedRequestType
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -279,7 +293,7 @@ func (r *UserRepository) RejectWithdrawal(ctx context.Context, requestID, approv
 func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberID string, amount int64, bkashReference, notes string) (string, error) {
 	reference := strings.TrimSpace(bkashReference)
 	if reference == "" {
-		return "", errors.New("bkash reference is required")
+		return "", ErrBkashReferenceRequired
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -300,10 +314,13 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 		  AND u.role = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&memberStatus, &memberName); err != nil {
-		return "", errors.New("member not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrMemberNotFound
+		}
+		return "", fmt.Errorf("read member for deposit request: %w", err)
 	}
 	if strings.ToUpper(strings.TrimSpace(memberStatus)) != "ACTIVE" {
-		return "", errors.New("member not active")
+		return "", ErrMemberNotActive
 	}
 
 	var existingRequestID string
@@ -319,7 +336,10 @@ func (r *UserRepository) CreateMemberDepositRequest(ctx context.Context, memberI
 		LIMIT 1
 	`, memberID, amount, reference).Scan(&existingRequestID)
 	if dupErr == nil {
-		return "", errors.New("duplicate pending deposit request")
+		return "", fmt.Errorf("%w: deposit %s", ErrDuplicatePendingRequest, existingRequestID)
+	}
+	if !errors.Is(dupErr, pgx.ErrNoRows) {
+		return "", fmt.Errorf("check for a duplicate deposit request: %w", dupErr)
 	}
 	if !errors.Is(dupErr, pgx.ErrNoRows) {
 		return "", dupErr
@@ -744,10 +764,13 @@ func (r *UserRepository) AddMemberDeposit(ctx context.Context, memberID, workerI
 		WHERE u.id = $1 AND u.role = 'MEMBER'
 		FOR UPDATE OF a
 	`, memberID).Scan(&status, &currentBalance); err != nil {
-		return "", errors.New("member not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrMemberNotFound
+		}
+		return "", fmt.Errorf("read member for deposit: %w", err)
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
-		return "", errors.New("member not active")
+		return "", ErrMemberNotActive
 	}
 
 	// In-transaction, so an abandoned deposit burns no receipt number.

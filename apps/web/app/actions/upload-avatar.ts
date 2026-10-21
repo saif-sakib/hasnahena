@@ -1,9 +1,8 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadAvatar, deleteOldAvatar, extractPublicId, deleteImage } from '@/lib/cloudinary';
-import { authenticateServerActionToken } from '@/lib/server-auth';
+import { authenticateServerActionToken, serverActionToken } from '@/lib/server-auth';
 import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadAvatarResult {
@@ -17,12 +16,7 @@ export async function uploadAvatarAction(
   formData: FormData
 ): Promise<UploadAvatarResult> {
   try {
-    const authTokenFromForm = formData.get('authToken');
-    const cookieStore = await cookies();
-    const authToken =
-      (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
-        ? authTokenFromForm.trim()
-        : null) ?? cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(formData.get('authToken'));
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };
@@ -104,10 +98,7 @@ export async function deleteAvatarAction(
   authTokenFromClient?: string
 ): Promise<UploadAvatarResult> {
   try {
-    const cookieStore = await cookies();
-    const authToken =
-      (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
-      cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(authTokenFromClient);
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };

@@ -39,12 +39,12 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
   });
 
   beforeEach(async () => {
-    // A posting the member says is wrong. `savingsAfter: 0` on purpose: it is a
+    // A settled posting the member says is wrong. `savingsAfter: 0` on purpose: it is a
     // legitimate zero, and the serialiser used to report it as null (WO-61).
     await testPrisma().transaction.upsert({
       where: { id: TXN_ID },
       update: {
-        status: 'PROCESSED',
+        status: 'CONFIRMED',
         disputeReason: null,
         disputeCorrectAmount: null,
       },
@@ -52,7 +52,7 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
         id: TXN_ID,
         type: 'WITHDRAWAL',
         amount: BigInt(5000),
-        status: 'PROCESSED',
+        status: 'CONFIRMED',
         savingsAfter: BigInt(0),
         loanAfter: BigInt(0),
         userId: 'nextroute-member',
@@ -112,7 +112,26 @@ describe.skipIf(skip)('POST /api/v1/member/transactions/[id]/dispute — success
     expect(res.status, `body: ${res.text}`).toBe(400);
 
     const row = await testPrisma().transaction.findUnique({ where: { id: TXN_ID } });
-    expect(row?.status, 'a rejected dispute must not freeze the transaction').toBe('PROCESSED');
+    expect(row?.status, 'a rejected dispute must not freeze the transaction').toBe('CONFIRMED');
+  });
+
+  it('refuses a fractional correction — money is whole taka (rule 1)', async () => {
+    const res = await raise({ reason: 'Wrong amount recorded.', correctAmount: 4000.5 });
+    expect(res.status, `body: ${res.text}`).toBe(400);
+  });
+
+  // DISPUTED counts as money that moved (ADR-026). A PROCESSED withdrawal is only
+  // ready at the desk — freezing it would make reconciliation count a payout
+  // that never happened, and the desk could no longer settle the request.
+  it('refuses to dispute a posting that moved no money', async () => {
+    await testPrisma().transaction.update({ where: { id: TXN_ID }, data: { status: 'PROCESSED' } });
+
+    const res = await raise({ reason: 'The amount is wrong.' });
+    expect(res.status, `body: ${res.text}`).toBe(409);
+    expect((res.json as { error: string }).error).toBe('NOT_DISPUTABLE');
+
+    const row = await testPrisma().transaction.findUnique({ where: { id: TXN_ID } });
+    expect(row?.status).toBe('PROCESSED');
   });
 });
 

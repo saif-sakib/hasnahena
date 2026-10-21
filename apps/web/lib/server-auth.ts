@@ -1,3 +1,5 @@
+import { cookies } from 'next/headers';
+
 import { getApiBaseUrl } from './api';
 import { verifyHs256Jwt } from './jwt';
 import { checkRevocation, RevocationCheckError } from './auth-revocation';
@@ -122,4 +124,13 @@ export async function authorizeServerActionRoles(
   }
 
   return auth;
+}
+
+/**
+ * The token a server action authenticates with: the one the client passed,
+ * else the session cookie `lib/client-auth.ts` sets. The caller verifies it.
+ */
+export async function serverActionToken(fromClient: unknown): Promise<string | null> {
+  if (typeof fromClient === 'string' && fromClient.trim()) return fromClient.trim();
+  return (await cookies()).get('hn_access_token')?.value ?? null;
 }

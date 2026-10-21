@@ -269,12 +269,19 @@ func seedLoanWithGuarantor(t *testing.T, borrower, guarantor string, remaining i
 	return loanID
 }
 
+// seedDonationPool writes a settled donation, as RecordDonation does (the column
+// default PENDING is a posting that moved no money, and funds nothing).
 func seedDonationPool(t *testing.T, accountOwner string, amount int64) {
 	t.Helper()
+	seedDonationWithStatus(t, accountOwner, amount, "CONFIRMED")
+}
+
+func seedDonationWithStatus(t *testing.T, accountOwner string, amount int64, status string) {
+	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
-		INSERT INTO transactions (id, type, amount, description, "createdAt", "userId")
-		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'test donation pool', NOW(), $2)
-	`, amount, accountOwner)
+		INSERT INTO transactions (id, type, amount, description, status, "createdAt", "userId")
+		VALUES (gen_random_uuid()::text, 'DONATION', $1, 'test donation pool', $3::"TransactionStatus", NOW(), $2)
+	`, amount, accountOwner, status)
 	if err != nil {
 		t.Fatalf("seed donation: %v", err)
 	}
@@ -288,7 +295,8 @@ func donationPoolBalance(t *testing.T) int64 {
 	err := testPool.QueryRow(context.Background(), `
 		SELECT COALESCE(SUM(CASE WHEN type = 'DONATION' THEN amount ELSE -amount END)::bigint, 0)
 		FROM transactions
-		WHERE type = 'DONATION' OR (type = 'FEE' AND "loanId" IS NOT NULL)
+		WHERE status IN `+settledStatuses+`
+		  AND (type = 'DONATION' OR (type = 'FEE' AND "loanId" IS NOT NULL))
 	`).Scan(&v)
 	if err != nil {
 		t.Fatalf("read donation pool: %v", err)
@@ -570,6 +578,34 @@ func TestDocumentNumbersAreSequentialAndUnique(t *testing.T) {
 }
 
 // The donation pool depletes as it is drawn on.
+// Rule 6a: only settled postings are money. A donation that never moved — the
+// column default, or a rejected one — must not pay a defaulted loan.
+func TestUnsettledDonationsDoNotFundRecovery(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+
+	admin := seedStaff(t, "a1", "ADMIN")
+	donor := seedMember(t, "d1", "ACC-KH-33009", 0)
+	seedDonationWithStatus(t, donor, 3000, "PENDING")
+	seedDonationWithStatus(t, donor, 3000, "REJECTED")
+	seedDonationPool(t, donor, 1000)
+
+	borrower := seedMember(t, "m1", "ACC-KH-33001", 0)
+	guarantor := seedMember(t, "g1", "ACC-KH-33002", 0)
+	loan := seedLoanWithGuarantor(t, borrower, guarantor, 5000)
+	if err := repo.MarkLoanDefaulted(ctx, loan, admin, "default"); err != nil {
+		t.Fatalf("default: %v", err)
+	}
+
+	var remaining int64
+	if err := testPool.QueryRow(ctx, `SELECT "remainingAmount"::bigint FROM loans WHERE id = $1`, loan).Scan(&remaining); err != nil {
+		t.Fatalf("read loan: %v", err)
+	}
+	if remaining != 4000 {
+		t.Errorf("remaining = %d, want 4000 — only the 1000 settled taka may cover it", remaining)
+	}
+}
+
 func TestDonationPoolDepletesAcrossDefaults(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import {
@@ -12,12 +12,11 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Printer,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useApiAll, useRedirectOnUnauthorized } from '@/lib/use-api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseWholeTaka } from '@/lib/utils';
 import { getValidatedClientToken } from '@/lib/client-auth';
 import { buildStatement, buildReceipt, downloadDocumentPDF, fetchOrgSettings } from '@/lib/documents';
 import { localePath } from '@/lib/locale-path';
@@ -97,6 +96,7 @@ export default function TransactionsPage() {
 
   // Raising a dispute fails for its own reasons; kept apart from the read.
   const [disputeError, setDisputeError] = useState<string | null>(null);
+  const submittingDispute = useRef(false);
   const actionError = disputeError ?? loadError;
 
   // Download full statement
@@ -273,12 +273,14 @@ export default function TransactionsPage() {
     .reduce((sum, tx) => sum + tx.amount, 0);
 
   const handleOpenDispute = (tx: Transaction) => {
+    setDisputeError(null);
     setSelectedTransaction(tx);
     setShowDisputeModal(true);
   };
 
   const handleSubmitDispute = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingDispute.current) return;
     void (async () => {
       setDisputeError(null);
       const token = getValidatedClientToken();
@@ -288,26 +290,41 @@ export default function TransactionsPage() {
       }
       if (!selectedTransaction) return;
 
-      const parsedCorrect = Number(correctAmount);
-      const res = await fetch(`/api/v1/member/transactions/${selectedTransaction.id}/dispute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          reason: disputeReason,
-          correctAmount: Number.isFinite(parsedCorrect) ? parsedCorrect : undefined,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setDisputeError(json?.error ?? 'Failed to raise dispute');
+      // Optional: a member disputing the whole posting has no correct amount.
+      const correct = correctAmount.trim() === '' ? undefined : parseWholeTaka(correctAmount);
+      if (correct === null) {
+        setDisputeError(t('disputeAmountInvalid'));
         return;
       }
 
-      setShowDisputeModal(false);
-      setDisputeReason('');
-      setCorrectAmount('');
-      setSelectedTransaction(null);
-      await refresh();
+      submittingDispute.current = true;
+      try {
+        const res = await fetch(`/api/v1/member/transactions/${selectedTransaction.id}/dispute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ reason: disputeReason, correctAmount: correct }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const code = json?.error;
+          setDisputeError(
+            code === 'NOT_DISPUTABLE'
+              ? t('disputeNotAllowed')
+              : code === 'DISPUTE_ALREADY_RAISED'
+                ? t('disputeAlreadyRaised')
+                : t('disputeFailed'),
+          );
+          return;
+        }
+
+        setShowDisputeModal(false);
+        setDisputeReason('');
+        setCorrectAmount('');
+        setSelectedTransaction(null);
+        await refresh();
+      } finally {
+        submittingDispute.current = false;
+      }
     })();
   };
 
@@ -447,13 +464,25 @@ export default function TransactionsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {tx.status === 'CONFIRMED' && (
-                        <button
-                          onClick={() => void handlePrintReceipt(tx)}
-                          className="text-gray-400 hover:text-gray-600"
-                          title={locale === 'bn' ? 'রসিদ পিডিএফ ডাউনলোড' : 'Download PDF receipt'}
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => void handlePrintReceipt(tx)}
+                            className="p-2 text-gray-400 hover:text-gray-600"
+                            title={locale === 'bn' ? 'রসিদ পিডিএফ ডাউনলোড' : 'Download PDF receipt'}
+                            aria-label={locale === 'bn' ? 'রসিদ পিডিএফ ডাউনলোড' : 'Download PDF receipt'}
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                          {/* Only a CONFIRMED posting can be disputed (ADR-026). */}
+                          <button
+                            onClick={() => handleOpenDispute(tx)}
+                            className="p-2 text-gray-400 hover:text-red-600"
+                            title={t('raiseDispute')}
+                            aria-label={t('raiseDispute')}
+                          >
+                            <AlertCircle className="h-4 w-4" />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -517,11 +546,13 @@ export default function TransactionsPage() {
                   <label className="block text-xs font-medium text-gray-700 mb-1">{t('correctAmount')}</label>
                   <Input
                     type="number"
+                    step="1"
+                    min="1"
+                    inputMode="numeric"
                     placeholder={locale === 'bn' ? 'সঠিক পরিমাণ' : 'Correct amount'}
                     value={correctAmount}
                     onChange={(e) => setCorrectAmount(e.target.value)}
                     className="h-8 text-sm"
-                    required
                   />
                 </div>
                 <div>
