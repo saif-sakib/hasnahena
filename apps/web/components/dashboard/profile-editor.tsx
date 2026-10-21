@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Edit, Lock, Save, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,7 +36,6 @@ interface ProfileEditorProps {
 
 export function ProfileEditor({ role }: ProfileEditorProps) {
   const locale = useLocale();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);

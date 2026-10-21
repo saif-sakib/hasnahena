@@ -1,11 +1,10 @@
 'use server';
 
-import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { uploadGalleryImage, extractPublicId, deleteImage } from '@/lib/cloudinary';
 import { revalidatePath, updateTag } from 'next/cache';
 import { GALLERY_TAG } from '@/lib/public-content';
-import { authorizeServerActionRoles } from '@/lib/server-auth';
+import { authorizeServerActionRoles, serverActionToken } from '@/lib/server-auth';
 import { validateImageFile, UPLOAD_TYPES, UPLOAD_SIZE_LIMITS } from '@/lib/image-utils';
 
 interface UploadGalleryResult {
@@ -43,12 +42,7 @@ export async function uploadGalleryAction(
   formData: FormData
 ): Promise<UploadGalleryResult> {
   try {
-    const authTokenFromForm = formData.get('authToken');
-    const cookieStore = await cookies();
-    const authToken =
-      (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
-        ? authTokenFromForm.trim()
-        : null) ?? cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(formData.get('authToken'));
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };
@@ -127,10 +121,7 @@ export async function deleteGalleryAction(
   authTokenFromClient?: string
 ): Promise<DeleteGalleryResult> {
   try {
-    const cookieStore = await cookies();
-    const authToken =
-      (authTokenFromClient?.trim() ? authTokenFromClient.trim() : null) ??
-      cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(authTokenFromClient);
 
     if (!authToken) {
       return { success: false, error: 'Not authenticated' };
@@ -186,12 +177,7 @@ export async function updateGalleryImageAction(
   formData: FormData
 ): Promise<UploadGalleryResult> {
   try {
-    const authTokenFromForm = formData.get('authToken');
-    const cookieStore = await cookies();
-    const authToken =
-      (typeof authTokenFromForm === 'string' && authTokenFromForm.trim().length > 0
-        ? authTokenFromForm.trim()
-        : null) ?? cookieStore.get('auth-token')?.value;
+    const authToken = await serverActionToken(formData.get('authToken'));
 
     if(!authToken) {
       return { success: false, error: 'Not authenticated' };

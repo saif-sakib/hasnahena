@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireActiveAuth, revokeAllTokens } from '@/lib/auth-revocation';
 import { generateTemporaryPassword } from '@/lib/api-utils';
-import { UserRole, UserStatus } from '@prisma/client';
+import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import { createAuditLog } from '@/lib/audit';
 import { RESET_SCOPE_FIRST_LOGIN, hashResetSecret } from '@/lib/reset-tokens';
 import { readJsonBody, routeErrorStatus, routeErrorMessage } from '@/lib/route-errors';
@@ -29,10 +29,18 @@ const STAFF_SELECT = {
   assignedBranch: { select: { id: true, name: true } },
 } as const;
 
-type BranchSummary = { id: string; name: string } | null;
-
-function toBranchSummary(branch: BranchSummary): BranchSummary {
-  return branch ?? null;
+/** The staff row every write answers with. */
+function toStaffResponse(row: Prisma.UserGetPayload<{ select: typeof STAFF_SELECT }>) {
+  return {
+    id: row.id,
+    name: row.nameEn,
+    email: row.email,
+    phone: row.phone,
+    role: row.role,
+    status: row.status,
+    branch: row.assignedBranch,
+    joinDate: row.createdAt.toISOString(),
+  };
 }
 
 /** Resolve the submitted branch id; null/undefined = no branch, unknown = refused. */
@@ -220,16 +228,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: {
-        id: created.id,
-        name: created.nameEn,
-        email: created.email,
-        phone: created.phone,
-        role: created.role,
-        status: created.status,
-        branch: toBranchSummary(created.assignedBranch),
-        joinDate: created.createdAt.toISOString(),
-      },
+      data: toStaffResponse(created),
     });
   } catch (error) {
     const status = routeErrorStatus(error);
@@ -319,16 +318,7 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: {
-        id: updated.id,
-        name: updated.nameEn,
-        email: updated.email,
-        phone: updated.phone,
-        role: updated.role,
-        status: updated.status,
-        branch: toBranchSummary(updated.assignedBranch),
-        joinDate: updated.createdAt.toISOString(),
-      },
+      data: toStaffResponse(updated),
     });
   } catch (error) {
     const status = routeErrorStatus(error);
@@ -402,16 +392,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      data: {
-        id: updated.id,
-        name: updated.nameEn,
-        email: updated.email,
-        phone: updated.phone,
-        role: updated.role,
-        status: updated.status,
-        branch: toBranchSummary(updated.assignedBranch),
-        joinDate: updated.createdAt.toISOString(),
-      },
+      data: toStaffResponse(updated),
     });
   } catch (error) {
     const status = routeErrorStatus(error);

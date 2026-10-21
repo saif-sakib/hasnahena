@@ -73,7 +73,7 @@ Bare JSON, no envelope ([ADR-005](decisions.md)); auth via `lib/server-auth.ts` 
 | GET·PUT | `/api/v1/settings` | `system_config`. GET needs no token and answers in tiers — public / member / worker (+content keys) / admin. PUT is gated **by key**: admins write any declared key, workers only `CONTENT_CONFIG_KEYS` (403 otherwise, all-or-nothing). Browser reads go through `lib/settings-client.ts` | login, settings screens, member loans, `lib/documents/org-settings.ts` |
 | GET·POST·PUT·DELETE | `/api/v1/gallery` | gallery CMS | Content & Media |
 | POST·PUT·PATCH·DELETE | `/api/v1/admin/workers` | worker accounts (no `role` field) | admin workers |
-| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes an amount | member transactions |
+| POST | `/api/v1/member/transactions/{id}/dispute` | member disputes a `CONFIRMED` posting (`409 NOT_DISPUTABLE` for any other status, ADR-026; optional whole-taka `correctAmount`) | member transactions |
 | GET·POST·PUT | `/api/v1/dashboard/support/[...path]` | proxy to Go support — **allow-list** (`config`, `threads`, `threads/processed`, `messages`, `stream`, `stream/ticket`, per method); mutations 60/min per member address ([ADR-021](decisions.md)) | `lib/api.ts` rewrite |
 | POST | `/api/v1/loans/applications` | member loan application | `loan-application-form.tsx` |
 | GET | `/api/v1/members/lookup` | **FR-11.** Full account number → name and guarantor eligibility, so an applicant can nominate one. Signed in, exact match only, 10 per 10 min — an id-to-name resolver is an oracle | `loan-application-form.tsx` |

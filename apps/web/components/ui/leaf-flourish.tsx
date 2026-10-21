@@ -1,5 +1,3 @@
-import * as React from 'react';
-
 /**
  * A hasnahena (night-blooming jasmine) sprig, the decorative flourish behind
  * marketing sections — its five-point bloom echoes the khatam stars. Inline SVG,

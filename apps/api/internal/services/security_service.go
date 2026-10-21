@@ -325,8 +325,6 @@ type AuditLogEntry struct {
 	UserIP     string
 	UserAgent  string
 	Details    string
-	OldValue   interface{}
-	NewValue   interface{}
 }
 
 // CreateAuditLog creates an audit log entry

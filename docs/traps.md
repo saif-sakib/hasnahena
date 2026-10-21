@@ -6,7 +6,7 @@ at build time. They are grouped by **what you have to be touching to hit one**.
 This is the only file that keeps them. If you are about to add a lesson to
 another doc, add it here and link instead.
 
-**This file is the index — 207 traps in 24 files.** The lines below are the
+**This file is the index — 208 traps in 24 files.** The lines below are the
 trap titles verbatim, so this page alone answers "is my problem already known?".
 Open the one file whose heading matches what you are touching; the set is 111 KB
 and the largest single file is 32 KB.
@@ -156,7 +156,7 @@ and the largest single file is 32 KB.
 - A guard was invalidated by a row added later in the same file.
 - Watch for a safety net positioned where it can never be reached.
 
-### [Tests and evidence](traps/tests-and-evidence.md) · 27
+### [Tests and evidence](traps/tests-and-evidence.md) · 28
 
 - A truncated read of a file is a claim about the file, and it will be believed as one.
 - The site's own domain is in the repository; do not take it from a screenshot.
@@ -185,6 +185,7 @@ and the largest single file is 32 KB.
 - A hardcoded unique value in a shared-database suite passes until another suite runs first.
 - Comparing whole response bodies compares the clock.
 - A red run for the wrong reason is not evidence.
+- A fixture that leaves out a column inherits its default, and the default can be the bug's precondition.
 
 ### [Browser suites](traps/browser-suites.md) · 9
 

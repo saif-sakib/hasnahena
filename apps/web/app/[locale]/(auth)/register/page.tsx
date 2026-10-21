@@ -9,7 +9,6 @@ import {
   type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { useForm, type FieldErrors, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,7 +35,6 @@ import { Label } from '@/components/ui/label';
 import { DateOfBirthInput } from '@/components/ui/date-of-birth-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Logo } from '@/components/ui/logo';
-import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { fetchSettings } from '@/lib/settings-client';
 import { noticePeriodDaysFrom } from '@/lib/faq';
@@ -240,7 +238,6 @@ export default function RegisterPage() {
   const isBn = locale === 'bn';
   // Rule 5: new copy goes in the message files.
   const tReg = useTranslations('auth.register');
-  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitStage, setSubmitStage] =
