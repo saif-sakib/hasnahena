@@ -1,6 +1,6 @@
 # ADR-020 — The Cloudinary assets have no backup, and that is accepted until launch
 
-**Status:** accepted, provisional · 2026-08-18 · closes the WO-55 half of DATA-06 · **needs the owner's confirmation**.
+**Status:** superseded 2026-09-03 — the trigger below arrived and the job was built: `backup.yml`'s `assets` job (`cloudinary-backup.mjs`) writes an encrypted archive to R2 nightly ([deployment.md § Backups](../deployment.md#backups)). Originally accepted, provisional, 2026-08-18 · closed the WO-55 half of DATA-06.
 
 Registration documents — NID front and back, member photo, signature — live only
 in Cloudinary. There is no export, no second copy, and the account is a free tier

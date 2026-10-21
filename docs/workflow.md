@@ -49,9 +49,9 @@ git switch main && git pull && git branch -d fix/loan-schedule-date
 
 CI ([`ci.yml`](../.github/workflows/ci.yml)): typecheck/lint, Go vet and unit, Go integration on real Postgres, Playwright at phone size, a backup-and-restore drill, gitleaks over full history. You get a readable diff, a preview URL, CI that ran, and a one-button revert.
 
-**It is also the biggest Actions saving**: `ci.yml` runs on `pull_request` and `push` to `main` only, so feature-branch commits with no PR cost nothing. Committing straight to `main` spent August's 2,000 minutes in seventeen days and stopped the nightly backup ([deployment.md](deployment.md#backups)).
+`ci.yml` runs on `pull_request` and `push` to `main` only, so feature-branch commits with no PR run nothing. While the repository was private, committing straight to `main` spent August's 2,000 minutes in seventeen days and stopped the nightly backup ([deployment.md](deployment.md#backups)); public, the minutes are unmetered.
 
-**Enforcing it** ([T-29](tasks.md)): branch protection on a private repo needs GitHub Pro (~$4/mo). Settings → Branches → rule for `main`: require a PR and passing checks, **no self-exemption**. Until then: never `git push origin main`. Don't go public to get it free — this is a finance app for a real cooperative.
+**Enforcing it** ([T-29](tasks.md)): branch protection is free on a public repository. Settings → Branches → rule for `main`: require a PR and passing checks, **no self-exemption**. Until then: never `git push origin main`.
 
 ## 3. Preview deploys
 
@@ -75,8 +75,8 @@ Procedure: [deployment.md § Schema changes](deployment.md#schema-changes). The 
 | Layer | Covers | State |
 |---|---|---|
 | Neon point-in-time restore | anything within the history window (short on free) | on — recovered 2026-09-01 |
-| Nightly encrypted dump ([`backup.yml`](../.github/workflows/backup.yml)) | whole DB, 24 h RPO; 01:00 Dhaka, 30 days (monthly 90) | on |
-| Copy outside GitHub — Cloudflare R2 | losing the GitHub account; artifact expiry | on since 2026-09-03 (`database/`, `assets/`, lifecycle rule each) |
+| Nightly encrypted dump ([`backup.yml`](../.github/workflows/backup.yml)) | whole DB, 24 h RPO; 01:00 Dhaka, kept 365 days in R2 | on |
+| Copy outside GitHub — Cloudflare R2 | losing the GitHub account | on since 2026-09-03 (`database/`, `assets/`, lifecycle rule each); the **only** copy — no workflow artifacts on a public repository |
 | Cloudinary export (`assets` job) | every NID scan, photo, signature | on since 2026-09-03; fails rather than skips without credentials |
 | Paper passbook + append-only `audit_logs` | reconstructing money if all else fails | on — why 24 h RPO is tolerable |
 

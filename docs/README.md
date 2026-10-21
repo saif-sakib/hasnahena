@@ -5,7 +5,7 @@
 | I want to… | Read | KB |
 |---|---|---|
 | change something routine | [changing-things.md](changing-things.md) — blast radius, files, how to prove nothing broke | 16 |
-| pick up work | [tasks.md](tasks.md) — the only board; `do T-12` | 16 |
+| pick up work | [tasks.md](tasks.md) — the only board, in the order to work it; `do T-40` | 26 |
 | debug something inexplicable | [traps.md](traps.md) — every trap title, grouped by what you are touching; entries in [`traps/`](traps/) | 18 |
 | know why the code contradicts me | [decisions.md](decisions.md) — 45 ADRs, one file each in [`decisions/`](decisions/) | 8 |
 | know why a guard fired | [guardrails.md](guardrails.md) — the defect behind each guard | 38 |

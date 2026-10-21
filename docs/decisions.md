@@ -35,7 +35,7 @@ heading and a `**Status:**` line, then add its row below.
 | [ADR-017](decisions/adr-017-read-config-inside-the-transaction-never-from-the-pool.md) | Read config inside the transaction, never from the pool | accepted |
 | [ADR-018](decisions/adr-018-the-official-infos-history-is-not-purged.md) | The `Official Infos/` history is not purged | accepted |
 | [ADR-019](decisions/adr-019-one-function-decides-where-a-request-came-from.md) | One function decides where a request came from | accepted |
-| [ADR-020](decisions/adr-020-the-cloudinary-assets-have-no-backup-and-that-is-accepted-until-launch.md) | The Cloudinary assets have no backup, and that is accepted until launch | provisional |
+| [ADR-020](decisions/adr-020-the-cloudinary-assets-have-no-backup-and-that-is-accepted-until-launch.md) | The Cloudinary assets have no backup, and that is accepted until launch | superseded 2026-09-03 by the asset backup |
 | [ADR-021](decisions/adr-021-the-support-proxy-limits-per-member-trusted_proxies-follows-the-chain.md) | The support proxy limits per member; `TRUSTED_PROXIES` follows the chain | accepted, amended |
 | [ADR-022](decisions/adr-022-member-approval-waits-for-the-email-inside-a-ten-second-budget.md) | Member approval waits for the email, inside a ten-second budget | accepted |
 | [ADR-023](decisions/adr-023-one-member-identifier-usersaccountno.md) | One member identifier: `users.accountNo` | accepted |
