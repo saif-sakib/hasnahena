@@ -28,6 +28,15 @@ const arabicFont = Noto_Naskh_Arabic({ subsets: ['arabic'], weight: '400', displ
 const OFFICE_EXPENSES_TAKA = 500;
 
 /**
+ * Stated here on purpose, not read from settings: the owner sets what this page
+ * promises. Changing `loan.*` in settings does NOT change these.
+ */
+const MIN_DEPOSIT_TAKA = 8000;
+const MAX_LOAN_MULTIPLIER = 5;
+const MAX_INSTALLMENT_MONTHS = 24;
+const GUARANTOR_THRESHOLD_TAKA = 20000;
+
+/**
  * Scripture, verbatim and the same in both languages, so not in messages. Every
  * reference and translation on this page was checked against primary texts
  * before publishing: change one only after checking it again. Ibn Majah 2431
@@ -39,12 +48,6 @@ const AYAH_2_280 =
   'وَإِنْ كَانَ ذُو عُسْرَةٍ فَنَظِرَةٌ إِلَىٰ مَيْسَرَةٍ ۚ وَأَنْ تَصَدَّقُوا خَيْرٌ لَكُمْ ۖ إِنْ كُنْتُمْ تَعْلَمُونَ';
 
 type PageProps = { params: Promise<{ locale: string }> };
-
-/** A loan term from settings; the same defaults as the loan application route. */
-function term(settings: Record<string, string>, key: string, fallback: number): number {
-  const parsed = Number(settings[key]);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
@@ -97,10 +100,10 @@ export default async function QardAlHasanPage({ params }: PageProps) {
   const fee = formatCurrency(OFFICE_EXPENSES_TAKA, locale);
   const values = {
     fee,
-    minDeposit: formatCurrency(term(settings, 'loan.minDepositForLoan', 8000), locale),
-    multiplier: number.format(term(settings, 'loan.maxLoanMultiplier', 5)),
-    months: number.format(term(settings, 'loan.maxInstallmentMonths', 24)),
-    threshold: formatCurrency(term(settings, 'loan.guarantorThresholdAmount', 20000), locale),
+    minDeposit: formatCurrency(MIN_DEPOSIT_TAKA, locale),
+    multiplier: number.format(MAX_LOAN_MULTIPLIER),
+    months: number.format(MAX_INSTALLMENT_MONTHS),
+    threshold: formatCurrency(GUARANTOR_THRESHOLD_TAKA, locale),
   };
 
   const sectionTitle = 'text-xl font-semibold text-slate-900 md:text-2xl dark:text-white';
