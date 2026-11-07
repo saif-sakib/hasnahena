@@ -23,11 +23,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/contact',
-    title: activeLocale === 'bn' ? 'যোগাযোগ' : 'Contact Us',
+    title: activeLocale === 'bn' ? 'যোগাযোগ ও ঠিকানা' : 'Contact & Location',
     description:
       activeLocale === 'bn'
-        ? 'হাসনাহেনার সাথে যোগাযোগের ঠিকানা, ফোন এবং ইমেইল তথ্য।'
-        : 'Reach Hasnahena through phone, email, and office address details.',
+        ? 'যশোরে হাসনাহেনা ফাউন্ডেশনের অফিসের ঠিকানা, ফোন নম্বর ও ইমেইল।'
+        : 'Find Hasnahena Foundation in Jashore, Bangladesh: office address, phone number and email.',
   });
 }
 

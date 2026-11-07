@@ -198,6 +198,7 @@ export const PUBLIC_PAGE_LABELS: Record<string, Record<Locale, string>> = {
   '/privacy': { en: 'Privacy Policy', bn: 'গোপনীয়তা নীতি' },
   '/terms': { en: 'Terms of Service', bn: 'ব্যবহারের শর্তাবলী' },
   '/faq': { en: 'Frequently Asked Questions', bn: 'সাধারণ প্রশ্নাবলী' },
+  '/qard-al-hasan': { en: 'Qard al-Hasan', bn: 'কর্জে হাসানা' },
   '/support': { en: 'Support', bn: 'সহায়তা' },
 };
 

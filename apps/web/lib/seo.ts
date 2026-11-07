@@ -104,8 +104,8 @@ export const SITE_ICONS = {
 /** The site's title, in one place. Jashore is in it to separate it from other "Hasnahena"s. */
 export function siteTitle(locale: Locale): string {
   return locale === 'bn'
-    ? `${SITE_NAME_BN} — সুদমুক্ত সমবায় অর্থায়ন, যশোর`
-    : `${SITE_NAME} — Interest-Free Cooperative Finance, Jashore`;
+    ? `${SITE_NAME_BN} — কর্জে হাসানা ও সুদমুক্ত সমবায়, যশোর`
+    : `${SITE_NAME} — Interest-Free Qard al-Hasan Finance, Jashore`;
 }
 
 /**
@@ -124,6 +124,7 @@ export const publicPagePaths = [
   '/privacy',
   '/terms',
   '/faq',
+  '/qard-al-hasan',
   '/support',
 ] as const;
 

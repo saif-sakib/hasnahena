@@ -192,6 +192,12 @@ export const PUBLIC_CONFIG_KEYS = [
   // Public: the FAQ quotes it.
   'loan.noticePeriodDays',
 
+  // Public: the Qard al-Hasan page quotes the lending terms.
+  'loan.minDepositForLoan',
+  'loan.maxLoanMultiplier',
+  'loan.maxInstallmentMonths',
+  'loan.guarantorThresholdAmount',
+
   // Public: the registration form needs it before anyone has an account.
   'membership.minimumAgeYears',
 
@@ -206,12 +212,8 @@ export const PUBLIC_CONFIG_KEYS = [
  */
 export const MEMBER_CONFIG_KEYS = [
   ...PUBLIC_CONFIG_KEYS,
-  'loan.minDepositForLoan',
-  'loan.maxLoanMultiplier',
-  'loan.maxInstallmentMonths',
   'loan.allowActiveLoanWithdrawal',
-  'loan.guarantorThresholdAmount',
-  // loan.noticePeriodDays arrives via the spread; tiers must not overlap.
+  // The other loan terms arrive via the spread; tiers must not overlap.
 ] as const;
 
 /**

@@ -59,8 +59,23 @@ function redirectDefaultLocalePrefix(request: NextRequest, pathname: string): Re
   return NextResponse.redirect(url, 301);
 }
 
+/**
+ * A POST to a page can only be a Server Action, and those run on /dashboard
+ * alone. Anything else is a scanner. On a prerendered page Next answers a forged
+ * `Next-Action` + `RSC: 1` with an InvariantError and a 500 (traps: Next, React
+ * and the build), so it is refused here, before a function is ever invoked.
+ */
+function refuseStrayPagePost(request: NextRequest, pathname: string): Response | null {
+  if (request.method !== 'POST') return null;
+  if (/^\/dashboard(\/|$)/.test(pathWithoutLocale(pathname))) return null;
+  return new NextResponse(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
+}
+
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const refused = refuseStrayPagePost(request, pathname);
+  if (refused) return refused;
 
   const permanent = redirectDefaultLocalePrefix(request, pathname);
   if (permanent) return withCsp(request, permanent, pathname);

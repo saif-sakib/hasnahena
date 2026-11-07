@@ -60,6 +60,7 @@ export function Footer({ settings }: FooterProps) {
               {[
                 { href: localePath(locale), label: tNav('home') },
                 { href: localePath(locale, '/about'), label: tNav('about') },
+                { href: localePath(locale, '/qard-al-hasan'), label: tNav('qardHasan') },
                 { href: localePath(locale, '/activities'), label: tNav('activities') },
                 // "How it works" is a home-page section, so an anchor.
                 { href: localePath(locale, '/#how-it-works'), label: tNav('howItWorks') },

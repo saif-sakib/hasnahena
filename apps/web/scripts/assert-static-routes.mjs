@@ -21,6 +21,7 @@ const MUST_BE_STATIC = [
   '/faq',
   '/gallery',
   '/privacy',
+  '/qard-al-hasan',
   '/support',
   '/terms',
 ];

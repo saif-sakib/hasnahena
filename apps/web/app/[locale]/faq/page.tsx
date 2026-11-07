@@ -63,7 +63,17 @@ export default async function FaqPage({ params }: PageProps) {
             ))}
           </div>
 
-          <p className="mt-8 text-center text-muted-foreground">
+          <p className="mt-8 text-center">
+            <Link
+              href={localePath(locale, '/qard-al-hasan')}
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {t('qardLink')}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </p>
+
+          <p className="mt-4 text-center text-muted-foreground">
             {t('moreQuestions')}{' '}
             <Link
               href={localePath(locale, '/contact')}

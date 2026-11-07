@@ -1,5 +1,13 @@
 # Next, React and the build
 
+- **A forged Server Action POST to a prerendered page is a 500, not a 404.**
+  `POST /` with `Next-Action` and `RSC: 1` reaches the action handler, whose
+  "Server action not found." is `text/plain`; `app-page-runtime` then finds an
+  RSC request holding a non-RSC cache value and throws `InvariantError: Expected
+  RSC response, got text/plain` (culprit `POST /[locale]/page`).
+  No person triggers it: public pages call no action. `proxy.ts` answers 405 to
+  any POST outside /dashboard, so a Server Action on a public page must widen
+  that test first. Filtering the Sentry event would have kept the 500.
 - **A streamed response's failure cannot be caught by the route that returned
   it.** Next pipes the body to the client *after* the handler has finished, in
   `pipeToNodeResponse`, and anything the body throws there that is not an

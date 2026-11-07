@@ -40,8 +40,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: siteTitle(activeLocale),
     description:
       activeLocale === 'bn'
-        ? 'কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায় অর্থায়ন প্ল্যাটফর্মে যোগ দিন।'
-        : 'Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest.',
+        ? 'যশোরের হাসনাহেনা ফাউন্ডেশন একটি কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায়। সদস্যরা একসাথে সঞ্চয় করেন, সুদ ছাড়া ঋণ নেন এবং একে অপরের পাশে দাঁড়ান।'
+        : 'Hasnahena Foundation is a Qard al-Hasan cooperative in Jashore, Bangladesh. Members save together, borrow with zero interest and stand by one another.',
   });
 }
 

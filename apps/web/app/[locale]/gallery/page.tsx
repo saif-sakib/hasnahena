@@ -26,8 +26,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: activeLocale === 'bn' ? 'গ্যালারি' : 'Gallery',
     description:
       activeLocale === 'bn'
-        ? 'হাসনাহেনার কার্যক্রমের ছবি ও স্মৃতিচিত্র দেখুন।'
-        : 'Browse photos and highlights from Hasnahena activities.',
+        ? 'যশোরে হাসনাহেনা ফাউন্ডেশনের কর্জে হাসানা ও সমাজসেবামূলক কার্যক্রমের ছবি।'
+        : "Photos of Hasnahena Foundation's Qard al-Hasan and community work in Jashore, Bangladesh.",
   });
 }
 

@@ -24,8 +24,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: activeLocale === 'bn' ? 'আমাদের কার্যক্রম' : 'Our Activities',
     description:
       activeLocale === 'bn'
-        ? 'সুদমুক্ত ঋণ, শিক্ষা সহায়তা ও সামাজিক উন্নয়নে হাসনাহেনার কার্যক্রম দেখুন।'
-        : 'Explore Hasnahena activities in interest-free finance, education support, and social welfare.',
+        ? 'যশোরে হাসনাহেনা ফাউন্ডেশনের কার্যক্রম: কর্জে হাসানা সুদমুক্ত ঋণ, শিক্ষা সহায়তা, স্বাস্থ্যসেবা ও সমাজকল্যাণ।'
+        : "Hasnahena Foundation's work in Jashore: interest-free Qard al-Hasan loans, education support, health care and social welfare.",
   });
 }
 

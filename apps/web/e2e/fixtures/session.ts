@@ -30,6 +30,7 @@ export const PAGES: Record<'public' | SeededRole, string[]> = {
     'faq',
     'gallery',
     'privacy',
+    'qard-al-hasan',
     'support',
     'terms',
     'login',

@@ -22,6 +22,7 @@ import {
 const navigation = [
   { name: 'home', href: '/' },
   { name: 'about', href: '/about' },
+  { name: 'qardHasan', href: '/qard-al-hasan' },
   { name: 'activities', href: '/activities' },
   { name: 'gallery', href: '/gallery' },
   { name: 'donate', href: '/donate' },

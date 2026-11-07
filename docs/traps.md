@@ -6,7 +6,7 @@ at build time. They are grouped by **what you have to be touching to hit one**.
 This is the only file that keeps them. If you are about to add a lesson to
 another doc, add it here and link instead.
 
-**This file is the index — 208 traps in 24 files.** The lines below are the
+**This file is the index — 209 traps in 24 files.** The lines below are the
 trap titles verbatim, so this page alone answers "is my problem already known?".
 Open the one file whose heading matches what you are touching; the set is 111 KB
 and the largest single file is 32 KB.
@@ -130,8 +130,9 @@ and the largest single file is 32 KB.
 - A Dockerfile that has never been built is a hypothesis.
 - Making a page static moves its database reads into the build.
 
-### [Next, React and the build](traps/next-react-and-the-build.md) · 16
+### [Next, React and the build](traps/next-react-and-the-build.md) · 17
 
+- A forged Server Action POST to a prerendered page is a 500, not a 404.
 - A streamed response's failure cannot be caught by the route that returned it.
 - A Server Action's request body is capped at 1 MB, and exceeding it is silent.
 - A reader census that greps for a key name is satisfied by the writer.

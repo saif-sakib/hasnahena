@@ -157,3 +157,20 @@ test.describe('the pages point at their own URLs', () => {
     ).not.toMatch(/<loc>[^<]*\/en(\/|<)/);
   });
 });
+
+test.describe('a POST to a public page is refused before Next renders it', () => {
+  test('a forged Server Action on a prerendered page is a 405, not a 500', async ({ request }) => {
+    for (const path of ['/', '/bn', '/faq']) {
+      const response = await request.post(path, {
+        headers: { 'Next-Action': 'x'.repeat(40), RSC: '1' },
+        maxRedirects: 0,
+      });
+
+      expect(
+        response.status(),
+        `${path} — Next throws "Expected RSC response, got text/plain" for this request.`,
+      ).toBe(405);
+      expect(response.headers().allow).toBe('GET, HEAD');
+    }
+  });
+});
