@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Noto_Naskh_Arabic } from 'next/font/google';
 import { ArrowRight } from 'lucide-react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales, type Locale } from '@/i18n';
@@ -17,6 +18,12 @@ import { formatCurrency } from '@/lib/utils';
 /** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
 
+/**
+ * Self-hosted by next/font. The pause marks in the ayat (U+06DA, U+06D6) are
+ * missing from many phone fonts and draw as boxes; never strip them instead.
+ */
+const arabicFont = Noto_Naskh_Arabic({ subsets: ['arabic'], weight: '400', display: 'swap' });
+
 /** ADR-045: flat, not configurable. */
 const OFFICE_EXPENSES_TAKA = 500;
 
@@ -27,9 +34,9 @@ const OFFICE_EXPENSES_TAKA = 500;
  * ("a loan earns eighteen-fold") is left out on purpose: it is graded weak.
  */
 const AYAH_2_245 =
-  'مَّن ذَا ٱلَّذِى يُقْرِضُ ٱللَّهَ قَرْضًا حَسَنًۭا فَيُضَٰعِفَهُۥ لَهُۥٓ أَضْعَافًۭا كَثِيرَةًۭ ۚ وَٱللَّهُ يَقْبِضُ وَيَبْصُۜطُ وَإِلَيْهِ تُرْجَعُونَ';
+  'مَنْ ذَا الَّذِي يُقْرِضُ اللَّهَ قَرْضًا حَسَنًا فَيُضَاعِفَهُ لَهُ أَضْعَافًا كَثِيرَةً ۚ وَاللَّهُ يَقْبِضُ وَيَبْسُطُ وَإِلَيْهِ تُرْجَعُونَ';
 const AYAH_2_280 =
-  'وَإِن كَانَ ذُو عُسْرَةٍۢ فَنَظِرَةٌ إِلَىٰ مَيْسَرَةٍۢ ۚ وَأَن تَصَدَّقُوا۟ خَيْرٌۭ لَّكُمْ ۖ إِن كُنتُمْ تَعْلَمُونَ';
+  'وَإِنْ كَانَ ذُو عُسْرَةٍ فَنَظِرَةٌ إِلَىٰ مَيْسَرَةٍ ۚ وَأَنْ تَصَدَّقُوا خَيْرٌ لَكُمْ ۖ إِنْ كُنْتُمْ تَعْلَمُونَ';
 
 type PageProps = { params: Promise<{ locale: string }> };
 
@@ -54,7 +61,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 function Ayah({ arabic, text, source }: { arabic: string; text: string; source: string }) {
   return (
     <figure className="mt-5 rounded-xl border-s-4 border-primary/40 bg-primary/5 p-5">
-      <p lang="ar" dir="rtl" className="text-xl leading-loose text-slate-900 dark:text-white">
+      <p
+        lang="ar"
+        dir="rtl"
+        className={`${arabicFont.className} text-xl leading-loose text-slate-900 dark:text-white`}
+      >
         {arabic}
       </p>
       <blockquote className="mt-3 leading-relaxed text-muted-foreground">{text}</blockquote>
