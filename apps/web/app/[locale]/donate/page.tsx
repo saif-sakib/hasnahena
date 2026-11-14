@@ -27,8 +27,10 @@ const AYAH_2_276 =
   'يَمْحَقُ اللَّهُ الرِّبَا وَيُرْبِي الصَّدَقَاتِ ۗ وَاللَّهُ لَا يُحِبُّ كُلَّ كَفَّارٍ أَثِيمٍ';
 const AYAH_2_277 =
   'إِنَّ الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ وَأَقَامُوا الصَّلَاةَ وَآتَوُا الزَّكَاةَ لَهُمْ أَجْرُهُمْ عِنْدَ رَبِّهِمْ وَلَا خَوْفٌ عَلَيْهِمْ وَلَا هُمْ يَحْزَنُونَ';
-const AYAH_2_278_279 =
-  'يَا أَيُّهَا الَّذِينَ آمَنُوا اتَّقُوا اللَّهَ وَذَرُوا مَا بَقِيَ مِنَ الرِّبَا إِنْ كُنْتُمْ مُؤْمِنِينَ ۝ فَإِنْ لَمْ تَفْعَلُوا فَأْذَنُوا بِحَرْبٍ مِنَ اللَّهِ وَرَسُولِهِ ۖ وَإِنْ تُبْتُمْ فَلَكُمْ رُءُوسُ أَمْوَالِكُمْ لَا تَظْلِمُونَ وَلَا تُظْلَمُونَ';
+const AYAH_2_278 =
+  'يَا أَيُّهَا الَّذِينَ آمَنُوا اتَّقُوا اللَّهَ وَذَرُوا مَا بَقِيَ مِنَ الرِّبَا إِنْ كُنْتُمْ مُؤْمِنِينَ';
+const AYAH_2_279 =
+  'فَإِنْ لَمْ تَفْعَلُوا فَأْذَنُوا بِحَرْبٍ مِنَ اللَّهِ وَرَسُولِهِ ۖ وَإِنْ تُبْتُمْ فَلَكُمْ رُءُوسُ أَمْوَالِكُمْ لَا تَظْلِمُونَ وَلَا تُظْلَمُونَ';
 const AYAH_2_280 =
   'وَإِنْ كَانَ ذُو عُسْرَةٍ فَنَظِرَةٌ إِلَىٰ مَيْسَرَةٍ ۚ وَأَنْ تَصَدَّقُوا خَيْرٌ لَكُمْ ۖ إِنْ كُنْتُمْ تَعْلَمُونَ';
 const AYAH_2_261 =
@@ -118,7 +120,8 @@ export default async function DonatePage({ params }: PageProps) {
             <p className={body}>{t('quranIntro')}</p>
             <Ayah arabic={AYAH_2_276} text={t('ayah276')} source={t('ayah276Source')} />
             <Ayah arabic={AYAH_2_277} text={t('ayah277')} source={t('ayah277Source')} />
-            <Ayah arabic={AYAH_2_278_279} text={t('ayah278_279')} source={t('ayah278_279Source')} />
+            <Ayah arabic={AYAH_2_278} text={t('ayah278')} source={t('ayah278Source')} />
+            <Ayah arabic={AYAH_2_279} text={t('ayah279')} source={t('ayah279Source')} />
             <Ayah arabic={AYAH_2_280} text={t('ayah280')} source={t('ayah280Source')} />
             <Ayah arabic={AYAH_2_261} text={t('ayah261')} source={t('ayah261Source')} />
           </section>
@@ -179,6 +182,11 @@ export default async function DonatePage({ params }: PageProps) {
               </div>
             )}
           </section>
+
+          <footer className="border-t border-slate-200 pt-5 text-sm leading-relaxed text-muted-foreground dark:border-slate-800">
+            <h2 className="font-semibold text-slate-900 dark:text-white">{t('sourcesTitle')}</h2>
+            <p className="mt-1">{t('sourcesBody')}</p>
+          </footer>
         </PageBody>
       </main>
       <Footer settings={settings} />
