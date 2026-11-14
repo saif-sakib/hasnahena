@@ -498,6 +498,37 @@ export default async function HomePage({ params }: PageProps) {
               subtitle={localizedSetting(settings, 'donation.subtitle', locale) || tDonation('subtitle')}
             />
 
+            <div className="reveal-row grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-8">
+              <ScriptureCard
+                text={tDonation('ayah276Text')}
+                source={tDonation('ayah276Source')}
+                accent="emerald"
+              />
+              <ScriptureCard
+                text={tDonation('ayah280Text')}
+                source={tDonation('ayah280Source')}
+                accent="emerald"
+              />
+              <ScriptureCard
+                text={tDonation('hadithText')}
+                source={tDonation('hadithSource')}
+                accent="amber"
+              />
+            </div>
+
+            <div className="reveal-soft max-w-4xl mx-auto mb-8">
+              <Card className="border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+                <CardContent className="pt-6 pb-6 text-center space-y-2">
+                  <h3 className="text-lg md:text-xl font-semibold text-slate-900 dark:text-white">
+                    {tDonation('inspireTitle')}
+                  </h3>
+                  <p className="text-sm md:text-base text-slate-700 dark:text-slate-300 leading-relaxed">
+                    {tDonation('inspireBody')}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Unset channels are absent, never a placeholder number. */}
             <div className={donationChannels.length > 0 ? 'reveal-row grid md:grid-cols-3 gap-6 max-w-5xl mx-auto' : 'hidden'}>
               {donationChannels.map((item) => (
