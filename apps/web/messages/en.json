@@ -511,6 +511,32 @@
       "previousPage": "Previous",
       "nextPage": "Next",
       "pagination": "Pagination"
+    },
+    "addMember": {
+      "trigger": "Add Member",
+      "title": "Register New Member",
+      "description": "Enter all required member details and documents. The member will be activated immediately and their temporary password will be sent to their email.",
+      "stepIndicator": "Step {current} of {total}",
+      "stepPersonal": "Personal & Office",
+      "stepAddress": "Address",
+      "stepNominee": "Nominee",
+      "stepDocuments": "Documents",
+      "officeLabel": "Assigned Office",
+      "officeNone": "Do not assign yet",
+      "officeHint": "Per-office reports are counted from this. It can be changed later from the member's page.",
+      "passwordNotice": "Upon completion, the member is activated immediately with an account number and a temporary password is emailed to them.",
+      "back": "Back",
+      "next": "Next",
+      "cancel": "Cancel",
+      "submit": "Register & Send Password",
+      "submittingUpload": "Uploading documents…",
+      "submittingApprove": "Activating & sending password…",
+      "successBannerTitle": "{name} has been registered and activated",
+      "successEmailSent": "Temporary password emailed to {email}",
+      "successEmailNotSent": "Email could not be delivered — open their profile to issue a temporary password at the desk",
+      "viewMemberProfile": "View profile",
+      "dismiss": "Dismiss",
+      "approvalFallbackWarning": "Application {formNumber} was saved, but automatic activation failed ({reason}). Please approve it from the Approvals screen."
     }
   },
   "footer": {

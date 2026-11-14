@@ -1,14 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
-import { Search, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Search,
+  ChevronDown,
+  ChevronUp,
+  UserPlus,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { apiGet } from '@/lib/api';
+import { useApi } from '@/lib/use-api';
 import { formatCurrency } from '@/lib/utils';
-import { useDashboardRole } from '@/components/dashboard/role';
+import { useDashboardRole, useIsAdmin } from '@/components/dashboard/role';
 import { localePath } from '@/lib/locale-path';
+import type { CreatedMemberSummary } from '@/components/dashboard/add-member-dialog';
+
+const AddMemberDialog = dynamic(
+  () => import('@/components/dashboard/add-member-dialog'),
+  { ssr: false },
+);
 
 type MemberStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
 
@@ -33,42 +48,41 @@ const INITIAL_DISPLAY_COUNT = 15;
 export default function MembersScreen() {
   const locale = useLocale();
   const tA11y = useTranslations('dashboard.a11y');
+  const tAdd = useTranslations('dashboard.addMember');
   const roleSegment = useDashboardRole();
+  const isAdmin = useIsAdmin();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [addModalMounted, setAddModalMounted] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [createdMember, setCreatedMember] = useState<CreatedMemberSummary | null>(null);
 
-  useEffect(() => {
-    const loadMembers = async () => {
-      setIsLoading(true);
-      try {
-        const data = await apiGet<Array<Member & { role?: string }>>('/v1/dashboard/worker/members');
-        setMembers(
-          data.map((member): Member => {
-            const normalized = member.status.toUpperCase();
-            return {
-              ...member,
-              accountNo: member.accountNo || member.uid || '',
-              status: normalized === 'ACTIVE'
-                ? 'ACTIVE'
-                : normalized === 'PENDING'
-                  ? 'PENDING'
-                  : normalized === 'SUSPENDED'
-                    ? 'SUSPENDED'
-                    : 'REJECTED',
-            };
-          }).sort((a, b) => new Date(b.joinDate).getTime() - new Date(a.joinDate).getTime())
-        );
-      } catch {
-        setMembers([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadMembers();
-  }, []);
+  const {
+    data: rawMembers,
+    isLoading,
+    refresh: loadMembers,
+  } = useApi<Array<Member & { role?: string }>>('/v1/dashboard/worker/members');
+
+  const members = useMemo<Member[]>(() => {
+    return (rawMembers ?? [])
+      .map((member): Member => {
+        const normalized = member.status.toUpperCase();
+        return {
+          ...member,
+          accountNo: member.accountNo || member.uid || '',
+          status:
+            normalized === 'ACTIVE'
+              ? 'ACTIVE'
+              : normalized === 'PENDING'
+                ? 'PENDING'
+                : normalized === 'SUSPENDED'
+                  ? 'SUSPENDED'
+                  : 'REJECTED',
+        };
+      })
+      .sort((a, b) => new Date(b.joinDate).getTime() - new Date(a.joinDate).getTime());
+  }, [rawMembers]);
 
   const getStatusStyle = (status: MemberStatus) => {
     const styles = {
@@ -111,17 +125,84 @@ export default function MembersScreen() {
     SUSPENDED: members.filter((m) => m.status === 'SUSPENDED').length,
   };
 
+  const openAddMemberDialog = () => {
+    setAddModalMounted(true);
+    setAddModalOpen(true);
+  };
+
+  const handleMemberCreated = (summary: CreatedMemberSummary) => {
+    setCreatedMember(summary);
+    setStatusFilter('ACTIVE');
+    void loadMembers();
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">
-          {locale === 'bn' ? 'সদস্য ব্যবস্থাপনা' : 'Member Management'}
-        </h1>
-        <span className="text-sm text-gray-500">
-          {filteredMembers.length} {locale === 'bn' ? 'জন' : 'members'}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-lg font-semibold text-gray-900">
+            {locale === 'bn' ? 'সদস্য ব্যবস্থাপনা' : 'Member Management'}
+          </h1>
+          <span className="text-sm text-gray-500">
+            {filteredMembers.length} {locale === 'bn' ? 'জন' : 'members'}
+          </span>
+        </div>
+        {isAdmin && (
+          <Button size="sm" onClick={openAddMemberDialog} className="h-9 gap-1.5">
+            <UserPlus className="h-4 w-4" aria-hidden />
+            <span>{tAdd('trigger')}</span>
+          </Button>
+        )}
       </div>
+
+      {/* Created Member Confirmation Banner */}
+      {createdMember && (
+        <div
+          role="status"
+          className="flex flex-wrap items-start gap-2 border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-950"
+        >
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-medium">
+                {tAdd('successBannerTitle', { name: createdMember.name })}
+              </span>
+              <span className="font-mono font-semibold">
+                {createdMember.accountNo || '—'}
+              </span>
+              {createdMember.branchName && (
+                <span className="text-emerald-800">· {createdMember.branchName}</span>
+              )}
+            </div>
+            <p
+              className={
+                createdMember.emailDelivered ? 'text-xs text-emerald-800' : 'text-xs text-amber-800'
+              }
+            >
+              {createdMember.emailDelivered
+                ? tAdd('successEmailSent', { email: createdMember.email })
+                : `${tAdd('successEmailNotSent')}${createdMember.deliveryError ? ` (${createdMember.deliveryError})` : ''}`}
+            </p>
+            <div>
+              <Link
+                href={localePath(locale, `/dashboard/${roleSegment}/members/${createdMember.id}`)}
+                className="text-xs font-medium text-emerald-900 underline underline-offset-2 hover:text-emerald-700"
+              >
+                {tAdd('viewMemberProfile')}
+              </Link>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCreatedMember(null)}
+            className="ml-auto shrink-0 text-emerald-700 hover:text-emerald-900"
+            aria-label={tAdd('dismiss')}
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Search & Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -134,9 +215,13 @@ export default function MembersScreen() {
             className="pl-9 h-9 text-sm"
           />
         </div>
-        <select aria-label={tA11y('filterByStatus')}
+        <select
+          aria-label={tA11y('filterByStatus')}
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setDisplayCount(INITIAL_DISPLAY_COUNT); }}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setDisplayCount(INITIAL_DISPLAY_COUNT);
+          }}
           className="h-9 px-3 text-sm border border-gray-200 rounded bg-white"
         >
           <option value="all">{locale === 'bn' ? 'সব' : 'All'} ({statusCounts.all})</option>
@@ -225,6 +310,15 @@ export default function MembersScreen() {
           </div>
         )}
       </div>
+
+      {isAdmin && addModalMounted && (
+        <AddMemberDialog
+          open={addModalOpen}
+          onOpenChange={setAddModalOpen}
+          onMemberCreated={handleMemberCreated}
+          onPartialSave={() => void loadMembers()}
+        />
+      )}
     </div>
   );
 }
