@@ -39,16 +39,26 @@ function Ayah({ arabic, text, source }: { arabic: string; text: string; source: 
         {arabic}
       </p>
       <blockquote className="mt-3 leading-relaxed text-muted-foreground">{text}</blockquote>
-      <figcaption className="mt-2 text-sm font-medium text-primary">{source}</figcaption>
+      <figcaption
+        style={{ fontFamily: "'Noto Sans Bengali', var(--font-inter, ui-sans-serif), system-ui, sans-serif" }}
+        className="mt-3 text-sm md:text-base font-semibold text-emerald-800 dark:text-emerald-300"
+      >
+        — {source}
+      </figcaption>
     </figure>
   );
 }
 
 function Quote({ text, source }: { text: string; source: string }) {
   return (
-    <figure className="mt-4 rounded-xl border-s-4 border-amber-400/60 bg-amber-50/50 p-4 dark:border-amber-500/40 dark:bg-amber-950/20">
-      <blockquote className="leading-relaxed text-muted-foreground">{text}</blockquote>
-      <figcaption className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">{source}</figcaption>
+    <figure className="mt-4 rounded-xl border-s-4 border-amber-500/70 bg-amber-50/70 p-5 dark:border-amber-500/40 dark:bg-amber-950/20">
+      <blockquote className="leading-relaxed text-slate-800 dark:text-slate-200">{text}</blockquote>
+      <figcaption
+        style={{ fontFamily: "'Noto Sans Bengali', var(--font-inter, ui-sans-serif), system-ui, sans-serif" }}
+        className="mt-3 text-sm md:text-base font-semibold text-amber-900 dark:text-amber-300"
+      >
+        — {source}
+      </figcaption>
     </figure>
   );
 }
@@ -160,7 +170,12 @@ export default async function DonatePage({ params }: PageProps) {
 
           <footer className="border-t border-slate-200 pt-5 text-sm leading-relaxed text-muted-foreground dark:border-slate-800">
             <h2 className="font-semibold text-slate-900 dark:text-white">{t('sourcesTitle')}</h2>
-            <p className="mt-1">{t('sourcesBody')}</p>
+            <p
+              style={{ fontFamily: "'Noto Sans Bengali', var(--font-inter, ui-sans-serif), system-ui, sans-serif" }}
+              className="mt-1"
+            >
+              {t('sourcesBody')}
+            </p>
           </footer>
         </PageBody>
       </main>

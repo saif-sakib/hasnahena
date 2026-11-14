@@ -600,10 +600,11 @@ function ScriptureCard({ text, source, accent }: { text: string; source: string;
       />
       <blockquote className="flex-1 text-base leading-relaxed text-slate-800 dark:text-slate-200">{text}</blockquote>
       <figcaption
-        className={`mt-5 border-t pt-4 text-sm font-medium ${
+        style={{ fontFamily: "'Noto Sans Bengali', var(--font-inter, ui-sans-serif), system-ui, sans-serif" }}
+        className={`mt-5 border-t pt-4 text-sm md:text-base font-semibold ${
           amber
-            ? 'border-amber-100 text-amber-700 dark:border-amber-900/50 dark:text-amber-400'
-            : 'border-emerald-100 text-emerald-700 dark:border-emerald-900/50 dark:text-emerald-400'
+            ? 'border-amber-200 text-amber-900 dark:border-amber-900/50 dark:text-amber-300'
+            : 'border-emerald-200 text-emerald-800 dark:border-emerald-900/50 dark:text-emerald-300'
         }`}
       >
         — {source}
