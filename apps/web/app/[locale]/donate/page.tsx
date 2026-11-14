@@ -25,22 +25,12 @@ const arabicFont = Noto_Naskh_Arabic({ subsets: ['arabic'], weight: '400', displ
  */
 const AYAH_2_276 =
   'يَمْحَقُ اللَّهُ الرِّبَا وَيُرْبِي الصَّدَقَاتِ ۗ وَاللَّهُ لَا يُحِبُّ كُلَّ كَفَّارٍ أَثِيمٍ';
-const AYAH_2_277 =
-  'إِنَّ الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ وَأَقَامُوا الصَّلَاةَ وَآتَوُا الزَّكَاةَ لَهُمْ أَجْرُهُمْ عِنْدَ رَبِّهِمْ وَلَا خَوْفٌ عَلَيْهِمْ وَلَا هُمْ يَحْزَنُونَ';
-const AYAH_2_278 =
-  'يَا أَيُّهَا الَّذِينَ آمَنُوا اتَّقُوا اللَّهَ وَذَرُوا مَا بَقِيَ مِنَ الرِّبَا إِنْ كُنْتُمْ مُؤْمِنِينَ';
-const AYAH_2_279 =
-  'فَإِنْ لَمْ تَفْعَلُوا فَأْذَنُوا بِحَرْبٍ مِنَ اللَّهِ وَرَسُولِهِ ۖ وَإِنْ تُبْتُمْ فَلَكُمْ رُءُوسُ أَمْوَالِكُمْ لَا تَظْلِمُونَ وَلَا تُظْلَمُونَ';
-const AYAH_2_280 =
-  'وَإِنْ كَانَ ذُو عُسْرَةٍ فَنَظِرَةٌ إِلَىٰ مَيْسَرَةٍ ۚ وَأَنْ تَصَدَّقُوا خَيْرٌ لَكُمْ ۖ إِنْ كُنْتُمْ تَعْلَمُونَ';
-const AYAH_2_261 =
-  'مَثَلُ الَّذِينَ يُنْفِقُونَ أَمْوَالَهُمْ فِي سَبِيلِ اللَّهِ كَمَثَلِ حَبَّةٍ أَنْبَتَتْ سَبْعَ سَنَابِلَ فِي كُلِّ سُنْبُلَةٍ مِائَةُ حَبَّةٍ ۗ وَاللَّهُ يُضَاعِفُ لِمَنْ يَشَاءُ ۗ وَاللَّهُ وَاسِعٌ عَلِيمٌ';
 
 type PageProps = { params: Promise<{ locale: string }> };
 
 function Ayah({ arabic, text, source }: { arabic: string; text: string; source: string }) {
   return (
-    <figure className="mt-5 rounded-xl border-s-4 border-primary/40 bg-primary/5 p-5">
+    <figure className="mt-4 rounded-xl border-s-4 border-primary/40 bg-primary/5 p-5">
       <p
         lang="ar"
         dir="rtl"
@@ -106,7 +96,6 @@ export default async function DonatePage({ params }: PageProps) {
   const showMobile = mobileNumbers.length > 0;
 
   const sectionTitle = 'text-xl font-semibold text-slate-900 md:text-2xl dark:text-white';
-  const body = 'mt-3 leading-relaxed text-muted-foreground';
 
   return (
     <>
@@ -114,29 +103,15 @@ export default async function DonatePage({ params }: PageProps) {
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
-        <PageBody className="max-w-5xl space-y-8">
+        <PageBody className="max-w-4xl space-y-8">
           <section className={`${paperCard} p-6 md:p-8`}>
             <h2 className={sectionTitle}>{t('quranTitle')}</h2>
-            <p className={body}>{t('quranIntro')}</p>
             <Ayah arabic={AYAH_2_276} text={t('ayah276')} source={t('ayah276Source')} />
-            <Ayah arabic={AYAH_2_277} text={t('ayah277')} source={t('ayah277Source')} />
-            <Ayah arabic={AYAH_2_278} text={t('ayah278')} source={t('ayah278Source')} />
-            <Ayah arabic={AYAH_2_279} text={t('ayah279')} source={t('ayah279Source')} />
-            <Ayah arabic={AYAH_2_280} text={t('ayah280')} source={t('ayah280Source')} />
-            <Ayah arabic={AYAH_2_261} text={t('ayah261')} source={t('ayah261Source')} />
-          </section>
-
-          <section className={`${paperCard} p-6 md:p-8`}>
-            <h2 className={sectionTitle}>{t('hadithTitle')}</h2>
             <Quote text={t('hadith1')} source={t('hadith1Source')} />
-            <Quote text={t('hadith2')} source={t('hadith2Source')} />
-            <Quote text={t('hadith3')} source={t('hadith3Source')} />
-          </section>
-
-          <section className="rounded-sm border border-emerald-200 border-s-4 border-s-emerald-600 bg-emerald-50/70 p-6 md:p-8 dark:border-emerald-900/60 dark:border-s-emerald-500 dark:bg-emerald-950/30">
-            <h2 className={sectionTitle}>{t('callTitle')}</h2>
-            <p className="mt-3 leading-relaxed text-slate-700 dark:text-slate-300">{t('callBody1')}</p>
-            <p className="mt-3 font-medium leading-relaxed text-slate-900 dark:text-slate-100">{t('callBody2')}</p>
+            <div className="mt-5 rounded-lg border border-emerald-200 border-s-4 border-s-emerald-600 bg-emerald-50/70 p-5 dark:border-emerald-900/60 dark:border-s-emerald-500 dark:bg-emerald-950/30">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{t('callTitle')}</h3>
+              <p className="mt-2 leading-relaxed text-slate-700 dark:text-slate-300">{t('callBody')}</p>
+            </div>
           </section>
 
           <section className="space-y-4">

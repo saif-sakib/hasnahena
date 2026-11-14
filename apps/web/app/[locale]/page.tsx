@@ -498,15 +498,10 @@ export default async function HomePage({ params }: PageProps) {
               subtitle={localizedSetting(settings, 'donation.subtitle', locale) || tDonation('subtitle')}
             />
 
-            <div className="reveal-row grid md:grid-cols-3 gap-6 max-w-5xl mx-auto mb-8">
+            <div className="reveal-row grid md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-6">
               <ScriptureCard
                 text={tDonation('ayah276Text')}
                 source={tDonation('ayah276Source')}
-                accent="emerald"
-              />
-              <ScriptureCard
-                text={tDonation('ayah280Text')}
-                source={tDonation('ayah280Source')}
                 accent="emerald"
               />
               <ScriptureCard
