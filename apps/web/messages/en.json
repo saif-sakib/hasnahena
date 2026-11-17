@@ -536,7 +536,11 @@
       "successEmailNotSent": "Email could not be delivered — open their profile to issue a temporary password at the desk",
       "viewMemberProfile": "View profile",
       "dismiss": "Dismiss",
-      "approvalFallbackWarning": "Application {formNumber} was saved, but automatic activation failed ({reason}). Please approve it from the Approvals screen."
+      "retryActivation": "Retry activation",
+      "savedApplication": "Application {formNumber} for {name} is saved. The details and documents are already stored. Choose an office and retry activation, or finish from Approvals.",
+      "activationFailed": "Activation failed",
+      "imagePreparationFailed": "Could not prepare this image. Choose it again or use another photo.",
+      "approvalFallbackWarning": "Application {formNumber} was saved, but automatic activation failed ({reason}). Retry activation below or approve it from the Approvals screen."
     }
   },
   "footer": {

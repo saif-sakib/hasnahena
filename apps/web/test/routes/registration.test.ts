@@ -52,8 +52,48 @@ vi.mock('@/lib/cloudinary', async (importOriginal) => {
 
 import { testPrisma, hasTestDatabase, disconnectTestPrisma } from '../route-harness';
 import * as registrations from '@/app/api/v1/registrations/route';
+import { PENDING_APPROVAL_PASSWORD_HASH } from '@/lib/rejected-application';
 
 const skip = !hasTestDatabase();
+
+describe.skipIf(skip)('GET /api/v1/registrations availability', () => {
+  const contacts = [
+    { id: 'availability-email', email: 'email@availability.routes.test', phone: '01955508101' },
+    { id: 'availability-phone', email: 'phone@availability.routes.test', phone: '01955508102' },
+  ];
+
+  beforeAll(async () => {
+    await testPrisma().user.deleteMany({ where: { id: { in: contacts.map((user) => user.id) } } });
+    await testPrisma().user.createMany({ data: contacts.map((contact) => ({
+      ...contact, role: 'MEMBER' as const, status: 'ACTIVE' as const,
+      nameEn: 'Availability Test', fatherName: 'Test Father', motherName: 'Test Mother',
+      passwordHash: PENDING_APPROVAL_PASSWORD_HASH,
+    })) });
+    await testPrisma().rateLimit.deleteMany({ where: { id: { startsWith: 'registration-availability:' } } });
+  });
+
+  afterAll(async () => {
+    await testPrisma().user.deleteMany({ where: { id: { in: contacts.map((user) => user.id) } } });
+    await disconnectTestPrisma();
+  });
+
+  it('reports both conflicts when the email and phone belong to different people', async () => {
+    const params = new URLSearchParams({ email: contacts[0].email, phone: contacts[1].phone });
+    const response = await registrations.GET(new Request(`http://localhost/api/v1/registrations?${params}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ emailExists: true, phoneExists: true });
+  });
+
+  it('allows contact details from rejected applications', async () => {
+    await testPrisma().user.update({ where: { id: contacts[0].id }, data: {
+      status: 'INACTIVE', rejectedAt: new Date(), rejectionReasonCode: 'INCOMPLETE_DOCUMENTS',
+    } });
+    const params = new URLSearchParams({ email: contacts[0].email, phone: contacts[0].phone });
+    const response = await registrations.GET(new Request(`http://localhost/api/v1/registrations?${params}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ emailExists: false, phoneExists: false });
+  });
+});
 
 const APPLICANT = {
   phone: '01955509001',

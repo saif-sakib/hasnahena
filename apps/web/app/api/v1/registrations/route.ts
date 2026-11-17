@@ -106,7 +106,9 @@ export async function GET(req: Request) {
       clauses.push({ phone });
     }
 
-    const existingUser = await prisma.user.findFirst({
+    // The two contacts may belong to different people. A first match can
+    // otherwise hide the second conflict until the application is submitted.
+    const existingUsers = await prisma.user.findMany({
       where: {
         OR: clauses,
         ...liveIdentityFilter,
@@ -120,8 +122,8 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         ok: true,
-        emailExists: Boolean(email) && existingUser?.email === email,
-        phoneExists: Boolean(phone) && existingUser?.phone === phone,
+        emailExists: Boolean(email) && existingUsers.some((user) => user.email === email),
+        phoneExists: Boolean(phone) && existingUsers.some((user) => user.phone === phone),
       },
       { status: 200 },
     );

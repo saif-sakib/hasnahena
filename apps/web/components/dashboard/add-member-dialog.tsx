@@ -1,13 +1,6 @@
 'use client';
 
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from 'react';
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useForm, useWatch, type FieldErrors, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -80,11 +73,7 @@ interface BranchOption {
 type RegisterApiFormData = z.infer<typeof registerApiSchema>;
 type ApiFieldName = FieldPath<RegisterApiFormData>;
 
-type RequiredDocumentKey =
-  | 'nidFrontImage'
-  | 'nidBackImage'
-  | 'memberPhotoImage'
-  | 'signatureImage';
+type RequiredDocumentKey = 'nidFrontImage' | 'nidBackImage' | 'memberPhotoImage' | 'signatureImage';
 
 const REQUIRED_DOCUMENT_KEYS: RequiredDocumentKey[] = [
   'nidFrontImage',
@@ -254,6 +243,7 @@ export default function AddMemberDialog({
   const t = useTranslations('dashboard.addMember');
 
   const [currentStep, setCurrentStep] = useState(0);
+  const [checkingStep, setCheckingStep] = useState(false);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitStage, setSubmitStage] = useState<'idle' | 'uploading' | 'approving'>('idle');
@@ -271,6 +261,8 @@ export default function AddMemberDialog({
   } | null>(null);
 
   const submittingRef = useRef(false);
+  const checkingStepRef = useRef(false);
+  const processingDocumentRef = useRef(false);
   const contentTopRef = useRef<HTMLDivElement | null>(null);
 
   const { data: settings } = useSWR<Record<string, string> | null>(
@@ -283,8 +275,7 @@ export default function AddMemberDialog({
   const { data: branches } = useSWR<BranchOption[], Error>(
     open ? '/api/v1/admin/branches' : null,
     async (url: string) => {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
       const res = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -329,12 +320,7 @@ export default function AddMemberDialog({
   const maritalStatus = useWatch({ control, name: 'maritalStatus' });
   const watchedDateOfBirth = useWatch({ control, name: 'dateOfBirth' });
 
-  const stepTitles = [
-    t('stepPersonal'),
-    t('stepAddress'),
-    t('stepNominee'),
-    t('stepDocuments'),
-  ];
+  const stepTitles = [t('stepPersonal'), t('stepAddress'), t('stepNominee'), t('stepDocuments')];
 
   const resetDialogState = useCallback(() => {
     for (const key of REQUIRED_DOCUMENT_KEYS) {
@@ -353,7 +339,10 @@ export default function AddMemberDialog({
   }, [documentFiles, reset]);
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && (submittingRef.current || submitStage !== 'idle')) {
+    if (
+      !nextOpen &&
+      (submittingRef.current || checkingStepRef.current || processingDocumentRef.current)
+    ) {
       return;
     }
     if (!nextOpen) {
@@ -438,70 +427,81 @@ export default function AddMemberDialog({
   );
 
   const nextStep = async () => {
-    setSubmitError(null);
+    if (checkingStepRef.current || submittingRef.current) return;
+    checkingStepRef.current = true;
+    setCheckingStep(true);
+    try {
+      setSubmitError(null);
 
-    const fieldsToValidate = fieldsForStep(currentStep);
-    const isValid = fieldsToValidate.length === 0 ? true : await trigger(fieldsToValidate);
+      const fieldsToValidate = fieldsForStep(currentStep);
+      const isValid = fieldsToValidate.length === 0 ? true : await trigger(fieldsToValidate);
 
-    if (!isValid) {
-      const badFields = fieldsToValidate.filter((field) => getFieldState(field).invalid);
-      const labels = badFields.map((field) => getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'));
-      setSubmitError(
-        labels.length
-          ? isBn
-            ? `এই তথ্যগুলো ঠিক করুন: ${labels.join(', ')}`
-            : `Please correct: ${labels.join(', ')}`
-          : isBn
-            ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
-            : 'Please fill all required fields correctly.',
-      );
-      scrollToTop();
-      return;
-    }
-
-    if (currentStep === 0) {
-      const dobProblem = dateOfBirthProblem(getValues('dateOfBirth'), minimumAge);
-      if (dobProblem) {
-        const message = dateOfBirthMessage(dobProblem, minimumAge, isBn ? 'bn' : 'en');
-        setError('dateOfBirth', { type: 'manual', message });
-        setSubmitError(message);
-        scrollToTop();
-        return;
-      }
-
-      const availability = await checkContactAvailability(getValues('email'), getValues('phone'));
-      if (availability === 'taken') {
+      if (!isValid) {
+        const badFields = fieldsToValidate.filter((field) => getFieldState(field).invalid);
+        const labels = badFields.map((field) =>
+          getRegistrationFieldLabel(field, isBn ? 'bn' : 'en'),
+        );
         setSubmitError(
-          isBn
-            ? 'এই ই-মেইল বা মোবাইল নম্বর আগে থেকেই ব্যবহৃত হয়েছে।'
-            : 'This email or phone number is already in use.',
+          labels.length
+            ? isBn
+              ? `এই তথ্যগুলো ঠিক করুন: ${labels.join(', ')}`
+              : `Please correct: ${labels.join(', ')}`
+            : isBn
+              ? 'সব প্রয়োজনীয় ফিল্ড সঠিকভাবে পূরণ করুন।'
+              : 'Please fill all required fields correctly.',
         );
         scrollToTop();
         return;
       }
-    }
 
-    if (currentStep === 2) {
-      const applicantNid = String(getValues('nidNumber') ?? '').trim();
-      const nomineeNid = String(getValues('nomineeNid') ?? '').trim();
-      if (applicantNid && nomineeNid && applicantNid === nomineeNid) {
-        const message = isBn
-          ? 'নমিনী আবেদনকারী নিজে হতে পারেন না। অন্য ব্যক্তির এন.আই.ডি দিন।'
-          : 'The nominee cannot be the applicant. Enter the nominee’s own NID number.';
-        setError('nomineeNid', { type: 'manual', message });
-        setSubmitError(message);
-        scrollToTop();
-        return;
+      if (currentStep === 0) {
+        const dobProblem = dateOfBirthProblem(getValues('dateOfBirth'), minimumAge);
+        if (dobProblem) {
+          const message = dateOfBirthMessage(dobProblem, minimumAge, isBn ? 'bn' : 'en');
+          setError('dateOfBirth', { type: 'manual', message });
+          setSubmitError(message);
+          scrollToTop();
+          return;
+        }
+
+        const availability = await checkContactAvailability(getValues('email'), getValues('phone'));
+        if (availability === 'taken') {
+          setSubmitError(
+            isBn
+              ? 'এই ই-মেইল বা মোবাইল নম্বর আগে থেকেই ব্যবহৃত হয়েছে।'
+              : 'This email or phone number is already in use.',
+          );
+          scrollToTop();
+          return;
+        }
       }
-    }
 
-    if (currentStep < STEP_FIELDS.length - 1) {
-      setCurrentStep((prev) => prev + 1);
-      scrollToTop();
+      if (currentStep === 2) {
+        const applicantNid = String(getValues('nidNumber') ?? '').trim();
+        const nomineeNid = String(getValues('nomineeNid') ?? '').trim();
+        if (applicantNid && nomineeNid && applicantNid === nomineeNid) {
+          const message = isBn
+            ? 'নমিনী আবেদনকারী নিজে হতে পারেন না। অন্য ব্যক্তির এন.আই.ডি দিন।'
+            : 'The nominee cannot be the applicant. Enter the nominee’s own NID number.';
+          setError('nomineeNid', { type: 'manual', message });
+          setSubmitError(message);
+          scrollToTop();
+          return;
+        }
+      }
+
+      if (currentStep < STEP_FIELDS.length - 1) {
+        setCurrentStep(currentStep + 1);
+        scrollToTop();
+      }
+    } finally {
+      checkingStepRef.current = false;
+      setCheckingStep(false);
     }
   };
 
   const prevStep = () => {
+    if (checkingStepRef.current || submittingRef.current) return;
     setSubmitError(null);
     if (currentStep > 0) {
       setCurrentStep((prev) => prev - 1);
@@ -510,7 +510,13 @@ export default function AddMemberDialog({
   };
 
   const goToStep = (index: number) => {
-    if (index < currentStep && !submittingRef.current && submitStage === 'idle') {
+    if (
+      index < currentStep &&
+      !checkingStepRef.current &&
+      !submittingRef.current &&
+      !processingDocumentRef.current &&
+      !savedPendingApp
+    ) {
       setSubmitError(null);
       setCurrentStep(index);
       scrollToTop();
@@ -524,8 +530,9 @@ export default function AddMemberDialog({
     const file = event.target.files?.[0] ?? null;
     setSubmitError(null);
     event.target.value = '';
-    if (!file) return;
+    if (!file || processingDocumentRef.current || submittingRef.current) return;
 
+    processingDocumentRef.current = true;
     setProcessingDocument(key);
     try {
       const typeCheck = validateImageFile(file, {
@@ -574,7 +581,13 @@ export default function AddMemberDialog({
         delete next[key];
         return next;
       });
+    } catch {
+      setDocumentErrors((prev) => ({
+        ...prev,
+        [key]: t('imagePreparationFailed'),
+      }));
     } finally {
+      processingDocumentRef.current = false;
       setProcessingDocument(null);
     }
   };
@@ -615,8 +628,7 @@ export default function AddMemberDialog({
     // File documents under people/<accountNo> (ADR-040); best effort so an asset
     // move hiccup never cancels the committed member admission.
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
+      const token = typeof window !== 'undefined' ? localStorage.getItem('hn_access_token') : null;
       await fetch(`/api/v1/admin/members/${memberId}/refile-documents`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -625,8 +637,7 @@ export default function AddMemberDialog({
       // The nightly retention sweep retries unfiled application folders.
     }
 
-    const branchName =
-      activeBranches.find((branch) => branch.id === effectiveBranchId)?.name ?? '';
+    const branchName = activeBranches.find((branch) => branch.id === effectiveBranchId)?.name ?? '';
 
     const summary: CreatedMemberSummary = {
       id: memberId,
@@ -634,7 +645,7 @@ export default function AddMemberDialog({
       name: application.name,
       email: application.email,
       branchName,
-      emailDelivered: approvalResult.emailDelivered !== false,
+      emailDelivered: approvalResult.emailDelivered === true,
       deliveryError: approvalResult.deliveryError,
     };
 
@@ -643,33 +654,32 @@ export default function AddMemberDialog({
     onOpenChange(false);
   };
 
+  const retryApproval = async () => {
+    if (!savedPendingApp || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitError(null);
+    try {
+      await approveAndRefile(savedPendingApp);
+    } catch (error) {
+      setSubmitStage('idle');
+      setSubmitError(
+        t('approvalFallbackWarning', {
+          formNumber: savedPendingApp.formNumber,
+          reason: error instanceof Error ? error.message : t('activationFailed'),
+        }),
+      );
+      scrollToTop();
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
   const onSubmit = async (data: RegisterApiFormData) => {
-    if (submittingRef.current) return;
+    if (submittingRef.current || processingDocumentRef.current) return;
     submittingRef.current = true;
     setSubmitError(null);
 
     try {
-      // If the application row was already saved in a prior attempt and only
-      // approval failed (e.g. branch error), retry approval directly.
-      if (savedPendingApp) {
-        try {
-          await approveAndRefile(savedPendingApp);
-        } catch (approvalErr) {
-          const reason =
-            approvalErr instanceof Error ? approvalErr.message : 'Approval failed';
-          setSubmitStage('idle');
-          setSubmitError(
-            t('approvalFallbackWarning', {
-              formNumber: savedPendingApp.formNumber,
-              reason,
-            }),
-          );
-          onPartialSave?.();
-          scrollToTop();
-        }
-        return;
-      }
-
       const missingDocuments = flagMissingDocuments();
       if (missingDocuments.length > 0) {
         const missingLabels = missingDocuments.map((key) =>
@@ -758,7 +768,12 @@ export default function AddMemberDialog({
           fieldErrors?: Record<string, string[] | undefined>;
           formErrors?: string[];
         };
-        user?: { id?: string; formNumber?: string; email?: string; nameEn?: string };
+        user?: {
+          id?: string;
+          formNumber?: string;
+          email?: string;
+          nameEn?: string;
+        };
       } = {};
       try {
         json = responseText ? JSON.parse(responseText) : {};
@@ -850,8 +865,7 @@ export default function AddMemberDialog({
       try {
         await approveAndRefile(pendingApp);
       } catch (approvalErr) {
-        const reason =
-          approvalErr instanceof Error ? approvalErr.message : 'Approval failed';
+        const reason = approvalErr instanceof Error ? approvalErr.message : 'Approval failed';
         setSubmitStage('idle');
         setSubmitError(
           t('approvalFallbackWarning', {
@@ -926,8 +940,13 @@ export default function AddMemberDialog({
   };
 
   const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (submittingRef.current) {
+    if (submittingRef.current || checkingStepRef.current || processingDocumentRef.current) {
       event.preventDefault();
+      return;
+    }
+    if (savedPendingApp) {
+      event.preventDefault();
+      void retryApproval();
       return;
     }
     if (currentStep < DOCUMENTS_STEP) {
@@ -943,13 +962,43 @@ export default function AddMemberDialog({
     (sum, key) => sum + (documentFiles[key]?.file.size ?? 0),
     0,
   );
-  const busy = isSubmitting || submitStage !== 'idle';
+  const busy =
+    checkingStep || isSubmitting || submitStage !== 'idle' || processingDocument !== null;
 
   const documentFieldMeta = REQUIRED_DOCUMENT_KEYS.map((key) => ({
     key,
     label: isBn ? DOCUMENT_LABELS[key].bn : DOCUMENT_LABELS[key].en,
     helper: isBn ? DOCUMENT_LABELS[key].helperBn : DOCUMENT_LABELS[key].helperEn,
   }));
+
+  const officePicker = (
+    <div className="space-y-1.5 border-t pt-3">
+      <Label htmlFor="add-member-branch">{t('officeLabel')}</Label>
+      {activeBranches.length > 0 ? (
+        <>
+          <select
+            id="add-member-branch"
+            value={effectiveBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+            className={SELECT_CLASS}
+          >
+            <option value="">{t('officeNone')}</option>
+            {activeBranches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name} ({branch.id})
+              </option>
+            ))}
+          </select>
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{t('officeHint')}</span>
+          </p>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t('officeNone')}</p>
+      )}
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -963,35 +1012,42 @@ export default function AddMemberDialog({
         </DialogHeader>
 
         {/* Step Indicator */}
-        <div className="space-y-2 border-b pb-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{t('stepIndicator', { current: currentStep + 1, total: STEP_FIELDS.length })}</span>
-            <span className="font-medium text-foreground">{stepTitles[currentStep]}</span>
+        {!savedPendingApp && (
+          <div className="space-y-2 border-b pb-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {t('stepIndicator', {
+                  current: currentStep + 1,
+                  total: STEP_FIELDS.length,
+                })}
+              </span>
+              <span className="font-medium text-foreground">{stepTitles[currentStep]}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              {stepTitles.map((title, index) => {
+                const done = index < currentStep;
+                const active = index === currentStep;
+                return (
+                  <button
+                    key={title}
+                    type="button"
+                    onClick={() => goToStep(index)}
+                    disabled={index >= currentStep || busy || Boolean(savedPendingApp)}
+                    className={cn(
+                      'flex items-center justify-center gap-1 rounded-sm border px-2 py-1.5 text-xs font-medium transition-colors',
+                      done && 'border-primary/40 bg-primary/10 text-primary cursor-pointer',
+                      active && 'border-primary bg-primary text-primary-foreground',
+                      !done && !active && 'border-gray-200 bg-gray-50 text-gray-500',
+                    )}
+                  >
+                    {done ? <Check className="h-3 w-3 shrink-0" /> : <span>{index + 1}.</span>}
+                    <span className="truncate">{title}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            {stepTitles.map((title, index) => {
-              const done = index < currentStep;
-              const active = index === currentStep;
-              return (
-                <button
-                  key={title}
-                  type="button"
-                  onClick={() => goToStep(index)}
-                  disabled={index >= currentStep || busy}
-                  className={cn(
-                    'flex items-center justify-center gap-1 rounded-sm border px-2 py-1.5 text-xs font-medium transition-colors',
-                    done && 'border-primary/40 bg-primary/10 text-primary cursor-pointer',
-                    active && 'border-primary bg-primary text-primary-foreground',
-                    !done && !active && 'border-gray-200 bg-gray-50 text-gray-500',
-                  )}
-                >
-                  {done ? <Check className="h-3 w-3 shrink-0" /> : <span>{index + 1}.</span>}
-                  <span className="truncate">{title}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        )}
 
         {submitError && (
           <div
@@ -1005,9 +1061,20 @@ export default function AddMemberDialog({
         )}
 
         <form onSubmit={handleFormSubmit} noValidate className="space-y-4">
+          {savedPendingApp && (
+            <fieldset disabled={busy} className="min-w-0 space-y-4">
+              <p className="text-sm">
+                {t('savedApplication', {
+                  name: savedPendingApp.name,
+                  formNumber: savedPendingApp.formNumber,
+                })}
+              </p>
+              {officePicker}
+            </fieldset>
+          )}
           {/* Step 0: Personal Info & Office */}
-          {currentStep === 0 && (
-            <div className="space-y-4">
+          {!savedPendingApp && currentStep === 0 && (
+            <fieldset disabled={busy} className="min-w-0 space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="add-member-nameEn">
@@ -1146,7 +1213,10 @@ export default function AddMemberDialog({
                   invalid={Boolean(errors.dateOfBirth)}
                   value={watchedDateOfBirth ?? ''}
                   onChange={(next) =>
-                    setValue('dateOfBirth', next, { shouldValidate: true, shouldDirty: true })
+                    setValue('dateOfBirth', next, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
                   }
                 />
                 <FieldError message={errors.dateOfBirth?.message} />
@@ -1173,9 +1243,7 @@ export default function AddMemberDialog({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="add-member-profession">
-                    {isBn ? 'পেশা *' : 'Profession *'}
-                  </Label>
+                  <Label htmlFor="add-member-profession">{isBn ? 'পেশা *' : 'Profession *'}</Label>
                   <Input
                     className={FIELD_CLASS}
                     id="add-member-profession"
@@ -1234,43 +1302,17 @@ export default function AddMemberDialog({
                 </div>
               </div>
 
-              {/* Assigned Office / Branch */}
-              <div className="space-y-1.5 border-t pt-3">
-                <Label htmlFor="add-member-branch">{t('officeLabel')}</Label>
-                {activeBranches.length > 0 ? (
-                  <>
-                    <select
-                      id="add-member-branch"
-                      value={effectiveBranchId}
-                      onChange={(e) => setSelectedBranchId(e.target.value)}
-                      className={SELECT_CLASS}
-                    >
-                      <option value="">{t('officeNone')}</option>
-                      {activeBranches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name} ({branch.id})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                      <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                      <span>{t('officeHint')}</span>
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">{t('officeNone')}</p>
-                )}
-              </div>
+              {officePicker}
 
               <div className="rounded-sm border border-primary/30 bg-primary/5 p-3 text-xs sm:text-sm text-foreground">
                 {t('passwordNotice')}
               </div>
-            </div>
+            </fieldset>
           )}
 
           {/* Step 1: Address */}
-          {currentStep === 1 && (
-            <div className="space-y-4">
+          {!savedPendingApp && currentStep === 1 && (
+            <fieldset disabled={busy} className="min-w-0 space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold">
                 {isBn ? 'স্থায়ী ঠিকানা' : 'Permanent Address'}
               </h3>
@@ -1289,9 +1331,7 @@ export default function AddMemberDialog({
                   <FieldError message={errors.permanentHouseNo?.message} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="add-member-permanentRoadNo">
-                    {isBn ? 'রোড নং' : 'Road No'}
-                  </Label>
+                  <Label htmlFor="add-member-permanentRoadNo">{isBn ? 'রোড নং' : 'Road No'}</Label>
                   <Input
                     className={FIELD_CLASS}
                     id="add-member-permanentRoadNo"
@@ -1455,12 +1495,12 @@ export default function AddMemberDialog({
                   </div>
                 </>
               )}
-            </div>
+            </fieldset>
           )}
 
           {/* Step 2: Nominee */}
-          {currentStep === 2 && (
-            <div className="space-y-4">
+          {!savedPendingApp && currentStep === 2 && (
+            <fieldset disabled={busy} className="min-w-0 space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="add-member-nomineeName">
@@ -1528,12 +1568,12 @@ export default function AddMemberDialog({
                   <FieldError message={errors.nomineePhone?.message} />
                 </div>
               </div>
-            </div>
+            </fieldset>
           )}
 
           {/* Step 3: Documents */}
-          {currentStep === 3 && (
-            <div className="space-y-4">
+          {!savedPendingApp && currentStep === 3 && (
+            <fieldset disabled={busy} className="min-w-0 space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
                 <h3 className="text-sm font-semibold">
                   {isBn ? 'প্রয়োজনীয় নথি (৪টি আবশ্যক)' : 'Required Documents (All 4 Required)'}
@@ -1629,7 +1669,7 @@ export default function AddMemberDialog({
               <div className="rounded-sm border border-primary/30 bg-primary/5 p-3 text-xs sm:text-sm text-foreground">
                 {t('passwordNotice')}
               </div>
-            </div>
+            </fieldset>
           )}
 
           {/* Footer Navigation */}
@@ -1644,7 +1684,7 @@ export default function AddMemberDialog({
               >
                 {t('cancel')}
               </Button>
-              {currentStep > 0 && (
+              {!savedPendingApp && currentStep > 0 && (
                 <Button
                   type="button"
                   variant="outline"
@@ -1659,7 +1699,7 @@ export default function AddMemberDialog({
               )}
             </div>
 
-            {currentStep < DOCUMENTS_STEP ? (
+            {!savedPendingApp && currentStep < DOCUMENTS_STEP ? (
               <Button
                 key="next-step"
                 type="button"
@@ -1672,18 +1712,22 @@ export default function AddMemberDialog({
                 <ChevronRight className="h-4 w-4" />
               </Button>
             ) : (
-              <Button key="submit-member" type="submit" size="sm" disabled={busy} className="gap-1.5">
+              <Button
+                key="submit-member"
+                type="submit"
+                size="sm"
+                disabled={busy}
+                className="gap-1.5"
+              >
                 {busy ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    {submitStage === 'approving'
-                      ? t('submittingApprove')
-                      : t('submittingUpload')}
+                    {submitStage === 'approving' ? t('submittingApprove') : t('submittingUpload')}
                   </>
                 ) : (
                   <>
                     <Check className="h-4 w-4" />
-                    {t('submit')}
+                    {savedPendingApp ? t('retryActivation') : t('submit')}
                   </>
                 )}
               </Button>
