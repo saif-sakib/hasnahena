@@ -2,11 +2,13 @@
    deliberate full document load; see the note on the component below. */
 import type { Metadata } from 'next';
 import Image from 'next/image';
+import { SITE_ICONS } from '@/lib/seo';
 
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Page Not Found | Hasnahena Foundation',
+  icons: SITE_ICONS,
   robots: {
     index: false,
     follow: false,

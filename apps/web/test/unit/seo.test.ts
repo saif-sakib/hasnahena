@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import sitemap from '@/app/sitemap';
 import manifest from '@/app/manifest';
@@ -196,7 +196,10 @@ describe('the social card survives being shared', () => {
 
 /** A declared `<link rel="icon">` (Next only emits one for app/ icons). */
 describe('the site declares a favicon a crawler can find', () => {
-  const icons = SITE_ICONS.icon as Array<{ url: string; sizes?: string }>;
+  const icons = SITE_ICONS.icon as Array<{ url: string; sizes?: string; type?: string }>;
+  const shortcut = SITE_ICONS.shortcut as Array<{ url: string; type?: string }>;
+  const apple = SITE_ICONS.apple as Array<{ url: string; sizes?: string; type?: string }>;
+  const publicDir = resolve(new URL('.', import.meta.url).pathname, '..', '..', 'public');
 
   it('every public page carries the icons, not just the root layout', () => {
     // Google reads the favicon from whichever page it crawled, and this site's
@@ -221,11 +224,74 @@ describe('the site declares a favicon a crawler can find', () => {
     expect(multiplesOf48.length, `declared sizes: ${declared.join(', ')}`).toBeGreaterThan(0);
   });
 
-  it('uses stable paths, not content-hashed ones', () => {
-    // Stable public/ paths (Google caches by URL).
-    for (const icon of [...icons, ...(SITE_ICONS.apple as Array<{ url: string }>)]) {
+  it('uses stable paths that exist on disk, not content-hashed ones', () => {
+    // Stable public/ paths (Google and Bing cache by URL).
+    for (const icon of [...icons, ...shortcut, ...apple]) {
       expect(icon.url, `${icon.url} must be a stable absolute path`).toMatch(/^\/[\w.-]+$/);
+      expect(
+        existsSync(join(publicDir, icon.url.slice(1))),
+        `${icon.url} must exist in apps/web/public/`,
+      ).toBe(true);
     }
+  });
+
+  it('declares explicit image/x-icon and standard 16/32/48/192/512 PNG icons for Bing and Google', () => {
+    const ico = icons.find((icon) => icon.url === '/favicon.ico');
+    expect(ico?.type).toBe('image/x-icon');
+    expect(shortcut.find((icon) => icon.url === '/favicon.ico')?.type).toBe('image/x-icon');
+
+    const pngSizes = icons
+      .filter((icon) => icon.type === 'image/png')
+      .map((icon) => icon.sizes);
+    expect(pngSizes).toEqual(expect.arrayContaining(['16x16', '32x32', '48x48', '192x192', '512x512']));
+  });
+
+  it('ships a compact classic 32-bit BMP/DIB favicon.ico (16/32/48) compatible with Microsoft ICO parsers', () => {
+    const buf = readFileSync(join(publicDir, 'favicon.ico'));
+    expect(buf.length).toBeLessThan(25_000);
+
+    const reserved = buf.readUInt16LE(0);
+    const type = buf.readUInt16LE(2);
+    const count = buf.readUInt16LE(4);
+    expect({ reserved, type, count }).toEqual({ reserved: 0, type: 1, count: 3 });
+
+    const frameWidths: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const entryOff = 6 + i * 16;
+      const w = buf[entryOff] || 256;
+      const h = buf[entryOff + 1] || 256;
+      const planes = buf.readUInt16LE(entryOff + 4);
+      const bpp = buf.readUInt16LE(entryOff + 6);
+      const bytesInRes = buf.readUInt32LE(entryOff + 8);
+      const imgOff = buf.readUInt32LE(entryOff + 12);
+
+      frameWidths.push(w);
+      expect(w).toBe(h);
+      expect(planes).toBe(1);
+      expect(bpp).toBe(32);
+
+      // BITMAPINFOHEADER (40 bytes) — uncompressed BI_RGB (0), never PNG magic
+      const biSize = buf.readUInt32LE(imgOff);
+      const biWidth = buf.readInt32LE(imgOff + 4);
+      const biHeight = buf.readInt32LE(imgOff + 8);
+      const biPlanes = buf.readUInt16LE(imgOff + 12);
+      const biBitCount = buf.readUInt16LE(imgOff + 14);
+      const biCompression = buf.readUInt32LE(imgOff + 16);
+
+      const expectedXor = w * h * 4;
+      const expectedAnd = Math.ceil(w / 32) * 4 * h;
+      const expectedTotal = 40 + expectedXor + expectedAnd;
+
+      expect(biSize).toBe(40);
+      expect(biWidth).toBe(w);
+      expect(biHeight).toBe(h * 2);
+      expect(biPlanes).toBe(1);
+      expect(biBitCount).toBe(32);
+      expect(biCompression).toBe(0);
+      expect(bytesInRes).toBe(expectedTotal);
+    }
+
+    expect(frameWidths).toEqual([16, 32, 48]);
   });
 });
 

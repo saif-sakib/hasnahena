@@ -108,16 +108,21 @@ export function siteOgImageAlt(locale: Locale): string {
 
 /**
  * Icons declared explicitly at stable public/ paths (Google caches the favicon
- * by URL; the app/icon convention hashes it). Only apple-icon is opaque — iOS
- * composites transparency onto black.
+ * by URL; the app/icon convention hashes it). favicon.ico uses classic
+ * uncompressed 32-bit BMP/DIB frames (16/32/48) with explicit type="image/x-icon"
+ * plus sized PNGs so both Bing and Google parse them cleanly. Only apple-icon
+ * is opaque — iOS composites transparency onto black.
  */
 export const SITE_ICONS = {
   icon: [
-    { url: '/favicon.ico', sizes: '16x16 32x32 48x48 64x64 128x128 256x256', rel: 'icon' },
+    { url: '/favicon.ico', type: 'image/x-icon', sizes: '16x16 32x32 48x48' },
+    { url: '/icon-48.png', type: 'image/png', sizes: '48x48' },
+    { url: '/icon-32.png', type: 'image/png', sizes: '32x32' },
+    { url: '/icon-16.png', type: 'image/png', sizes: '16x16' },
     { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
     { url: '/icon-512.png', type: 'image/png', sizes: '512x512' },
   ],
-  shortcut: ['/favicon.ico'],
+  shortcut: [{ url: '/favicon.ico', type: 'image/x-icon' }],
   apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
 } satisfies Metadata['icons'];
 
