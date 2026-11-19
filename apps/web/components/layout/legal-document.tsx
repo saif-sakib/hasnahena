@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { formatLegalDate } from '@/lib/legal';
 import { getTranslations } from 'next-intl/server';
+import { ArrowRight } from 'lucide-react';
 import { PageHero, paperCard } from '@/components/layout/page-hero';
 
 interface LegalSection {
@@ -16,6 +18,8 @@ interface LegalDocumentProps {
   sections: LegalSection[];
   /** ICU-style `{name}` substitutions for the section bodies. */
   values?: Record<string, string>;
+  /** Related pages linked beneath the document body. */
+  crossLinks?: Array<{ href: string; label: string }>;
 }
 
 /** The shell both legal pages render into, on the interior pages' hero. */
@@ -26,6 +30,7 @@ export async function LegalDocument({
   locale,
   sections,
   values,
+  crossLinks,
 }: LegalDocumentProps) {
   const t = await getTranslations({ locale, namespace: 'legal' });
 
@@ -42,7 +47,9 @@ export async function LegalDocument({
     <main className="surface-paper flex-1">
       <PageHero title={title} lead={intro}>
         <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-          {t('lastUpdated', { date: formatLegalDate(lastUpdated, locale) })}
+          <time dateTime={lastUpdated}>
+            {t('lastUpdated', { date: formatLegalDate(lastUpdated, locale) })}
+          </time>
         </p>
       </PageHero>
 
@@ -59,6 +66,24 @@ export async function LegalDocument({
             </section>
           ))}
         </div>
+
+        {crossLinks && crossLinks.length > 0 && (
+          <nav
+            aria-label={t('backToHome')}
+            className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm"
+          >
+            {crossLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {item.label}
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            ))}
+          </nav>
+        )}
       </div>
     </main>
   );

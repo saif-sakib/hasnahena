@@ -4,7 +4,8 @@ import { Facebook, Mail, Phone, MapPin } from 'lucide-react';
 import { Logo } from '@/components/ui/logo';
 import { localePath } from '@/lib/locale-path';
 import { orgName } from '@/lib/localized-settings';
-import { contactDetails, telHref } from '@/lib/contact-details';
+import { contactDetails, ORG_FACEBOOK_URL, telHref } from '@/lib/contact-details';
+import { localizedSetting } from '@/lib/localized-settings';
 
 interface FooterProps {
   settings?: Record<string, string>;
@@ -40,7 +41,7 @@ export function Footer({ settings }: FooterProps) {
             </p>
             <div className="flex space-x-3">
               <a
-                href="https://www.facebook.com/share/18KYP6p25Z/"
+                href={ORG_FACEBOOK_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
@@ -62,9 +63,9 @@ export function Footer({ settings }: FooterProps) {
                 { href: localePath(locale, '/about'), label: tNav('about') },
                 { href: localePath(locale, '/qard-al-hasan'), label: tNav('qardHasan') },
                 { href: localePath(locale, '/activities'), label: tNav('activities') },
+                { href: localePath(locale, '/gallery'), label: tNav('gallery') },
                 // "How it works" is a home-page section, so an anchor.
                 { href: localePath(locale, '/#how-it-works'), label: tNav('howItWorks') },
-                { href: localePath(locale, '/contact'), label: tNav('contact') },
               ].map((item) => (
                 <li key={item.href}>
                   <Link
@@ -85,8 +86,13 @@ export function Footer({ settings }: FooterProps) {
             </h3>
             <ul className="space-y-2.5">
               {[
+                {
+                  href: localePath(locale, '/donate'),
+                  label: localizedSetting(settings, 'navigation.donate', locale) || tNav('donate'),
+                },
                 { href: localePath(locale, '/faq'), label: t('faq') },
                 { href: localePath(locale, '/support'), label: t('support') },
+                { href: localePath(locale, '/contact'), label: tNav('contact') },
                 { href: localePath(locale, '/privacy'), label: t('privacyPolicy') },
                 { href: localePath(locale, '/terms'), label: t('termsOfService') },
               ].map((item) => (

@@ -21,14 +21,12 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.faq' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/faq',
-    title: activeLocale === 'bn' ? 'সাধারণ প্রশ্নাবলী' : 'Frequently Asked Questions',
-    description:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনা সম্পর্কে সাধারণ প্রশ্ন ও উত্তর। সদস্যপদ, ঋণ, জমা এবং নীতিমালা জানুন।'
-        : 'Frequently asked questions about Hasnahena, including membership, deposits, loans, and policies.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
@@ -39,17 +37,27 @@ export default async function FaqPage({ params }: PageProps) {
   }
   setRequestLocale(locale);
 
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'pages.faq' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'pages.faq' }),
+    getTranslations({ locale, namespace: 'seo.pages.faq' }),
+  ]);
 
   // One source for the questions: this list and the FAQPage structured data
   // must say the same thing, and a rich result whose answer differs from the
   // page is a policy violation rather than a typo. See lib/faq.ts.
-  const faqItems = faqEntries(normalizeLocale(locale), noticePeriodDaysFrom(settings));
+  const faqItems = faqEntries(activeLocale, noticePeriodDaysFrom(settings));
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/faq" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/faq"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+      />
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} />

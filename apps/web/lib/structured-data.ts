@@ -5,11 +5,14 @@
  */
 
 import { defaultLocale, locales, type Locale } from '@/i18n';
+import { ORG_SAME_AS, normalizeSchemaTelephone } from '@/lib/contact-details';
 import {
   getLocalizedUrl,
+  siteDescription,
   siteOrigin,
   SITE_DESCRIPTION,
   SITE_NAME,
+  SITE_NAME_BN,
   SITE_NAME_VARIANTS,
 } from '@/lib/seo';
 import type { FaqEntry } from '@/lib/faq';
@@ -31,8 +34,21 @@ function compact(node: JsonLdNode): JsonLdNode {
     if (value === undefined || value === null) continue;
     if (typeof value === 'string' && value.trim() === '') continue;
     if (Array.isArray(value)) {
-      if (value.length === 0) continue;
-      out[key] = value;
+      const compacted = value
+        .map((item) => {
+          if (item === undefined || item === null) return undefined;
+          if (typeof item === 'string') return item.trim() === '' ? undefined : item;
+          if (typeof item === 'object') {
+            const nested = compact(item as JsonLdNode);
+            return Object.keys(nested).filter((k) => k !== '@type').length === 0
+              ? undefined
+              : nested;
+          }
+          return item;
+        })
+        .filter((item) => item !== undefined);
+      if (compacted.length === 0) continue;
+      out[key] = compacted;
       continue;
     }
     if (typeof value === 'object') {
@@ -57,6 +73,8 @@ export function organizationSchema(settings: Settings): JsonLdNode {
   // English halves, falling back to Bengali: this node is always English.
   const streetAddress = orgAddress(settings, 'en') || undefined;
   const description = orgDescription(settings, 'en') || SITE_DESCRIPTION;
+  const phone = normalizeSchemaTelephone(trimmed(settings, 'org.phone'));
+  const email = trimmed(settings, 'org.email');
 
   // Every searched-for name, deduplicated, minus `name`. Via
   // localizedSettingPair so localized-settings.test.ts sees the read.
@@ -72,7 +90,9 @@ export function organizationSchema(settings: Settings): JsonLdNode {
     name: primaryName,
     alternateName: alternateNames,
     description,
+    slogan: 'Building an interest-free and poverty-free society',
     url: siteOrigin,
+    sameAs: [...ORG_SAME_AS],
     // Square mark with dimensions: knowledge panels crop to a square.
     logo: {
       '@type': 'ImageObject',
@@ -91,11 +111,28 @@ export function organizationSchema(settings: Settings): JsonLdNode {
       addressRegion: 'Khulna',
       addressCountry: 'BD',
     },
+    areaServed: [
+      { '@type': 'AdministrativeArea', name: 'Jashore District', alternateName: 'Jessore' },
+      { '@type': 'AdministrativeArea', name: 'Khulna Division' },
+      { '@type': 'Country', name: 'Bangladesh' },
+    ],
+    knowsAbout: [
+      'Qard al-Hasan',
+      'Interest-free cooperative finance',
+      'Islamic social finance',
+      'Zero-interest lending',
+      'Community savings',
+      'Sadaqah',
+      'Zakat',
+    ],
+    telephone: phone,
+    email,
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'customer support',
-      telephone: trimmed(settings, 'org.phone'),
-      email: trimmed(settings, 'org.email'),
+      telephone: phone,
+      email,
+      areaServed: 'BD',
       availableLanguage: ['en', 'bn'],
     },
     // The registration number — the strongest trust signal.
@@ -110,7 +147,7 @@ export function webSiteSchema(): JsonLdNode {
     '@id': WEBSITE_ID,
     url: siteOrigin,
     name: SITE_NAME,
-    alternateName: [...SITE_NAME_VARIANTS],
+    alternateName: [...new Set([SITE_NAME_BN, ...SITE_NAME_VARIANTS])],
     description: SITE_DESCRIPTION,
     publisher: { '@id': ORGANIZATION_ID },
     inLanguage: [...locales],
@@ -119,6 +156,7 @@ export function webSiteSchema(): JsonLdNode {
 
 /** `Home › About`. One helper rather than ten hand-written lists. */
 export function breadcrumbSchema(locale: Locale, path: string, label: string): JsonLdNode {
+  const pageUrl = getLocalizedUrl(locale, path);
   const home = {
     '@type': 'ListItem',
     position: 1,
@@ -127,28 +165,187 @@ export function breadcrumbSchema(locale: Locale, path: string, label: string): J
   };
 
   if (path === '/') {
-    return { '@type': 'BreadcrumbList', itemListElement: [home] };
+    return { '@type': 'BreadcrumbList', '@id': `${pageUrl}#breadcrumb`, itemListElement: [home] };
   }
 
   return {
     '@type': 'BreadcrumbList',
+    '@id': `${pageUrl}#breadcrumb`,
     itemListElement: [
       home,
-      { '@type': 'ListItem', position: 2, name: label, item: getLocalizedUrl(locale, path) },
+      { '@type': 'ListItem', position: 2, name: label, item: pageUrl },
     ],
   };
 }
 
+function webPageTypeFor(path: string): string {
+  switch (path) {
+    case '/about':
+      return 'AboutPage';
+    case '/contact':
+      return 'ContactPage';
+    case '/gallery':
+      return 'ImageGallery';
+    case '/activities':
+      return 'CollectionPage';
+    default:
+      return 'WebPage';
+  }
+}
+
+export function webPageSchema({
+  locale,
+  path,
+  label,
+  headline,
+  description,
+  dateModified,
+  galleryItems,
+}: {
+  locale: Locale;
+  path: string;
+  label: string;
+  headline?: string;
+  description?: string;
+  dateModified?: string;
+  galleryItems?: ReadonlyArray<{ imageUrl: string; caption?: string; date?: string }>;
+}): JsonLdNode {
+  const pageUrl = getLocalizedUrl(locale, path);
+  return compact({
+    '@type': webPageTypeFor(path),
+    '@id': `${pageUrl}#webpage`,
+    url: pageUrl,
+    name: headline || label,
+    description: description || siteDescription(locale),
+    inLanguage: locale,
+    isPartOf: { '@id': WEBSITE_ID },
+    about: { '@id': ORGANIZATION_ID },
+    breadcrumb: { '@id': `${pageUrl}#breadcrumb` },
+    primaryImageOfPage: {
+      '@type': 'ImageObject',
+      url: `${siteOrigin}/images/logo/logo-og.png`,
+      width: 1200,
+      height: 630,
+    },
+    dateModified,
+    mainEntity:
+      path === '/' || path === '/about' || path === '/contact'
+        ? { '@id': ORGANIZATION_ID }
+        : undefined,
+    potentialAction:
+      path === '/donate'
+        ? {
+            '@type': 'DonateAction',
+            name:
+              locale === 'bn'
+                ? 'হাসনাহেনা ফাউন্ডেশনে অনুদান করুন'
+                : 'Donate to Hasnahena Foundation',
+            target: pageUrl,
+            recipient: { '@id': ORGANIZATION_ID },
+          }
+        : undefined,
+    hasPart:
+      path === '/gallery' && galleryItems?.length
+        ? galleryItems.map((item) => ({
+            '@type': 'ImageObject',
+            contentUrl: item.imageUrl,
+            url: item.imageUrl,
+            caption: item.caption || undefined,
+            name: item.caption || undefined,
+            datePublished: item.date || undefined,
+          }))
+        : undefined,
+  });
+}
+
+export function articleSchema({
+  locale,
+  path,
+  headline,
+  description,
+}: {
+  locale: Locale;
+  path: string;
+  headline: string;
+  description: string;
+}): JsonLdNode {
+  const pageUrl = getLocalizedUrl(locale, path);
+  return compact({
+    '@type': 'Article',
+    '@id': `${pageUrl}#article`,
+    headline,
+    description,
+    inLanguage: locale,
+    url: pageUrl,
+    mainEntityOfPage: { '@id': `${pageUrl}#webpage` },
+    author: { '@id': ORGANIZATION_ID },
+    publisher: { '@id': ORGANIZATION_ID },
+    image: `${siteOrigin}/images/logo/logo-og.png`,
+    about:
+      locale === 'bn'
+        ? ['কর্জে হাসানা', 'সুদমুক্ত ঋণ', 'ইসলামী অর্থায়ন', 'যশোর']
+        : ['Qard al-Hasan', 'Interest-free loan', 'Islamic finance', 'Jashore'],
+  });
+}
+
+export function howToSchema({
+  locale,
+  name,
+  description,
+  steps,
+}: {
+  locale: Locale;
+  name: string;
+  description: string;
+  steps: ReadonlyArray<{ name: string; text: string }>;
+}): JsonLdNode {
+  return compact({
+    '@type': 'HowTo',
+    name,
+    description,
+    inLanguage: locale,
+    step: steps.map((step, index) => ({
+      '@type': 'HowToStep',
+      position: index + 1,
+      name: step.name,
+      text: step.text,
+    })),
+  });
+}
+
+export function itemListSchema({
+  locale,
+  name,
+  items,
+}: {
+  locale: Locale;
+  name: string;
+  items: ReadonlyArray<{ name: string; description: string }>;
+}): JsonLdNode {
+  return compact({
+    '@type': 'ItemList',
+    name,
+    inLanguage: locale,
+    itemListElement: items.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: item.name,
+      description: item.description,
+    })),
+  });
+}
+
 /** The questions already on `/faq`, in the same words the page shows. */
-export function faqSchema(entries: readonly FaqEntry[]): JsonLdNode {
-  return {
+export function faqSchema(entries: readonly FaqEntry[], locale?: Locale): JsonLdNode {
+  return compact({
     '@type': 'FAQPage',
+    inLanguage: locale,
     mainEntity: entries.map((entry) => ({
       '@type': 'Question',
       name: entry.q,
       acceptedAnswer: { '@type': 'Answer', text: entry.a },
     })),
-  };
+  });
 }
 
 export type PageGraphInput = {
@@ -158,18 +355,56 @@ export type PageGraphInput = {
   path: string;
   /** The page's own name, for the breadcrumb. */
   label: string;
+  headline?: string;
+  description?: string;
+  dateModified?: string;
   /** Only `/faq` passes these. */
   faq?: readonly FaqEntry[];
+  article?: { headline: string; description: string };
+  howTo?: {
+    name: string;
+    description: string;
+    steps: ReadonlyArray<{ name: string; text: string }>;
+  };
+  activityItems?: ReadonlyArray<{ name: string; description: string }>;
+  galleryItems?: ReadonlyArray<{ imageUrl: string; caption?: string; date?: string }>;
 };
 
 /** Everything one public page declares, as a single `@graph` linked by `@id`. */
-export function publicPageGraph({ settings, locale, path, label, faq }: PageGraphInput): JsonLdNode[] {
+export function publicPageGraph({
+  settings,
+  locale,
+  path,
+  label,
+  headline,
+  description,
+  dateModified,
+  faq,
+  article,
+  howTo,
+  activityItems,
+  galleryItems,
+}: PageGraphInput): JsonLdNode[] {
   const graph: JsonLdNode[] = [
     organizationSchema(settings),
     webSiteSchema(),
+    webPageSchema({
+      locale,
+      path,
+      label,
+      headline,
+      description,
+      dateModified,
+      galleryItems,
+    }),
     breadcrumbSchema(locale, path, label),
   ];
-  if (faq?.length) graph.push(faqSchema(faq));
+  if (faq?.length) graph.push(faqSchema(faq, locale));
+  if (article) graph.push(articleSchema({ locale, path, ...article }));
+  if (howTo?.steps.length) graph.push(howToSchema({ locale, ...howTo }));
+  if (activityItems?.length) {
+    graph.push(itemListSchema({ locale, name: headline || label, items: activityItems }));
+  }
   return graph;
 }
 

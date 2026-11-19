@@ -1,15 +1,17 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
-import { Mail, Phone, MapPin } from 'lucide-react';
+import { ArrowRight, Mail, Phone, MapPin, Compass, HelpCircle } from 'lucide-react';
 import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
 import { getPublicSettings } from '@/lib/system-config';
 import { contactDetails, telHref } from '@/lib/contact-details';
 import { Button } from '@/components/ui/button';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { localePath } from '@/lib/locale-path';
 import { StructuredData } from '@/components/seo/structured-data';
 
 /** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
@@ -20,24 +22,26 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.contact' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/contact',
-    title: activeLocale === 'bn' ? 'যোগাযোগ ও ঠিকানা' : 'Contact & Location',
-    description:
-      activeLocale === 'bn'
-        ? 'যশোরে হাসনাহেনা ফাউন্ডেশনের অফিসের ঠিকানা, ফোন নম্বর ও ইমেইল।'
-        : 'Find Hasnahena Foundation in Jashore, Bangladesh: office address, phone number and email.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
 export default async function ContactPage({ params }: PageProps) {
   const { locale } = await params;
-  if (!locales.includes(locale as any)) notFound();
+  if (!locales.includes(locale as (typeof locales)[number])) notFound();
   setRequestLocale(locale);
 
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'pages.contact' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'pages.contact' }),
+    getTranslations({ locale, namespace: 'seo.pages.contact' }),
+  ]);
 
   // The shared org.* reader (WO-67) — never a second copy of the address.
   const { address, phone: orgPhone, email: orgEmail } = contactDetails(settings, locale);
@@ -51,7 +55,13 @@ export default async function ContactPage({ params }: PageProps) {
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/contact" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/contact"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+      />
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
@@ -99,6 +109,55 @@ export default async function ContactPage({ params }: PageProps) {
               )}
             </div>
           </section>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <section className={`${paperCard} p-6`}>
+              <IconTile>
+                <Compass className="h-5 w-5" aria-hidden="true" />
+              </IconTile>
+              <h2 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {t('serviceAreaTitle')}
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {t('serviceAreaBody')}
+              </p>
+            </section>
+
+            <section className={`${paperCard} p-6`}>
+              <IconTile>
+                <HelpCircle className="h-5 w-5" aria-hidden="true" />
+              </IconTile>
+              <h2 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {t('visitHelpTitle')}
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {t('visitHelpBody')}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                <Link
+                  href={localePath(locale, '/faq')}
+                  className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  {t('faqLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+                <Link
+                  href={localePath(locale, '/qard-al-hasan')}
+                  className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  {t('qardLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+                <Link
+                  href={localePath(locale, '/support')}
+                  className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  {t('supportLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </div>
+            </section>
+          </div>
         </PageBody>
       </main>
       <Footer settings={settings} />

@@ -1,8 +1,17 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- every link here is a
    deliberate full document load; see the note on the component below. */
+import type { Metadata } from 'next';
 import Image from 'next/image';
 
 import './globals.css';
+
+export const metadata: Metadata = {
+  title: 'Page Not Found | Hasnahena Foundation',
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 /**
  * The 404 for unmatched URLs. At the ROOT: a segment's not-found.tsx only

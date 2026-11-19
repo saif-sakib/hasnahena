@@ -9,6 +9,7 @@ import { getPublicSettings } from '@/lib/system-config';
 import { StructuredData } from '@/components/seo/structured-data';
 import { LegalDocument } from '@/components/layout/legal-document';
 import { TERMS_LAST_UPDATED } from '@/lib/legal';
+import { localePath } from '@/lib/locale-path';
 
 /** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
 export const revalidate = 3600;
@@ -18,14 +19,12 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.terms' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/terms',
-    title: activeLocale === 'bn' ? 'সেবার শর্তাবলী' : 'Terms of Service',
-    description:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনার সেবা ব্যবহারের শর্তাবলী ও নীতিমালা পড়ুন।'
-        : 'Read the terms and conditions for using Hasnahena services.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
@@ -36,13 +35,23 @@ export default async function TermsPage({ params }: PageProps) {
   }
 
   setRequestLocale(locale);
-
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'legal' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'legal' }),
+    getTranslations({ locale, namespace: 'seo.pages.terms' }),
+  ]);
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/terms" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/terms"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+        dateModified={TERMS_LAST_UPDATED}
+      />
       {/* The site chrome, since T-10 — see the note on the privacy page. */}
       <Header settings={settings} />
       <LegalDocument
@@ -53,6 +62,10 @@ export default async function TermsPage({ params }: PageProps) {
         sections={Object.values(
           t.raw('terms.sections') as Record<string, { title: string; content: string }>,
         )}
+        crossLinks={[
+          { href: localePath(locale, '/privacy'), label: t('seePrivacy') },
+          { href: localePath(locale, '/contact'), label: t('seeContact') },
+        ]}
       />
       <Footer settings={settings} />
     </>

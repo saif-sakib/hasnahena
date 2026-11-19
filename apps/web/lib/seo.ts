@@ -47,6 +47,7 @@ export const siteOrigin = resolveSiteOrigin();
 export const siteBaseUrl = new URL(siteOrigin);
 
 export const SITE_NAME = 'Hasnahena Foundation';
+export const SITE_NAME_BN = 'হাসনাহেনা ফাউন্ডেশন';
 
 /**
  * Search-engine ownership tokens; unset means no tag.
@@ -80,11 +81,30 @@ export function siteVerification(
 export const SITE_NAME_VARIANTS = [
   'Hasnahena',
   'Hasnahena Foundation Jashore',
+  'Hasnahena Foundation Jessore',
   'Hasna Hena Foundation',
+  'হাসনাহেনা ফাউন্ডেশন যশোর',
 ] as const;
 
 export const SITE_DESCRIPTION =
   'Hasnahena Foundation is an interest-free (Qard al-Hasan) cooperative finance society in Jashore, Bangladesh. Members save together, borrow without interest, guarantee one another and give.';
+
+export const SITE_DESCRIPTION_BN =
+  'হাসনাহেনা ফাউন্ডেশন যশোর, বাংলাদেশে পরিচালিত একটি কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায় সংস্থা। সদস্যরা একসাথে সঞ্চয় করেন, শূন্য সুদে ঋণ নেন, পরস্পরের জামিনদার হন এবং দান-সদকা করেন।';
+
+export function siteName(locale: Locale): string {
+  return locale === 'bn' ? SITE_NAME_BN : SITE_NAME;
+}
+
+export function siteDescription(locale: Locale): string {
+  return locale === 'bn' ? SITE_DESCRIPTION_BN : SITE_DESCRIPTION;
+}
+
+export function siteOgImageAlt(locale: Locale): string {
+  return locale === 'bn'
+    ? `${SITE_NAME_BN} — কর্জে হাসানা ও সুদমুক্ত সমবায়, যশোর`
+    : `${SITE_NAME} — Interest-Free Qard al-Hasan Cooperative, Jashore`;
+}
 
 /**
  * Icons declared explicitly at stable public/ paths (Google caches the favicon
@@ -107,12 +127,6 @@ export function siteTitle(locale: Locale): string {
     ? `${SITE_NAME_BN} — কর্জে হাসানা ও সুদমুক্ত সমবায়, যশোর`
     : `${SITE_NAME} — Interest-Free Qard al-Hasan Finance, Jashore`;
 }
-
-/**
- * The Bengali name for the Bengali `<title>`. Hardcoded: the root layout's
- * metadata has no settings map, and fetching one would break prerendering.
- */
-const SITE_NAME_BN = 'হাসনাহেনা ফাউন্ডেশন';
 
 export const publicPagePaths = [
   '/',
@@ -168,22 +182,30 @@ interface CreateLocalizedMetadataInput {
   title?: string;
   description?: string;
   noIndex?: boolean;
+  ogType?: 'website' | 'article';
+  keywords?: string[];
 }
 
 export function createLocalizedMetadata({
   locale,
   path = '/',
   title,
-  description = SITE_DESCRIPTION,
+  description,
   noIndex = false,
+  ogType = 'website',
+  keywords,
 }: CreateLocalizedMetadataInput): Metadata {
   const resolvedLocale = normalizeLocale(locale);
   const canonicalUrl = getLocalizedUrl(resolvedLocale, path);
-  const resolvedTitle = title || SITE_NAME;
+  const brand = siteName(resolvedLocale);
+  const resolvedTitle = title || brand;
+  const resolvedDescription = description || siteDescription(resolvedLocale);
+  const socialTitle = resolvedTitle.includes(brand) ? resolvedTitle : `${resolvedTitle} | ${brand}`;
 
   return {
     title: resolvedTitle,
-    description,
+    description: resolvedDescription,
+    ...(keywords?.length ? { keywords } : {}),
     alternates: {
       canonical: canonicalUrl,
       languages: getLanguageAlternates(path),
@@ -211,10 +233,10 @@ export function createLocalizedMetadata({
           },
         },
     openGraph: {
-      type: 'website',
-      siteName: SITE_NAME,
-      title: resolvedTitle,
-      description,
+      type: ogType,
+      siteName: brand,
+      title: socialTitle,
+      description: resolvedDescription,
       url: canonicalUrl,
       // alternateLocale points readers at the other language (WO-81).
       locale: localeToOpenGraphLocale[resolvedLocale],
@@ -227,14 +249,14 @@ export function createLocalizedMetadata({
           url: `${siteOrigin}/images/logo/logo-og.png`,
           width: 1200,
           height: 630,
-          alt: SITE_NAME,
+          alt: siteOgImageAlt(resolvedLocale),
         },
       ],
     },
     twitter: {
       card: 'summary_large_image',
-      title: resolvedTitle,
-      description,
+      title: socialTitle,
+      description: resolvedDescription,
       images: [`${siteOrigin}/images/logo/logo-og.png`],
     },
     // On every page: Google reads the favicon from whichever page it crawled.

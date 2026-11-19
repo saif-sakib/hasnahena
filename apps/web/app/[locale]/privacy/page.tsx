@@ -9,6 +9,7 @@ import { getPublicSettings } from '@/lib/system-config';
 import { StructuredData } from '@/components/seo/structured-data';
 import { LegalDocument } from '@/components/layout/legal-document';
 import { PRIVACY_LAST_UPDATED } from '@/lib/legal';
+import { localePath } from '@/lib/locale-path';
 import { AUDIT_RETENTION_DAYS, rejectedRetentionDaysFrom } from '@/lib/retention-policy';
 
 /** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
@@ -19,14 +20,12 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.privacy' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/privacy',
-    title: activeLocale === 'bn' ? 'গোপনীয়তা নীতি' : 'Privacy Policy',
-    description:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনা কীভাবে আপনার ব্যক্তিগত তথ্য সংগ্রহ, ব্যবহার ও সুরক্ষিত রাখে তা জানুন।'
-        : 'Learn how Hasnahena collects, uses, and protects your personal information.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
@@ -37,13 +36,23 @@ export default async function PrivacyPage({ params }: PageProps) {
   }
 
   setRequestLocale(locale);
-
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'legal' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'legal' }),
+    getTranslations({ locale, namespace: 'seo.pages.privacy' }),
+  ]);
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/privacy" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/privacy"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+        dateModified={PRIVACY_LAST_UPDATED}
+      />
       {/* The site header and footer, for navigation and the language switch. */}
       <Header settings={settings} />
       <LegalDocument
@@ -61,6 +70,10 @@ export default async function PrivacyPage({ params }: PageProps) {
           securityDays: String(AUDIT_RETENTION_DAYS.long),
           routineDays: String(AUDIT_RETENTION_DAYS.short),
         }}
+        crossLinks={[
+          { href: localePath(locale, '/terms'), label: t('seeTerms') },
+          { href: localePath(locale, '/contact'), label: t('seeContact') },
+        ]}
       />
       <Footer settings={settings} />
     </>

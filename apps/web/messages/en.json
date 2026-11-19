@@ -40,8 +40,8 @@
     "qardHasan": "Qard al-Hasan"
   },
   "hero": {
-    "title": "Interest-Free Finance",
-    "subtitle": "Join our Qard al-Hasan community for ethical, Sharia-compliant loans with zero interest",
+    "title": "Interest-Free Qard al-Hasan Finance",
+    "subtitle": "Hasnahena Foundation in Jashore, Bangladesh — a cooperative where members save together and access 100% interest-free, Shariah-compliant Qard al-Hasan loans.",
     "cta": "Become a Member",
     "learnMore": "Learn More",
     "tagline": "Shariah Compliant Finance",
@@ -49,7 +49,15 @@
     "partnerAlt": "Partner {number}",
     "goToDashboard": "Go to Dashboard",
     "ctaTitle": "Join Interest-Free Finance Today",
-    "ctaSubtitle": "Become a member of Hasnahena and enjoy interest-free loans"
+    "ctaSubtitle": "Become a member of Hasnahena Foundation in Jashore and take part in 100% interest-free Qard al-Hasan lending."
+  },
+  "homeLinks": {
+    "aboutLink": "Learn about Hasnahena Foundation",
+    "activitiesLink": "Explore all welfare programs in Jashore",
+    "qardLink": "Read the complete Qard al-Hasan guide",
+    "faqLink": "Read frequently asked questions",
+    "contactLink": "View Jashore office address & contact details",
+    "donateLink": "See bank & mobile banking donation details"
   },
   "hadith": {
     "title": "In Light of Hadith",
@@ -117,6 +125,7 @@
     "viewAll": "View All",
     "noImages": "No images added yet",
     "openImage": "Open photo: {caption}",
+    "fallbackAlt": "Hasnahena Foundation community activity in Jashore ({date})",
     "previousImage": "Previous photo",
     "nextImage": "Next photo",
     "imageFailed": "Image failed to load"
@@ -192,6 +201,7 @@
     "inspireBody": "In this verse, Allah contrasts the destruction of interest with the blessing of charity, and in the hadith the Messenger of Allah (PBUH) teaches that Allah nurtures even the smallest halal charity until it becomes like a mountain. From this we understand that to free our society from interest, we must build an interest-free economy through charity and mutual help — following the way of Allah and His Messenger (PBUH). When you donate to Hasnahena Foundation, your donation works directly against interest by standing beside people in need. So donate to this foundation without any hesitation: seeking Allah’s reward, every single taka you give helps build an interest-free and poverty-free society."
   },
   "auth": {
+    "portalTitle": "Member Portal",
     "loginTitle": "Welcome Back",
     "loginSubtitle": "Sign in to access your account",
     "welcomeBack": "Welcome Back",
@@ -557,6 +567,9 @@
   "legal": {
     "lastUpdated": "Last updated {date}",
     "backToHome": "Back to Home",
+    "seePrivacy": "Read Privacy Policy",
+    "seeTerms": "Read Terms of Service",
+    "seeContact": "Contact Our Office",
     "privacy": {
       "title": "Privacy Policy",
       "intro": "This policy describes what Hasnahena Foundation records about you, who else holds it, and how long it is kept. It describes what the system actually does — where a right has a limit, the limit is stated here rather than left out.",
@@ -638,40 +651,109 @@
       }
     }
   },
+  "seo": {
+    "pages": {
+      "home": {
+        "description": "Hasnahena Foundation is a Qard al-Hasan cooperative in Jashore, Bangladesh. Members save together, borrow with zero interest, and support one another."
+      },
+      "about": {
+        "title": "About Us — Qard al-Hasan Cooperative",
+        "description": "Learn how Hasnahena Foundation in Bhekutia, Jashore operates as an interest-free Qard al-Hasan cooperative with transparent records and community trust."
+      },
+      "activities": {
+        "title": "Our Activities & Welfare Programs",
+        "description": "Explore Hasnahena Foundation's programs in Jashore: interest-free Qard al-Hasan loans, student scholarships, free health camps, Zakat, and youth training."
+      },
+      "contact": {
+        "title": "Contact & Jashore Office Location",
+        "description": "Visit or contact Hasnahena Foundation in Bhekutia, Sadar, Jashore, Bangladesh. Find our official office address, phone number, email, and member help hours."
+      },
+      "donate": {
+        "title": "Donate (Sadaqah & Zakat) in Jashore",
+        "description": "Support interest-free community finance and welfare in Jashore. Donate Sadaqah or charity to Hasnahena Foundation via bKash, Nagad, Rocket, or bank transfer."
+      },
+      "faq": {
+        "title": "Frequently Asked Questions (FAQ)",
+        "description": "Answers on Hasnahena Foundation membership, 100% interest-free Qard al-Hasan loans, deposits, guarantors, withdrawals, and privacy policies in Jashore."
+      },
+      "gallery": {
+        "title": "Community Activity Gallery",
+        "description": "Photos from Hasnahena Foundation's Qard al-Hasan initiatives, health camps, education support, and community programs in Jashore, Bangladesh."
+      },
+      "privacy": {
+        "title": "Privacy Policy",
+        "description": "Read how Hasnahena Foundation collects, protects, retains, and anonymises member identity details, national ID scans, and financial ledger records."
+      },
+      "support": {
+        "title": "Member Support & Help Center",
+        "description": "Get help with member approval, password resets, digital passbook confirmations, or savings withdrawals from Hasnahena Foundation in Jashore."
+      },
+      "terms": {
+        "title": "Terms of Service & Loan Rules",
+        "description": "Read Hasnahena Foundation's membership rules, zero-interest Qard al-Hasan loan terms, flat ৳500 office expense policy, and official physical-record policy."
+      }
+    }
+  },
   "pages": {
     "about": {
       "eyebrow": "About Us",
       "title": "Building a Better Society Together",
-      "lead": "Hasnahena Cooperative Society is a non-profit organization. We work towards completely interest-free financing and social development.",
+      "lead": "Hasnahena Foundation is an interest-free Qard al-Hasan cooperative and non-profit organization in Bhekutia, Sadar, Jashore, Bangladesh, working toward interest-free finance and social welfare.",
       "vision": {
         "title": "Vision",
         "body": "Establishing an interest-free economy and exploitation-free society."
       },
       "mission": {
         "title": "Mission",
-        "body": "Self-reliance through member savings, halal investments, and public welfare activities."
+        "body": "Self-reliance through member savings, halal mutual support, and public welfare activities."
       },
       "values": {
         "title": "Values",
         "body": "Transparency, accountability, trustworthiness, and mutual cooperation are our foundation."
-      }
+      },
+      "modelTitle": "Our Interest-Free Cooperative Model in Jashore",
+      "modelBody1": "Hasnahena Foundation pools regular member savings and community charity so members in Jashore can access Qard al-Hasan loans with zero interest rate, zero profit markup, and zero late fees or penalties. Members borrow strictly what they need and repay exactly the principal amount borrowed.",
+      "modelBody2": "Only a flat ৳500 non-refundable contribution toward office expenses applies at member registration and once at loan application — never added to the loan and identical regardless of loan size.",
+      "trustTitle": "Transparency, Accountability & Official Records",
+      "trustBody1": "Every deposit and loan repayment follows a three-step Request, Process, and Confirm workflow in your digital passbook, backed by an append-only audit log and hourly ledger reconciliation alongside the foundation’s official physical register books.",
+      "trustBody2": "Member identity documents and savings records are strictly protected by role-based access and clear retention policies.",
+      "regNumberLabel": "Official Registration No.",
+      "exploreTitle": "Explore Hasnahena Foundation",
+      "qardCta": "What is Qard al-Hasan?",
+      "activitiesCta": "Our Activities",
+      "donateCta": "Donate",
+      "faqCta": "Read the FAQ",
+      "contactCta": "Contact Us"
     },
     "activities": {
       "eyebrow": "Our Activities",
       "title": "Initiatives for Social Welfare",
-      "lead": "We conduct various activities for overall social development, including interest-free loans, education, and social support."
+      "lead": "We conduct various activities for overall social development in Jashore, including interest-free Qard al-Hasan loans, education support, healthcare, and community welfare.",
+      "ctaTitle": "Take Part in Our Community Work",
+      "ctaBody": "Learn how our interest-free lending model works, browse photos from past initiatives, or support welfare programs through your contribution.",
+      "qardCta": "How Qard al-Hasan Works",
+      "donateCta": "Donate to Support",
+      "galleryCta": "View Activity Gallery",
+      "registerCta": "Become a Member"
     },
     "contact": {
       "eyebrow": "Contact",
       "title": "Get in Touch",
-      "lead": "Contact us for any needs. We are always ready to assist you.",
+      "lead": "Contact Hasnahena Foundation in Jashore for membership inquiries, loan guidance, or donations. We are always ready to assist you.",
       "phone": "Phone",
       "email": "Email",
       "address": "Address",
       "talkTitle": "Talk to us",
-      "talkBody": "For detailed discussions, please call directly or visit our office.",
+      "talkBody": "For detailed discussions, please call directly or visit our office in Bhekutia, Sadar, Jashore.",
       "callNow": "Call Now",
-      "writeToUs": "Write to us"
+      "writeToUs": "Write to us",
+      "serviceAreaTitle": "Location & Service Area",
+      "serviceAreaBody": "Our office is located in Bhekutia, Sadar, Jashore (Jessore), Khulna Division, Bangladesh. We serve cooperative members across Jashore Sadar and neighboring communities.",
+      "visitHelpTitle": "Helpful Links Before You Visit",
+      "visitHelpBody": "Many common questions about membership, deposits, guarantors, and digital passbook support are answered online.",
+      "faqLink": "Frequently Asked Questions",
+      "qardLink": "Qard al-Hasan Guide",
+      "supportLink": "Member Support Center"
     },
     "donate": {
       "eyebrow": "Donate",
@@ -694,7 +776,11 @@
       "callBody": "In this verse, Allah contrasts the destruction of interest with the blessing of charity, and in the hadith the Messenger of Allah (PBUH) teaches that Allah nurtures even the smallest halal charity until it becomes like a mountain. From this we understand that to free our society from interest, we must build an interest-free economy through charity and mutual help — following the way of Allah and His Messenger (PBUH). When you donate to Hasnahena Foundation, your donation works directly against interest by standing beside people in need. So donate to this foundation without any hesitation: seeking Allah’s reward, every single taka you give helps build an interest-free and poverty-free society.",
       "waysToDonateTitle": "Ways to Donate",
       "sourcesTitle": "Sources",
-      "sourcesBody": "Qur’an: Surah Al-Baqarah, Verse 276 (2:276, Saheeh International translation). Hadith: Sahih al-Bukhari, Hadith 1410; Sahih Muslim, Hadith 1014."
+      "sourcesBody": "Qur’an: Surah Al-Baqarah, Verse 276 (2:276, Saheeh International translation). Hadith: Sahih al-Bukhari, Hadith 1410; Sahih Muslim, Hadith 1014.",
+      "relatedTitle": "Learn More About Where Your Contribution Helps",
+      "activitiesLink": "Explore Our Welfare Activities",
+      "aboutLink": "About Hasnahena Foundation",
+      "contactLink": "Contact Us"
     },
     "faq": {
       "eyebrow": "Help",
@@ -703,18 +789,34 @@
       "contactUs": "Contact us",
       "qardLink": "What is Qard al-Hasan?"
     },
+    "gallery": {
+      "activitiesLink": "Explore Our Activities",
+      "donateLink": "Support With a Donation"
+    },
     "support": {
       "eyebrow": "Help",
       "title": "Support Center",
-      "lead": "Reach us by phone, by email, or at the office — whichever suits you.",
+      "lead": "Practical help for Hasnahena Foundation members and applicants — by phone, email, or at our Jashore office.",
       "phone": "Phone Support",
       "email": "Email Support",
       "office": "Office Visit",
+      "topicsTitle": "Common Member Support Topics",
+      "approvalTitle": "Membership Application Status",
+      "approvalBody": "New applications require document verification and admin approval before first sign-in. You receive an email notification once a decision is made.",
+      "passwordTitle": "Password Reset & Desk Assistance",
+      "passwordBody": "Members with an email can use the Forgot Password page. Members without email can receive a temporary password reset directly at our office desk.",
+      "transactionsTitle": "Confirming Deposits & Repayments",
+      "transactionsBody": "After a field worker or staff member processes your deposit or instalment, sign in to your dashboard to review the receipt number and confirm the posting.",
+      "withdrawalTitle": "Savings Withdrawals",
+      "withdrawalBody": "Withdrawals are arranged in person through your field worker and processed by staff directly at the office, alongside your passbook.",
       "faqPrompt": "Many questions are already answered in the FAQ.",
-      "faqLink": "Read the FAQ"
+      "faqLink": "Read the FAQ",
+      "contactLink": "Contact & Office Location",
+      "qardLink": "Qard al-Hasan Loan Rules",
+      "privacyLink": "Privacy Policy"
     },
     "qardHasan": {
-      "metaTitle": "What is Qard al-Hasan? Meaning and How to Get a Loan",
+      "metaTitle": "What is Qard al-Hasan? Interest-Free Loans in Jashore",
       "metaDescription": "What Qard al-Hasan means in Islam, how it differs from interest, and how members of Hasnahena Foundation in Jashore can get an interest-free loan.",
       "eyebrow": "Interest-free lending",
       "title": "What is Qard al-Hasan?",
@@ -769,6 +871,8 @@
       "ctaBody": "Ready to take part?",
       "ctaRegister": "Become a member",
       "ctaFaq": "Read the FAQ",
+      "ctaAbout": "About Hasnahena",
+      "ctaDonate": "Support With a Donation",
       "sourcesTitle": "Sources",
       "sourcesBody": "Qur’an: Al-Baqarah 2:245, 2:275, 2:279, 2:280, 2:282. Hadith: Sahih al-Bukhari 2387, 2393, 2400; Sahih Muslim 1598, 2699. Qur’an translations are Saheeh International.",
       "disclaimer": "This page is a general introduction, not a fatwa. For a ruling on your own situation, please ask a qualified scholar."

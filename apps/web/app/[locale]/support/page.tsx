@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowRight, Mail, MapPin, Phone } from 'lucide-react';
+import { ArrowRight, KeyRound, Mail, MapPin, Phone, Receipt, UserCheck, Wallet } from 'lucide-react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales, type Locale } from '@/i18n';
 import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
@@ -21,14 +21,12 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.support' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/support',
-    title: activeLocale === 'bn' ? 'সহায়তা ও সাপোর্ট' : 'Support Center',
-    description:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনার সহায়তা পেতে ফোন, ইমেইল বা সরাসরি অফিসে যোগাযোগ করুন।'
-        : 'Get support from Hasnahena via phone, email, or by visiting the office.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
@@ -39,8 +37,12 @@ export default async function SupportPage({ params }: PageProps) {
   }
   setRequestLocale(locale);
 
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'pages.support' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'pages.support' }),
+    getTranslations({ locale, namespace: 'seo.pages.support' }),
+  ]);
 
   // org.* via contactDetails (WO-67).
   const { address, phone, email } = contactDetails(settings, locale);
@@ -51,13 +53,26 @@ export default async function SupportPage({ params }: PageProps) {
     { key: 'office', icon: MapPin, value: address, href: undefined },
   ].filter((channel) => channel.value);
 
+  const topics = [
+    { key: 'approval', icon: UserCheck },
+    { key: 'password', icon: KeyRound },
+    { key: 'transactions', icon: Receipt },
+    { key: 'withdrawal', icon: Wallet },
+  ] as const;
+
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/support" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/support"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+      />
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
-        <PageBody className="max-w-5xl">
+        <PageBody className="max-w-5xl space-y-10">
           <div className="grid gap-6 md:grid-cols-3">
             {channels.map(({ key, icon: Icon, value, href }) => (
               <article key={key} className={`${paperCard} p-6`}>
@@ -76,16 +91,62 @@ export default async function SupportPage({ params }: PageProps) {
             ))}
           </div>
 
-          <p className="mt-8 text-center text-muted-foreground">
-            {t('faqPrompt')}{' '}
-            <Link
-              href={localePath(locale, '/faq')}
-              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-            >
-              {t('faqLink')}
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </p>
+          <section className="space-y-4">
+            <h2 className="text-xl font-semibold text-slate-900 md:text-2xl dark:text-white">
+              {t('topicsTitle')}
+            </h2>
+            <div className="grid gap-6 md:grid-cols-2">
+              {topics.map(({ key, icon: Icon }) => (
+                <article key={key} className={`${paperCard} p-6`}>
+                  <IconTile>
+                    <Icon className="h-5 w-5" aria-hidden="true" />
+                  </IconTile>
+                  <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+                    {t(`${key}Title`)}
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {t(`${key}Body`)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <div className="space-y-3 text-center text-muted-foreground">
+            <p>
+              {t('faqPrompt')}{' '}
+              <Link
+                href={localePath(locale, '/faq')}
+                className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('faqLink')}
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+              <Link
+                href={localePath(locale, '/contact')}
+                className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('contactLink')}
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+              <Link
+                href={localePath(locale, '/qard-al-hasan')}
+                className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('qardLink')}
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+              <Link
+                href={localePath(locale, '/privacy')}
+                className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('privacyLink')}
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+          </div>
         </PageBody>
       </main>
       <Footer settings={settings} />

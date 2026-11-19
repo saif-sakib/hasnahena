@@ -4,9 +4,12 @@ import { resolve } from 'node:path';
 import { locales, type Locale } from '@/i18n';
 import { publicPagePaths, siteOrigin, SITE_DESCRIPTION, SITE_NAME_VARIANTS } from '@/lib/seo';
 import { faqEntries } from '@/lib/faq';
+import { ORG_SAME_AS } from '@/lib/contact-details';
 import { StructuredData } from '@/components/seo/structured-data';
 import {
+  ORGANIZATION_ID,
   PUBLIC_PAGE_LABELS,
+  WEBSITE_ID,
   organizationSchema,
   pageLabel,
   publicPageGraph,
@@ -228,4 +231,106 @@ describe('every public page actually renders it', () => {
       expect(source, `renders a different path than ${path}`).toContain(`path="${path}"`);
     });
   }
+});
+
+describe('rich organization, page-specific, and FAQ structured data', () => {
+  it('enriches organizationSchema with sameAs, areaServed, knowsAbout, slogan, and E.164 phone normalization', () => {
+    const org = organizationSchema({ ...SETTINGS, 'org.phone': '01786101204' });
+
+    expect(org.sameAs).toEqual([...ORG_SAME_AS]);
+    expect(org.slogan).toBeTruthy();
+    expect(org.knowsAbout).toContain('Qard al-Hasan');
+    expect(JSON.stringify(org.areaServed)).toContain('Jashore District');
+    expect(JSON.stringify(org.areaServed)).toContain('Jessore');
+    expect(org.telephone).toBe('+8801786101204');
+    expect((org.contactPoint as Record<string, string>).telephone).toBe('+8801786101204');
+  });
+
+  it('emits semantic WebPage subtypes and DonateAction linked by @id', () => {
+    const checkType = (path: string, expectedType: string) => {
+      const graph = publicPageGraph({
+        settings: SETTINGS,
+        locale: 'en',
+        path,
+        label: pageLabel('en', path),
+      });
+      const pageNode = graph.find((node) => node['@type'] === expectedType);
+      expect(pageNode, `${path} missing ${expectedType}`).toBeDefined();
+      expect(pageNode?.isPartOf).toEqual({ '@id': WEBSITE_ID });
+      expect(pageNode?.about).toEqual({ '@id': ORGANIZATION_ID });
+      return pageNode;
+    };
+
+    expect(checkType('/', 'WebPage')?.mainEntity).toEqual({ '@id': ORGANIZATION_ID });
+    expect(checkType('/about', 'AboutPage')?.mainEntity).toEqual({ '@id': ORGANIZATION_ID });
+    expect(checkType('/contact', 'ContactPage')?.mainEntity).toEqual({ '@id': ORGANIZATION_ID });
+    checkType('/activities', 'CollectionPage');
+    checkType('/gallery', 'ImageGallery');
+    const donateNode = checkType('/donate', 'WebPage');
+    expect((donateNode?.potentialAction as Record<string, unknown>)?.['@type']).toBe('DonateAction');
+  });
+
+  it('emits Article + HowTo on Qard al-Hasan, ItemList on Activities, and ImageObjects on Gallery', () => {
+    const qardGraph = publicPageGraph({
+      settings: SETTINGS,
+      locale: 'en',
+      path: '/qard-al-hasan',
+      label: pageLabel('en', '/qard-al-hasan'),
+      article: {
+        headline: 'What is Qard al-Hasan?',
+        description: 'Interest-free loan guide',
+      },
+      howTo: {
+        name: 'How to get Qard al-Hasan',
+        description: 'Step by step process',
+        steps: [
+          { name: 'Become a member', text: 'Register online.' },
+          { name: 'Build savings', text: 'Deposit regularly.' },
+        ],
+      },
+    });
+    expect(typesIn(qardGraph)).toContain('Article');
+    expect(typesIn(qardGraph)).toContain('HowTo');
+
+    const activitiesGraph = publicPageGraph({
+      settings: SETTINGS,
+      locale: 'en',
+      path: '/activities',
+      label: pageLabel('en', '/activities'),
+      activityItems: [{ name: 'Interest-Free Finance', description: 'Zero-interest loans' }],
+    });
+    expect(typesIn(activitiesGraph)).toContain('ItemList');
+
+    const galleryGraph = publicPageGraph({
+      settings: SETTINGS,
+      locale: 'en',
+      path: '/gallery',
+      label: pageLabel('en', '/gallery'),
+      galleryItems: [
+        {
+          imageUrl: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+          caption: 'Health camp in Jashore',
+          date: '2026-08-27T00:00:00.000Z',
+        },
+        {
+          imageUrl: 'https://res.cloudinary.com/demo/image/upload/sample2.jpg',
+          caption: '',
+        },
+      ],
+    });
+    const galleryNode = galleryGraph.find((node) => node['@type'] === 'ImageGallery');
+    const parts = galleryNode?.hasPart as Array<Record<string, unknown>>;
+    expect(parts).toHaveLength(2);
+    expect(parts[0]['@type']).toBe('ImageObject');
+    expect(parts[1]).not.toHaveProperty('caption');
+  });
+
+  it('publishes expanded bilingual FAQ entries and interpolates noticePeriodDays', () => {
+    for (const locale of locales) {
+      const entries = faqEntries(locale, 90);
+      expect(entries.length).toBeGreaterThanOrEqual(10);
+      expect(entries.some((e) => e.a.includes('90'))).toBe(true);
+      expect(faqEntries(locale, 0).some((e) => e.a.includes('90'))).toBe(false);
+    }
+  });
 });

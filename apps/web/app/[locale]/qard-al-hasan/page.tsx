@@ -58,6 +58,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     path: '/qard-al-hasan',
     title: t('metaTitle'),
     description: t('metaDescription'),
+    ogType: 'article',
   });
 }
 
@@ -93,8 +94,11 @@ export default async function QardAlHasanPage({ params }: PageProps) {
   }
   setRequestLocale(locale);
 
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'pages.qardHasan' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'pages.qardHasan' }),
+  ]);
 
   const number = new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD');
   const fee = formatCurrency(OFFICE_EXPENSES_TAKA, locale);
@@ -106,12 +110,32 @@ export default async function QardAlHasanPage({ params }: PageProps) {
     threshold: formatCurrency(GUARANTOR_THRESHOLD_TAKA, locale),
   };
 
+  const stepsForSchema = ([1, 2, 3, 4, 5, 6] as const).map((step) => ({
+    name: t(`step${step}Title`),
+    text: t(`step${step}Body`, values),
+  }));
+
   const sectionTitle = 'text-xl font-semibold text-slate-900 md:text-2xl dark:text-white';
   const body = 'mt-3 leading-relaxed text-muted-foreground';
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/qard-al-hasan" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/qard-al-hasan"
+        settings={settings}
+        headline={t('metaTitle')}
+        description={t('metaDescription')}
+        article={{
+          headline: t('metaTitle'),
+          description: t('metaDescription'),
+        }}
+        howTo={{
+          name: t('howTitle'),
+          description: t('howIntro'),
+          steps: stepsForSchema,
+        }}
+      />
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
@@ -150,7 +174,7 @@ export default async function QardAlHasanPage({ params }: PageProps) {
             <h2 className={sectionTitle}>{t('howTitle')}</h2>
             <p className={body}>{t('howIntro')}</p>
             <ol className="mt-5 space-y-5">
-              {([1, 2, 3, 4, 5, 6] as const).map((step) => (
+              {([1, 2, 3, 4, 5, 6] as const).map((step, index) => (
                 <li key={step} className="flex gap-4">
                   <span
                     aria-hidden="true"
@@ -159,9 +183,9 @@ export default async function QardAlHasanPage({ params }: PageProps) {
                     {number.format(step)}
                   </span>
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-900 dark:text-white">{t(`step${step}Title`)}</h3>
+                    <h3 className="font-semibold text-slate-900 dark:text-white">{stepsForSchema[index].name}</h3>
                     <p className="mt-1 leading-relaxed text-muted-foreground">
-                      {t(`step${step}Body`, values)}
+                      {stepsForSchema[index].text}
                     </p>
                   </div>
                 </li>
@@ -189,6 +213,12 @@ export default async function QardAlHasanPage({ params }: PageProps) {
               </Button>
               <Button asChild variant="outline">
                 <Link href={localePath(locale, '/faq')}>{t('ctaFaq')}</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href={localePath(locale, '/about')}>{t('ctaAbout')}</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href={localePath(locale, '/donate')}>{t('ctaDonate')}</Link>
               </Button>
             </div>
           </div>

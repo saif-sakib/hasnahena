@@ -7,10 +7,11 @@ import { locales, type Locale } from '@/i18n';
 import { Toaster } from '@/components/ui/toaster';
 import {
   SITE_NAME,
-  SITE_DESCRIPTION,
-  createLocalizedMetadata,
   normalizeLocale,
   siteBaseUrl,
+  siteDescription,
+  siteName,
+  siteOrigin,
   siteTitle,
   siteVerification,
 } from '@/lib/seo';
@@ -83,36 +84,50 @@ export async function generateMetadata({ params }: RootLayoutProps): Promise<Met
   const { locale } = await params;
   const settings = await getPublicSettings();
   const activeLocale = normalizeLocale(locale);
-  const localizedMetadata = createLocalizedMetadata({
-    locale: activeLocale,
-    path: '/',
-    title: siteTitle(activeLocale),
-    description: SITE_DESCRIPTION,
-  });
+  const brand = siteName(activeLocale);
 
   return {
-    ...localizedMetadata,
     metadataBase: siteBaseUrl,
     title: {
-      // The full name, the one people search for.
-      template: `%s | ${SITE_NAME}`,
+      // The full name, the one people search for, in the reader's language.
+      template: `%s | ${brand}`,
       default: siteTitle(activeLocale),
     },
-    keywords: [
-      'Hasnahena Foundation',
-      'Qard al-Hasan',
-      'interest-free loan',
-      'Islamic finance',
-      'cooperative society',
-      'Jashore',
-      'Bangladesh',
-      'হাসনাহেনা ফাউন্ডেশন',
-      'কর্জে হাসানা',
-      'সুদমুক্ত ঋণ',
-      'যশোর',
-    ],
-    applicationName: SITE_NAME,
-    authors: [{ name: 'Md Saif Ahmed' }],
+    description: siteDescription(activeLocale),
+    keywords:
+      activeLocale === 'bn'
+        ? [
+            'হাসনাহেনা ফাউন্ডেশন',
+            'কর্জে হাসানা',
+            'সুদমুক্ত ঋণ',
+            'সুদমুক্ত ঋণ যশোর',
+            'ইসলামী সমবায়',
+            'সুদমুক্ত অর্থায়ন',
+            'যশোর',
+            'বাংলাদেশ',
+            'সাদাকা',
+            'যাকাত',
+          ]
+        : [
+            'Hasnahena Foundation',
+            'Qard al-Hasan',
+            'Qard Hasan',
+            'interest-free loan',
+            'interest-free loan Jashore',
+            'interest-free loan Jessore',
+            'Islamic finance Bangladesh',
+            'cooperative society Jashore',
+            'Sadaqah',
+            'Zakat',
+            'Jashore',
+            'Bangladesh',
+          ],
+    applicationName: brand,
+    authors: [{ name: SITE_NAME, url: siteOrigin }],
+    creator: SITE_NAME,
+    publisher: SITE_NAME,
+    category: 'nonprofit',
+    formatDetection: { telephone: false },
     icons: iconsFor(settings['branding.favicon']),
     // Home-screen icons and name (app/manifest.ts).
     manifest: '/manifest.webmanifest',

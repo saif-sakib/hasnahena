@@ -1,14 +1,17 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { locales, type Locale } from '@/i18n';
 import { notFound } from 'next/navigation';
 import { Noto_Naskh_Arabic } from 'next/font/google';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
-import { Building2, Smartphone } from 'lucide-react';
+import { ArrowRight, Building2, Smartphone } from 'lucide-react';
 import { IconTile, PageBody, PageHero, paperCard } from '@/components/layout/page-hero';
+import { Button } from '@/components/ui/button';
 import { getPublicSettings } from '@/lib/system-config';
 import { createLocalizedMetadata, normalizeLocale } from '@/lib/seo';
+import { localePath } from '@/lib/locale-path';
 import { StructuredData } from '@/components/seo/structured-data';
 
 /** Prerendered (WO-73); a settings save busts the tag, this is the backstop. */
@@ -66,14 +69,12 @@ function Quote({ text, source }: { text: string; source: string }) {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.donate' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/donate',
-    title: activeLocale === 'bn' ? 'অনুদান করুন' : 'Donate',
-    description:
-      activeLocale === 'bn'
-        ? 'হাসনাহেনার সেবামূলক কার্যক্রমে অনুদান দিয়ে অংশ নিন।'
-        : 'Support Hasnahena welfare programs by making a donation.',
+    title: tSeo('title'),
+    description: tSeo('description'),
   });
 }
 
@@ -82,9 +83,13 @@ export default async function DonatePage({ params }: PageProps) {
   if (!locales.includes(locale as Locale)) notFound();
   setRequestLocale(locale);
 
-  const settings = await getPublicSettings();
-  const t = await getTranslations({ locale, namespace: 'pages.donate' });
-  const tDonation = await getTranslations({ locale, namespace: 'donation' });
+  const activeLocale = normalizeLocale(locale);
+  const [settings, t, tDonation, tSeo] = await Promise.all([
+    getPublicSettings(),
+    getTranslations({ locale, namespace: 'pages.donate' }),
+    getTranslations({ locale, namespace: 'donation' }),
+    getTranslations({ locale, namespace: 'seo.pages.donate' }),
+  ]);
 
   const bankAccountNo = settings['bank.accountNo']?.trim();
   const bankName = settings['bank.name']?.trim();
@@ -109,7 +114,13 @@ export default async function DonatePage({ params }: PageProps) {
 
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/donate" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/donate"
+        settings={settings}
+        headline={tSeo('title')}
+        description={tSeo('description')}
+      />
       <Header settings={settings} />
       <main className="surface-paper flex-1">
         <PageHero eyebrow={t('eyebrow')} title={t('title')} lead={t('lead')} />
@@ -166,6 +177,32 @@ export default async function DonatePage({ params }: PageProps) {
                 )}
               </div>
             )}
+          </section>
+
+          <section className={`${paperCard} p-6 text-center md:p-8`}>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+              {t('relatedTitle')}
+            </h2>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={localePath(locale, '/activities')}>
+                  {t('activitiesLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={localePath(locale, '/about')}>
+                  {t('aboutLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={localePath(locale, '/contact')}>
+                  {t('contactLink')}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </Button>
+            </div>
           </section>
 
           <footer className="border-t border-slate-200 pt-5 text-sm leading-relaxed text-muted-foreground dark:border-slate-800">

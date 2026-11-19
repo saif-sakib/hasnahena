@@ -4,8 +4,9 @@ import { getLanguageAlternates, getLocalizedUrl, publicPagePaths } from '@/lib/s
 
 function getPathPriority(path: string): number {
   if (path === '/') return 1;
-  if (path === '/donate') return 0.9;
-  if (path === '/about' || path === '/activities' || path === '/contact') return 0.8;
+  if (path === '/qard-al-hasan' || path === '/donate') return 0.9;
+  if (path === '/about' || path === '/activities' || path === '/faq' || path === '/contact') return 0.8;
+  if (path === '/privacy' || path === '/terms') return 0.4;
   return 0.7;
 }
 

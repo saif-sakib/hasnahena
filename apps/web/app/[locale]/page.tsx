@@ -22,7 +22,7 @@ import { getPublicGalleryItems } from '@/lib/public-content';
 import { getPublicSettings } from '@/lib/system-config';
 import { localizedSetting } from '@/lib/localized-settings';
 import { CountUp } from '@/components/ui/count-up';
-import { contactDetails } from '@/lib/contact-details';
+import { contactDetails, telHref } from '@/lib/contact-details';
 import { localePath } from '@/lib/locale-path';
 
 /** Prerendered (WO-73); revalidateTag on settings PUT is the real invalidation. */
@@ -33,15 +33,13 @@ type PageProps = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
   const activeLocale = normalizeLocale(locale);
+  const tSeo = await getTranslations({ locale: activeLocale, namespace: 'seo.pages.home' });
   return createLocalizedMetadata({
     locale: activeLocale,
     path: '/',
     // siteTitle() — this overrides the layout's, so it is the most-crawled <title>.
     title: siteTitle(activeLocale),
-    description:
-      activeLocale === 'bn'
-        ? 'যশোরের হাসনাহেনা ফাউন্ডেশন একটি কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায়। সদস্যরা একসাথে সঞ্চয় করেন, সুদ ছাড়া ঋণ নেন এবং একে অপরের পাশে দাঁড়ান।'
-        : 'Hasnahena Foundation is a Qard al-Hasan cooperative in Jashore, Bangladesh. Members save together, borrow with zero interest and stand by one another.',
+    description: tSeo('description'),
   });
 }
 
@@ -52,7 +50,8 @@ export default async function HomePage({ params }: PageProps) {
   }
 
   setRequestLocale(locale);
-  const t = await getTranslations({locale, namespace: 'common'});
+  const tSeo = await getTranslations({ locale, namespace: 'seo.pages.home' });
+  const tHomeLinks = await getTranslations({ locale, namespace: 'homeLinks' });
   const tFeatures = await getTranslations({locale, namespace: 'features'});
   const tActivities = await getTranslations({locale, namespace: 'activities'});
   const tHero = await getTranslations({locale, namespace: 'hero'});
@@ -172,9 +171,19 @@ export default async function HomePage({ params }: PageProps) {
 
   const contact = contactDetails(settings, locale);
   const contactCards = [
-    { icon: MapPin, title: tContact('address'), value: contact.address },
-    { icon: Phone, title: tContact('phone'), value: contact.phone },
-    { icon: Mail, title: tContact('email'), value: contact.email },
+    { icon: MapPin, title: tContact('address'), value: contact.address, href: undefined },
+    {
+      icon: Phone,
+      title: tContact('phone'),
+      value: contact.phone,
+      href: contact.phone ? telHref(contact.phone) : undefined,
+    },
+    {
+      icon: Mail,
+      title: tContact('email'),
+      value: contact.email,
+      href: contact.email ? `mailto:${contact.email}` : undefined,
+    },
   ].filter((card) => card.value !== '');
 
   const donationChannels = [
@@ -190,9 +199,17 @@ export default async function HomePage({ params }: PageProps) {
     { step: 4, icon: HeadphonesIcon, ...getStepContent(tHowItWorks, 'step4') },
   ];
 
+  const activeLocale = normalizeLocale(locale);
+
   return (
     <>
-      <StructuredData locale={normalizeLocale(locale)} path="/" settings={settings} />
+      <StructuredData
+        locale={activeLocale}
+        path="/"
+        settings={settings}
+        headline={siteTitle(activeLocale)}
+        description={tSeo('description')}
+      />
       <Header settings={settings} />
       {/* One ground for everything below the hero (no alternating bands). */}
       <main className="surface-paper flex-1">
@@ -204,7 +221,8 @@ export default async function HomePage({ params }: PageProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={settings['hero.backgroundImage']}
-                alt="Hero background"
+                alt=""
+                aria-hidden="true"
                 className="h-full w-full object-cover opacity-15"
               />
             </div>
@@ -245,6 +263,10 @@ export default async function HomePage({ params }: PageProps) {
                           key={logo}
                           src={logo}
                           alt={tHero('partnerAlt', { number: index + 1 })}
+                          width={96}
+                          height={32}
+                          loading="lazy"
+                          decoding="async"
                           className="h-8 w-24 rounded object-contain bg-white/30 p-1"
                         />
                       ))}
@@ -359,7 +381,7 @@ export default async function HomePage({ params }: PageProps) {
               ))}
             </div>
 
-            <SectionLink href={localePath(locale, '/activities')} label={t('readMore')} />
+            <SectionLink href={localePath(locale, '/activities')} label={tHomeLinks('activitiesLink')} />
           </div>
         </section>
 
@@ -386,6 +408,8 @@ export default async function HomePage({ params }: PageProps) {
                 </Card>
               ))}
             </div>
+
+            <SectionLink href={localePath(locale, '/about')} label={tHomeLinks('aboutLink')} />
           </div>
         </section>
 
@@ -458,6 +482,20 @@ export default async function HomePage({ params }: PageProps) {
                 </div>
               ))}
             </div>
+            <div className="reveal-soft mt-10 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3">
+              <Button asChild variant="outline" className="w-full sm:w-auto gap-2">
+                <Link href={localePath(locale, '/qard-al-hasan')}>
+                  {tHomeLinks('qardLink')}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="w-full sm:w-auto gap-2">
+                <Link href={localePath(locale, '/faq')}>
+                  {tHomeLinks('faqLink')}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
         </section>
 
@@ -477,13 +515,22 @@ export default async function HomePage({ params }: PageProps) {
                       <item.icon className="h-5 w-5 text-primary" />
                     </div>
                     <h3 className="font-semibold mb-2">{item.title}</h3>
-                    <p className="text-sm text-muted-foreground">{item.value}</p>
+                    {item.href ? (
+                      <a
+                        href={item.href}
+                        className="text-sm text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
+                      >
+                        {item.value}
+                      </a>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">{item.value}</p>
+                    )}
                   </CardContent>
                 </Card>
               ))}
             </div>
 
-            <SectionLink href={localePath(locale, '/contact')} label={t('readMore')} />
+            <SectionLink href={localePath(locale, '/contact')} label={tHomeLinks('contactLink')} />
           </div>
         </section>
 
@@ -550,7 +597,7 @@ export default async function HomePage({ params }: PageProps) {
               </Card>
             </div>
 
-            <SectionLink href={localePath(locale, '/donate')} label={t('readMore')} />
+            <SectionLink href={localePath(locale, '/donate')} label={tHomeLinks('donateLink')} />
           </div>
         </section>
 

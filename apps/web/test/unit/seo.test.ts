@@ -3,16 +3,23 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import sitemap from '@/app/sitemap';
 import manifest from '@/app/manifest';
+import robots from '@/app/robots';
 import { locales } from '@/i18n';
 import {
   createLocalizedMetadata,
   getLocalizedUrl,
   publicPagePaths,
   resolveSiteOrigin,
+  siteDescription,
+  siteName,
+  siteOgImageAlt,
   siteOrigin,
   siteTitle,
+  SITE_DESCRIPTION,
+  SITE_DESCRIPTION_BN,
   SITE_ICONS,
   SITE_NAME,
+  SITE_NAME_BN,
   siteVerification,
 } from '@/lib/seo';
 
@@ -321,5 +328,77 @@ describe('the IndexNow key', () => {
   it('contains the key that names it', () => {
     const [file] = keyFiles;
     expect(readFileSync(join(publicDir, file), 'utf8').trim()).toBe(file.replace(/\.txt$/, ''));
+  });
+});
+
+describe('bilingual brand helpers, social titles, and canonical isolation', () => {
+  it('returns localized site name, description, and OG image alt', () => {
+    expect(siteName('en')).toBe(SITE_NAME);
+    expect(siteName('bn')).toBe(SITE_NAME_BN);
+    expect(siteDescription('en')).toBe(SITE_DESCRIPTION);
+    expect(siteDescription('bn')).toBe(SITE_DESCRIPTION_BN);
+    expect(siteOgImageAlt('en')).toContain(SITE_NAME);
+    expect(siteOgImageAlt('bn')).toContain(SITE_NAME_BN);
+  });
+
+  it('localizes openGraph siteName, appends brand to interior social titles, and supports article ogType', () => {
+    const bnAbout = createLocalizedMetadata({
+      locale: 'bn',
+      path: '/about',
+      title: 'আমাদের সম্পর্কে',
+    });
+    const bnOg = bnAbout.openGraph as {
+      siteName?: string;
+      title?: string;
+      images?: Array<{ alt?: string }>;
+    };
+    const bnTw = bnAbout.twitter as { title?: string };
+
+    expect(bnOg?.siteName).toBe(SITE_NAME_BN);
+    expect(bnOg?.title).toBe(`আমাদের সম্পর্কে | ${SITE_NAME_BN}`);
+    expect(bnTw?.title).toBe(`আমাদের সম্পর্কে | ${SITE_NAME_BN}`);
+    expect(bnOg?.images?.[0]?.alt).toBe(siteOgImageAlt('bn'));
+
+    const home = createLocalizedMetadata({
+      locale: 'en',
+      path: '/',
+      title: siteTitle('en'),
+    });
+    expect((home.openGraph as { title?: string })?.title).toBe(siteTitle('en'));
+
+    const qard = createLocalizedMetadata({
+      locale: 'en',
+      path: '/qard-al-hasan',
+      title: 'What is Qard al-Hasan?',
+      ogType: 'article',
+      keywords: ['Qard al-Hasan', 'interest-free loan'],
+    });
+    expect((qard.openGraph as { type?: string })?.type).toBe('article');
+    expect(qard.keywords).toEqual(['Qard al-Hasan', 'interest-free loan']);
+  });
+
+  it('keeps alternates out of the root layout so noindex routes do not inherit / canonicals', () => {
+    const layoutSource = readFileSync(
+      resolve(new URL('.', import.meta.url).pathname, '..', '..', 'app', '[locale]', 'layout.tsx'),
+      'utf8',
+    );
+    expect(layoutSource).not.toContain('createLocalizedMetadata(');
+    expect(layoutSource).not.toMatch(/\balternates\s*:/);
+    expect(layoutSource).toContain('template: `%s | ${brand}`');
+  });
+
+  it('disallows /monitoring alongside /api/ and dashboards while leaving auth pages crawlable for noindex', () => {
+    const r = robots();
+    const rules = Array.isArray(r.rules) ? r.rules[0] : r.rules;
+    const disallow = Array.isArray(rules.disallow) ? rules.disallow : [rules.disallow ?? ''];
+
+    expect(disallow).toContain('/api/');
+    expect(disallow).toContain('/monitoring');
+    expect(disallow).toContain('/dashboard/');
+    expect(disallow).toContain('/bn/dashboard/');
+    for (const authPath of ['/login', '/register', '/forgot-password', '/reset-password']) {
+      expect(disallow).not.toContain(authPath);
+      expect(disallow).not.toContain(`/bn${authPath}`);
+    }
   });
 });

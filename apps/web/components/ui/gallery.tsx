@@ -92,49 +92,58 @@ export function Gallery({ items, locale }: GalleryProps) {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((item, index) => (
-          <Card
-            key={item.id}
-            className="overflow-hidden group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-700"
-          >
-            {/* A real <button>: keyboard- and screen-reader-reachable, named by the caption. */}
-            <button
-              type="button"
-              className="block w-full text-left cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-              onClick={() => setSelectedImage(index)}
-              aria-label={t("openImage", {
-                caption: item.caption || formatDate(item.date),
-              })}
+        {items.map((item, index) => {
+          const formattedDate = formatDate(item.date);
+          const imageAlt =
+            item.caption.trim() || t("fallbackAlt", { date: formattedDate });
+          return (
+            <Card
+              key={item.id}
+              className="overflow-hidden group hover:shadow-xl transition-all duration-300 border-slate-200 dark:border-slate-700"
             >
-              <div className="relative aspect-4/3 overflow-hidden bg-slate-100 dark:bg-slate-800">
-                {failedImages.has(item.id) ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
-                    <ImageOff className="h-10 w-10 mb-2" />
-                    <span className="text-xs">{t("imageFailed")}</span>
+              <figure className="m-0">
+                {/* A real <button>: keyboard- and screen-reader-reachable, named by the caption. */}
+                <button
+                  type="button"
+                  className="block w-full text-left cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  onClick={() => setSelectedImage(index)}
+                  aria-label={t("openImage", {
+                    caption: item.caption || formattedDate,
+                  })}
+                >
+                  <div className="relative aspect-4/3 overflow-hidden bg-slate-100 dark:bg-slate-800">
+                    {failedImages.has(item.id) ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                        <ImageOff className="h-10 w-10 mb-2" />
+                        <span className="text-xs">{t("imageFailed")}</span>
+                      </div>
+                    ) : (
+                      <Image
+                        src={item.image}
+                        alt={imageAlt}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={() => handleImageError(item.id)}
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   </div>
-                ) : (
-                  <Image
-                    src={item.image}
-                    alt={item.caption}
-                    fill
-                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                    className="object-cover group-hover:scale-105 transition-transform duration-500"
-                    onError={() => handleImageError(item.id)}
-                  />
-                )}
-                <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              </div>
-            </button>
-            <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground mb-2">
-                {formatDate(item.date)}
-              </p>
-              <p className="font-medium line-clamp-2 text-slate-800 dark:text-slate-200">
-                {item.caption}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+                </button>
+                <CardContent className="p-4">
+                  <figcaption>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      <time dateTime={item.date}>{formattedDate}</time>
+                    </p>
+                    <p className="font-medium line-clamp-2 text-slate-800 dark:text-slate-200">
+                      {item.caption}
+                    </p>
+                  </figcaption>
+                </CardContent>
+              </figure>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Lightbox, portalled; selectedImage starts null, so SSR renders nothing here. */}
@@ -195,7 +204,12 @@ export function Gallery({ items, locale }: GalleryProps) {
               <div className="relative h-[55dvh] w-full bg-black md:h-[72dvh]">
                 <Image
                   src={items[selectedImage].image}
-                  alt={items[selectedImage].caption}
+                  alt={
+                    items[selectedImage].caption.trim() ||
+                    t("fallbackAlt", {
+                      date: formatDate(items[selectedImage].date),
+                    })
+                  }
                   fill
                   sizes="100vw"
                   className="object-contain"
@@ -206,7 +220,9 @@ export function Gallery({ items, locale }: GalleryProps) {
                   {items[selectedImage].caption}
                 </p>
                 <p className="mt-1 text-xs text-white/70 md:text-sm">
-                  {formatDate(items[selectedImage].date)}
+                  <time dateTime={items[selectedImage].date}>
+                    {formatDate(items[selectedImage].date)}
+                  </time>
                 </p>
               </div>
             </div>

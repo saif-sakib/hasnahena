@@ -12,6 +12,7 @@ const PRIVATE_PATHS = ['/dashboard/'];
 export default function robots(): MetadataRoute.Robots {
   const disallow = [
     '/api/',
+    '/monitoring',
     ...locales.flatMap((locale) =>
       PRIVATE_PATHS.map((path) => {
         const localized = getLocalizedPath(locale, path.replace(/\/$/, ''));

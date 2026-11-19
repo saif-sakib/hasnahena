@@ -136,7 +136,7 @@ export async function PUT(request: NextRequest) {
     // HTML. `{ expire: 0 }` so the admin sees the save at once ('max' is SWR).
     revalidateTag(SYSTEM_CONFIG_TAG, { expire: 0 });
     revalidatePath('/');
-    revalidatePath('/[locale]');
+    revalidatePath('/[locale]', 'layout');
     revalidatePath('/[locale]/gallery');
     revalidatePath('/[locale]/dashboard/admin/settings');
     revalidatePath('/[locale]/dashboard/admin/content');
