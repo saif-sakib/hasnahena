@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { locales } from '@/i18n';
-import { getLocalizedPath, publicPagePaths, siteOrigin } from '@/lib/seo';
+import { getLanguageAlternates, getLocalizedUrl, publicPagePaths } from '@/lib/seo';
 
 function getPathPriority(path: string): number {
   if (path === '/') return 1;
@@ -20,7 +20,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return publicPagePaths.flatMap((path) =>
     locales.map((locale) => ({
       // Canonical URLs (English unprefixed), as the canonical tags build them.
-      url: `${siteOrigin}${getLocalizedPath(locale, path)}`,
+      url: getLocalizedUrl(locale, path),
+      alternates: { languages: getLanguageAlternates(path) },
       changeFrequency: getPathChangeFrequency(path),
       priority: getPathPriority(path),
     }))

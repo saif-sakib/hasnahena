@@ -107,7 +107,7 @@ Migrations, not `db push` ([ADR-014](decisions/adr-014-prisma-migrate-supersedes
 - Silent stoppers: on a public repository GitHub disables schedules after **60 days without a commit** (it emails first) — a monthly check in [tasks.md § Recurring](tasks.md#recurring).
 - By hand: Actions → Backup → Run workflow, or `pnpm db:backup` / `pnpm backup:assets` locally (both need `BACKUP_PASSPHRASE`; the database one takes the direct URL as `DIRECT_DATABASE_URL` or `BACKUP_DATABASE_URL`).
 
-**The bucket (live since 2026-09-03, Cloudflare R2) is the only copy.** Nothing is kept as a workflow artifact: the repository is public, and a public repository's artifacts are downloadable by any signed-in GitHub user. Any S3-compatible bucket works — secrets only, no code. Setup: one private bucket near Dhaka; a token scoped to that bucket (read+write); secrets `BACKUP_S3_BUCKET` (`s3://hasnahena-backups`), `BACKUP_S3_ENDPOINT` (R2 `https://<account-id>.r2.cloudflarestorage.com`, B2 `https://s3.<region>.backblazeb2.com`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (**`auto`** on R2 — required). Lifecycle rules: `database/` 365 days (~63 KB/night), `assets/` 60 days (~4.8 MB/night and growing with membership — this rule is what keeps the 10 GB free tier safe). R2 egress is free and the archives are encrypted before upload, so the provider only holds ciphertext.
+**The bucket (live since 2026-09-03, Cloudflare R2) is the only scheduled copy.** Nothing is kept as a workflow artifact because the repository is public. Setup: one private bucket near Dhaka; a token scoped to that bucket (read+write); secrets `BACKUP_S3_BUCKET` (`s3://hasnahena-backups`), `BACKUP_S3_ENDPOINT` (R2 `https://<account-id>.r2.cloudflarestorage.com`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (**`auto`** on R2). The workflow accepts an S3-compatible endpoint. Verify the lifecycle rules in the dashboard: `database/` 365 days and `assets/` 60 days. The assets job copies the full encrypted archive nightly, so R2 storage grows with the size of the entire media collection and retention multiplier. R2 Standard includes 10 GB-month and bills for usage above its free allowance. Review the [backup capacity projection](scaling.md) and keep independent recovery access before changing retention.
 
 **Actions minutes.** Standard GitHub-hosted runners are free and unmetered for a **public** repository, which this has been since 2026-10-18 — August's outage (2,000 private minutes with a $0 spending limit, the nightly backup stopping with no failure to report, [trap](traps/a-safety-job-that-spends-the-budget-the-safety-job-needs.md)) cannot recur while it stays public. Going private again brings the limit back: then `images.yml` tags/monthly, the restore drill gated on its inputs and CI only on PRs and `main` ([workflow.md](workflow.md) §2) are what keep it under.
 
@@ -133,7 +133,7 @@ All free tier, all on since 2026-09-03.
 
 | Question | Answered by |
 |---|---|
-| Is the API up? | UptimeRobot on **`/v1/health`**, 1 minute (+ the site, 5 minutes) |
+| Is the API up? | UptimeRobot on **`/v1/health`** and the public site. Check active intervals in the dashboard. |
 | Can it reach the database? | Sentry on the first real request; optionally a half-hourly `/v1/ready` check |
 | Did something throw? | Sentry, both apps |
 | Is a member waiting on money? | `/metrics` + the Monitor workflow |
@@ -154,7 +154,7 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.hasnahenafoundation.c
 
 ## Getting off the free tiers
 
-**[scaling.md](scaling.md) is the plan** (priced, staged, triggered): the first wall is Neon's 0.5 GB at ~6,000 members ($7 to pass); the host move is for ~10,000; Fly.io Singapore preferred over a VPS; Postgres stays on Neon; full AWS only if a funder requires it. Its Stage 2 breakdown ([T-30](tasks.md)):
+Use the [scaling plan](scaling.md) to decide whether eligibility, shared hours, latency or another measured limit requires a host move. Size the host from representative traffic and verify the app-to-Neon connection from the candidate. The technical steps for T-30 are below.
 
 | ID | Task | Notes |
 |---|---|---|

@@ -153,7 +153,7 @@ export function getLocalizedUrl(locale: Locale, path = '/'): string {
  */
 const X_DEFAULT_LOCALE: Locale = 'en';
 
-function getLanguageAlternates(path: string): Record<string, string> {
+export function getLanguageAlternates(path: string): Record<string, string> {
   const alternates = locales.reduce<Record<string, string>>((acc, locale) => {
     acc[locale] = getLocalizedUrl(locale, path);
     return acc;
