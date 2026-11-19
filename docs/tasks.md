@@ -125,15 +125,15 @@ The FR rows that are not `[x]`, plus two gaps the FR table does not name, ordere
 
 ## Phase 8 — Get off the free tiers
 
-Plan, measured limits and triggers: [scaling.md](scaling.md). Nothing needs paying for until ~6,000 members.
+Use the measured quotas and [scaling plan](scaling.md) to decide when to prepare a move.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-35** | **Stage 0 — keep Render warm without waking the database** | `owner` + 0.5 | A Cloudflare Worker cron on `/v1/health` every 5 minutes during Dhaka daytime (00:00–17:00 UTC) — ~510 of Render's 750 instance-hours, no Neon wake ([scaling.md](scaling.md)). $0 |
-| `[ ]` **T-36** | **Decide the Vercel Hobby terms question** | `owner` | Hobby is non-commercial only. Pay $20/mo, apply to Vercel's open-source programme (the repository is now public and MIT-licensed, so it may qualify), or bring T-30 forward. Capacity is fine to ~15,000 members; this is a policy risk, not a technical one |
-| `[ ]` **T-37** | **Neon Free → Launch** | `owner` | Trigger: storage past 0.4 GB or compute past 80 CU-h — about **6,000 members**, the first real capacity wall. A dashboard toggle, no migration, no base fee. ~$7/mo. Set a billing alert the same day |
-| `[ ]` **T-38** | **Cloudinary → Cloudflare R2** | 1–2 | **Privacy, not cost** — an NID scan is served from a URL needing no login (ADR-038 only mitigates). R2 makes the bucket private, removes the dynamic-folder bug class and `cloudinary-reconcile.mjs`, and a vendor with no export path. Cheapest while assets number in the hundreds |
-| `[ ]` **T-30** | **Leave Vercel and Render** (INF-01 → INF-12) | 2–3 | Trigger: ~10,000 members, or T-36 decided by moving. **Fly.io Singapore (~$16–25/mo) preferred over a VPS**; not AWS, not Kubernetes; Postgres stays on Neon ([scaling.md](scaling.md), [deployment.md](deployment.md#getting-off-the-free-tiers)) |
+| `[ ]` **T-35** | **Check Render workspace hours and uptime cadence** | `owner` | Record both services’ workspaces and the actual monitor cadence. Use `/v1/health` for uptime and check shared instance hours before adding any warm-up traffic. [Scaling](scaling.md) |
+| `[ ]` **T-36** | **Confirm Vercel Hobby eligibility** | `owner` | Ask Vercel about the member payment and office-expense workflows. Confirm eligibility or prepare a suitable host. Donation requests alone are exempt. [Scaling](scaling.md) |
+| `[ ]` **T-37** | **Measure Neon capacity and backup costs** | `owner` | Record actual project limits and consumption. Review at 70% and prepare a mitigation at 85%. Check R2 retention and cost independently. [Scaling](scaling.md) |
+| `[ ]` **T-38** | **Review private document storage** | 1–2 | Verify authentication and recovery for identity files. Compare protected existing delivery with private storage alternatives, including the cost and recovery implications of any meter. [Scaling](scaling.md) |
+| `[ ]` **T-30** | **Evaluate leaving Vercel or Render** (INF-01 → INF-12) | 2–3 | Trigger when eligibility, measured host limits or repeated cold-start failures require it. Compare a nearby VPS with a managed host after the owner approves a budget. Keep Postgres external for the first move. [Scaling](scaling.md) · [Deployment](deployment.md#getting-off-the-free-tiers) |
 
 ---
 

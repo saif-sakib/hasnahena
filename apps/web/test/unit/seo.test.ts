@@ -119,6 +119,18 @@ describe('the sitemap tells the truth about when a page changed', () => {
   it('lists every public path in every locale', () => {
     expect(sitemap()).toHaveLength(publicPagePaths.length * locales.length);
   });
+
+  it('publishes the same reciprocal language URLs as the HTML metadata', () => {
+    const entries = new Map(sitemap().map((entry) => [entry.url, entry]));
+    for (const path of publicPagePaths) {
+      for (const locale of locales) {
+        const url = getLocalizedUrl(locale, path);
+        const pageLanguages = createLocalizedMetadata({ locale, path }).alternates?.languages;
+        expect(entries.get(url)?.alternates?.languages, url).toEqual(pageLanguages);
+        expect(entries.get(url)?.alternates?.languages?.[locale], url).toBe(url);
+      }
+    }
+  });
 });
 
 describe('the social card survives being shared', () => {

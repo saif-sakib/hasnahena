@@ -1,93 +1,30 @@
 # Scaling
 
-**When the free tiers run out, and what to do then.** [`pdf/scaling-plan.pdf`](pdf/scaling-plan.pdf) is the typeset report of 2026-09-03 (source `pdf/scaling-plan.tex`, `pdflatex` twice) — a snapshot, some of whose fixes have since landed; this file is the maintained one.
+The 2026-09-03 [typeset report](pdf/scaling-plan.pdf) is a historical snapshot. Use the usage meters and examples below to decide when to change hosting. Count public visits, active sessions and enrolled members separately.
 
-## The short answer
+## When to review capacity
 
-**Nothing needs paying for yet.** Today's strain — Neon compute hours — is configuration, not growth (Actions minutes stopped binding when the repository went public, 2026-10-18). The first real wall is **Neon's 0.5 GB storage at ~6,000 members** (nearer 4,000 after three years of `audit_logs`), and passing it costs **~$7/month**. Cloudinary's 25 credits carry to ~25,000 members; leaving it is a **privacy** task, not a cost one.
+Review after four representative weeks or sooner if a provider reaches 70% of its allowance. Use 85% to prepare a verified move or free mitigation. A broken restore, repeated login or transaction failures, or a hosting eligibility issue needs immediate review at any attendance. Record account limits displayed in the dashboard and keep payment methods and paid changes under owner control.
 
-## Today's strains
+| Service | Meter and useful threshold | What to do |
+| --- | --- | --- |
+| Vercel Hobby | Published inclusions include 1,000,000 CDN requests, 100 GB fast transfer, 10 GB origin transfer, 4 active CPU hours and 1,000,000 function invocations. Check memory, ISR and image usage too. At 50 CDN requests per visit, 700,000 means 14,000 visits. Start checking the dashboard at **10,000 monthly public visits**. | Public routes use prerendering and cached public settings. Dynamic member and admin requests have a separate CPU and database cost. Cache assets and remove unnecessary polling before moving. [Hobby](https://vercel.com/docs/plans/hobby) |
+| Vercel eligibility | Eligibility applies **at any traffic level**. Vercel exempts donation requests in its guidelines but lists requesting or processing payments as an example of commercial use. The foundation's paid office-expense and member payment flows need a separate eligibility answer. | Confirm Hobby suitability with Vercel or plan a suitable host. Keep storefront advertising off the foundation site. [Fair use](https://vercel.com/docs/limits/fair-use-guidelines#commercial-usage) |
+| Render Free | 750 instance-hours **per workspace per calendar month**, with bandwidth and build limits in Billing. A service awake all month can use 720–744 hours by itself. Shared hours can therefore bind even at zero visitor growth. | Check the workspace and monitor cadence before adding a warm-up job. Use `/v1/health` for uptime. If repeated cold-start delays or sustained CPU/memory remain a problem after free fixes, benchmark a new API host. [Render Free](https://render.com/docs/free) |
+| Neon | Published Free allowance is 100 CU-hours, 1 GB PostgreSQL storage and 5 GB public transfer per project. Verify the actual project and account allowance. Review at 70 CU-hours, 70% of storage or 3.5 GB of transfer. | Keep the pool idle between sessions and avoid recurring `/v1/ready` probes. At 0.25 CU, 24/7 activity for 30 days is 180 CU-hours. Use a dashboard growth trend rather than a fixed member count. [Neon plans](https://neon.com/docs/introduction/plans) |
+| Cloudinary | 25 shared credits for storage, bandwidth and transforms. With approximately 0.8 MB of original media per member and 30 full downloads per month, one additional member adds about 25 MB of storage plus delivery in the model. Review conditions around **700 enrolled members** if each download bills as bandwidth and the current backup pattern stays the same. | Measure storage and backup egress separately. Repeated full exports grow with all retained files. Keep identity-media access and recovery verifiable when changing storage; reassess this independently of quota. [Cloudinary credits](https://cloudinary.com/documentation/billing_and_plans) |
+| R2 backup storage | Standard includes 10 GB-month, 1 million Class A and 10 million Class B operations. Full asset archives kept for 60 days multiply every added MB of stable media by about 60. At 0.8 MB/member, each additional member adds about 48 MB of retained media archives. At **about 140 additional members** this model approaches 7 GB when starting near 0.35 GB; check at **100 additional members**. | Check actual retention and billable usage now. R2 can bill beyond the included usage and budget alerts are informational. Preserve verified recovery while evaluating fewer retained full copies or an incremental backup. [R2 pricing](https://developers.cloudflare.com/r2/pricing/) · [Budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/) |
+| Brevo | 300 recipient sends/day on Free. Review at **210/day**, including other projects on that account and retries. At two sends per active email workflow, that is about **105 such workflows/day** if it is the only sender. | Keep transaction notices and password recovery within the limit. Check send failures separately from quota. Visitor counts cannot predict this without an email-workflow rate. [Brevo Free](https://help.brevo.com/hc/en-us/articles/208580669-FAQs-What-are-the-limits-of-the-Free-plan) |
+| GitHub, DNS, monitoring | Standard Actions runners for public repositories are free. Check package/cache/storage, successful backup and monitor schedules, Cloudflare DNS/email routing, Sentry errors and UptimeRobot monitor limits separately. A monitor on health uses API hours even when no visitor arrives. | Use database-free uptime endpoints. Verify encrypted restore from an independent key and preserve domain renewal. [GitHub billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions) · [UptimeRobot Free](https://help.uptimerobot.com/en/articles/11604710-who-should-use-uptimerobot-s-free-plan) |
 
-**Neon compute** — 100 CU-h/month free; awake 24/7 at 0.25 CU is 182. It suspends after 5 idle minutes, so anything touching it more often pins it awake. The Go API is tuned ([ADR-035](decisions/adr-035-idle-behaviour-is-a-line-item-not-a-performance-detail.md): `DB_MIN_CONNS=0`, daily background jobs ≈ 4 CU-h/month). The leak to watch is any **UptimeRobot monitor on `/v1/ready`** (pings the pool): 5-minute default = 182 CU-h (the whole allowance), 30 min = 30, 6 h = 2.5. Uptime belongs on `/v1/health`, which touches nothing.
+## Convert usage to a useful threshold
 
-**Actions minutes** — resolved by remedy (3): the repository is public since 2026-10-18, and standard runners are unmetered there. Were it made private again, the 2,000/month would bind as before (fixed scheduled cost ~420 — nightly backup ~240, monitor ~120, image builds — leaving ~45 full CI runs), and the remedies are an assets backup weekly or a self-hosted runner.
+For a request, delivery or email quota, calculate `(0.70 × quota − background usage) / measured usage per visit or workflow` over the same time window. Daily peaks matter for email. Account-wide usage can include other services. For storage, divide the remaining allowance by measured growth per member or per day. The prior planning model used 32 KB of rows in the first member-year and another 28 KB per year. At three years that is about 88 KB per member. Its member estimate changes with account storage limits and ledger/audit activity. PostgreSQL database size is one lower-level reading; Neon project usage also includes provider accounting across branches.
 
-**Render cold starts** — free services sleep after 15 idle minutes (~60 s first request); 750 instance-hours vs a 730-hour month. Better: a **Cloudflare Worker cron** pinging `/v1/health` every 5 minutes 00:00–17:00 UTC (06:00–23:00 Dhaka) — ~510 hours, no database wake.
+Separate backend capacity from media and mail. A VPS can address web or API cold starts, workspace hours or measured CPU/RAM pressure. It cannot increase Brevo, Neon, Cloudinary or R2 allowances. First compare free remedies. When the owner authorizes a budget, benchmark a nearby host with both Docker services, keeping Postgres and media external for the first move. Verify backups, recovery, proxy attribution, isolated updates and the latency of the app-to-database path. Record measured limits before moving both services to one machine. [Deployment migration checklist](deployment.md#getting-off-the-free-tiers)
 
-## When each free tier breaks
+## Action required from you
 
-Assumptions: 20% of members active monthly · 4 sessions × ~5 page views · **0.8 MB stored images per member** (measured) · ~32 KB of rows per member in year one, ~28 KB/year after · traffic in a 14-hour window.
-
-| Free tier | Limit | Binds at | Cost to pass |
-|---|---|---|---|
-| **Neon storage** | 0.5 GB | **~6,000 members** | Neon Launch, ~$7/mo |
-| Neon compute | 100 CU-h | ~15,000 | same plan, metered |
-| Vercel Hobby function CPU | 4 CPU-h | ~15,000–18,000 | Pro $20, or leave |
-| R2 (backups) | 10 GB | ~10,000 | pennies |
-| Cloudinary | 25 credits | ~25,000 | migrate to R2 |
-| Vercel bandwidth | 100 GB | ~30,000 | — |
-| Brevo | 300 emails/day | ~50,000 | most members have no email ([ADR-036](decisions/adr-036-a-member-with-no-email-resets-their-password-at-the-desk.md)) |
-| Render Free | 750 instance-h | **now**, without care | $0 — warm selectively |
-| GitHub Actions | unmetered (public) | — | $0 — see above |
-| **Vercel Hobby terms** | non-commercial only | **a judgment call** | $20, move, or their OSS programme |
-
-| Admitting | 6,000 in | 15,000 in |
-|---|---|---|
-| 50/month | 10 years | 25 years |
-| 100/month | 5 years | 12 years |
-| **200/month** | **2.5 years** | **6 years** |
-| 500/month | 1 year | 2.5 years |
-
-## The options (per month)
-
-| | Option | At 6k | At 15k | Ops | Verdict |
-|---|---|---|---|---|---|
-| **0** | **Free, fixed** — Neon Free, Vercel Hobby, Render warmed, Cloudinary | **$0** | breaks | none | **Now** |
-| **1** | **+ Neon Launch** | **$7** | $15 | none | **First thing to pay for** — a dashboard toggle |
-| 2 | + Fly.io for the Go API (Singapore) | $10 | $18 | very low | if Render hours get tight |
-| **3** | **Both apps on Fly.io** | **$16** | **$25** | low | **Best answer to the Vercel question**; Dockerfiles work as-is |
-| 4 | One VPS — Contabo Singapore (3 vCPU, 8 GB) | $12 | $20 | medium | best price/performance; you own an OS |
-| 5 | One VPS — Hostinger Singapore (KVM 2) | $17 | $25 | medium | better support; renews higher |
-| 6 | Fully managed (Vercel Pro + Render Standard + Neon) | $47 | $60 | none | only if your time is worth $40/mo |
-| **7** | VPS + self-hosted Postgres | $5 | $12 | **high** | **No** |
-
-- **Fly.io** runs the 27 MB distroless Go binary for $2–3 beside the database, with TLS — the cheapest way off Vercel/Render without a server to patch.
-- **A VPS** gives one environment store instead of two, and stays safe because **no state lives on it** (Neon, R2/Cloudinary, GHCR) — rebuild in twenty minutes.
-- **Never Postgres on the box**: it trades ~$8 for backups, PITR, failover, upgrades and vacuum on the foundation's books, and makes the machine non-disposable.
-
-Rejected: **Namecheap VPS** (Phoenix only, ~250 ms from Dhaka); **Oracle Always Free** (allowance halved June 2026, idle reclamation — fine for a CI runner only); **Hetzner CX** (EU only, +150 ms; Singapore surcharged); **AWS/GCP/Azure** (5–10× for ~10 req/s peak, unless a funder requires it); **Kubernetes**; **Railway** (credit, not capacity).
-
-## The staged plan
-
-**Stage 0 — now, $0** ([T-35](tasks.md)): the Cloudflare Worker warm-up cron; decide the Vercel terms question ([T-36](tasks.md)). (UptimeRobot already watches `/v1/health`; `images.yml` is tags-only.) Carries to ~6,000 members.
-
-**Stage 1 — Neon storage past 0.4 GB or compute past 80 CU-h — ~$7**: Neon Free → **Launch** (no base fee, no migration; $0.106/CU-h, $0.35/GB-month, still scales to zero).
-
-**Stage 2 — ~10,000 members or the Vercel decision — $16–25**: both apps to **Fly.io Singapore**, or one VPS if somebody will own it ([deployment.md](deployment.md#getting-off-the-free-tiers), [runbook.md §7](runbook.md)). **Re-measure `TRUSTED_PROXIES`** from a real log line (`ip` = the caller) — on Fly/VPS behind Cloudflare it is likely 2, not Render's 3, and both wrong directions are silent ([ADR-019](decisions/adr-019-one-function-decides-where-a-request-came-from.md)). Carry over: identical `JWT_SECRET`, stop grace > `SERVER_SHUTDOWN_TIMEOUT`, the `timezone=UTC` pin, pooled vs direct Neon URLs.
-
-**Stage 3 — ~25,000 members, or sooner for privacy**: Cloudinary → **Cloudflare R2**. Today an NID scan is served from a URL needing no login ([ADR-038](decisions/adr-038-retention-is-tiered-by-what-the-data-is-not-by-one-clock.md) only mitigates); R2 is private with authenticated or short-lived signed access, removes the dynamic-folder bug class (`moveAsset`, `cloudinary-reconcile.mjs`) and a vendor with no export path. Cheapest while assets number in the hundreds.
-
-## The bill
-
-| Members | After Stage 0 | Recommended | Fully managed |
-|---|---|---|---|
-| ≤ 1,000 | **$0** | $0 | $47 |
-| 6,000 | Neon full | **$7** | $47 |
-| 10,000 | — | **$10–18** | $52 |
-| 15,000 | — | **$15–25** (~BDT 2,400) | $60 |
-| 25,000 | — | **$25–35** | $75 |
-
-## Triggers
-
-| When | Do |
-|---|---|
-| Now | Stage 0 (free) |
-| Neon storage > 0.4 GB or compute > 80 CU-h | Neon Launch |
-| Render hours tight | Go API to Fly.io (~$3) |
-| ~10,000 members or the Vercel decision | both apps to Fly.io or one VPS |
-| Any spare session | Cloudinary → R2, for privacy |
-| VPS memory sustained > 70% | resize in place |
-| A funder or regulator names a cloud | reopen "rejected" with their requirement written down |
-| Anyone proposes self-hosting Postgres | the answer is no |
-
-**Owner actions** (accounts I cannot reach; all free): create the Cloudflare Worker cron (T-35); decide the Vercel terms question (T-36); set a billing alert on any account that becomes paid (T-37). Public repository vs self-hosted runner: decided, public (2026-10-18).
+1. Confirm Vercel Hobby eligibility for the member payment workflow and check Vercel Usage, Render workspace Billing and any health monitor interval.
+2. Record Neon consumption, Cloudflare R2 billable usage and lifecycle rules, and Brevo transactional sends from the actual accounts. Confirm that each required backup remains recoverable before changing retention.
+3. Review at 10,000 monthly public visits or 100 additional enrolled members, whichever comes first. Act sooner if any measured limit or eligibility condition requires it.
