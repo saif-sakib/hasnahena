@@ -4,13 +4,13 @@
 
 Say **`do T-12`** and the task is executed from its row plus the docs it points at. **Sessions** = focused working sessions end to end (code, tests, suites, docs); the high end is what it costs when the first honest look finds more, which here is common. **`owner`** = needs an account, credential, paid plan or a decision only the foundation can make — the row says exactly what to click.
 
-IDs are never reused: a new task takes the next number above the highest on this board **and** in [changelog.md](changelog.md) (highest so far: **T-49**). Phase 8 once reused four closed numbers. (Code comments citing "T-05" for the no-late-fee ruling predate the current T-05.)
+IDs are never reused: a new task takes the next number above the highest on this board **and** in [changelog.md](changelog.md) (highest so far: **T-51**). Phase 8 once reused four closed numbers. (Code comments citing "T-05" for the no-late-fee ruling predate the current T-05.)
 
 Legend: `[ ]` not started · `[~]` partly done · `[!]` broken right now
 
 ## Where the platform stands
 
-Live since 2026-08-27, monitoring fully on since 2026-09-03 (both Sentry DSNs, `METRICS_TOKEN`, UptimeRobot on `/v1/health`, nightly encrypted database and asset backups to R2), CSP enforced on both tiers, **repository public since 2026-10-18** (MIT). The money paths, security, tests, CI, the entry path (registration → approval → first login) and the public site are done. No open security alerts (2026-10-22). Left: a session bug, a handful of owner actions, the input/output sweep, and the product gaps in the FR table. Reviewed against the code 2026-10-21.
+Live since 2026-08-27, with a public repository, encrypted R2 backups and production monitoring configured. On 19 November 2026 GitHub reported **17 open dependency alerts**, including **4 critical and 4 high**, all with patched versions listed. Main has an active ruleset with required Go and web checks plus deletion and force-push protection. Requiring a pull request and reviewing bypass privileges remain T-29. Preview and local database isolation, retention evidence, session recovery and the product gaps below remain open.
 
 ## The order to work in
 
@@ -18,9 +18,10 @@ Top to bottom. Owner rows can be done in any spare ten minutes alongside the eng
 
 | # | Task | Why now |
 |---|---|---|
-| 1 | **T-42** preview deploys off the live database | every PR — Dependabot's included — builds a preview |
+| 1 | **T-42, T-41** preview and local database isolation | verify the data target before testing or deploying patches |
+| 1a | **T-50, T-38** dependency remediation and private media controls | critical and high runtime-scope alerts, plus access to identity documents |
 | 2 | **T-31** hard navigation logs the reader out | broken for members today |
-| 3 | **T-41** the laptop off the production database | one stray script already deleted every member once |
+| 3 | **T-51** verify retention and restores | record actual cleanup and backup expiry without changing live data |
 | 4 | **T-29** branch protection | free since the repo went public |
 | 5 | **T-03, T-04, T-05, T-39, T-43, T-44, T-45** | owner, ~1 hour together |
 | 6 | **T-13** donation fund types | cheap only while the donation table is near-empty |
@@ -46,9 +47,10 @@ Top to bottom. Owner rows can be done in any spare ten minutes alongside the eng
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-42** | **Preview deploys must not reach the live database** | `owner` 2 min | Vercel builds a preview for every PR — Dependabot's #17–#19 already have one. **Vercel → Settings → Environment Variables → `DATABASE_URL`**: tick **Production only**; give Preview a different value (a Neon `preview` branch, or Neon's Vercel integration). Shared across all three, a guessable preview URL writes to the live ledger ([workflow.md §3](workflow.md#3-preview-deploys)). Check `CRON_SECRET` and the `CLOUDINARY_*` keys the same way |
+| `[ ]` **T-42** | **Verify preview isolation from production data** | `owner` | In Vercel → Settings → Environment Variables, scope production `DATABASE_URL` and other live credentials to Production only. Verify a synthetic preview target and test with the actual preview configuration. Check `CRON_SECRET`, API and Cloudinary credentials and access controls. [Workflow](workflow.md#3-preview-deploys) |
 | `[!]` **T-31** | **A hard navigation into the dashboard can log the reader out** | 1–2 | A full page load into a dashboard shortly after sign-in sometimes fetches **without `Authorization`**; the 401 handler clears the session and bounces to `/login`. Clicking through the sidebar never trips it (so the browser suite misses it); bookmarks, new tabs and reloads do. Lead: `proxy.ts` gates on the `hn_access_token` **cookie** but `getValidatedClientToken()` (`lib/client-auth.ts`) reads **localStorage only** — find when the two disagree (also test a bookmark on the apex, which 308s to `www`). Also: a single 401 from a background poll must not end a session. Pin with a spec that reloads into `/dashboard/*` and stays |
-| `[ ]` **T-41** | **Stop developing against the production database** | `owner` 10 min + 0.5 | `.env.local` and `apps/web/.env` both point at the production Neon branch. On 2026-09-01 a shell loop deleted every member through exactly this (recovered by PITR). Follow [workflow.md §1](workflow.md#1-stop-developing-against-the-production-database): a Neon `dev` branch (or local Postgres) in **both** files, `pnpm db:purge:confirm` + `pnpm db:seed` on it, then prove it with the `grep` there. Then delete §1's "Today" column |
+| `[ ]` **T-41** | **Verify local database isolation** | `owner` + 0.5 | Configure both applications to use a fresh local or otherwise isolated synthetic-data database. Verify their actual target before running migrations or writes. Remove production credentials from everyday development configuration. [Workflow](workflow.md#1-stop-developing-against-the-production-database) |
+| `[!]` **T-50** | **Patch open dependency alerts** | 1–2 | Review critical and high runtime-scope alerts first. Choose the smallest supported upgrades, consolidate overlapping PRs, verify typecheck, build, API/ledger and isolated browser flows, then verify the live release and rescanned dependency graph. Check preview data isolation (T-42) before preview acceptance. Keep dependency security and secret scans in CI. |
 
 ---
 
@@ -58,7 +60,7 @@ Not engineering; all quick.
 
 | # | Task | Sessions | Detail |
 |---|---|---|---|
-| `[ ]` **T-29** | **Branch protection on `main`** (CI-09) | `owner` 5 min | **Free now the repository is public** (`main` is unprotected today). Settings → Branches → rule for `main`: require a PR, require the CI checks, **do not allow bypass**. Keep `.githooks/pre-push`. Then delete the "Until then" sentence in [workflow.md §2](workflow.md#2-branch-pull-request-merge) |
+| `[~]` **T-29** | **Complete protection on `main`** (CI-09) | `owner` | The active ruleset rejects deletion and force pushes and requires Go, web and dependency graph checks. In GitHub Settings → Rules → Rulesets, require pull requests and review bypass access. Verify the final rule behavior. Keep `.githooks/pre-push`. [Workflow](workflow.md#2-branch-pull-request-merge) |
 | `[~]` **T-03** | **Fill in the English description, and read the seeded copy** | `owner` 15 min | **Settings → Organisation → Description (English)** — until filled, the JSON-LD describes the foundation in Bengali on both pages. Then read **Content & Media → Public Pages** in both languages (all seeded) and correct anything you would say differently — especially the four hero figures (`135+` and estimates), published under the foundation's name. Press Save on Settings once to write any missing defaults |
 | `[~]` **T-04** | **Confirm `security.rejectedRetentionDays` reads 365** | `owner` 2 min | Decided 2026-08-25: 365 (the seeded default) — just look at Admin → Settings ([ADR-033](decisions.md)) |
 | `[ ]` **T-05** | **Decide how long a half-finished registration stays on the phone** | `owner` 5 min | The registration draft (NID, parents' names, addresses) stays in `localStorage` for **7 days** (`DRAFT_TTL_MS`, `(auth)/register/page.tsx`) — a modest exposure on shared handsets. Pick a number, or confirm 7 |
@@ -66,6 +68,7 @@ Not engineering; all quick.
 | `[ ]` **T-43** | **DMARC from `p=none` to `p=quarantine`** | `owner` 15 min | Reports have arrived at Brevo since 2026-09-03 and the live record still says `p=none`. Read them; if only Brevo and Cloudflare Email Routing send as the domain, change the Cloudflare TXT `_dmarc` to `p=quarantine` ([deployment.md § DNS](deployment.md#dns-cloudflare)). Never before reading them |
 | `[ ]` **T-44** | **Finish the public-repository review** | `owner` 15 min + 0.25 | Three things c3a4fa2 left: (a) the **Monitor** workflow writes counts of stuck postings and open disputes to its public run summary and opens a **public** issue — keep, or move the alert to email (UptimeRobot/Sentry) and drop the counts from the summary; (b) a contributor's personal email address removed from the tree is still in **git history** — accept, or rewrite history (forks and caches may already hold it); (c) add a short `SECURITY.md` pointing at private vulnerability reporting (already enabled) and `/.well-known/security.txt`. Also Settings → Actions → require approval for **all** outside contributors' workflow runs |
 | `[ ]` **T-45** | **A second person who can act** (OPS-06, OPS-05) | `owner` 30 min | One person holds every credential and is the only one who can deploy ([runbook.md §6](runbook.md#6-where-every-credential-lives)). Give a trusted second person admin access to at least GitHub, Neon and Vercel/Render (or seal the credentials and `BACKUP_PASSPHRASE` with the foundation), and do the first quarterly access review: who holds admin in the app, Neon, Vercel, Render, Cloudinary, Cloudflare. Write the date into the runbook cadence table |
+| `[ ]` **T-51** | **Verify production retention and backup lifecycles** | `owner` + 0.5 | Check the actual 365-day setting (T-04), the Vercel scheduled run and the R2 retention rules. Inspect sanitized success evidence, then rehearse anonymization and restore reconciliation in an isolated database. Confirm that removal targets identity data and preserves the ledger. [Retention checks](retention-operations.md) |
 
 ---
 

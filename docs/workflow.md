@@ -1,41 +1,17 @@
 # Workflow
 
-How a change reaches members without passing through their live data. The infrastructure exists; the habits are what is missing.
-
-| | Should be | Today |
-|---|---|---|
-| The database your laptop talks to | a throwaway copy | **the production Neon branch** (`.env.local` and `apps/web/.env`) |
-| Where a change runs first | a preview deploy | production, ~90 s after `git push` |
-| What stands between a mistake and a member | CI on a pull request | `.githooks/pre-push`, skippable with `--no-verify` |
+Keep development and previews on synthetic data. Production deploys are reviewed through GitHub and use the host's production environment.
 
 ## 1. Stop developing against the production database
 
-**Do this first.** On 2026-09-01 a shell loop checking that four scripts parsed imported one and deleted every member from the live database (recovered by Neon point-in-time restore). `runAsScript`, `requireConfirmation`, `refuseRemoteTarget` and the Cloudinary upload guard patch the *known* dangerous scripts — not `pnpm db:studio`, `prisma migrate dev`, a `node -e` one-liner, or the next script. The root cause is that a dev machine can reach production at all.
+Configure this before running migrations, tests, seeds or mutating scripts. The local configuration was previously pointed at Neon production and a destructive script required point-in-time recovery. Confirm the current target instead of relying on the filename or a command prompt.
 
-**Option A — a Neon branch (recommended).** Copy-on-write, resettable in seconds, a *different connection string*.
+1. Use a new local PostgreSQL database via Docker or a separate empty authorized development project. Use synthetic fixtures. A branch copied from primary can contain real member records.
+2. Update `DATABASE_URL` in `.env.local` and verify what `apps/web/.env` resolves to. Next reads its local environment for Prisma. Use separate direct/pooled development URLs if needed.
+3. Confirm the host, database name and role of the development connection privately. Do not paste full DSNs into a terminal log, issue or screenshot.
+4. Apply migrations and seed the new development database only. Start `pnpm dev` and confirm the synthetic data. Use the owned [isolated test stack](testing.md) for destructive regression tests.
 
-1. Neon console → Branches → New branch, parent the primary, name `dev`.
-2. Copy its **pooled** (`-pooler`) connection string into `DATABASE_URL` in **both** `.env.local` and `apps/web/.env` — Next overwrites an inherited `DATABASE_URL` from `apps/web/.env`, so changing one leaves the web app on production (`apps/web/lib/prisma.ts`).
-3. Scrub real members so a laptop leak is not an NID leak: `pnpm db:purge` (dry run), `pnpm db:purge:confirm`, `pnpm db:seed`.
-4. `pnpm dev` and confirm you see seeded data.
-
-Reset it from the console when it drifts; delete it during long breaks — it shares the free compute allowance ([ADR-035](decisions.md)).
-
-**Option B — local Postgres.** Free, offline, cannot touch production; what `.env.example` and `refuseRemoteTarget` assume.
-
-```bash
-docker compose up -d postgres
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hasnahena_dev  — in BOTH files
-pnpm db:migrate && pnpm db:seed
-```
-
-**Prove which database you are on** before anything that writes:
-
-```bash
-grep -h '^DATABASE_URL' .env.local apps/web/.env | sed -E 's#://[^@]*@#://***@#'
-```
-
-Two lines, same non-production host — otherwise stop. Need production data? Branch it and read the branch. Never open Prisma Studio on the primary: it is a writable grid over a live ledger.
+For a maintenance query against production, use an explicitly approved read-only tool and only the smallest required result. Keep Prisma Studio and writable scripts on development databases.
 
 ## 2. Branch, pull request, merge
 
@@ -51,14 +27,14 @@ CI ([`ci.yml`](../.github/workflows/ci.yml)): typecheck/lint, Go vet and unit, G
 
 `ci.yml` runs on `pull_request` and `push` to `main` only, so feature-branch commits with no PR run nothing. While the repository was private, committing straight to `main` spent August's 2,000 minutes in seventeen days and stopped the nightly backup ([deployment.md](deployment.md#backups)); public, the minutes are unmetered.
 
-**Enforcing it** ([T-29](tasks.md)): branch protection is free on a public repository. Settings → Branches → rule for `main`: require a PR and passing checks, **no self-exemption**. Until then: never `git push origin main`.
+**Enforcing it** ([T-29](tasks.md)): the active main ruleset requires the published Go, web and dependency graph checks and rejects deletion and force pushes. In Settings → Rules → Rulesets, verify the PR requirement and bypass permissions. Merge through reviewed PRs with green CI.
 
 ## 3. Preview deploys
 
-Vercel builds every branch to its own URL, free.
+Vercel can build PR previews. Verify deployment protection and the target services before opening a preview.
 
-- **Vercel → Environment Variables**: scope `DATABASE_URL` to **Production only**, with a different value for Preview. One value ticked for all three makes every (guessable) preview write to the live ledger.
-- **Neon's Vercel integration** creates a database branch per preview and disposes of it on merge.
+- **Vercel → Environment Variables**: scope `DATABASE_URL` to **Production only**, with a different value for Preview. Confirm preview credentials cannot read or write primary ledger data.
+- If using Neon's Vercel integration, verify branch contents and disposal before relying on it. Use an empty separate target or synthetic seed for browser acceptance.
 - `NEXT_PUBLIC_SITE_URL` already makes a preview claim its own hostname ([setup.md](setup.md)).
 - The Go API has no previews: add a free Render service on a `staging` branch with its own `DATABASE_URL`, or accept web-only previews (most visual breakage is in `apps/web`).
 

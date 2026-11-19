@@ -17,6 +17,7 @@
 | write a test | [testing.md](testing.md) — suites, where a test goes, fixture contract | 9 |
 | ship a change safely | [workflow.md](workflow.md) — which database, branch → PR → merge, previews, backups | 8 |
 | deploy or configure hosting | [deployment.md](deployment.md) — Vercel, Render, Neon, Cloudinary, DNS, monitoring | 18 |
+| record expiry and recover safely | [retention operations](retention-operations.md) — applicant image and identity expiry, member erasure, ledger and backup lifecycles | 1 |
 | plan for growth | [scaling.md](scaling.md) — which free tier binds at which member count; 2026-09-03 typeset report in [pdf/](pdf/) | 8 |
 | handle an incident | [runbook.md](runbook.md) — rollback, disputes, rotation, restore, go-live/host move (§7), cadences | 17 |
 | find what was done | [changelog.md](changelog.md) — history only; `grep` it, never read whole | 147 |
