@@ -468,3 +468,57 @@ describe('bilingual brand helpers, social titles, and canonical isolation', () =
     }
   });
 });
+
+describe('every public meta description stays within the 150-160 character SEO sweet spot', () => {
+  const WEB_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
+
+  function htmlEscapedLength(text: string): number {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;')
+      .length;
+  }
+
+  it.each([
+    ['SITE_DESCRIPTION', SITE_DESCRIPTION],
+    ['SITE_DESCRIPTION_BN', SITE_DESCRIPTION_BN],
+  ])('%s is between 150 and 160 characters', (label, value) => {
+    expect(value.length, `${label} (${value.length})`).toBeGreaterThanOrEqual(150);
+    expect(value.length, `${label} (${value.length})`).toBeLessThanOrEqual(160);
+    expect(htmlEscapedLength(value), `${label} HTML length`).toBeLessThanOrEqual(160);
+  });
+
+  it.each(locales)('every %s public page description is 150-160 chars and unique', (locale) => {
+    const messages = JSON.parse(
+      readFileSync(join(WEB_ROOT, 'messages', `${locale}.json`), 'utf8'),
+    ) as {
+      seo?: { pages?: Record<string, { description?: string }> };
+      pages?: { qardHasan?: { metaDescription?: string } };
+    };
+
+    const pageEntries: Array<[string, string]> = Object.entries(messages.seo?.pages ?? {}).map(
+      ([page, fields]) => [`seo.pages.${page}.description`, fields.description ?? ''],
+    );
+    expect(pageEntries).toHaveLength(10);
+
+    const qardDesc = messages.pages?.qardHasan?.metaDescription ?? '';
+    const allEntries: Array<[string, string]> = [
+      ...pageEntries,
+      ['pages.qardHasan.metaDescription', qardDesc],
+    ];
+    expect(allEntries).toHaveLength(publicPagePaths.length);
+
+    const seen = new Set<string>();
+    for (const [key, value] of allEntries) {
+      expect(value.length, `${locale} ${key} (${value.length}): ${value}`).toBeGreaterThanOrEqual(150);
+      expect(value.length, `${locale} ${key} (${value.length}): ${value}`).toBeLessThanOrEqual(160);
+      expect(
+        htmlEscapedLength(value),
+        `${locale} ${key} raw HTML attr length`,
+      ).toBeLessThanOrEqual(160);
+      expect(seen.has(value), `${locale} ${key} duplicates another page description`).toBe(false);
+      seen.add(value);
+    }
+  });
+});

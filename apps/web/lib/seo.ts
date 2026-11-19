@@ -87,10 +87,10 @@ export const SITE_NAME_VARIANTS = [
 ] as const;
 
 export const SITE_DESCRIPTION =
-  'Hasnahena Foundation is an interest-free (Qard al-Hasan) cooperative finance society in Jashore, Bangladesh. Members save together, borrow without interest, guarantee one another and give.';
+  'Hasnahena Foundation is an interest-free Qard al-Hasan cooperative in Jashore, Bangladesh. Members save together, borrow without interest, and give charity.';
 
 export const SITE_DESCRIPTION_BN =
-  'হাসনাহেনা ফাউন্ডেশন যশোর, বাংলাদেশে পরিচালিত একটি কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায় সংস্থা। সদস্যরা একসাথে সঞ্চয় করেন, শূন্য সুদে ঋণ নেন, পরস্পরের জামিনদার হন এবং দান-সদকা করেন।';
+  'হাসনাহেনা ফাউন্ডেশন যশোর, বাংলাদেশে পরিচালিত কর্জে হাসানা ভিত্তিক সুদমুক্ত সমবায়। সদস্যরা সঞ্চয় করেন, শূন্য সুদে ঋণ নেন, জামিনদার হন ও দান-সদকা করেন।';
 
 export function siteName(locale: Locale): string {
   return locale === 'bn' ? SITE_NAME_BN : SITE_NAME;
